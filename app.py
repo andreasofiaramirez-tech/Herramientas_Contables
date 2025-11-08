@@ -82,10 +82,43 @@ if not st.session_state.get("password_correct", False):
 # ==============================================================================
 # DICCIONARIO CENTRAL DE ESTRATEGIAS (EL "CEREBRO")
 # ==============================================================================
+from functools import partial
+
+# ... (resto de importaciones)
+
+# --- Creamos funciones parciales para las estrategias que no usan la barra de progreso ---
+# Esto evita tener que modificar todas las funciones en logic.py
+def run_conciliation_wrapper(func, df, log_messages, progress_bar=None):
+    # Esta función simple llama a la función de lógica original, ignorando progress_bar
+    return func(df, log_messages)
+
 ESTRATEGIAS = {
-    "111.04.1001 - Fondos en Tránsito": { "id": "fondos_transito", "funcion_principal": run_conciliation_fondos_en_transito, "label_actual": "Movimientos del mes (Fondos en Tránsito)", "label_anterior": "Saldos anteriores (Fondos en Tránsito)", "columnas_reporte": ['Asiento', 'Referencia', 'Fecha', 'Monto Dólar', 'Tasa', 'Bs.'], "nombre_hoja_excel": "111.04.1001" },
-    "111.04.6001 - Fondos por Depositar - ME": { "id": "fondos_depositar", "funcion_principal": run_conciliation_fondos_por_depositar, "label_actual": "Movimientos del mes (Fondos por Depositar)", "label_anterior": "Saldos anteriores (Fondos por Depositar)", "columnas_reporte": ['Asiento', 'Referencia', 'Fecha', 'Monto Dólar', 'Tasa', 'Bs.'], "nombre_hoja_excel": "111.04.6001" },
-    "212.07.6009 - Devoluciones a Proveedores": { "id": "devoluciones_proveedores", "funcion_principal": run_conciliation_devoluciones_proveedores, "label_actual": "Reporte de Devoluciones (Proveedores)", "label_anterior": "Partidas pendientes (Proveedores)", "columnas_reporte": ['Fecha', 'Fuente', 'Referencia', 'Nombre del Proveedor', 'Monto USD', 'Monto Bs'], "nombre_hoja_excel": "212.07.6009" }
+    "111.04.1001 - Fondos en Tránsito": { 
+        "id": "fondos_transito", 
+        # Usamos partial para "pre-configurar" el wrapper con la función correcta
+        "funcion_principal": partial(run_conciliation_wrapper, run_conciliation_fondos_en_transito), 
+        "label_actual": "Movimientos del mes (Fondos en Tránsito)", 
+        "label_anterior": "Saldos anteriores (Fondos en Tránsito)", 
+        "columnas_reporte": ['Asiento', 'Referencia', 'Fecha', 'Monto Dólar', 'Tasa', 'Bs.'], 
+        "nombre_hoja_excel": "111.04.1001" 
+    },
+    "111.04.6001 - Fondos por Depositar - ME": { 
+        "id": "fondos_depositar", 
+        # Esta es la función que sí usa la barra de progreso, la dejamos como está
+        "funcion_principal": run_conciliation_fondos_por_depositar, 
+        "label_actual": "Movimientos del mes (Fondos por Depositar)", 
+        "label_anterior": "Saldos anteriores (Fondos por Depositar)", 
+        "columnas_reporte": ['Asiento', 'Referencia', 'Fecha', 'Monto Dólar', 'Tasa', 'Bs.'], 
+        "nombre_hoja_excel": "111.04.6001" 
+    },
+    "212.07.6009 - Devoluciones a Proveedores": { 
+        "id": "devoluciones_proveedores", 
+        "funcion_principal": partial(run_conciliation_wrapper, run_conciliation_devoluciones_proveedores),
+        "label_actual": "Reporte de Devoluciones (Proveedores)", 
+        "label_anterior": "Partidas pendientes (Proveedores)", 
+        "columnas_reporte": ['Fecha', 'Fuente', 'Referencia', 'Nombre del Proveedor', 'Monto USD', 'Monto Bs'], 
+        "nombre_hoja_excel": "212.07.6009" 
+    }
 }
 
 # ==============================================================================
