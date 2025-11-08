@@ -193,18 +193,12 @@ def render_especificaciones():
     st.subheader("3. Cargue los Archivos de Excel (.xlsx):", anchor=False)
     st.markdown("*Asegúrese de que los datos estén en la **primera hoja** y los **encabezados en la primera fila**.*")
 
-    # --- INICIO DEL NUEVO BLOQUE DE CÓDIGO ---
-    # Generamos dinámicamente la lista de columnas requeridas
     columnas = estrategia_actual.get("columnas_requeridas", [])
     if columnas:
-        # Creamos el texto formateado en Markdown
         texto_columnas = "**Columnas Esenciales Requeridas:**\n"
         texto_columnas += "\n".join([f"- `{col}`" for col in columnas])
         texto_columnas += "\n\n*Nota: El archivo puede contener más columnas, pero las mencionadas son cruciales para el proceso.*"
-        
-        # Mostramos la información en un cuadro st.info
         st.info(texto_columnas, icon="ℹ️")
-    # --- FIN DEL NUEVO BLOQUE DE CÓDIGO ---
 
     col1, col2 = st.columns(2)
     with col1:
@@ -212,7 +206,6 @@ def render_especificaciones():
     with col2:
         uploaded_anterior = st.file_uploader(estrategia_actual["label_anterior"], type="xlsx", key=f"anterior_{estrategia_actual['id']}")
         
-    # (El resto de la función permanece igual...)
     if uploaded_actual and uploaded_anterior:
         if st.button("▶️ Iniciar Conciliación", type="primary", use_container_width=True):
             progress_container = st.empty()
@@ -240,6 +233,8 @@ def render_especificaciones():
                 st.session_state.processing_complete = False
             finally:
                 progress_container.empty()
+
+    # --- SECCIÓN DE RESULTADOS MODIFICADA ---
     if st.session_state.processing_complete:
         st.success("✅ ¡Conciliación completada con éxito!")
         res_col1, res_col2 = st.columns(2, gap="small")
@@ -249,11 +244,50 @@ def render_especificaciones():
         with res_col2:
             st.metric("Saldos Abiertos (Pendientes)", len(st.session_state.df_saldos_abiertos))
             st.download_button("⬇️ Descargar Saldos para Próximo Mes (CSV)", st.session_state.csv_output, "saldos_para_proximo_mes.csv", "text/csv", use_container_width=True, key="download_csv")
+        
         st.info("**Instrucción de Ciclo Mensual:** Para el próximo mes, debe usar el archivo CSV descargado como el archivo de 'saldos anteriores'.")
+        
         with st.expander("Ver registro detallado del proceso"):
             st.text_area("Log de Conciliación", '\n'.join(st.session_state.log_messages), height=300, key="log_area")
+            
         st.subheader("Previsualización de Saldos Pendientes", anchor=False)
-        st.dataframe(st.session_state.df_saldos_abiertos, use_container_width=True)
+
+        # --- INICIO DE LA LÓGICA DE FORMATEO ---
+        
+        df_vista_previa = st.session_state.df_saldos_abiertos.copy()
+
+        # Verificamos si la estrategia es 'Fondos en Tránsito' para aplicar el formato especial
+        if estrategia_actual['id'] == 'fondos_transito':
+            # 1. Seleccionamos y reordenamos solo las columnas deseadas
+            columnas_a_mostrar = [
+                'Asiento', 
+                'Referencia', # Mantengo la Referencia ya que es clave, si deseas quitarla, solo elimina esta línea
+                'Fecha', 
+                'Débito Bolivar', 
+                'Crédito Bolivar', 
+                'Débito Dolar', 
+                'Crédito Dolar'
+            ]
+            # Filtramos para quedarnos solo con las columnas que existen en el dataframe
+            columnas_existentes = [col for col in columnas_a_mostrar if col in df_vista_previa.columns]
+            df_vista_previa = df_vista_previa[columnas_existentes]
+
+            # 2. Formateamos la fecha a dd/mm/aaaa
+            if 'Fecha' in df_vista_previa.columns:
+                df_vista_previa['Fecha'] = pd.to_datetime(df_vista_previa['Fecha']).dt.strftime('%d/%m/%Y')
+            
+            # 3. Formateamos las columnas numéricas al estilo 1.234,56
+            columnas_numericas = ['Débito Bolivar', 'Crédito Bolivar', 'Débito Dolar', 'Crédito Dolar']
+            for col in columnas_numericas:
+                if col in df_vista_previa.columns:
+                    df_vista_previa[col] = df_vista_previa[col].apply(
+                        lambda x: f"{x:,.2f}".replace(',', 'TEMP').replace('.', ',').replace('TEMP', '.') if pd.notna(x) else ''
+                    )
+        
+        # Mostramos el dataframe (formateado o no)
+        st.dataframe(df_vista_previa, use_container_width=True)
+        # --- FIN DE LA LÓGICA DE FORMATEO ---
+        
         st.subheader("Previsualización de Movimientos Conciliados", anchor=False)
         st.dataframe(st.session_state.df_conciliados, use_container_width=True)
         
