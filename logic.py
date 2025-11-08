@@ -325,79 +325,175 @@ def conciliar_lote_por_grupo_usd(df, clave_grupo, fase_name, log_messages):
         return len(df_pendientes.index)
     return 0
 
-def conciliar_grupos_complejos_usd(df, log_messages):
-    log_messages.append("\n--- FASE GRUPOS COMPLEJOS (USD) ---")
-    df_pendientes = df.loc[~df['Conciliado']]
-    LIMITE_MOVIMIENTOS = 80 
-    if len(df_pendientes) > LIMITE_MOVIMIENTOS:
+def conciliar_grupos_complejos_usd(df, log_messages, progress_bar=None):
+    """
+    Versión OPTIMIZADA que busca grupos complejos (1-vs-2 y 2-vs-1) utilizando
+    diccionarios para búsquedas O(1) en lugar de fuerza bruta combinatoria.
+    """
+    log_messages.append("\n--- FASE GRUPOS COMPLEJOS OPTIMIZADA (USD) ---")
+    
+    pendientes = df.loc[~df['Conciliado']]
+    LIMITE_MOVIMIENTOS = 500  # Podemos aumentar el límite con el algoritmo optimizado
+    if len(pendientes) > LIMITE_MOVIMIENTOS:
         log_messages.append(f"ℹ️ Se omitió la fase de grupos complejos por haber demasiados movimientos pendientes (> {LIMITE_MOVIMIENTOS}).")
         return 0
-    total_conciliados_fase, indices_usados = 0, set()
-    debitos = df.loc[(~df['Conciliado']) & (df['Monto_USD'] > 0)].copy()
-    creditos = df.loc[(~df['Conciliado']) & (df['Monto_USD'] < 0)].copy()
-    if len(debitos) == 0 or len(creditos) == 0: return 0
-    MAX_COMBINACION = 5
-    for d_idx, d_row in debitos.iterrows():
-        if d_idx in indices_usados: continue
-        target = d_row['Monto_USD']
-        creditos_disponibles = creditos.drop(indices_usados, errors='ignore')
-        candidatos = creditos_disponibles[creditos_disponibles['Monto_USD'].abs() < target]
-        if len(candidatos) < 2: continue
-        for i in range(2, min(len(candidatos) + 1, MAX_COMBINACION)):
-            grupo_encontrado = False
-            for combo_c_indices_tuple in combinations(candidatos.index, i):
-                combo_c_indices = list(combo_c_indices_tuple)
-                if abs(target + candidatos.loc[combo_c_indices, 'Monto_USD'].sum()) <= TOLERANCIA_MAX_USD:
-                    indices_conciliados = combo_c_indices + [d_idx]
-                    grupo_id = f"GRUPO_COMPLEJO_1-N_{d_row['Asiento']}"
-                    df.loc[indices_conciliados, ['Conciliado', 'Grupo_Conciliado']] = [True, grupo_id]
+
+    debitos = pendientes[pendientes['Monto_USD'] > 0]
+    creditos = pendientes[pendientes['Monto_USD'] < 0]
+
+    if debitos.empty or creditos.empty or len(debitos) < 1 or len(creditos) < 1:
+        return 0
+
+    total_conciliados_fase = 0
+    indices_usados = set()
+
+    # --- CASO 1: 1 Débito vs 2 Créditos ---
+    # Creamos un diccionario con la suma de cada par de créditos
+    log_messages.append("Construyendo mapa de sumas de créditos...")
+    sumas_pares_creditos = {}
+    if len(creditos) >= 2:
+        for i in range(len(creditos)):
+            for j in range(i + 1, len(creditos)):
+                idx1, idx2 = creditos.index[i], creditos.index[j]
+                suma = creditos.loc[idx1, 'Monto_USD'] + creditos.loc[idx2, 'Monto_USD']
+                if suma not in sumas_pares_creditos:
+                    sumas_pares_creditos[suma] = []
+                sumas_pares_creditos[suma].append((idx1, idx2))
+    
+    log_messages.append("Analizando 1 Débito vs 2 Créditos...")
+    debitos_ordenados = debitos.sort_values('Monto_USD', ascending=False).index
+    
+    for idx_d in debitos_ordenados:
+        if idx_d in indices_usados: continue
+        monto_d = df.loc[idx_d, 'Monto_USD']
+        target_sum_c = -monto_d
+        
+        # Buscamos una suma cercana en nuestro diccionario
+        for suma_c, pares in sumas_pares_creditos.items():
+            if abs(target_sum_c - suma_c) <= TOLERANCIA_MAX_USD:
+                for idx_c1, idx_c2 in pares:
+                    if not indices_usados.isdisjoint([idx_d, idx_c1, idx_c2]):
+                        continue
+                    
+                    indices_conciliados = [idx_d, idx_c1, idx_c2]
+                    asiento_d = df.loc[idx_d, 'Asiento']
+                    df.loc[indices_conciliados, ['Conciliado', 'Grupo_Conciliado']] = [True, f'GRUPO_1v2_{asiento_d}']
                     indices_usados.update(indices_conciliados)
-                    total_conciliados_fase += len(indices_conciliados)
-                    grupo_encontrado = True
+                    total_conciliados_fase += 3
+                    goto_next_debit = True
                     break
-            if grupo_encontrado: break
+                if 'goto_next_debit' in locals() and goto_next_debit: break
+        if 'goto_next_debit' in locals() and goto_next_debit:
+            del goto_next_debit
+            continue
+    
+    if progress_bar: progress_bar.progress(0.5)
+
+    # --- CASO 2: 2 Débitos vs 1 Crédito ---
+    # Actualizamos los movimientos disponibles
     debitos_disponibles = debitos.drop(indices_usados, errors='ignore')
     creditos_disponibles = creditos.drop(indices_usados, errors='ignore')
-    for c_idx, c_row in creditos_disponibles.iterrows():
-        target_abs = abs(c_row['Monto_USD'])
-        candidatos = debitos_disponibles[debitos_disponibles['Monto_USD'] < target_abs]
-        if len(candidatos) < 2: continue
-        for i in range(2, min(len(candidatos) + 1, MAX_COMBINACION)):
-            grupo_encontrado = False
-            for combo_d_indices_tuple in combinations(candidatos.index, i):
-                combo_d_indices = list(combo_d_indices_tuple)
-                if abs(c_row['Monto_USD'] + candidatos.loc[combo_d_indices, 'Monto_USD'].sum()) <= TOLERANCIA_MAX_USD:
-                    indices_conciliados = combo_d_indices + [c_idx]
-                    grupo_id = f"GRUPO_COMPLEJO_N-1_{c_row['Asiento']}"
-                    df.loc[indices_conciliados, ['Conciliado', 'Grupo_Conciliado']] = [True, grupo_id]
+    
+    log_messages.append("Construyendo mapa de sumas de débitos...")
+    sumas_pares_debitos = {}
+    if len(debitos_disponibles) >= 2:
+        for i in range(len(debitos_disponibles)):
+            for j in range(i + 1, len(debitos_disponibles)):
+                idx1, idx2 = debitos_disponibles.index[i], debitos_disponibles.index[j]
+                suma = debitos_disponibles.loc[idx1, 'Monto_USD'] + debitos_disponibles.loc[idx2, 'Monto_USD']
+                if suma not in sumas_pares_debitos:
+                    sumas_pares_debitos[suma] = []
+                sumas_pares_debitos[suma].append((idx1, idx2))
+    
+    log_messages.append("Analizando 2 Débitos vs 1 Crédito...")
+    creditos_ordenados = creditos_disponibles.sort_values('Monto_USD').index
+    
+    for idx_c in creditos_ordenados:
+        if idx_c in indices_usados: continue
+        monto_c = df.loc[idx_c, 'Monto_USD']
+        target_sum_d = -monto_c
+        
+        for suma_d, pares in sumas_pares_debitos.items():
+            if abs(target_sum_d - suma_d) <= TOLERANCIA_MAX_USD:
+                for idx_d1, idx_d2 in pares:
+                    if not indices_usados.isdisjoint([idx_c, idx_d1, idx_d2]):
+                        continue
+                        
+                    indices_conciliados = [idx_c, idx_d1, idx_d2]
+                    asiento_c = df.loc[idx_c, 'Asiento']
+                    df.loc[indices_conciliados, ['Conciliado', 'Grupo_Conciliado']] = [True, f'GRUPO_2v1_{asiento_c}']
                     indices_usados.update(indices_conciliados)
-                    total_conciliados_fase += len(indices_conciliados)
-                    grupo_encontrado = True
+                    total_conciliados_fase += 3
+                    goto_next_credit = True
                     break
-            if grupo_encontrado: break
+                if 'goto_next_credit' in locals() and goto_next_credit: break
+        if 'goto_next_credit' in locals() and goto_next_credit:
+            del goto_next_credit
+            continue
+            
     if total_conciliados_fase > 0:
-        log_messages.append(f"✔️ {total_conciliados_fase} movimientos conciliados en grupos complejos.")
+        log_messages.append(f"✔️ {total_conciliados_fase} movimientos conciliados en grupos complejos (optimizados).")
+    
     return total_conciliados_fase
     
 def conciliar_pares_globales_remanentes_usd(df, log_messages):
+    """
+    Versión OPTIMIZADA que busca pares 1-a-1 usando un self-merge de pandas,
+    evitando bucles anidados de Python.
+    """
     log_messages.append("\n--- FASE GLOBAL 1-a-1 (USD) ---")
-    df_pendientes = df.loc[~df['Conciliado']].copy()
-    if len(df_pendientes) < 2: return 0
-    debitos, creditos = df_pendientes[df_pendientes['Monto_USD'] > 0].index.tolist(), df_pendientes[df_pendientes['Monto_USD'] < 0].index.tolist()
-    total_conciliados, creditos_usados = 0, set()
-    for idx_d in debitos:
-        monto_d, mejor_match, mejor_diff = df.loc[idx_d, 'Monto_USD'], None, TOLERANCIA_MAX_USD + 1
-        for idx_c in creditos:
-            if idx_c in creditos_usados: continue
-            diff = abs(monto_d + df.loc[idx_c, 'Monto_USD'])
-            if diff < mejor_diff: mejor_diff, mejor_match = diff, idx_c
-        if mejor_match is not None and mejor_diff <= TOLERANCIA_MAX_USD:
-            asientos = (df.loc[idx_d, 'Asiento'], df.loc[mejor_match, 'Asiento'])
-            df.loc[idx_d, 'Grupo_Conciliado'] = f'PAR_GLOBAL_{asientos[1]}'
-            df.loc[mejor_match, 'Grupo_Conciliado'] = f'PAR_GLOBAL_{asientos[0]}'
-            df.loc[[idx_d, mejor_match], 'Conciliado'] = True
-            creditos_usados.add(mejor_match); total_conciliados += 2
-    if total_conciliados > 0: log_messages.append(f"✔️ Fase Global: {total_conciliados} movimientos conciliados.")
+    
+    pendientes = df.loc[~df['Conciliado']].copy()
+    if len(pendientes) < 2:
+        return 0
+
+    debitos = pendientes[pendientes['Monto_USD'] > 0].copy()
+    creditos = pendientes[pendientes['Monto_USD'] < 0].copy()
+
+    if debitos.empty or creditos.empty:
+        return 0
+
+    # Para manejar la tolerancia, creamos una "clave de unión" artificial.
+    # Esto es opcional pero puede ayudar en algunos casos. Nos centraremos en la diferencia.
+    debitos['join_key'] = 1
+    creditos['join_key'] = 1
+
+    # Cruzamos todos los débitos con todos los créditos
+    pares_potenciales = pd.merge(debitos, creditos, on='join_key', suffixes=('_d', '_c'))
+    
+    # Calculamos la diferencia absoluta entre los montos
+    pares_potenciales['diferencia'] = abs(pares_potenciales['Monto_USD_d'] + pares_potenciales['Monto_USD_c'])
+    
+    # Filtramos solo aquellos pares que están dentro de la tolerancia
+    pares_validos = pares_potenciales[pares_potenciales['diferencia'] <= TOLERANCIA_MAX_USD].copy()
+    
+    # Ordenamos por la menor diferencia para encontrar los mejores matches primero
+    pares_validos.sort_values(by='diferencia', inplace=True)
+    
+    # Eliminamos duplicados para que cada movimiento se use solo una vez
+    pares_finales = pares_validos.drop_duplicates(subset=['index_d'], keep='first')
+    pares_finales = pares_finales.drop_duplicates(subset=['index_c'], keep='first')
+    
+    total_conciliados = 0
+    if not pares_finales.empty:
+        indices_d = pares_finales['index_d'].tolist()
+        indices_c = pares_finales['index_c'].tolist()
+        
+        # Aplicamos la conciliación en lote
+        df.loc[indices_d + indices_c, 'Conciliado'] = True
+        
+        # Actualizamos los grupos de conciliación
+        for _, row in pares_finales.iterrows():
+            idx_d, asiento_d = row['index_d'], row['Asiento_d']
+            idx_c, asiento_c = row['index_c'], row['Asiento_c']
+            df.loc[idx_d, 'Grupo_Conciliado'] = f'PAR_GLOBAL_{asiento_c}'
+            df.loc[idx_c, 'Grupo_Conciliado'] = f'PAR_GLOBAL_{asiento_d}'
+        
+        total_conciliados = len(indices_d) + len(indices_c)
+
+    if total_conciliados > 0:
+        log_messages.append(f"✔️ Fase Global Optimizada: {total_conciliados} movimientos conciliados.")
+    
     return total_conciliados
     
 def conciliar_gran_total_final_usd(df, log_messages):
