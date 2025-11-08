@@ -580,9 +580,31 @@ def conciliar_gran_total_final_usd(df, log_messages):
     return 0
 
 # --- (C) Módulo: Devoluciones a Proveedores ---
-def normalizar_datos_proveedores(df):
+def normalizar_datos_proveedores(df, log_messages):
+    """
+    (Versión MEJORADA) Normaliza los datos para la conciliación de proveedores,
+    utilizando el NIT/RIF como la clave principal para una mayor precisión.
+    """
     df_copy = df.copy()
-    df_copy['Clave_Proveedor'] = df_copy['Nombre del Proveedor'].astype(str).str.strip().str.upper()
+    
+    # --- LÓGICA MEJORADA PARA ENCONTRAR Y USAR EL NIT/RIF ---
+    
+    # 1. Buscamos la columna del identificador único (NIT o RIF)
+    nit_col_name = None
+    for col in df_copy.columns:
+        if str(col).strip().upper() in ['NIT', 'RIF']:
+            nit_col_name = col
+            break
+            
+    if nit_col_name:
+        log_messages.append(f"✔️ Se encontró la columna de identificador fiscal ('{nit_col_name}') y se usará como clave principal.")
+        # 2. Creamos la clave usando el NIT/RIF normalizado (sin guiones, puntos, etc.)
+        df_copy['Clave_Proveedor'] = df_copy[nit_col_name].astype(str).str.upper().str.replace(r'[^A-Z0-9]', '', regex=True)
+    else:
+        log_messages.append("⚠️ ADVERTENCIA: No se encontró la columna 'NIT' o 'RIF'. Se recurrirá a usar 'Nombre del Proveedor', lo cual es menos preciso.")
+        df_copy['Clave_Proveedor'] = df_copy['Nombre del Proveedor'].astype(str).str.strip().str.upper()
+
+    # La lógica para extraer la clave de la factura/documento no cambia
     def extraer_clave_comp(row):
         if row['Monto_USD'] > 0:
             return str(row['Fuente']).strip().upper()
@@ -591,8 +613,39 @@ def normalizar_datos_proveedores(df):
             if match:
                 return match.group(1)
         return np.nan
+        
     df_copy['Clave_Comp'] = df_copy.apply(extraer_clave_comp, axis=1)
     return df_copy
+
+# También asegúrate de que la función maestra llame a la nueva lógica
+def run_conciliation_devoluciones_proveedores(df, log_messages):
+    """Orquesta el proceso completo de conciliación para Devoluciones a Proveedores."""
+    log_messages.append("\n--- INICIANDO LÓGICA DE DEVOLUCIONES A PROVEEDORES (USD) ---")
+    
+    # Esta llamada ahora usará la lógica mejorada con NIT/RIF
+    df = normalizar_datos_proveedores(df, log_messages) 
+    
+    total_conciliados = 0
+    df_procesable = df.loc[(~df['Conciliado']) & (df['Clave_Proveedor'].notna()) & (df['Clave_Comp'].notna())]
+    
+    # El groupby ahora usará la clave basada en NIT, que es mucho más precisa
+    grupos = df_procesable.groupby(['Clave_Proveedor', 'Clave_Comp'])
+    
+    log_messages.append(f"ℹ️ Se encontraron {len(grupos)} grupos de Proveedor/COMP para analizar.")
+    for (proveedor_clave, comp), grupo in grupos:
+        if abs(round(grupo['Monto_USD'].sum(), 2)) <= TOLERANCIA_MAX_USD:
+            indices = grupo.index
+            # Usamos la clave del proveedor (el NIT) en el ID del grupo para mayor claridad
+            df.loc[indices, ['Conciliado', 'Grupo_Conciliado']] = [True, f"PROV_{proveedor_clave}_{comp}"]
+            total_conciliados += len(indices)
+
+    if total_conciliados > 0:
+        log_messages.append(f"✔️ Conciliación por Proveedor/COMP: {total_conciliados} movimientos conciliados.")
+    else:
+        log_messages.append("ℹ️ No se encontraron conciliaciones automáticas por Proveedor/COMP.")
+        
+    log_messages.append("\n--- PROCESO DE CONCILIACIÓN FINALIZADO ---")
+    return df
 
 # ==============================================================================
 # FUNCIONES MAESTRAS DE ESTRATEGIA
