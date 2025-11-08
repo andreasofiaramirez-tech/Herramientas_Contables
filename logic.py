@@ -453,8 +453,13 @@ def conciliar_pares_globales_remanentes_usd(df, log_messages):
     if debitos.empty or creditos.empty:
         return 0
 
-    # Para manejar la tolerancia, creamos una "clave de unión" artificial.
-    # Esto es opcional pero puede ayudar en algunos casos. Nos centraremos en la diferencia.
+    # --- INICIO DE LA CORRECCIÓN ---
+    # Convertimos el índice en una columna para que el merge lo preserve.
+    # Esto creará las columnas 'index_d' e 'index_c' que necesitamos.
+    debitos.reset_index(inplace=True)
+    creditos.reset_index(inplace=True)
+    # --- FIN DE LA CORRECCIÓN ---
+
     debitos['join_key'] = 1
     creditos['join_key'] = 1
 
@@ -471,6 +476,7 @@ def conciliar_pares_globales_remanentes_usd(df, log_messages):
     pares_validos.sort_values(by='diferencia', inplace=True)
     
     # Eliminamos duplicados para que cada movimiento se use solo una vez
+    # Ahora 'index_d' e 'index_c' existirán y esta línea funcionará.
     pares_finales = pares_validos.drop_duplicates(subset=['index_d'], keep='first')
     pares_finales = pares_finales.drop_duplicates(subset=['index_c'], keep='first')
     
