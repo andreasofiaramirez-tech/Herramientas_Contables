@@ -47,37 +47,61 @@ def password_entered():
         st.session_state.password_correct = False
 
 if not st.session_state.get("password_correct", False):
-    _ , col2, _ = st.columns([1, 2, 1])
-    with col2:
-        try:
-            st.image("assets/logo_principal.png", width=300)
-        except:
-            st.warning("No se encontró el logo principal en la carpeta 'assets'.")
-        st.title("Bienvenido al Portal de Herramientas Contables")
+    
+    # --- INICIO DE LA MODIFICACIÓN DEL DISEÑO ---
+
+    # 1. Ajustamos la proporción de las columnas para hacer el cuadro central un poco más estrecho,
+    #    lo que compacta el contenido verticalmente.
+    _ , col_main, _ = st.columns([1, 1.5, 1])
+
+    with col_main:
+        # 2. Centramos el logo principal de forma más responsiva.
+        _ , col_logo, _ = st.columns([1, 2, 1])
+        with col_logo:
+            try:
+                # Usar 'use_column_width' es mejor que un ancho fijo para la adaptabilidad.
+                st.image("assets/logo_principal.png", use_column_width=True) 
+            except:
+                st.warning("No se encontró el logo principal en la carpeta 'assets'.")
+
+        st.title("Bienvenido al Portal de Herramientas Contables", anchor=False)
         st.markdown("Una solución centralizada para el equipo de contabilidad.")
+        
+        # Contenedor para el campo de contraseña
         with st.container(border=True):
-            st.subheader("Acceso Exclusivo")
+            st.subheader("Acceso Exclusivo", anchor=False)
             st.text_input(
-                "Contraseña", type="password", on_change=password_entered, key="password", label_visibility="collapsed"
+                "Contraseña", type="password", on_change=password_entered, key="password", label_visibility="collapsed", placeholder="Ingresa la contraseña"
             )
+            
             if st.session_state.get("authentication_attempted", False):
                 if not st.session_state.get("password_correct", False):
                     st.error("😕 Contraseña incorrecta.")
             else:
                 st.info("Por favor, ingresa la contraseña para continuar.")
+
         st.divider()
+
         st.markdown("<p style='text-align: center;'>Una herramienta para las empresas del grupo:</p>", unsafe_allow_html=True)
+        
         logo_cols = st.columns(3)
-        with logo_cols[0]:
-            try: st.image("assets/logo_febeca.png")
-            except: st.markdown("<p style='text-align: center;'>FEBECA, C.A.</p>", unsafe_allow_html=True)
-        with logo_cols[1]:
-            try: st.image("assets/logo_beval.png")
-            except: st.markdown("<p style='text-align: center;'>MAYOR BEVAL, C.A.</p>", unsafe_allow_html=True)
-        with logo_cols[2]:
-            try: st.image("assets/logo_sillaca.png")
-            except: st.markdown("<p style='text-align: center;'>SILLACA, C.A.</p>", unsafe_allow_html=True)
-    st.stop()
+        logos_info = [
+            {"path": "assets/logo_febeca.png", "fallback": "FEBECA, C.A."},
+            {"path": "assets/logo_beval.png", "fallback": "MAYOR BEVAL, C.A."},
+            {"path": "assets/logo_sillaca.png", "fallback": "SILLACA, C.A."}
+        ]
+        
+        for i, col in enumerate(logo_cols):
+            with col:
+                try:
+                    st.image(logos_info[i]["path"])
+                except:
+                    # Texto alternativo si el logo no se encuentra
+                    st.markdown(f"<p style='text-align: center; font-size: small;'>{logos_info[i]['fallback']}</p>", unsafe_allow_html=True)
+
+    # --- FIN DE LA MODIFICACIÓN DEL DISEÑO ---
+
+    st.stop() # CRÍTICO: Detiene la ejecución del resto de la app.
 
 # ==============================================================================
 # DICCIONARIO CENTRAL DE ESTRATEGIAS (EL "CEREBRO")
