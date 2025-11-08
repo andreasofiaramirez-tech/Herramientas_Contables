@@ -60,7 +60,7 @@ if not st.session_state.get("password_correct", False):
         with col_logo:
             try:
                 # Usar 'use_column_width' es mejor que un ancho fijo para la adaptabilidad.
-                st.image("assets/logo_principal.png", use_column_width=True) 
+                st.image("assets/logo_principal.png", use_container_width=True)  
             except:
                 st.warning("No se encontró el logo principal en la carpeta 'assets'.")
 
@@ -94,7 +94,7 @@ if not st.session_state.get("password_correct", False):
         for i, col in enumerate(logo_cols):
             with col:
                 try:
-                    st.image(logos_info[i]["path"])
+                    st.image(logos_info[i]["path"], use_container_width=True)
                 except:
                     # Texto alternativo si el logo no se encuentra
                     st.markdown(f"<p style='text-align: center; font-size: small;'>{logos_info[i]['fallback']}</p>", unsafe_allow_html=True)
