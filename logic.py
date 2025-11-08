@@ -274,20 +274,43 @@ def conciliar_grupos_por_referencia_usd(df, log_messages):
     return total_conciliados
 
 def conciliar_pares_globales_exactos_usd(df, log_messages):
+    """
+    (Versión CORREGIDA) Busca y concilia pares 1-a-1 de débito/crédito cuyo monto absoluto es EXACTAMENTE el mismo.
+    Ahora maneja múltiples pares del mismo monto.
+    """
     log_messages.append("\n--- FASE PARES GLOBALES EXACTOS (USD) ---")
     total_conciliados = 0
     df_pendientes = df.loc[~df['Conciliado']].copy()
+    
     df_pendientes['Monto_Abs'] = df_pendientes['Monto_USD'].abs()
-    grupos = df_pendientes.groupby('Monto_Abs')
-    for monto, grupo in grupos:
-        if len(grupo) == 2 and abs(grupo['Monto_USD'].sum()) <= 0.01:
-            indices = grupo.index
-            asientos = df.loc[indices, 'Asiento'].tolist()
-            df.loc[indices[0], ['Conciliado', 'Grupo_Conciliado']] = [True, f"PAR_EXACTO_{asientos[1]}"]
-            df.loc[indices[1], ['Conciliado', 'Grupo_Conciliado']] = [True, f"PAR_EXACTO_{asientos[0]}"]
-            total_conciliados += 2
+    
+    grupos_por_monto = df_pendientes.groupby('Monto_Abs')
+    
+    for monto, grupo in grupos_por_monto:
+        if len(grupo) < 2:
+            continue
+            
+        debitos = grupo[grupo['Monto_USD'] > 0].index.to_list()
+        creditos = grupo[grupo['Monto_USD'] < 0].index.to_list()
+        
+        pares_a_conciliar = min(len(debitos), len(creditos))
+        
+        if pares_a_conciliar > 0:
+            for i in range(pares_a_conciliar):
+                idx_d = debitos[i]
+                idx_c = creditos[i]
+                
+                if abs(df.loc[idx_d, 'Monto_USD'] + df.loc[idx_c, 'Monto_USD']) <= 0.01:
+                    asiento_d = df.loc[idx_d, 'Asiento']
+                    asiento_c = df.loc[idx_c, 'Asiento']
+                    df.loc[[idx_d, idx_c], 'Conciliado'] = True
+                    df.loc[idx_d, 'Grupo_Conciliado'] = f'PAR_EXACTO_{asiento_c}'
+                    df.loc[idx_c, 'Grupo_Conciliado'] = f'PAR_EXACTO_{asiento_d}'
+                    total_conciliados += 2
+
     if total_conciliados > 0:
         log_messages.append(f"✔️ Fase Pares Exactos: {total_conciliados} movimientos conciliados.")
+    
     return total_conciliados
 
 def conciliar_pares_por_referencia_usd(df, clave_grupo, fase_name, log_messages):
@@ -324,6 +347,51 @@ def conciliar_lote_por_grupo_usd(df, clave_grupo, fase_name, log_messages):
         log_messages.append(f"✔️ {fase_name}: {len(df_pendientes.index)} movimientos conciliados como lote.")
         return len(df_pendientes.index)
     return 0
+
+def conciliar_pares_banco_a_banco_usd(df, log_messages):
+    """
+    Busca y concilia pares 1-a-1 de débito/crédito DENTRO del grupo 'BANCO A BANCO'.
+    Maneja múltiples pares del mismo monto de forma robusta.
+    """
+    log_messages.append("\n--- FASE PARES BANCO A BANCO (USD) ---")
+    total_conciliados = 0
+    # Seleccionamos solo los movimientos pendientes que pertenecen al grupo de banco
+    df_pendientes = df.loc[(~df['Conciliado']) & (df['Clave_Grupo'] == 'GRUPO_BANCO')].copy()
+    
+    if df_pendientes.empty:
+        return 0
+
+    df_pendientes['Monto_Abs'] = df_pendientes['Monto_USD'].abs()
+    
+    # Agrupamos por el monto absoluto para encontrar pares potenciales
+    grupos_por_monto = df_pendientes.groupby('Monto_Abs')
+    
+    for monto, grupo in grupos_por_monto:
+        if len(grupo) < 2:
+            continue
+            
+        debitos = grupo[grupo['Monto_USD'] > 0].index.to_list()
+        creditos = grupo[grupo['Monto_USD'] < 0].index.to_list()
+        
+        # Determinamos cuántos pares podemos formar
+        pares_a_conciliar = min(len(debitos), len(creditos))
+        
+        if pares_a_conciliar > 0:
+            for i in range(pares_a_conciliar):
+                idx_d = debitos[i]
+                idx_c = creditos[i]
+                asiento_d = df.loc[idx_d, 'Asiento']
+                asiento_c = df.loc[idx_c, 'Asiento']
+                
+                df.loc[[idx_d, idx_c], 'Conciliado'] = True
+                df.loc[idx_d, 'Grupo_Conciliado'] = f'PAR_BANCO_{asiento_c}'
+                df.loc[idx_c, 'Grupo_Conciliado'] = f'PAR_BANCO_{asiento_d}'
+                total_conciliados += 2
+
+    if total_conciliados > 0:
+        log_messages.append(f"✔️ Fase Pares Banco a Banco: {total_conciliados} movimientos conciliados.")
+    
+    return total_conciliados
 
 def conciliar_grupos_complejos_usd(df, log_messages, progress_bar=None):
     """
@@ -563,15 +631,37 @@ def run_conciliation_fondos_en_transito (df, log_messages):
     log_messages.append("\n--- PROCESO DE CONCILIACIÓN FINALIZADO ---")
     return df
 
-def run_conciliation_fondos_por_depositar(df, log_messages):
+def run_conciliation_fondos_por_depositar(df, log_messages, progress_bar=None):
     log_messages.append("\n--- INICIANDO LÓGICA DE FONDOS POR DEPOSITAR (USD) ---")
     df = normalizar_referencia_fondos_usd(df)
+    
+    # PASO 1: Conciliaciones automáticas
     conciliar_automaticos_usd(df, log_messages)
+    if progress_bar: progress_bar.progress(0.1, text="Fase 1/6: Conciliaciones automáticas completada.")
+    
+    # PASO 2: Grupos por referencia ESPECÍFICA (Ignora 'BANCO A BANCO')
     conciliar_grupos_por_referencia_usd(df, log_messages)
+    if progress_bar: progress_bar.progress(0.2, text="Fase 2/6: Grupos por referencia específica completada.")
+    
+    # --- NUEVO PASO ESTRATÉGICO ---
+    # PASO 3: Lógica dedicada para encontrar pares dentro de 'BANCO A BANCO'
+    conciliar_pares_banco_a_banco_usd(df, log_messages)
+    if progress_bar: progress_bar.progress(0.35, text="Fase 3/6: Pares 'Banco a Banco' completada.")
+    
+    # PASO 4: Pares globales con monto EXACTO (Ahora más robusto)
     conciliar_pares_globales_exactos_usd(df, log_messages)
+    if progress_bar: progress_bar.progress(0.5, text="Fase 4/6: Pares globales exactos completada.")
+    
+    # PASO 5: Búsqueda de pares globales con TOLERANCIA (versión optimizada)
     conciliar_pares_globales_remanentes_usd(df, log_messages)
-    conciliar_grupos_complejos_usd(df, log_messages)
+    if progress_bar: progress_bar.progress(0.65, text="Fase 5/6: Búsqueda de pares con tolerancia completada.")
+
+    # PASO 6: Búsqueda de grupos complejos (versión optimizada)
+    conciliar_grupos_complejos_usd(df, log_messages, progress_bar)
+    if progress_bar: progress_bar.progress(0.9, text="Fase 6/6: Búsqueda de grupos complejos completada.")
+    
     conciliar_gran_total_final_usd(df, log_messages)
+    
     log_messages.append("\n--- PROCESO DE CONCILIACIÓN FINALIZADO ---")
     return df
 
