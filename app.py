@@ -124,7 +124,6 @@ ESTRATEGIAS = {
         "label_anterior": "Saldos anteriores (Fondos en Tránsito)", 
         "columnas_reporte": ['Asiento', 'Referencia', 'Fecha', 'Monto Dólar', 'Tasa', 'Bs.'], 
         "nombre_hoja_excel": "111.04.1001",
-        # --- NUEVA LÍNEA AÑADIDA ---
         "columnas_requeridas": ['Fecha', 'Asiento', 'Referencia', 'Débito Bolivar', 'Crédito Bolivar', 'Débito Dolar', 'Crédito Dolar']
     },
     "111.04.6001 - Fondos por Depositar - ME": { 
@@ -135,7 +134,7 @@ ESTRATEGIAS = {
         "columnas_reporte": ['Asiento', 'Referencia', 'Fecha', 'Monto Dólar', 'Tasa', 'Bs.'], 
         "nombre_hoja_excel": "111.04.6001",
         # --- NUEVA LÍNEA AÑADIDA ---
-        "columnas_requeridas": ['Fecha', 'Asiento', 'Referencia', 'Débito Dolar', 'Crédito Dolar']
+        "columnas_requeridas": ['Fecha', 'Asiento', 'Referencia', 'Débito Bolivar', 'Crédito Bolivar', 'Débito Dolar', 'Crédito Dolar']
     },
     "212.07.6009 - Devoluciones a Proveedores": { 
         "id": "devoluciones_proveedores", 
@@ -145,7 +144,7 @@ ESTRATEGIAS = {
         "columnas_reporte": ['Fecha', 'Fuente', 'Referencia', 'Nombre del Proveedor', 'Monto USD', 'Monto Bs'], 
         "nombre_hoja_excel": "212.07.6009",
         # --- NUEVA LÍNEA AÑADIDA ---
-        "columnas_requeridas": ['Fecha', 'Asiento', 'Referencia', 'Nombre del Proveedor', 'Fuente', 'Débito Dolar', 'Crédito Dolar']
+        "columnas_requeridas": ['Fecha', 'Asiento', 'Referencia', 'NIT', 'Nombre del Proveedor', 'Fuente', 'Débito Dolar', 'Crédito Dolar']
     }
 }
 
