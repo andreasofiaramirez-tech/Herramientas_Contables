@@ -17,6 +17,12 @@ from utils import (
     generar_reporte_excel,
     generar_csv_saldos_abiertos
 )
+from logic import (
+    run_conciliation_fondos_en_transito,
+    run_conciliation_fondos_por_depositar,
+    run_conciliation_devoluciones_proveedores,
+    run_conciliation_viajes # <-- AÑADE ESTA LÍNEA
+)
 
 # --- Configuración de la página de Streamlit ---
 st.set_page_config(page_title="Conciliador Automático", page_icon="🤖", layout="wide")
@@ -108,8 +114,6 @@ if not st.session_state.get("password_correct", False):
 # ==============================================================================
 from functools import partial
 
-# ... (resto de importaciones)
-
 # --- Creamos funciones parciales para las estrategias que no usan la barra de progreso ---
 # Esto evita tener que modificar todas las funciones en logic.py
 def run_conciliation_wrapper(func, df, log_messages, progress_bar=None):
@@ -145,6 +149,16 @@ ESTRATEGIAS = {
         "nombre_hoja_excel": "212.07.6009",
         # --- NUEVA LÍNEA AÑADIDA ---
         "columnas_requeridas": ['Fecha', 'Asiento', 'Referencia', 'NIT', 'Nombre del Proveedor', 'Fuente', 'Débito Dolar', 'Crédito Dolar']
+    }
+"114.03.1002 - Cuentas de viajes - anticipos de gastos": {
+        "id": "cuentas_viajes",
+        "funcion_principal": run_conciliation_viajes, # La nueva función maestra
+        "label_actual": "Movimientos del mes (Viajes)",
+        "label_anterior": "Saldos anteriores (Viajes)",
+        # El orden de columnas que solicitaste para el reporte
+        "columnas_reporte": ['Asiento', 'NIT', 'Nombre del Proveedor', 'Referencia', 'Fecha', 'Monto_BS', 'Monto_USD', 'Tipo'],
+        "nombre_hoja_excel": "114.03.1002",
+        "columnas_requeridas": ['Fecha', 'Asiento', 'Referencia', 'Nombre del Proveedor', 'NIT', 'Débito Bolivar', 'Crédito Bolivar']
     }
 }
 
@@ -310,6 +324,21 @@ def render_especificaciones():
             if 'Fecha' in df_conciliados_vista.columns:
                 df_conciliados_vista['Fecha'] = pd.to_datetime(df_conciliados_vista['Fecha']).dt.strftime('%d/%m/%Y')
             columnas_numericas = ['Monto Bolivar', 'Monto Dolar']
+            for col in columnas_numericas:
+                if col in df_conciliados_vista.columns:
+                    df_conciliados_vista[col] = df_conciliados_vista[col].apply(
+                        lambda x: f"{x:,.2f}".replace(',', 'TEMP').replace('.', ',').replace('TEMP', '.') if pd.notna(x) else ''
+                    )
+                    
+        # --- NUEVO BLOQUE ELIF PARA VIAJES ---
+        elif estrategia_actual['id'] == 'cuentas_viajes':
+            df_conciliados_vista.rename(columns={'Monto_BS': 'Saldo Bs', 'Monto_USD': 'Saldo USD', 'Nombre del Proveedor': 'Nombre'}, inplace=True)
+            columnas_conciliados_mostrar = ['Asiento', 'NIT', 'Nombre', 'Referencia', 'Fecha', 'Saldo Bs', 'Saldo USD', 'Tipo', 'Grupo_Conciliado']
+            columnas_existentes = [col for col in columnas_conciliados_mostrar if col in df_conciliados_vista.columns]
+            df_conciliados_vista = df_conciliados_vista[columnas_existentes]
+            if 'Fecha' in df_conciliados_vista.columns:
+                df_conciliados_vista['Fecha'] = pd.to_datetime(df_conciliados_vista['Fecha']).dt.strftime('%d/%m/%Y')
+            columnas_numericas = ['Saldo Bs', 'Saldo USD']
             for col in columnas_numericas:
                 if col in df_conciliados_vista.columns:
                     df_conciliados_vista[col] = df_conciliados_vista[col].apply(
