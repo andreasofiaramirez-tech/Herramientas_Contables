@@ -239,7 +239,7 @@ def render_especificaciones():
         res_col1, res_col2 = st.columns(2, gap="small")
         with res_col1:
             st.metric("Movimientos Conciliados", len(st.session_state.df_conciliados))
-            st.download_button("⬇️ Descargar Reporte Completo (Excel)", st.session_state.excel_output, f"reporte_conciliacion_{estrategia_actual['id']}.xlsx", "application/vnd.openxmlformats-officedocument-spreadsheetml.sheet", use_container_width=True, key="download_excel")
+            st.download_button("⬇️ Descargar Reporte Completo (Excel)", st.session_state.excel_output, f"reporte_conciliacion_{estrategia_actual['id']}.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True, key="download_excel")
         with res_col2:
             st.metric("Saldos Abiertos (Pendientes)", len(st.session_state.df_saldos_abiertos))
             st.download_button("⬇️ Descargar Saldos para Próximo Mes (CSV)", st.session_state.csv_output, "saldos_para_proximo_mes.csv", "text/csv", use_container_width=True, key="download_csv")
@@ -253,8 +253,6 @@ def render_especificaciones():
         st.subheader("Previsualización de Saldos Pendientes", anchor=False)
         df_vista_previa = st.session_state.df_saldos_abiertos.copy()
         
-        # --- LÍNEA MODIFICADA ---
-        # Ahora el formato se aplica a ambas cuentas
         if estrategia_actual['id'] in ['fondos_transito', 'fondos_depositar']:
             columnas_a_mostrar = ['Asiento', 'Referencia', 'Fecha', 'Débito Bolivar', 'Crédito Bolivar', 'Débito Dolar', 'Crédito Dolar']
             columnas_existentes = [col for col in columnas_a_mostrar if col in df_vista_previa.columns]
@@ -267,14 +265,28 @@ def render_especificaciones():
                     df_vista_previa[col] = df_vista_previa[col].apply(
                         lambda x: f"{x:,.2f}".replace(',', 'TEMP').replace('.', ',').replace('TEMP', '.') if pd.notna(x) else ''
                     )
+        
+        # --- NUEVO BLOQUE ELIF PARA PROVEEDORES ---
+        elif estrategia_actual['id'] == 'devoluciones_proveedores':
+            df_vista_previa.rename(columns={'Monto_BS': 'Monto Bolivar', 'Monto_USD': 'Monto Dolar'}, inplace=True)
+            columnas_a_mostrar = ['Asiento', 'Referencia', 'Fecha', 'Nombre del Proveedor', 'NIT', 'Monto Bolivar', 'Monto Dolar']
+            columnas_existentes = [col for col in columnas_a_mostrar if col in df_vista_previa.columns]
+            df_vista_previa = df_vista_previa[columnas_existentes]
+            if 'Fecha' in df_vista_previa.columns:
+                df_vista_previa['Fecha'] = pd.to_datetime(df_vista_previa['Fecha']).dt.strftime('%d/%m/%Y')
+            columnas_numericas = ['Monto Bolivar', 'Monto Dolar']
+            for col in columnas_numericas:
+                if col in df_vista_previa.columns:
+                    df_vista_previa[col] = df_vista_previa[col].apply(
+                        lambda x: f"{x:,.2f}".replace(',', 'TEMP').replace('.', ',').replace('TEMP', '.') if pd.notna(x) else ''
+                    )
+
         st.dataframe(df_vista_previa, use_container_width=True)
         
         # --- PREVISUALIZACIÓN DE MOVIMIENTOS CONCILIADOS ---
         st.subheader("Previsualización de Movimientos Conciliados", anchor=False)
         df_conciliados_vista = st.session_state.df_conciliados.copy()
 
-        # --- LÍNEA MODIFICADA ---
-        # Ahora el formato se aplica a ambas cuentas
         if estrategia_actual['id'] in ['fondos_transito', 'fondos_depositar']:
             df_conciliados_vista.rename(columns={'Monto_BS': 'Monto Bolivar', 'Monto_USD': 'Monto Dolar'}, inplace=True)
             columnas_conciliados_mostrar = ['Asiento', 'Referencia', 'Fecha', 'Monto Bolivar', 'Monto Dolar', 'Grupo_Conciliado']
@@ -288,6 +300,22 @@ def render_especificaciones():
                     df_conciliados_vista[col] = df_conciliados_vista[col].apply(
                         lambda x: f"{x:,.2f}".replace(',', 'TEMP').replace('.', ',').replace('TEMP', '.') if pd.notna(x) else ''
                     )
+        
+        # --- NUEVO BLOQUE ELIF PARA PROVEEDORES ---
+        elif estrategia_actual['id'] == 'devoluciones_proveedores':
+            df_conciliados_vista.rename(columns={'Monto_BS': 'Monto Bolivar', 'Monto_USD': 'Monto Dolar'}, inplace=True)
+            columnas_conciliados_mostrar = ['Asiento', 'Referencia', 'Fecha', 'Nombre del Proveedor', 'NIT', 'Monto Bolivar', 'Monto Dolar', 'Grupo_Conciliado']
+            columnas_existentes = [col for col in columnas_conciliados_mostrar if col in df_conciliados_vista.columns]
+            df_conciliados_vista = df_conciliados_vista[columnas_existentes]
+            if 'Fecha' in df_conciliados_vista.columns:
+                df_conciliados_vista['Fecha'] = pd.to_datetime(df_conciliados_vista['Fecha']).dt.strftime('%d/%m/%Y')
+            columnas_numericas = ['Monto Bolivar', 'Monto Dolar']
+            for col in columnas_numericas:
+                if col in df_conciliados_vista.columns:
+                    df_conciliados_vista[col] = df_conciliados_vista[col].apply(
+                        lambda x: f"{x:,.2f}".replace(',', 'TEMP').replace('.', ',').replace('TEMP', '.') if pd.notna(x) else ''
+                    )
+
         st.dataframe(df_conciliados_vista, use_container_width=True)
         
 # ==============================================================================
