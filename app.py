@@ -149,7 +149,7 @@ ESTRATEGIAS = {
         "nombre_hoja_excel": "212.07.6009",
         # --- NUEVA LÍNEA AÑADIDA ---
         "columnas_requeridas": ['Fecha', 'Asiento', 'Referencia', 'NIT', 'Nombre del Proveedor', 'Fuente', 'Débito Dolar', 'Crédito Dolar']
-    }
+    },
 "114.03.1002 - Cuentas de viajes - anticipos de gastos": {
         "id": "cuentas_viajes",
         "funcion_principal": run_conciliation_viajes, # La nueva función maestra
