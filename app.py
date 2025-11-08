@@ -119,21 +119,23 @@ def run_conciliation_wrapper(func, df, log_messages, progress_bar=None):
 ESTRATEGIAS = {
     "111.04.1001 - Fondos en Tránsito": { 
         "id": "fondos_transito", 
-        # Usamos partial para "pre-configurar" el wrapper con la función correcta
         "funcion_principal": partial(run_conciliation_wrapper, run_conciliation_fondos_en_transito), 
         "label_actual": "Movimientos del mes (Fondos en Tránsito)", 
         "label_anterior": "Saldos anteriores (Fondos en Tránsito)", 
         "columnas_reporte": ['Asiento', 'Referencia', 'Fecha', 'Monto Dólar', 'Tasa', 'Bs.'], 
-        "nombre_hoja_excel": "111.04.1001" 
+        "nombre_hoja_excel": "111.04.1001",
+        # --- NUEVA LÍNEA AÑADIDA ---
+        "columnas_requeridas": ['Fecha', 'Asiento', 'Referencia', 'Débito Bolivar', 'Crédito Bolivar', 'Débito Dolar', 'Crédito Dolar']
     },
     "111.04.6001 - Fondos por Depositar - ME": { 
         "id": "fondos_depositar", 
-        # Esta es la función que sí usa la barra de progreso, la dejamos como está
         "funcion_principal": run_conciliation_fondos_por_depositar, 
         "label_actual": "Movimientos del mes (Fondos por Depositar)", 
         "label_anterior": "Saldos anteriores (Fondos por Depositar)", 
         "columnas_reporte": ['Asiento', 'Referencia', 'Fecha', 'Monto Dólar', 'Tasa', 'Bs.'], 
-        "nombre_hoja_excel": "111.04.6001" 
+        "nombre_hoja_excel": "111.04.6001",
+        # --- NUEVA LÍNEA AÑADIDA ---
+        "columnas_requeridas": ['Fecha', 'Asiento', 'Referencia', 'Débito Dolar', 'Crédito Dolar']
     },
     "212.07.6009 - Devoluciones a Proveedores": { 
         "id": "devoluciones_proveedores", 
@@ -141,7 +143,9 @@ ESTRATEGIAS = {
         "label_actual": "Reporte de Devoluciones (Proveedores)", 
         "label_anterior": "Partidas pendientes (Proveedores)", 
         "columnas_reporte": ['Fecha', 'Fuente', 'Referencia', 'Nombre del Proveedor', 'Monto USD', 'Monto Bs'], 
-        "nombre_hoja_excel": "212.07.6009" 
+        "nombre_hoja_excel": "212.07.6009",
+        # --- NUEVA LÍNEA AÑADIDA ---
+        "columnas_requeridas": ['Fecha', 'Asiento', 'Referencia', 'Nombre del Proveedor', 'Fuente', 'Débito Dolar', 'Crédito Dolar']
     }
 }
 
@@ -168,46 +172,75 @@ def render_proximamente(titulo):
     st.button("⬅️ Volver al Inicio", on_click=set_page, args=['inicio'])
 
 def render_especificaciones():
-    st.title('🤖 Herramienta de Conciliación Automática')
+    st.title('🤖 Herramienta de Conciliación Automática', anchor=False)
     if st.button("⬅️ Volver al Inicio", key="back_from_spec"):
         set_page('inicio')
         st.session_state.processing_complete = False 
         st.rerun()
     st.markdown("Esta aplicación automatiza el proceso de conciliación de cuentas contables.")
+    
+    # --- Selección de Parámetros ---
     CASA_OPTIONS = ["FEBECA, C.A", "MAYOR BEVAL, C.A", "PRISMA, C.A", "FEBECA, C.A (QUINCALLA)"]
     CUENTA_OPTIONS = list(ESTRATEGIAS.keys())
-    casa_seleccionada = st.selectbox("**1. Seleccione la Empresa (Casa):**", CASA_OPTIONS)
-    cuenta_seleccionada = st.selectbox("**2. Seleccione la Cuenta Contable:**", CUENTA_OPTIONS)
+    
+    st.subheader("1. Seleccione la Empresa (Casa):", anchor=False)
+    casa_seleccionada = st.selectbox("1. Seleccione la Empresa (Casa):", CASA_OPTIONS, label_visibility="collapsed")
+    
+    st.subheader("2. Seleccione la Cuenta Contable:", anchor=False)
+    cuenta_seleccionada = st.selectbox("2. Seleccione la Cuenta Contable:", CUENTA_OPTIONS, label_visibility="collapsed")
     estrategia_actual = ESTRATEGIAS[cuenta_seleccionada]
-    st.markdown("""**3. Cargue los Archivos de Excel (.xlsx):**
-    *Asegúrese de que los datos estén en la **primera hoja** y los **encabezados en la primera fila**.*""")
+
+    # --- Carga de Archivos ---
+    st.subheader("3. Cargue los Archivos de Excel (.xlsx):", anchor=False)
+    st.markdown("*Asegúrese de que los datos estén en la **primera hoja** y los **encabezados en la primera fila**.*")
+
+    # --- INICIO DEL NUEVO BLOQUE DE CÓDIGO ---
+    # Generamos dinámicamente la lista de columnas requeridas
+    columnas = estrategia_actual.get("columnas_requeridas", [])
+    if columnas:
+        # Creamos el texto formateado en Markdown
+        texto_columnas = "**Columnas Esenciales Requeridas:**\n"
+        texto_columnas += "\n".join([f"- `{col}`" for col in columnas])
+        texto_columnas += "\n\n*Nota: El archivo puede contener más columnas, pero las mencionadas son cruciales para el proceso.*"
+        
+        # Mostramos la información en un cuadro st.info
+        st.info(texto_columnas, icon="ℹ️")
+    # --- FIN DEL NUEVO BLOQUE DE CÓDIGO ---
+
     col1, col2 = st.columns(2)
     with col1:
         uploaded_actual = st.file_uploader(estrategia_actual["label_actual"], type="xlsx", key=f"actual_{estrategia_actual['id']}")
     with col2:
         uploaded_anterior = st.file_uploader(estrategia_actual["label_anterior"], type="xlsx", key=f"anterior_{estrategia_actual['id']}")
+        
+    # (El resto de la función permanece igual...)
     if uploaded_actual and uploaded_anterior:
         if st.button("▶️ Iniciar Conciliación", type="primary", use_container_width=True):
-            with st.spinner('Procesando...'):
-                log_messages = []
-                try:
+            progress_container = st.empty()
+            log_messages = []
+            try:
+                with st.spinner('Cargando y limpiando datos...'):
                     df_full = cargar_y_limpiar_datos(uploaded_actual, uploaded_anterior, log_messages)
-                    if df_full is not None:
-                        df_resultado = estrategia_actual["funcion_principal"](df_full.copy(), log_messages)
-                        st.session_state.df_saldos_abiertos = df_resultado[~df_resultado['Conciliado']].copy()
-                        st.session_state.df_conciliados = df_resultado[df_resultado['Conciliado']].copy()
-                        st.session_state.csv_output = generar_csv_saldos_abiertos(st.session_state.df_saldos_abiertos)
-                        st.session_state.excel_output = generar_reporte_excel(
-                            df_full, st.session_state.df_saldos_abiertos, st.session_state.df_conciliados,
-                            estrategia_actual, casa_seleccionada, cuenta_seleccionada
-                        )
-                        st.session_state.log_messages = log_messages
-                        st.session_state.processing_complete = True
-                except Exception as e:
-                    st.error(f"❌ Ocurrió un error crítico durante el procesamiento: {e}")
-                    import traceback
-                    st.code(traceback.format_exc())
-                    st.session_state.processing_complete = False
+                if df_full is not None:
+                    progress_container.progress(0, text="Iniciando fases de conciliación. Esto puede tardar unos momentos...")
+                    df_resultado = estrategia_actual["funcion_principal"](df_full.copy(), log_messages, progress_bar=progress_container)
+                    progress_container.progress(1.0, text="¡Proceso completado!")
+                    st.session_state.df_saldos_abiertos = df_resultado[~df_resultado['Conciliado']].copy()
+                    st.session_state.df_conciliados = df_resultado[df_resultado['Conciliado']].copy()
+                    st.session_state.csv_output = generar_csv_saldos_abiertos(st.session_state.df_saldos_abiertos)
+                    st.session_state.excel_output = generar_reporte_excel(
+                        df_full, st.session_state.df_saldos_abiertos, st.session_state.df_conciliados,
+                        estrategia_actual, casa_seleccionada, cuenta_seleccionada
+                    )
+                    st.session_state.log_messages = log_messages
+                    st.session_state.processing_complete = True
+            except Exception as e:
+                st.error(f"❌ Ocurrió un error crítico durante el procesamiento: {e}")
+                import traceback
+                st.code(traceback.format_exc())
+                st.session_state.processing_complete = False
+            finally:
+                progress_container.empty()
     if st.session_state.processing_complete:
         st.success("✅ ¡Conciliación completada con éxito!")
         res_col1, res_col2 = st.columns(2, gap="small")
@@ -220,9 +253,9 @@ def render_especificaciones():
         st.info("**Instrucción de Ciclo Mensual:** Para el próximo mes, debe usar el archivo CSV descargado como el archivo de 'saldos anteriores'.")
         with st.expander("Ver registro detallado del proceso"):
             st.text_area("Log de Conciliación", '\n'.join(st.session_state.log_messages), height=300, key="log_area")
-        st.subheader("Previsualización de Saldos Pendientes")
+        st.subheader("Previsualización de Saldos Pendientes", anchor=False)
         st.dataframe(st.session_state.df_saldos_abiertos, use_container_width=True)
-        st.subheader("Previsualización de Movimientos Conciliados")
+        st.subheader("Previsualización de Movimientos Conciliados", anchor=False)
         st.dataframe(st.session_state.df_conciliados, use_container_width=True)
         
 # ==============================================================================
