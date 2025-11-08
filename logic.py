@@ -391,7 +391,7 @@ def conciliar_pares_globales_remanentes_usd(df, log_messages):
             if idx_c in creditos_usados: continue
             diff = abs(monto_d + df.loc[idx_c, 'Monto_USD'])
             if diff < mejor_diff: mejor_diff, mejor_match = diff, idx_c
-        if mejor_match is not None and mejor_diff <= TOLERANCI_MAX_USD:
+        if mejor_match is not None and mejor_diff <= TOLERANCIA_MAX_USD:
             asientos = (df.loc[idx_d, 'Asiento'], df.loc[mejor_match, 'Asiento'])
             df.loc[idx_d, 'Grupo_Conciliado'] = f'PAR_GLOBAL_{asientos[1]}'
             df.loc[mejor_match, 'Grupo_Conciliado'] = f'PAR_GLOBAL_{asientos[0]}'
