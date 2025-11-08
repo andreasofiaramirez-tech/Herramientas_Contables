@@ -234,7 +234,6 @@ def render_especificaciones():
             finally:
                 progress_container.empty()
 
-    # --- SECCIÓN DE RESULTADOS MODIFICADA ---
     if st.session_state.processing_complete:
         st.success("✅ ¡Conciliación completada con éxito!")
         res_col1, res_col2 = st.columns(2, gap="small")
@@ -250,46 +249,59 @@ def render_especificaciones():
         with st.expander("Ver registro detallado del proceso"):
             st.text_area("Log de Conciliación", '\n'.join(st.session_state.log_messages), height=300, key="log_area")
             
+        # --- PREVISUALIZACIÓN DE SALDOS PENDIENTES ---
         st.subheader("Previsualización de Saldos Pendientes", anchor=False)
-
-        # --- INICIO DE LA LÓGICA DE FORMATEO ---
-        
         df_vista_previa = st.session_state.df_saldos_abiertos.copy()
-
-        # Verificamos si la estrategia es 'Fondos en Tránsito' para aplicar el formato especial
         if estrategia_actual['id'] == 'fondos_transito':
-            # 1. Seleccionamos y reordenamos solo las columnas deseadas
-            columnas_a_mostrar = [
-                'Asiento', 
-                'Referencia', # Mantengo la Referencia ya que es clave, si deseas quitarla, solo elimina esta línea
-                'Fecha', 
-                'Débito Bolivar', 
-                'Crédito Bolivar', 
-                'Débito Dolar', 
-                'Crédito Dolar'
-            ]
-            # Filtramos para quedarnos solo con las columnas que existen en el dataframe
+            columnas_a_mostrar = ['Asiento', 'Referencia', 'Fecha', 'Débito Bolivar', 'Crédito Bolivar', 'Débito Dolar', 'Crédito Dolar']
             columnas_existentes = [col for col in columnas_a_mostrar if col in df_vista_previa.columns]
             df_vista_previa = df_vista_previa[columnas_existentes]
-
-            # 2. Formateamos la fecha a dd/mm/aaaa
             if 'Fecha' in df_vista_previa.columns:
                 df_vista_previa['Fecha'] = pd.to_datetime(df_vista_previa['Fecha']).dt.strftime('%d/%m/%Y')
-            
-            # 3. Formateamos las columnas numéricas al estilo 1.234,56
             columnas_numericas = ['Débito Bolivar', 'Crédito Bolivar', 'Débito Dolar', 'Crédito Dolar']
             for col in columnas_numericas:
                 if col in df_vista_previa.columns:
                     df_vista_previa[col] = df_vista_previa[col].apply(
                         lambda x: f"{x:,.2f}".replace(',', 'TEMP').replace('.', ',').replace('TEMP', '.') if pd.notna(x) else ''
                     )
-        
-        # Mostramos el dataframe (formateado o no)
         st.dataframe(df_vista_previa, use_container_width=True)
-        # --- FIN DE LA LÓGICA DE FORMATEO ---
         
+        # --- PREVISUALIZACIÓN DE MOVIMIENTOS CONCILIADOS (LÓGICA AÑADIDA) ---
         st.subheader("Previsualización de Movimientos Conciliados", anchor=False)
-        st.dataframe(st.session_state.df_conciliados, use_container_width=True)
+        
+        df_conciliados_vista = st.session_state.df_conciliados.copy()
+
+        # Verificamos si la estrategia es 'Fondos en Tránsito' para aplicar el formato especial
+        if estrategia_actual['id'] == 'fondos_transito':
+            # 1. Renombramos las columnas de montos para mayor claridad en la vista
+            df_conciliados_vista.rename(columns={'Monto_BS': 'Monto Bolivar', 'Monto_USD': 'Monto Dolar'}, inplace=True)
+            
+            # 2. Seleccionamos y reordenamos solo las columnas deseadas
+            columnas_conciliados_mostrar = [
+                'Asiento', 
+                'Referencia',
+                'Fecha', 
+                'Monto Bolivar', 
+                'Monto Dolar',
+                'Grupo_Conciliado'
+            ]
+            columnas_existentes = [col for col in columnas_conciliados_mostrar if col in df_conciliados_vista.columns]
+            df_conciliados_vista = df_conciliados_vista[columnas_existentes]
+
+            # 3. Formateamos la fecha a dd/mm/aaaa
+            if 'Fecha' in df_conciliados_vista.columns:
+                df_conciliados_vista['Fecha'] = pd.to_datetime(df_conciliados_vista['Fecha']).dt.strftime('%d/%m/%Y')
+            
+            # 4. Formateamos las columnas numéricas al estilo 1.234,56
+            columnas_numericas = ['Monto Bolivar', 'Monto Dolar']
+            for col in columnas_numericas:
+                if col in df_conciliados_vista.columns:
+                    df_conciliados_vista[col] = df_conciliados_vista[col].apply(
+                        lambda x: f"{x:,.2f}".replace(',', 'TEMP').replace('.', ',').replace('TEMP', '.') if pd.notna(x) else ''
+                    )
+        
+        # Mostramos el dataframe (formateado o no, según la cuenta)
+        st.dataframe(df_conciliados_vista, use_container_width=True)
         
 # ==============================================================================
 # FLUJO PRINCIPAL DE LA APLICACIÓN (ROUTER)
