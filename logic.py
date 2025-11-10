@@ -906,7 +906,7 @@ def _normalizar_valor(valor):
 
 def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun, log_messages):
     """
-    Función principal que encapsula toda la lógica de conciliación de retenciones.
+    (Versión Definitiva y Consolidada) Función principal que encapsula toda la lógica de conciliación de retenciones.
     """
     log_messages.append("--- INICIANDO PROCESO DE CONCILIACIÓN DE RETENCIONES ---")
 
@@ -943,6 +943,7 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
 
         find_and_rename(df_cp, ['MONTOTOTAL', 'MONTOBS', 'MONTO'], 'MONTO', 'CP')
         find_and_rename(df_cg, ['CREDITOVES', 'CREDITO', 'CREDITOBS'], 'CREDITOVES', 'CG')
+        
         galac_synonyms = {
             'MONTO': ['MONTO', 'IVARETENIDO', 'MONTORETENIDO', 'VALOR'],
             'RIF': ['RIF', 'RIFPROV', 'RIFPROVEEDOR', 'NUMERORIF'],
@@ -951,12 +952,16 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
             'FECHA': ['FECHA', 'FECHARET', 'OPERACION', 'FECHARETENCION'],
             'NOMBREPROVEEDOR': ['PROVEEDOR', 'NOMBRE', 'RAZONSOCIAL', 'RAZONSOCIALDELSUJETORETENIDO']
         }
+
         for df_galac, nombre_archivo in [(df_galac_iva, 'GALAC IVA'), (df_galac_islr, 'GALAC ISLR'), (df_galac_mun, 'Municipal')]:
             for col_estandar, sinonimos in galac_synonyms.items():
                 find_and_rename(df_galac, sinonimos, col_estandar, nombre_archivo)
+        
         for df in [df_galac_iva, df_galac_islr, df_galac_mun]:
             if 'COMPROBANTE' not in df.columns: df['COMPROBANTE'] = ''
             if 'FACTURA' not in df.columns: df['FACTURA'] = ''
+            if 'NOMBREPROVEEDOR' not in df.columns: df['NOMBREPROVEEDOR'] = ''
+        
         df_galac_iva['TIPO'] = 'IVA'
         df_galac_islr['TIPO'] = 'ISLR'
         df_galac_mun['TIPO'] = 'MUNICIPAL'
@@ -965,7 +970,6 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         
         for df in [df_cp, df_cg, df_galac_full]:
             if 'PROVEEDOR' in df.columns and 'RIF' not in df.columns: df.rename(columns={'PROVEEDOR': 'RIF'}, inplace=True)
-            if 'NOMBRE' in df.columns and 'NOMBREPROVEEDOR' not in df.columns: df.rename(columns={'NOMBRE': 'NOMBREPROVEEDOR'}, inplace=True)
             if 'RIF' in df.columns: df['RIF_norm'] = df['RIF'].apply(_normalizar_valor)
             if 'NIT' in df.columns: df['RIF_norm'] = df['NIT'].apply(_normalizar_valor)
             if 'NUMERO' in df.columns: df['COMPROBANTE_norm'] = df['NUMERO'].apply(_normalizar_valor)
@@ -1036,35 +1040,25 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         output_buffer = BytesIO()
         with pd.ExcelWriter(output_buffer, engine='xlsxwriter') as writer:
             workbook = writer.book
-            # --- Definición de Formatos ---
             main_title_format = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'font_size': 14})
             group_title_format = workbook.add_format({'bold': True, 'italic': True, 'font_size': 12})
             subgroup_title_format = workbook.add_format({'bold': True})
             header_format = workbook.add_format({'bold': True, 'text_wrap': True, 'valign': 'top', 'fg_color': '#D9EAD3', 'border': 1, 'align': 'center'})
-            
-            # Formatos para datos
             money_format = workbook.add_format({'num_format': '#,##0.00'})
             date_format = workbook.add_format({'num_format': 'dd/mm/yyyy'})
-            text_format = workbook.add_format({'num_format': '@'}) # Formato de texto para la columna 'Numero'
+            text_format = workbook.add_format({'num_format': '@'})
 
-            # --- HOJA 1: Relacion de Retenciones CP ---
+            # HOJA 1: Relacion de Retenciones CP
             ws1 = workbook.add_worksheet('Relacion CP')
             ws1.hide_gridlines(2)
-            
-            # Mapeo y orden de columnas solicitado
             column_map_cp = {'ASIENTOCONTABLE': 'Asiento', 'TIPO': 'Tipo', 'FECHA': 'Fecha', 'NUMERO': 'Numero', 'APLICACION': 'Aplicacion', 'SUBTIPO': 'Subtipo', 'MONTO': 'Monto', 'CP_Vs_Galac': 'Cp Vs Galac', 'Asiento_en_CG': 'Asiento en CG', 'Monto_coincide_CG': 'Monto coincide CG', 'RIF': 'Proveedor', 'NOMBREPROVEEDOR': 'nombre'}
             final_order_cp = ['Asiento', 'Tipo', 'Fecha', 'Numero', 'Aplicacion', 'Subtipo', 'Monto', 'Cp Vs Galac', 'Asiento en CG', 'Monto coincide CG', 'Proveedor', 'nombre']
-            
             df_cp_results.rename(columns=column_map_cp, inplace=True)
             df_exitosos = df_cp_results[df_cp_results['Cp Vs Galac'] == 'Sí']
             df_anulados = df_cp_results[df_cp_results['Cp Vs Galac'] == 'No Aplica (Anulado)']
             df_incidencias = df_cp_results.drop(df_exitosos.index).drop(df_anulados.index)
-
             ws1.merge_range('A1:L1', 'Relacion de Retenciones CP', main_title_format)
-            
             current_row = 2
-            
-            # Escribir Incidencias
             ws1.write(current_row, 0, 'Incidencias Encontradas', group_title_format)
             current_row += 1
             ws1.write_row(current_row, 0, final_order_cp, header_format)
@@ -1072,10 +1066,7 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
             for r_idx, row in df_incidencias[final_order_cp].iterrows():
                 ws1.write_row(current_row, 0, row.fillna('').values)
                 current_row += 1
-            
-            current_row += 1 # Fila en blanco
-            
-            # Escribir Conciliación Exitosa
+            current_row += 1
             ws1.write(current_row, 0, 'Conciliacion Exitosa', group_title_format)
             current_row += 1
             ws1.write_row(current_row, 0, final_order_cp, header_format)
@@ -1083,61 +1074,55 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
             for r_idx, row in df_exitosos[final_order_cp].iterrows():
                 ws1.write_row(current_row, 0, row.fillna('').values)
                 current_row += 1
-            
-            # Aplicar formatos a las columnas
-            ws1.set_column('A:B', 15)
-            ws1.set_column('C:C', 12, date_format)
-            ws1.set_column('D:D', 20, text_format) # Formato texto para Numero
-            ws1.set_column('E:F', 25)
-            ws1.set_column('G:G', 15, money_format) # Formato monto
-            ws1.set_column('H:J', 25)
-            ws1.set_column('K:L', 30)
+            ws1.set_column('A:B', 15); ws1.set_column('C:C', 12, date_format); ws1.set_column('D:D', 20, text_format); ws1.set_column('E:F', 25); ws1.set_column('G:G', 15, money_format); ws1.set_column('H:J', 25); ws1.set_column('K:L', 30)
 
-            # --- HOJA 2: Análisis GALAC ---
+            # HOJA 2: Análisis GALAC
             ws2 = workbook.add_worksheet('Análisis GALAC')
             ws2.hide_gridlines(2)
             ws2.merge_range('A1:G1', 'Análisis de Retenciones Oficiales (GALAC)', main_title_format)
-            
             current_row = 2
-            # (La sección A se omite por ahora, pero el título se deja como placeholder)
             ws2.write(current_row, 0, 'A. Incidencias de CP Reflejadas en GALAC (Posibles Coincidencias)', group_title_format)
             current_row += 5
-
-            # Grupo B
             ws2.write(current_row, 0, 'B. Retenciones en GALAC no encontradas en Relacion de CP', group_title_format)
             current_row += 1
-            
             if 'NOMBREPROVEEDOR' not in df_galac_no_cp.columns: df_galac_no_cp['NOMBREPROVEEDOR'] = ''
             df_galac_no_cp_final = df_galac_no_cp[['FECHA', 'COMPROBANTE', 'FACTURA', 'RIF', 'NOMBREPROVEEDOR', 'MONTO', 'TIPO']]
             galac_headers = ['Fecha', 'Comprobante', 'No Documento', 'Rif', 'Nombre Proveedor', 'Monto']
-            
             for tipo in ['IVA', 'ISLR', 'MUNICIPAL']:
                 df_tipo = df_galac_no_cp_final[df_galac_no_cp_final['TIPO'] == tipo]
                 if not df_tipo.empty:
+                    df_tipo = df_tipo.fillna('')
                     current_row += 1
                     ws2.write(current_row, 0, f'Informe de Retenciones de {tipo}', subgroup_title_format)
                     current_row += 1
                     ws2.write_row(current_row, 0, galac_headers, header_format)
                     current_row += 1
                     for r_idx, row in df_tipo.iterrows():
-                        ws2.write_row(current_row, 0, row.fillna('').values[:-1])
-                        current_row +=1
+                        ws2.write_row(current_row, 0, row.values[:-1])
+                        current_row += 1
+            ws2.set_column('A:A', 12, date_format); ws2.set_column('B:D', 20); ws2.set_column('E:E', 35); ws2.set_column('F:F', 18, money_format)
 
-            # Aplicar formatos a las columnas
-            ws2.set_column('A:A', 12, date_format)
-            ws2.set_column('B:D', 20)
-            ws2.set_column('E:E', 35)
-            ws2.set_column('F:F', 18, money_format)
-
-            # --- HOJA 3: Diario CG ---
+            # HOJA 3: Diario CG
             ws3 = workbook.add_worksheet('Diario CG')
             ws3.hide_gridlines(2)
             ws3.merge_range('A1:I1', 'Asientos con Errores de Conciliación', main_title_format)
-            
             cg_original_cols = [c for c in ['ASIENTO', 'FUENTE', 'CUENTACONTABLE', 'DESCRIPCIONDELACUENTACONTABLE', 'REFERENCIA', 'DEBITOVES', 'CREDITOVES', 'NIT'] if c in df_cg.columns]
             cg_headers_final = cg_original_cols + ['Observacion']
-
-            # (La lógica para generar df_error_cuenta y df_error_monto se mantiene)
+            asientos_con_error = df_incidencias['Asiento'].unique()
+            df_cg_errores = df_cg[df_cg['ASIENTO'].isin(asientos_con_error)].copy()
+            
+            # --- CORRECCIÓN: Inicializar DataFrames vacíos ---
+            df_error_cuenta = pd.DataFrame(columns=cg_headers_final)
+            df_error_monto = pd.DataFrame(columns=cg_headers_final)
+            
+            if not df_incidencias.empty and not df_cg_errores.empty:
+                merged_errors = pd.merge(df_cg_errores, df_incidencias[['Asiento', 'Cp Vs Galac', 'Monto coincide CG', 'Subtipo']], left_on='ASIENTO', right_on='Asiento', how='left')
+                conditions = [(merged_errors['CUENTACONTABLE'] != merged_errors['Subtipo'].map(CUENTAS_MAP)), (merged_errors['Monto coincide CG'] == 'No')]
+                choices = ['Cuenta Contable no corresponde al Subtipo', 'Monto en Diario no coincide con Relacion CP']
+                merged_errors['Observacion'] = np.select(conditions, choices, default='Error no clasificado')
+                df_cg_final = merged_errors[cg_original_cols + ['Observacion']].drop_duplicates()
+                df_error_cuenta = df_cg_final[df_cg_final['Observacion'] == 'Cuenta Contable no corresponde al Subtipo']
+                df_error_monto = df_cg_final[df_cg_final['Observacion'] == 'Monto en Diario no coincide con Relacion CP']
             
             current_row = 2
             ws3.write(current_row, 0, 'INCIDENCIA: Cuenta Contable Incorrecta', group_title_format)
@@ -1148,8 +1133,7 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
                  for r_idx, row in df_error_cuenta.iterrows():
                     ws3.write_row(current_row, 0, row.fillna('').values)
                     current_row += 1
-
-            current_row += 1 # Fila en blanco
+            current_row += 1
             ws3.write(current_row, 0, 'INCIDENCIA: Monto del Diario vs. Relación CP', group_title_format)
             current_row += 1
             ws3.write_row(current_row, 0, cg_headers_final, header_format)
@@ -1158,13 +1142,8 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
                 for r_idx, row in df_error_monto.iterrows():
                     ws3.write_row(current_row, 0, row.fillna('').values)
                     current_row += 1
-            
-            # Aplicar formatos a las columnas
-            ws3.set_column('A:E', 20)
-            ws3.set_column('F:G', 15, money_format) # Formato monto
-            ws3.set_column('H:H', 20)
-            ws3.set_column('I:I', 40)
-            
+            ws3.set_column('A:E', 20); ws3.set_column('F:G', 15, money_format); ws3.set_column('H:H', 20); ws3.set_column('I:I', 40)
+
         log_messages.append("¡Proceso de conciliación de retenciones completado con éxito!")
         return output_buffer.getvalue()
 
