@@ -7,6 +7,7 @@ from itertools import combinations
 from io import BytesIO
 import unicodedata
 import xlsxwriter
+from utils import generar_reporte_retenciones
 
 # --- Constantes de Tolerancia ---
 TOLERANCIA_MAX_BS = 2.00
