@@ -3,6 +3,7 @@
 import pandas as pd
 import numpy as np
 import re
+import unicodedata
 from itertools import combinations
 
 # --- Constantes de Tolerancia ---
@@ -881,9 +882,13 @@ def run_conciliation_viajes(df, log_messages, progress_bar=None):
 # --- Funciones Auxiliares Específicas de Retenciones ---
 
 def _limpiar_nombre_columna_retenciones(col_name):
-    """Limpia un nombre de columna para estandarizarlo."""
-    return re.sub(r'[^A-Z0-9]', '', str(col_name).strip().upper())
-
+    """Limpia y normaliza un nombre de columna, manejando acentos."""
+    s = str(col_name).strip()
+    # Normaliza para remover acentos (ej: 'Crédito' -> 'Credito')
+    s = ''.join(c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn')
+    # Convierte a mayúsculas y elimina caracteres no alfanuméricos
+    return re.sub(r'[^A-Z0-9]', '', s.upper())
+    
 def _normalizar_valor(valor):
     """Normaliza RIF, comprobantes y facturas para una comparación precisa."""
     if pd.isna(valor):
