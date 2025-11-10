@@ -43,9 +43,6 @@ if 'processing_complete' not in st.session_state:
 def password_entered():
     """Verifica la contraseña ingresada y actualiza el estado."""
     st.session_state.authentication_attempted = True
-    # Esta línea asume que has configurado un "secret" en Streamlit llamado "password"
-    # Para pruebas locales, puedes cambiarlo a una contraseña directa:
-    # if st.session_state.get("password") == "tu_contraseña_aqui":
     if st.session_state.get("password") == st.secrets.get("password"):
         st.session_state.password_correct = True
         del st.session_state["password"]
