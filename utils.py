@@ -320,7 +320,8 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
         # --- HOJA 1: Relacion CP ---
         ws1 = workbook.add_worksheet('Relacion CP')
         ws1.hide_gridlines(2)
-        column_map_cp = {'ASIENTO': 'Asiento', 'TIPO': 'Tipo', 'FECHA': 'Fecha', 'COMPROBANTE': 'Numero', 'APLICACION': 'Aplicacion', 'SUBTIPO': 'Subtipo', 'MONTO': 'Monto', 'CP_Vs_Galac': 'Cp Vs Galac', 'Asiento_en_CG': 'Asiento en CG', 'Monto_coincide_CG': 'Monto coincide CG', 'RIF': 'Proveedor', 'NOMBREPROVEEDOR': 'nombre'}
+       column_map_cp = {'ASIENTO': 'Asiento', 'TIPO': 'Tipo', 'FECHA': 'Fecha', 'COMPROBANTE': 'Numero', 'APLICACION': 'Aplicacion', 'SUBTIPO': 'Subtipo', 'MONTO': 'Monto', 'CP_Vs_Galac': 'Cp Vs Galac', 'Asiento_en_CG': 'Asiento en CG', 'Monto_coincide_CG': 'Monto coincide CG', 'RIF': 'RIF', 'NOMBREPROVEEDOR': 'Nombre Proveedor'}
+        final_order_cp = ['Asiento', 'Tipo', 'Fecha', 'Numero', 'Aplicacion', 'Subtipo', 'Monto', 'Cp Vs Galac', 'Asiento en CG', 'Monto coincide CG', 'RIF', 'Nombre Proveedor']
         final_order_cp = ['Asiento', 'Tipo', 'Fecha', 'Numero', 'Aplicacion', 'Subtipo', 'Monto', 'Cp Vs Galac', 'Asiento en CG', 'Monto coincide CG', 'Proveedor', 'nombre']
         
         # Preparamos los datos para el reporte
@@ -363,6 +364,7 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
         ws2.write(current_row, 0, 'A. Incidencias de CP Reflejadas en GALAC (Posibles Coincidencias)', group_title_format)
         current_row += 5
         ws2.write(current_row, 0, 'B. Retenciones en GALAC no encontradas en Relacion de CP', group_title_format); current_row += 1
+        if 'NOMBREPROVEEDOR' not in df_galac_no_cp.columns: df_galac_no_cp['NOMBREPROVEEDOR'] = ''
         df_galac_no_cp_final = df_galac_no_cp[['FECHA', 'COMPROBANTE', 'FACTURA', 'RIF', 'NOMBREPROVEEDOR', 'MONTO', 'TIPO']]
         galac_headers = ['Fecha', 'Comprobante', 'No Documento', 'Rif', 'Nombre Proveedor', 'Monto']
         for tipo in ['IVA', 'ISLR', 'MUNICIPAL']:
