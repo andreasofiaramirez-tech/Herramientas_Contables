@@ -902,6 +902,8 @@ def _normalizar_valor(valor):
 
 # --- Función Maestra de Conciliación de Retenciones ---
 
+# EN logic.py, REEMPLAZA LA FUNCIÓN COMPLETA CON ESTA VERSIÓN FINAL Y DEFINITIVA
+
 def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun, log_messages):
     """
     Función principal que encapsula toda la lógica de conciliación de retenciones
@@ -913,11 +915,12 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         # --- 1. CARGA Y PREPARACIÓN DE DATOS ---
         log_messages.append("Cargando archivos de entrada...")
         
+        # --- CORRECCIÓN CLAVE: Ajuste de los encabezados según las imágenes ---
         df_cp = pd.read_excel(file_cp, header=4)
         df_cg = pd.read_excel(file_cg, header=0)
-        df_galac_iva = pd.read_excel(file_iva, header=0)
-        df_galac_islr = pd.read_excel(file_islr, header=0)
-        df_galac_mun = pd.read_excel(file_mun, header=0)
+        df_galac_iva = pd.read_excel(file_iva, header=4)    # Fila 5 en Excel
+        df_galac_islr = pd.read_excel(file_islr, header=8)   # Fila 9 en Excel
+        df_galac_mun = pd.read_excel(file_mun, header=8)     # Fila 9 en Excel
 
         CUENTAS_MAP = {'IVA': '2111101004', 'ISLR': '2111101005', 'MUNICIPAL': '2111101006'}
 
@@ -925,50 +928,48 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         # Limpiamos los nombres de todas las columnas primero
         df_cp.columns = [_limpiar_nombre_columna_retenciones(c) for c in df_cp.columns]
         df_cg.columns = [_limpiar_nombre_columna_retenciones(c) for c in df_cg.columns]
-        
-        # --- INICIO DE LA CORRECCIÓN ROBUSTA ---
-        # En lugar de un rename(), ahora buscamos activamente la columna correcta.
-        
-        # Búsqueda y renombrado para df_cp ('MONTO')
-        monto_synonyms_cp = ['MONTOTOTAL', 'MONTOBS', 'MONTO']
-        columna_monto_encontrada = False
-        for col in df_cp.columns:
-            if col in monto_synonyms_cp:
-                df_cp.rename(columns={col: 'MONTO'}, inplace=True)
-                log_messages.append(f"✔️ Columna de monto en CP ('{col}') estandarizada a 'MONTO'.")
-                columna_monto_encontrada = True
-                break
-        if not columna_monto_encontrada:
-             raise KeyError("No se pudo encontrar una columna de Monto ('Monto', 'Monto Total', 'Monto Bs') en el archivo CP.")
-
-        # Búsqueda y renombrado para df_cg ('CREDITOVES')
-        credito_synonyms_cg = ['CREDITOVES', 'CREDITO', 'CREDITOBS']
-        columna_credito_encontrada = False
-        for col in df_cg.columns:
-            if col in credito_synonyms_cg:
-                df_cg.rename(columns={col: 'CREDITOVES'}, inplace=True)
-                log_messages.append(f"✔️ Columna de crédito en CG ('{col}') estandarizada a 'CREDITOVES'.")
-                columna_credito_encontrada = True
-                break
-        if not columna_credito_encontrada:
-            raise KeyError("No se pudo encontrar una columna de Crédito ('Crédito VES', 'Credito') en el archivo CG.")
-        # --- FIN DE LA CORRECCIÓN ROBUSTA ---
-
         df_galac_iva.columns = [_limpiar_nombre_columna_retenciones(c) for c in df_galac_iva.columns]
         df_galac_islr.columns = [_limpiar_nombre_columna_retenciones(c) for c in df_galac_islr.columns]
         df_galac_mun.columns = [_limpiar_nombre_columna_retenciones(c) for c in df_galac_mun.columns]
         
-        df_galac_iva.rename(columns={'RIF': 'RIF', 'COMPROBANTE': 'COMPROBANTE', 'MONTO': 'MONTO', 'FACTURA': 'FACTURA', 'FECHA': 'FECHA'}, inplace=True)
-        df_galac_islr.rename(columns={'RIF': 'RIF', 'COMPROBANTE': 'COMPROBANTE', 'MONTORETENIDO': 'MONTO', 'FACTURA': 'FACTURA', 'FECHAEMISION': 'FECHA'}, inplace=True)
-        df_galac_mun.rename(columns={'RIF': 'RIF', 'MONTODELARETENCION': 'MONTO', 'NUMERODEFACTURA': 'FACTURA', 'FECHADEEMISION': 'FECHA'}, inplace=True)
-        df_galac_mun['COMPROBANTE'] = ''
+        # Búsqueda y renombrado robusto para CP y CG
+        monto_synonyms_cp = ['MONTOTOTAL', 'MONTOBS', 'MONTO']
+        if not any(col in df_cp.columns for col in monto_synonyms_cp): raise KeyError("No se pudo encontrar una columna de Monto en el archivo CP.")
+        for col in monto_synonyms_cp:
+            if col in df_cp.columns: df_cp.rename(columns={col: 'MONTO'}, inplace=True)
+        
+        credito_synonyms_cg = ['CREDITOVES', 'CREDITO', 'CREDITOBS']
+        if not any(col in df_cg.columns for col in credito_synonyms_cg): raise KeyError("No se pudo encontrar una columna de Crédito en el archivo CG.")
+        for col in credito_synonyms_cg:
+            if col in df_cg.columns: df_cg.rename(columns={col: 'CREDITOVES'}, inplace=True)
 
+        # --- CORRECCIÓN ROBUSTA PARA GALAC CON SINÓNIMOS EXACTOS DE LAS IMÁGENES ---
+        galac_synonyms = {
+            'MONTO': ['MONTO', 'IVARETENIDO', 'MONTORETENIDO', 'VALOR'],
+            'RIF': ['RIF', 'RIFPROV', 'RIFPROVEEDOR', 'NUMERORIF'],
+            'COMPROBANTE': ['COMPROBANTE', 'NOCOMPROBANTE', 'NREFERENCIA'],
+            'FACTURA': ['FACTURA', 'NDOCUMENTO', 'NUMERODEFACTURA'],
+            'FECHA': ['FECHA', 'FECHARET', 'FECHAOPERACION', 'FECHARETENCION']
+        }
+
+        for df_galac, nombre_archivo in [(df_galac_iva, 'IVA'), (df_galac_islr, 'ISLR'), (df_galac_mun, 'Municipal')]:
+            for col_estandar, sinonimos in galac_synonyms.items():
+                for sinonimo in sinonimos:
+                    if sinonimo in df_galac.columns:
+                        df_galac.rename(columns={sinonimo: col_estandar}, inplace=True)
+                        break
+        
+        # Columnas que pueden no existir en todos los archivos
+        if 'COMPROBANTE' not in df_galac_mun.columns: df_galac_mun['COMPROBANTE'] = ''
+        if 'FACTURA' not in df_galac_iva.columns: df_galac_iva['FACTURA'] = ''
+        
         df_galac_iva['TIPO'] = 'IVA'
         df_galac_islr['TIPO'] = 'ISLR'
         df_galac_mun['TIPO'] = 'MUNICIPAL'
         
         df_galac_full = pd.concat([df_galac_iva, df_galac_islr, df_galac_mun], ignore_index=True)
         
+        # Normalización de valores clave
         for df in [df_cp, df_cg, df_galac_full]:
             if 'PROVEEDOR' in df.columns and 'RIF' not in df.columns: df.rename(columns={'PROVEEDOR': 'RIF'}, inplace=True)
             if 'RIF' in df.columns: df['RIF_norm'] = df['RIF'].apply(_normalizar_valor)
@@ -977,6 +978,7 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
             if 'COMPROBANTE' in df.columns: df['COMPROBANTE_norm'] = df['COMPROBANTE'].apply(_normalizar_valor)
             if 'FACTURA' in df.columns: df['FACTURA_norm'] = df['FACTURA'].apply(_normalizar_valor)
 
+        # Conversión a numérico (ahora debería funcionar)
         df_cp['MONTO'] = pd.to_numeric(df_cp['MONTO'], errors='coerce').fillna(0)
         df_cg['CREDITOVES'] = pd.to_numeric(df_cg['CREDITOVES'], errors='coerce').fillna(0)
         df_galac_full['MONTO'] = pd.to_numeric(df_galac_full['MONTO'], errors='coerce').fillna(0)
@@ -989,7 +991,10 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         indices_galac_encontrados = set()
 
         for index, row_cp in df_cp.iterrows():
-            subtipo = row_cp.get('SUBTIPO', '').upper()
+            subtipo = str(row_cp.get('SUBTIPO', '')).upper()
+            # Corrección para "Retención IVA" -> "IVA"
+            if 'IVA' in subtipo: subtipo = 'IVA'
+                
             rif_cp = row_cp.get('RIF_norm', '')
             comprobante_cp = row_cp.get('COMPROBANTE_norm', '')
             factura_cp = row_cp.get('FACTURA_norm', '')
@@ -1070,15 +1075,15 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
             workbook = writer.book
             formato_titulo = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'font_size': 14})
             worksheet_galac = writer.sheets['GALAC']
-            worksheet_galac.set_column('A:G', 15)
+            worksheet_galac.set_column('A:Z', 15)
             worksheet_galac.merge_range('A1:G1', 'Retenciones en GALAC No Encontradas en CP (Omisiones)', formato_titulo)
             
             worksheet_cp = writer.sheets['Relacion CP']
-            worksheet_cp.set_column('A:J', 15)
+            worksheet_cp.set_column('A:Z', 15)
             worksheet_cp.merge_range('A1:J1', 'Panel de Control de Conciliación - Relación CP', formato_titulo)
 
             worksheet_cg = writer.sheets['Diario CG']
-            worksheet_cg.set_column('A:H', 15)
+            worksheet_cg.set_column('A:Z', 15)
             worksheet_cg.merge_range('A1:H1', 'Detalle de Asientos con Discrepancias en Diario', formato_titulo)
 
         log_messages.append("¡Proceso de conciliación de retenciones completado con éxito!")
