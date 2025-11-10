@@ -391,6 +391,7 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
         
         if not df_incidencias.empty and not df_cg_errores.empty:
             merged_errors = pd.merge(df_cg_errores, df_incidencias[['Asiento', 'Cp Vs Galac', 'Monto coincide CG', 'Subtipo']], on='Asiento', how='left')
+            merged_errors.rename(columns={'Asiento': 'ASIENTO'}, inplace=True)
             conditions = [(merged_errors['CUENTACONTABLE'] != merged_errors['Subtipo'].map(cuentas_map)), (merged_errors['Monto coincide CG'] == 'No')]
             choices = ['Cuenta Contable no corresponde al Subtipo', 'Monto en Diario no coincide con Relacion CP']
             merged_errors['Observacion'] = np.select(conditions, choices, default='Error no clasificado')
