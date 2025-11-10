@@ -908,11 +908,13 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         # --- 1. CARGA Y PREPARACIÓN DE DATOS ---
         log_messages.append("Cargando archivos de entrada...")
         
-        # --- CORRECCIÓN CLAVE ---
-        # Ajustamos el número de fila del encabezado para el archivo CP según la imagen.
-        # Fila 5 en Excel corresponde a header=4.
         df_cp = pd.read_excel(file_cp, header=4)
-        df_cg = pd.read_excel(file_cg, header=5)
+        
+        # --- CORRECCIÓN CLAVE ---
+        # Ajustamos el número de fila del encabezado para el archivo CG según la imagen.
+        # Fila 1 en Excel corresponde a header=0.
+        df_cg = pd.read_excel(file_cg, header=0)
+        
         df_galac_iva = pd.read_excel(file_iva, header=0)
         df_galac_islr = pd.read_excel(file_islr, header=0)
         df_galac_mun = pd.read_excel(file_mun, header=0)
@@ -930,6 +932,12 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
             'MONTOBS': 'MONTO'
         }, inplace=True)
         
+        df_cg.rename(columns={
+            'CREDITO': 'CREDITOVES',
+            'CREDITOVES': 'CREDITOVES',
+            'CREDITOBS': 'CREDITOVES'
+        }, inplace=True)
+
         df_galac_iva.columns = [_limpiar_nombre_columna_retenciones(c) for c in df_galac_iva.columns]
         df_galac_islr.columns = [_limpiar_nombre_columna_retenciones(c) for c in df_galac_islr.columns]
         df_galac_mun.columns = [_limpiar_nombre_columna_retenciones(c) for c in df_galac_mun.columns]
