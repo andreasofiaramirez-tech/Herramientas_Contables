@@ -931,9 +931,6 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         df_galac_islr.columns = [_limpiar_nombre_columna_retenciones(c) for c in df_galac_islr.columns]
         df_galac_mun.columns = [_limpiar_nombre_columna_retenciones(c) for c in df_galac_mun.columns]
         
-        # --- INICIO DE LA LÓGICA DE RENOMBRADO DEFINITIVA Y ROBUSTA ---
-
-        # Función auxiliar para encontrar y renombrar una columna a partir de una lista de sinónimos
         def find_and_rename(df, synonyms, standard_name, df_name):
             col_to_rename = None
             for synonym in synonyms:
@@ -944,22 +941,28 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
                 df.rename(columns={col_to_rename: standard_name}, inplace=True)
                 log_messages.append(f"✔️ Columna en {df_name} ('{col_to_rename}') estandarizada a '{standard_name}'.")
             else:
-                raise KeyError(f"No se pudo encontrar una columna para '{standard_name}' en el archivo {df_name}. Sinónimos buscados: {synonyms}")
+                # Solo lanzamos error para columnas críticas
+                critical_cols = ['MONTO', 'RIF', 'FECHA', 'CREDITOVES']
+                if standard_name in critical_cols:
+                    raise KeyError(f"No se pudo encontrar una columna para '{standard_name}' en el archivo {df_name}. Sinónimos buscados: {synonyms}")
 
-        # Estandarizar CP, CG y todos los archivos de GALAC
+        # Estandarizar CP y CG
         find_and_rename(df_cp, ['MONTOTOTAL', 'MONTOBS', 'MONTO'], 'MONTO', 'CP')
         find_and_rename(df_cg, ['CREDITOVES', 'CREDITO', 'CREDITOBS'], 'CREDITOVES', 'CG')
         
-        for df, name in [(df_galac_iva, "GALAC IVA"), (df_galac_islr, "GALAC ISLR"), (df_galac_mun, "GALAC MUNICIPAL")]:
-            find_and_rename(df, ['MONTO', 'IVARETENIDO', 'MONTORETENIDO', 'VALOR'], 'MONTO', name)
-            find_and_rename(df, ['RIF', 'RIFPROV', 'RIFPROVEEDOR', 'NUMERORIF'], 'RIF', name)
-            find_and_rename(df, ['FECHA', 'FECHARET', 'FECHAOPERACION', 'FECHARETENCION'], 'FECHA', name)
-            find_and_rename(df, ['FACTURA', 'NDOCUMENTO', 'NUMERODEFACTURA'], 'FACTURA', name)
-            # El comprobante es opcional, no lanzamos error si no se encuentra
-            if any(s in df.columns for s in ['COMPROBANTE', 'NOCOMPROBANTE', 'NREFERENCIA']):
-                 find_and_rename(df, ['COMPROBANTE', 'NOCOMPROBANTE', 'NREFERENCIA'], 'COMPROBANTE', name)
+        # --- CORRECCIÓN CLAVE: LISTA DE SINÓNIMOS DE FECHA CORREGIDA Y EXPANDIDA ---
+        galac_synonyms = {
+            'MONTO': ['MONTO', 'IVARETENIDO', 'MONTORETENIDO', 'VALOR'],
+            'RIF': ['RIF', 'RIFPROV', 'RIFPROVEEDOR', 'NUMERORIF'],
+            'COMPROBANTE': ['COMPROBANTE', 'NOCOMPROBANTE', 'NREFERENCIA'],
+            'FACTURA': ['FACTURA', 'NDOCUMENTO', 'NUMERODEFACTURA', 'NDOCUMENTONDECONTROL'], # Añadido N de Control para IVA
+            'FECHA': ['FECHA', 'FECHARET', 'FECHAOPERACION', 'FECHARETENCION'] # Lista corregida
+        }
 
-        # --- FIN DE LA LÓGICA DE RENOMBRADO DEFINITIVA Y ROBUSTA ---
+        # Iteramos sobre cada DataFrame de GALAC para estandarizarlo
+        for df_galac, nombre_archivo in [(df_galac_iva, 'GALAC IVA'), (df_galac_islr, 'GALAC ISLR'), (df_galac_mun, 'Municipal')]:
+            for col_estandar, sinonimos in galac_synonyms.items():
+                find_and_rename(df_galac, sinonimos, col_estandar, nombre_archivo)
         
         # Aseguramos que las columnas opcionales existan antes de concatenar
         for df in [df_galac_iva, df_galac_islr, df_galac_mun]:
@@ -972,7 +975,7 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         
         df_galac_full = pd.concat([df_galac_iva, df_galac_islr, df_galac_mun], ignore_index=True)
         
-        # --- Normalización de valores clave ---
+        # Normalización de valores clave
         for df in [df_cp, df_cg, df_galac_full]:
             if 'PROVEEDOR' in df.columns and 'RIF' not in df.columns: df.rename(columns={'PROVEEDOR': 'RIF'}, inplace=True)
             if 'RIF' in df.columns: df['RIF_norm'] = df['RIF'].apply(_normalizar_valor)
@@ -981,13 +984,12 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
             if 'COMPROBANTE' in df.columns: df['COMPROBANTE_norm'] = df['COMPROBANTE'].apply(_normalizar_valor)
             if 'FACTURA' in df.columns: df['FACTURA_norm'] = df['FACTURA'].apply(_normalizar_valor)
 
-        # --- Conversión a numérico (ahora funcionará) ---
+        # Conversión a numérico
         df_cp['MONTO'] = pd.to_numeric(df_cp['MONTO'], errors='coerce').fillna(0)
         df_cg['CREDITOVES'] = pd.to_numeric(df_cg['CREDITOVES'], errors='coerce').fillna(0)
         df_galac_full['MONTO'] = pd.to_numeric(df_galac_full['MONTO'], errors='coerce').fillna(0)
         
         # (El resto de la función permanece exactamente igual...)
-
         # --- 2. LÓGICA DE CONCILIACIÓN ---
         log_messages.append("Iniciando auditoría en cascada por registro...")
         results = []
