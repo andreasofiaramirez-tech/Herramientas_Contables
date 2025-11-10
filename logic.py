@@ -1044,7 +1044,7 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
             # HOJA 1
             ws1 = workbook.add_worksheet('Relacion CP')
             ws1.hide_gridlines(2)
-            column_map_cp = {'ASIENTOCONTABLE': 'Asiento', 'TIPO': 'Tipo', 'FECHA': 'Fecha', 'NUMERO': 'Numero', 'APLICACION': 'Aplicacion', 'SUBTIPO': 'Subtipo', 'MONTO': 'Monto', 'CP_Vs_Galac': 'Cp Vs Galac', 'Asiento_en_CG': 'Asiento en CG', 'Monto_coincide_CG': 'Monto coincide CG', 'RIF': 'Proveedor', 'NOMBRE': 'nombre'}
+            column_map_cp = {'ASIENTOCONTABLE': 'Asiento', 'TIPO': 'Tipo', 'FECHA': 'Fecha', 'NUMERO': 'Numero', 'APLICACION': 'Aplicacion', 'SUBTIPO': 'Subtipo', 'MONTO': 'Monto', 'CP_Vs_Galac': 'Cp Vs Galac', 'Asiento_en_CG': 'Asiento en CG', 'Monto_coincide_CG': 'Monto coincide CG', 'RIF': 'Proveedor', 'NOMBREPROVEEDOR': 'nombre'}
             final_order_cp = ['Asiento', 'Tipo', 'Fecha', 'Numero', 'Aplicacion', 'Subtipo', 'Monto', 'Cp Vs Galac', 'Asiento en CG', 'Monto coincide CG', 'Proveedor', 'nombre']
             df_cp_report = df_cp_results.rename(columns=column_map_cp)
             
