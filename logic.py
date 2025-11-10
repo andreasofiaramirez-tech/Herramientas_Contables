@@ -815,6 +815,7 @@ def _normalizar_valor(valor):
 def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun, log_messages):
     log_messages.append("--- INICIANDO PROCESO DE CONCILIACIÓN DE RETENCIONES ---")
     try:
+        # --- 1. CARGA DE DATOS ---
         df_cp = pd.read_excel(file_cp, header=4, dtype=str)
         df_cg = pd.read_excel(file_cg, header=0, dtype=str)
         df_galac_iva = pd.read_excel(file_iva, header=4, dtype=str)
@@ -822,13 +823,39 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         df_galac_mun = pd.read_excel(file_mun, header=8, dtype=str)
         CUENTAS_MAP = {'IVA': '2111101004', 'ISLR': '2111101005', 'MUNICIPAL': '2111101006'}
 
-        # --- CORRECCIÓN FINAL: CAMBIO DE ORDEN ---
+        # ======================= INICIO DE LA CORRECCIÓN FINAL =======================
+        # --- 1.A: LIMPIEZA DE COLUMNAS DUPLICADAS ---
+        for df, name in [(df_cp, "CP"), (df_cg, "CG"), (df_galac_iva, "IVA"), (df_galac_islr, "ISLR"), (df_galac_mun, "Municipal")]:
+            cols = pd.Series(df.columns)
+            for dup in cols[cols.duplicated()].unique():
+                cols[cols[cols == dup].index.values.tolist()] = [dup + '.' + str(i) if i != 0 else dup for i in range(sum(cols == dup))]
+            df.columns = cols
+            if any('.' in s for s in df.columns):
+                log_messages.append(f"✔️ Limpieza {name}: Se renombraron columnas duplicadas.")
 
-        # 1. Limpiar los nombres de las columnas AHORA
+        # --- 1.B: LIMPIEZA DE ENCABEZADOS REPETIDOS EN ARCHIVOS GALAC ---
+        for df, name in [(df_galac_iva, "IVA"), (df_galac_islr, "ISLR"), (df_galac_mun, "Municipal")]:
+            rif_col = next((col for col in df.columns if "RIF" in str(col).upper()), None)
+            if rif_col:
+                initial_rows = len(df)
+                df.dropna(subset=[rif_col], inplace=True)
+                monto_col = next((col for col in df.columns if "MONTO" in str(col).upper() or "RETENIDO" in str(col).upper() or "VALOR" in str(col).upper()), None)
+                if monto_col:
+                    df[monto_col] = pd.to_numeric(df[monto_col], errors='coerce')
+                    df.dropna(subset=[monto_col], inplace=True)
+                rows_removed = initial_rows - len(df)
+                if rows_removed > 0: log_messages.append(f"✔️ Limpieza GALAC {name}: Se eliminaron {rows_removed} filas de encabezados repetidos.")
+        # ======================== FIN DE LA CORRECCIÓN FINAL =========================
+
+        # --- 2. LIMPIEZA INICIAL DE NOMBRES DE COLUMNAS ---
         for df in [df_cp, df_cg, df_galac_iva, df_galac_islr, df_galac_mun]:
             df.columns = [_limpiar_nombre_columna_retenciones(c) for c in df.columns]
         
-        # 2. Estandarizar los nombres de las columnas AHORA
+        # ... (El resto de la función continúa exactamente igual que en la versión anterior) ...
+        if 'PROVEEDOR' in df_cp.columns: df_cp.rename(columns={'PROVEEDOR': 'RIF'}, inplace=True)
+        for df, name in [(df_galac_iva, "GALAC IVA"), (df_galac_islr, "GALAC ISLR"), (df_galac_mun, "Municipal")]:
+            if 'PROVEEDOR' in df.columns: df.rename(columns={'PROVEEDOR': 'NOMBREPROVEEDOR'}, inplace=True)
+
         synonyms_map = {
             'MONTO': ['MONTOTOTAL', 'MONTOBS', 'MONTO', 'IVARETENIDO', 'MONTORETENIDO', 'VALOR'], 'RIF': ['RIF', 'RIFPROV', 'RIFPROVEEDOR', 'NUMERORIF', 'NIT'], 'COMPROBANTE': ['COMPROBANTE', 'NOCOMPROBANTE', 'NREFERENCIA', 'NUMERO'], 'FACTURA': ['FACTURA', 'NDOCUMENTO', 'NUMERODEFACTURA'], 'NCONTROL': ['NCONTROL', 'NUMERODECONTROL', 'NDECONTROL', 'NDOCUMENTONDECONTROL'], 'FECHA': ['FECHA', 'FECHARET', 'OPERACION'], 'NOMBREPROVEEDOR': ['NOMBRE', 'RAZONSOCIAL', 'RAZONSOCIALDELSUJETORETENIDO'], 'CREDITOVES': ['CREDITOVES', 'CREDITO', 'CREDITOBS'], 'ASIENTO': ['ASIENTO', 'ASIENTOCONTABLE'], 'CUENTACONTABLE': ['CUENTACONTABLE', 'CUENTA']
         }
@@ -840,22 +867,6 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
                     elif standard_name not in df.columns: df[standard_name] = 0.0 if standard_name in ['MONTO', 'CREDITOVES'] else ''
         for df in [df_cp, df_cg, df_galac_iva, df_galac_islr, df_galac_mun]: estandarizar_columnas(df)
 
-        # 3. Limpiar encabezados repetidos AHORA, usando los nombres ESTANDARIZADOS
-        for df, name in [(df_galac_iva, "IVA"), (df_galac_islr, "ISLR"), (df_galac_mun, "Municipal")]:
-            if 'RIF' in df.columns and 'MONTO' in df.columns:
-                initial_rows = len(df)
-                df.dropna(subset=['RIF'], inplace=True)
-                df['MONTO'] = pd.to_numeric(df['MONTO'], errors='coerce')
-                df.dropna(subset=['MONTO'], inplace=True)
-                rows_removed = initial_rows - len(df)
-                if rows_removed > 0: log_messages.append(f"✔️ Limpieza GALAC {name}: Se eliminaron {rows_removed} filas de encabezados repetidos.")
-        
-        # 4. Manejar casos especiales AHORA
-        if 'PROVEEDOR' in df_cp.columns: df_cp.rename(columns={'PROVEEDOR': 'RIF'}, inplace=True)
-        for df, name in [(df_galac_iva, "GALAC IVA"), (df_galac_islr, "GALAC ISLR"), (df_galac_mun, "Municipal")]:
-            if 'PROVEEDOR' in df.columns: df.rename(columns={'PROVEEDOR': 'NOMBREPROVEEDOR'}, inplace=True)
-        
-        # --- PREPARACIÓN FINAL DE DATOS ---
         df_galac_iva['TIPO'] = 'IVA'; df_galac_islr['TIPO'] = 'ISLR'; df_galac_mun['TIPO'] = 'MUNICIPAL'
         df_galac_full = pd.concat([df_galac_iva, df_galac_islr, df_galac_mun], ignore_index=True)
         for df in [df_cp, df_galac_full]:
