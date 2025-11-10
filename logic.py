@@ -792,11 +792,25 @@ def _limpiar_nombre_columna_retenciones(col_name):
     return re.sub(r'[^A-Z0-9]', '', s.upper())
     
 def _normalizar_valor(valor):
+    """
+    (Versión Robusta) Normaliza RIF, comprobantes y facturas, manejando
+    correctamente los números interpretados como float.
+    """
     if pd.isna(valor):
         return ''
-    val_str = str(valor).strip().upper().replace('.', '').replace('-', '')
-    val_str = re.sub(r'^0+', '', val_str)
-    if val_str.startswith('J'):
+    
+    # Convertir a string. Si es un float (ej: 20251000278221.0),
+    # lo convierte a entero y luego a string para eliminar el ".0".
+    try:
+        val_str = str(int(float(valor)))
+    except (ValueError, TypeError):
+        val_str = str(valor)
+
+    # Limpieza final: quitar guiones, espacios y ceros a la izquierda.
+    # CRÍTICO: Ya no se elimina el punto, pues ya fue manejado.
+    val_str = val_str.strip().upper().replace('-', '')
+    val_str = re.sub(r'^0+', '', val_str) # Elimina ceros iniciales
+    if val_str.startswith('J'): # Quita la 'J' de los RIFs si existe
         val_str = val_str[1:]
     return val_str
 
