@@ -818,6 +818,10 @@ def _normalizar_valor(valor):
 
 # ... (El resto del archivo permanece igual) ...
 
+# logic.py
+
+# ... (El resto del archivo permanece igual) ...
+
 def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun, log_messages):
     log_messages.append("--- INICIANDO PROCESO DE CONCILIACIÓN DE RETENCIONES ---")
     try:
@@ -829,7 +833,7 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         df_galac_mun = pd.read_excel(file_mun, header=8, dtype=str)
         CUENTAS_MAP = {'IVA': '2111101004', 'ISLR': '2111101005', 'MUNICIPAL': '2111101006'}
 
-        # --- LÓGICA PARA CORREGIR LA COLUMNA DE FACTURA DESPLAZADA EN ISLR ---
+        # --- Limpieza y Correcciones Previas ---
         col_factura_original_islr = next((col for col in df_galac_islr.columns if "DOCUMENTO" in str(col).upper()), None)
         if col_factura_original_islr and df_galac_islr[col_factura_original_islr].isnull().all():
             try:
@@ -840,10 +844,9 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
                         df_galac_islr[col_factura_original_islr] = df_galac_islr[col_candidata]
                         log_messages.append(f"✔️ Corrección ISLR: Columna de factura vacía '{col_factura_original_islr}' rellenada con datos de la columna '{col_candidata}'.")
                         break
-            except (IndexError, KeyError) as e:
+            except (IndexError, KeyError):
                 pass
         
-        # --- Estandarización de Nombres de Columnas ---
         for df in [df_cp, df_cg, df_galac_iva, df_galac_islr, df_galac_mun]:
             df.columns = [_limpiar_nombre_columna_retenciones(c) for c in df.columns]
         
@@ -854,12 +857,21 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         synonyms_map = {
             'MONTO': ['MONTOTOTAL', 'MONTOBS', 'MONTO', 'IVARETENIDO', 'MONTORETENIDO', 'VALOR'], 'RIF': ['RIF', 'RIFPROV', 'RIFPROVEEDOR', 'NUMERORIF', 'NIT'], 'COMPROBANTE': ['COMPROBANTE', 'NOCOMPROBANTE', 'NREFERENCIA', 'NUMERO'], 'FACTURA': ['FACTURA', 'NDOCUMENTO', 'NUMERODEFACTURA'], 'NCONTROL': ['NCONTROL', 'NUMERODECONTROL', 'NDECONTROL', 'NDOCUMENTONDECONTROL'], 'FECHA': ['FECHA', 'FECHARET', 'OPERACION'], 'NOMBREPROVEEDOR': ['NOMBRE', 'RAZONSOCIAL', 'RAZONSOCIALDELSUJETORETENIDO'], 'CREDITOVES': ['CREDITOVES', 'CREDITO', 'CREDITOBS'], 'ASIENTO': ['ASIENTO', 'ASIENTOCONTABLE'], 'CUENTACONTABLE': ['CUENTACONTABLE', 'CUENTA']
         }
+        
+        # ======================= INICIO DE LA CORRECCIÓN FINAL =======================
         def estandarizar_columnas(df):
             for standard_name, synonyms in synonyms_map.items():
                 if standard_name not in df.columns:
                     col_encontrada = next((s for s in synonyms if s in df.columns), None)
                     if col_encontrada: df.rename(columns={col_encontrada: standard_name}, inplace=True)
-                    elif standard_name not in df.columns: df[standard_name] = ''
+                    elif standard_name not in df.columns:
+                        # CORRECCIÓN: Inicializar columnas numéricas con 0.0, no con ''
+                        if standard_name in ['MONTO', 'CREDITOVES']:
+                            df[standard_name] = 0.0
+                        else:
+                            df[standard_name] = ''
+        # ======================== FIN DE LA CORRECCIÓN FINAL =========================
+                            
         for df in [df_cp, df_cg, df_galac_iva, df_galac_islr, df_galac_mun]: estandarizar_columnas(df)
 
         df_galac_iva['TIPO'] = 'IVA'; df_galac_islr['TIPO'] = 'ISLR'; df_galac_mun['TIPO'] = 'MUNICIPAL'
@@ -869,8 +881,10 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
             df['RIF_norm'] = df['RIF'].apply(_normalizar_valor)
             df['COMPROBANTE_norm'] = df['COMPROBANTE'].apply(_normalizar_valor)
             df['FACTURA_norm'] = df['FACTURA'].apply(_normalizar_valor)
+        
+        # Asegurarse de que las columnas de monto son numéricas ANTES del bucle
         for col in ['MONTO', 'CREDITOVES']:
-            for df in [df_cp, df_cg, df_galac_iva, df_galac_islr, df_galac_mun]:
+            for df in [df_cp, df_cg, df_galac_full]:
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
         
         results = []; indices_galac_encontrados = set()
@@ -894,26 +908,19 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
                 def buscar_coincidencia(tipo_a_buscar):
                     df_target = df_galac_full[df_galac_full['TIPO'] == tipo_a_buscar]
                     if df_target.empty or not rif_cp: return False, None
-                    
-                    # ======================= INICIO DE LA CORRECCIÓN FINAL =======================
                     if tipo_a_buscar == 'IVA':
                         monto_match = pd.Series(np.isclose(df_target['MONTO'], monto_cp), index=df_target.index)
-                        # CAMBIO: Usar la factura en lugar del comprobante
                         factura_match = (df_target.get('FACTURA_norm', pd.Series(dtype=str)) == factura_cp)
                         match_final = df_target[(df_target['RIF_norm'] == rif_cp) & factura_match & monto_match]
                         return not match_final.empty, match_final.index
-                    # ======================== FIN DE LA CORRECCIÓN FINAL =========================
-                    
                     elif tipo_a_buscar == 'ISLR':
                         match_group = df_target[(df_target['RIF_norm'] == rif_cp) & (df_target['COMPROBANTE_norm'] == comprobante_cp_norm) & (df_target['FACTURA_norm'] == factura_cp)]
                         if not match_group.empty and np.isclose(match_group['MONTO'].sum(), monto_cp):
                             return True, match_group.index
-                            
                     elif tipo_a_buscar == 'MUNICIPAL':
                         monto_match = pd.Series(np.isclose(df_target['MONTO'], monto_cp), index=df_target.index)
                         match_final = df_target[(df_target['RIF_norm'] == rif_cp) & (df_target['FACTURA_norm'] == factura_cp) & monto_match]
                         return not match_final.empty, match_final.index
-                        
                     return False, None
 
                 encontrado_en_declarado, indices = buscar_coincidencia(subtipo_declarado)
