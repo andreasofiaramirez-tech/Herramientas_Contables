@@ -3,8 +3,9 @@
 import pandas as pd
 import numpy as np
 import re
-import unicodedata
 from itertools import combinations
+from io import BytesIO
+import unicodedata
 
 # --- Constantes de Tolerancia ---
 TOLERANCIA_MAX_BS = 2.00
