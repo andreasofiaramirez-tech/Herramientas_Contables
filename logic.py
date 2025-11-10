@@ -791,31 +791,33 @@ def _limpiar_nombre_columna_retenciones(col_name):
     s = ''.join(c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn')
     return re.sub(r'[^A-Z0-9]', '', s.upper())
 
+# logic.py
+
+# ... (El resto del archivo permanece igual) ...
+
 def _normalizar_valor(valor):
     """
-    (Versión Robusta y Completa) Normaliza RIF, comprobantes y facturas.
+    (Versión Definitiva y Robusta) Normaliza RIF, comprobantes y facturas.
+    Maneja números largos, notación científica y ceros iniciales.
     """
     if pd.isna(valor):
         return ''
-    
-    # Convertir a string y limpiar caracteres no alfanuméricos.
-    val_str = str(valor).strip()
-    val_str = re.sub(r'[^a-zA-Z0-9]', '', val_str).upper()
-
-    # Quitar la 'J' inicial solo si es un RIF.
-    if val_str.startswith('J') and len(val_str) == 10:
+    val_str = str(valor).strip().upper()
+    if 'E+' in val_str:
+        try:
+            val_str = f"{int(float(val_str)):d}"
+        except (ValueError, TypeError):
+            pass
+    val_str = re.sub(r'[^A-Z0-9]', '', val_str)
+    if val_str.startswith('J') and len(val_str) in [9, 10]:
         val_str = val_str[1:]
-    
-    # CORRECCIÓN: Añadir de nuevo la eliminación de ceros a la izquierda.
-    # Esto convertirá '004052' en '4052'.
     val_str = re.sub(r'^0+', '', val_str)
-        
     return val_str
 
 def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun, log_messages):
     log_messages.append("--- INICIANDO PROCESO DE CONCILIACIÓN DE RETENCIONES ---")
     try:
-        # --- Carga y Limpieza (versión robusta final) ---
+        # --- 1. CARGA DE DATOS ---
         df_cp = pd.read_excel(file_cp, header=4, dtype=str)
         df_cg = pd.read_excel(file_cg, header=0, dtype=str)
         df_galac_iva = pd.read_excel(file_iva, header=4, dtype=str)
@@ -823,11 +825,25 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         df_galac_mun = pd.read_excel(file_mun, header=8, dtype=str)
         CUENTAS_MAP = {'IVA': '2111101004', 'ISLR': '2111101005', 'MUNICIPAL': '2111101006'}
 
-        # ... (Bloques de limpieza y estandarización sin cambios) ...
-        for df, name in [(df_cp, "CP"), (df_cg, "CG"), (df_galac_iva, "IVA"), (df_galac_islr, "ISLR"), (df_galac_mun, "Municipal")]:
+        # --- Limpieza de Columnas Duplicadas ---
+        for df in [df_cp, df_cg, df_galac_iva, df_galac_islr, df_galac_mun]:
             if df.columns.duplicated().any():
                 df = df.loc[:, ~df.columns.duplicated()]
         
+        # --- Limpieza de Encabezados Repetidos en GALAC ---
+        for df, name in [(df_galac_iva, "IVA"), (df_galac_islr, "ISLR"), (df_galac_mun, "Municipal")]:
+            rif_col = next((col for col in df.columns if "RIF" in str(col).upper()), None)
+            if rif_col:
+                initial_rows = len(df)
+                df.dropna(subset=[rif_col], inplace=True, how='all')
+                monto_col = next((col for col in df.columns if "MONTO" in str(col).upper() or "RETENIDO" in str(col).upper() or "VALOR" in str(col).upper()), None)
+                if monto_col:
+                    df[monto_col] = pd.to_numeric(df[monto_col], errors='coerce')
+                    df.dropna(subset=[monto_col], inplace=True)
+                if len(df) < initial_rows:
+                    log_messages.append(f"✔️ Limpieza GALAC {name}: Se eliminaron {initial_rows - len(df)} filas inválidas.")
+        
+        # --- Corrección de Columna Desplazada ---
         col_factura_original_islr = next((col for col in df_galac_islr.columns if "DOCUMENTO" in str(col).upper()), None)
         if col_factura_original_islr and df_galac_islr[col_factura_original_islr].isnull().all():
             try:
@@ -836,16 +852,16 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
                     col_candidata = df_galac_islr.columns[i]
                     if not df_galac_islr[col_candidata].isnull().all():
                         df_galac_islr[col_factura_original_islr] = df_galac_islr[col_candidata]
-                        log_messages.append(f"✔️ Corrección ISLR: Columna de factura vacía '{col_factura_original_islr}' rellenada con datos de la columna '{col_candidata}'.")
                         break
-            except (IndexError, KeyError) as e:
+            except (IndexError, KeyError):
                 pass
         
+        # --- Estandarización de Nombres de Columnas ---
         for df in [df_cp, df_cg, df_galac_iva, df_galac_islr, df_galac_mun]:
             df.columns = [_limpiar_nombre_columna_retenciones(c) for c in df.columns]
         
         if 'PROVEEDOR' in df_cp.columns: df_cp.rename(columns={'PROVEEDOR': 'RIF'}, inplace=True)
-        for df, name in [(df_galac_iva, "GALAC IVA"), (df_galac_islr, "GALAC ISLR"), (df_galac_mun, "Municipal")]:
+        for df in [df_galac_iva, df_galac_islr, df_galac_mun]:
             if 'PROVEEDOR' in df.columns: df.rename(columns={'PROVEEDOR': 'NOMBREPROVEEDOR'}, inplace=True)
 
         synonyms_map = {
@@ -856,54 +872,52 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
                 if standard_name not in df.columns:
                     col_encontrada = next((s for s in synonyms if s in df.columns), None)
                     if col_encontrada: df.rename(columns={col_encontrada: standard_name}, inplace=True)
-                    elif standard_name not in df.columns: df[standard_name] = 0.0 if standard_name in ['MONTO', 'CREDITOVES'] else ''
+                    elif standard_name not in df.columns: df[standard_name] = ''
         for df in [df_cp, df_cg, df_galac_iva, df_galac_islr, df_galac_mun]: estandarizar_columnas(df)
 
         df_galac_iva['TIPO'] = 'IVA'; df_galac_islr['TIPO'] = 'ISLR'; df_galac_mun['TIPO'] = 'MUNICIPAL'
         df_galac_full = pd.concat([df_galac_iva, df_galac_islr, df_galac_mun], ignore_index=True)
+        
         for df in [df_cp, df_galac_full]:
             df['RIF_norm'] = df['RIF'].apply(_normalizar_valor)
             df['COMPROBANTE_norm'] = df['COMPROBANTE'].apply(_normalizar_valor)
             df['FACTURA_norm'] = df['FACTURA'].apply(_normalizar_valor)
         for col in ['MONTO', 'CREDITOVES']:
-            for df in [df_cp, df_cg, df_galac_full]:
-                if col in df.columns: df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+            for df in [df_cp, df_cg, df_galac_iva, df_galac_islr, df_galac_mun]:
+                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
         
         results = []; indices_galac_encontrados = set()
         for index, row_cp in df_cp.iterrows():
-            # ======================= INICIO DE LA CORRECCIÓN FINAL =======================
-            # 1. Determinar el subtipo "declarado" por el usuario
             subtipo_original = str(row_cp.get('SUBTIPO', '')).upper()
             subtipo_declarado = 'OTRO'
             if 'IVA' in subtipo_original: subtipo_declarado = 'IVA'
             elif 'ISLR' in subtipo_original: subtipo_declarado = 'ISLR'
             elif 'MUNICIPAL' in subtipo_original: subtipo_declarado = 'MUNICIPAL'
-            
-            # Extraer todos los datos del CP
             rif_cp = row_cp.get('RIF_norm', ''); comprobante_cp_norm = row_cp.get('COMPROBANTE_norm', ''); factura_cp = row_cp.get('FACTURA_norm', '')
             aplicacion_str = str(row_cp.get('APLICACION', ''))
             if not factura_cp:
                 match_fact = re.search(r'FACT\s*N?[°º]?\s*(\S+)', aplicacion_str.upper())
                 if match_fact: factura_cp = _normalizar_valor(match_fact.group(1))
             monto_cp = row_cp.get('MONTO', 0)
-            
             resultado = {'CP_Vs_Galac': 'No Encontrado en GALAC', 'Asiento_en_CG': 'No', 'Monto_coincide_CG': 'No Aplica'}
             
             if "ANULADO" in aplicacion_str.upper():
                 resultado['CP_Vs_Galac'] = 'No Aplica (Anulado)'
             else:
-                match_found = False
-                
-                # 2. Función auxiliar para buscar en cualquier archivo de GALAC
                 def buscar_coincidencia(tipo_a_buscar):
                     df_target = df_galac_full[df_galac_full['TIPO'] == tipo_a_buscar]
                     if df_target.empty or not rif_cp: return False, None
                     
+                    # ======================= INICIO DE LA CORRECCIÓN FINAL =======================
                     if tipo_a_buscar == 'IVA':
                         monto_match = pd.Series(np.isclose(df_target['MONTO'], monto_cp), index=df_target.index)
-                        comp_match = df_target.get('COMPROBANTE_norm', pd.Series(dtype=str)).str.contains(comprobante_cp_norm, na=False)
+                        # Tomar solo los últimos 6 dígitos del comprobante del CP para la comparación
+                        cp_comp_suffix = comprobante_cp_norm[-6:]
+                        # Usar endswith con el sufijo
+                        comp_match = df_target.get('COMPROBANTE_norm', pd.Series(dtype=str)).str.endswith(cp_comp_suffix, na=False)
                         match_final = df_target[(df_target['RIF_norm'] == rif_cp) & comp_match & monto_match]
                         return not match_final.empty, match_final.index
+                    # ======================== FIN DE LA CORRECCIÓN FINAL =========================
                     
                     elif tipo_a_buscar == 'ISLR':
                         match_group = df_target[(df_target['RIF_norm'] == rif_cp) & (df_target['COMPROBANTE_norm'] == comprobante_cp_norm) & (df_target['FACTURA_norm'] == factura_cp)]
@@ -917,24 +931,16 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
                         
                     return False, None
 
-                # 3. Lógica "Confiar pero Verificar"
-                # Primero, busca en el subtipo declarado
                 encontrado_en_declarado, indices = buscar_coincidencia(subtipo_declarado)
-                
                 if encontrado_en_declarado:
-                    resultado['CP_Vs_Galac'] = 'Sí'
-                    indices_galac_encontrados.update(indices)
+                    resultado['CP_Vs_Galac'] = 'Sí'; indices_galac_encontrados.update(indices)
                 else:
-                    # Si no lo encuentra, busca en los otros tipos
                     for otro_tipo in [t for t in ['IVA', 'ISLR', 'MUNICIPAL'] if t != subtipo_declarado]:
                         encontrado_en_otro, indices_otro = buscar_coincidencia(otro_tipo)
                         if encontrado_en_otro:
                             resultado['CP_Vs_Galac'] = f"Error: Subtipo {subtipo_declarado}, Encontrado en {otro_tipo}"
-                            # No se marcan como encontrados para que aparezcan en el reporte
-                            break # Salir al encontrar el primer error
-            # ======================== FIN DE LA CORRECCIÓN FINAL =========================
+                            break
             
-            # ... (Resto de la función sin cambios) ...
             asiento_cp = row_cp.get('ASIENTO', '')
             if asiento_cp:
                 df_asiento_cg = df_cg[df_cg['ASIENTO'] == asiento_cp]
