@@ -819,7 +819,25 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         df_cp = pd.read_excel(file_cp, header=4, dtype=str)
         df_cg = pd.read_excel(file_cg, header=0, dtype=str)
         df_galac_iva = pd.read_excel(file_iva, header=4, dtype=str)
-        df_galac_islr = pd.read_excel(file_islr, header=8, dtype=str)
+        # --- LECTURA POSICIONAL PARA ISLR ---
+        log_messages.append("Leyendo archivo GALAC ISLR por posición para evitar errores de encabezado...")
+        try:
+            # Leer el archivo sin encabezados, saltando las primeras 9 filas basura
+            df_galac_islr = pd.read_excel(file_islr, header=None, skiprows=9, dtype=str)
+            
+            # Asignar nombres a las columnas que nos interesan por su posición
+            # B: RIF, C: N° Referencia, F: N° Documento, N: Monto Retenido
+            df_galac_islr = df_galac_islr.rename(columns={
+                1: 'R.I.F. Proveedor',
+                2: 'N° Referencia',
+                5: 'N° Documento', # Columna F (índice 5)
+                13: 'Monto Retenido' # Columna N (índice 13)
+            })
+            log_messages.append("✔️ Lectura posicional de ISLR completada.")
+        except Exception as e:
+            log_messages.append(f"❌ Falló la lectura posicional de ISLR. Error: {e}")
+            # Si falla, volver al método anterior como respaldo
+            df_galac_islr = pd.read_excel(file_islr, header=8, dtype=str)
         df_galac_mun = pd.read_excel(file_mun, header=8, dtype=str)
         CUENTAS_MAP = {'IVA': '2111101004', 'ISLR': '2111101005', 'MUNICIPAL': '2111101006'}
 
