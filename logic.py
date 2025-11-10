@@ -1108,7 +1108,7 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
             asientos_con_error = df_incidencias['Asiento'].unique()
             df_cg_errores = df_cg[df_cg['ASIENTO'].isin(asientos_con_error)].copy()
             if not df_incidencias.empty and not df_cg_errores.empty:
-                merged_errors = pd.merge(df_cg_errores, df_incidencias[['Asiento', 'Cp Vs Galac', 'Monto coincide CG', 'Subtipo']], on='Asiento', how='left')
+                merged_errors = pd.merge(df_cg_errores, df_incidencias[['Asiento', 'Cp Vs Galac', 'Monto coincide CG', 'Subtipo']], left_on='ASIENTO', right_on='Asiento', how='left')
                 conditions = [(merged_errors['CUENTACONTABLE'] != merged_errors['Subtipo'].map(CUENTAS_MAP)), (merged_errors['Monto coincide CG'] == 'No')]
                 choices = ['Cuenta Contable no corresponde al Subtipo', 'Monto en Diario no coincide con Relacion CP']
                 merged_errors['Observacion'] = np.select(conditions, choices, default='Error no clasificado')
