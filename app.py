@@ -152,10 +152,10 @@ def render_inicio():
     st.markdown("Seleccione la herramienta que desea utilizar:")
     col1, col2 = st.columns(2)
     with col1:
-        st.button("📄 Conciliador de Cuentas", on_click=set_page, args=['especificaciones'], use_container_width=True)
+        st.button("📄 Especificciones", on_click=set_page, args=['especificaciones'], use_container_width=True)
         st.button("📦 Reservas y Apartados", on_click=set_page, args=['reservas'], use_container_width=True, disabled=True)
     with col2:
-        st.button("🧾 Auditoría de Retenciones", on_click=set_page, args=['retenciones'], use_container_width=True)
+        st.button("🧾 Relación de Retenciones", on_click=set_page, args=['retenciones'], use_container_width=True)
         st.button("🔜 Próximamente", on_click=set_page, args=['proximamente'], use_container_width=True, disabled=True)
 
 def render_proximamente(titulo):
