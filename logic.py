@@ -906,7 +906,7 @@ def _normalizar_valor(valor):
 
 def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun, log_messages):
     """
-    (Versión Definitiva con Reporte Personalizado) Función principal que encapsula toda la lógica de conciliación de retenciones.
+    Función principal que encapsula toda la lógica de conciliación de retenciones.
     """
     log_messages.append("--- INICIANDO PROCESO DE CONCILIACIÓN DE RETENCIONES ---")
 
