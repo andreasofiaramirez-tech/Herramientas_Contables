@@ -821,14 +821,16 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         for df in [df_cp, df_cg, df_galac_iva, df_galac_islr, df_galac_mun]:
             df.columns = [_limpiar_nombre_columna_retenciones(c) for c in df.columns]
         
-        # --- 3. LÓGICA DE ESTANDARIZACIÓN ROBUSTA ---
+        # --- 3. REESTRUCTURACIÓN: ESTANDARIZACIÓN EN DOS PASOS ---
+
+        # --- 3.A: ESTANDARIZACIÓN GENERAL (SIN SINÓNIMOS AMBIGUOS) ---
         synonyms_map = {
             'MONTO': ['MONTOTOTAL', 'MONTOBS', 'MONTO', 'IVARETENIDO', 'MONTORETENIDO', 'VALOR'],
-            'RIF': ['RIF', 'RIFPROV', 'RIFPROVEEDOR', 'NUMERORIF', 'NIT'],
+            'RIF': ['RIF', 'RIFPROV', 'RIFPROVEEDOR', 'NUMERORIF', 'NIT'], # 'PROVEEDOR' se manejará por separado
             'COMPROBANTE': ['COMPROBANTE', 'NOCOMPROBANTE', 'NREFERENCIA', 'NUMERO'],
             'FACTURA': ['FACTURA', 'NDOCUMENTO', 'NUMERODEFACTURA', 'NDOCUMENTONDECONTROL'],
             'FECHA': ['FECHA', 'FECHARET', 'OPERACION', 'FECHARETENCION'],
-            'NOMBREPROVEEDOR': ['PROVEEDOR', 'NOMBRE', 'RAZONSOCIAL', 'RAZONSOCIALDELSUJETORETENIDO'],
+            'NOMBREPROVEEDOR': ['NOMBRE', 'RAZONSOCIAL', 'RAZONSOCIALDELSUJETORETENIDO'], # 'PROVEEDOR' se manejará por separado
             'CREDITOVES': ['CREDITOVES', 'CREDITO', 'CREDITOBS'],
             'ASIENTO': ['ASIENTO', 'ASIENTOCONTABLE'],
             'CUENTACONTABLE': ['CUENTACONTABLE', 'CUENTA']
@@ -845,14 +847,24 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
                         log_messages.append(f"⚠️ ADVERTENCIA: No se encontró columna para '{standard_name}' en {df_name}. Se creará vacía.")
                         default_value = 0.0 if standard_name in ['MONTO', 'CREDITOVES'] else ''
                         df[standard_name] = default_value
-
-        estandarizar_columnas(df_cp, "CP")
-        estandarizar_columnas(df_cg, "CG")
-        estandarizar_columnas(df_galac_iva, "GALAC IVA")
-        estandarizar_columnas(df_galac_islr, "GALAC ISLR")
-        estandarizar_columnas(df_galac_mun, "Municipal")
         
-        # --- 4. PREPARACIÓN FINAL DE DATOS ---
+        # Aplicar estandarización general a todos los DataFrames
+        for df, name in [(df_cp, "CP"), (df_cg, "CG"), (df_galac_iva, "GALAC IVA"), (df_galac_islr, "GALAC ISLR"), (df_galac_mun, "Municipal")]:
+            estandarizar_columnas(df, name)
+
+        # --- 3.B: LÓGICA ESPECÍFICA PARA LA COLUMNA AMBIGUA 'PROVEEDOR' ---
+        # Regla para el archivo CP: 'PROVEEDOR' es el RIF.
+        if 'RIF' not in df_cp.columns and 'PROVEEDOR' in df_cp.columns:
+            df_cp.rename(columns={'PROVEEDOR': 'RIF'}, inplace=True)
+            log_messages.append("✔️ Lógica Específica CP: Columna 'PROVEEDOR' asignada a 'RIF'.")
+
+        # Regla para los archivos GALAC: 'PROVEEDOR' es el Nombre.
+        for df, name in [(df_galac_iva, "GALAC IVA"), (df_galac_islr, "GALAC ISLR"), (df_galac_mun, "Municipal")]:
+            if 'NOMBREPROVEEDOR' not in df.columns and 'PROVEEDOR' in df.columns:
+                df.rename(columns={'PROVEEDOR': 'NOMBREPROVEEDOR'}, inplace=True)
+                log_messages.append(f"✔️ Lógica Específica {name}: Columna 'PROVEEDOR' asignada a 'NOMBREPROVEEDOR'.")
+
+        # --- 4. PREPARACIÓN FINAL DE DATOS (sin cambios) ---
         df_galac_iva['TIPO'] = 'IVA'
         df_galac_islr['TIPO'] = 'ISLR'
         df_galac_mun['TIPO'] = 'MUNICIPAL'
@@ -869,7 +881,7 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
                 if col in df.columns:
                     df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
         
-        # --- 5. LÓGICA DE CONCILIACIÓN ---
+        # --- 5. LÓGICA DE CONCILIACIÓN (sin cambios) ---
         log_messages.append("Iniciando auditoría en cascada por registro...")
         results = []
         indices_galac_encontrados = set()
@@ -924,17 +936,9 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         df_cp_results = df_cp.join(pd.DataFrame(results))
         df_galac_no_cp = df_galac_full.drop(list(indices_galac_encontrados))
 
-        # --- 6. GENERACIÓN DE REPORTES (AHORA DELEGADO) ---
+        # --- 6. GENERACIÓN DE REPORTES (DELEGADO, sin cambios) ---
         log_messages.append("Generando reporte de auditoría con formato personalizado...")
-        
-        # Llamamos a la función de utilidad para crear el archivo Excel
-        reporte_bytes = generar_reporte_retenciones(
-            df_cp_results,
-            df_galac_no_cp,
-            df_cg,
-            CUENTAS_MAP
-        )
-        
+        reporte_bytes = generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, CUENTAS_MAP)
         log_messages.append("¡Proceso de conciliación de retenciones completado con éxito!")
         return reporte_bytes
 
