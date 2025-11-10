@@ -908,6 +908,28 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
             factura_cp = row_cp.get('FACTURA_norm', '')
             monto_cp = row_cp.get('MONTO', 0)
             resultado = {'CP_Vs_Galac': 'No Encontrado en GALAC', 'Asiento_en_CG': 'No', 'Monto_coincide_CG': 'No Aplica'}
+
+            # ======================= INICIO DEL BLOQUE DE DIAGNÓSTICO =======================
+            if comprobante_cp == '20251000278221':
+                log_messages.append("\n--- INICIO DEBUG: REGISTRO 'PUNTO LASER' ---")
+                log_messages.append(f"CP RIF normalizado:         |{rif_cp}| (Longitud: {len(rif_cp)})")
+                log_messages.append(f"CP Comprobante normalizado:  |{comprobante_cp}| (Longitud: {len(comprobante_cp)})")
+                
+                # Buscar el registro correspondiente en GALAC
+                df_galac_debug = df_galac_full[df_galac_full['COMPROBANTE_norm'] == '20251000278221']
+                if not df_galac_debug.empty:
+                    galac_row = df_galac_debug.iloc[0]
+                    log_messages.append(f"GALAC RIF normalizado:       |{galac_row['RIF_norm']}| (Longitud: {len(galac_row['RIF_norm'])})")
+                    log_messages.append(f"GALAC Comprobante normalizado:|{galac_row['COMPROBANTE_norm']}| (Longitud: {len(galac_row['COMPROBANTE_norm'])})")
+                    # Comparaciones booleanas
+                    rif_coincide = rif_cp == galac_row['RIF_norm']
+                    comp_coincide = comprobante_cp == galac_row['COMPROBANTE_norm']
+                    log_messages.append(f"¿Coincide el RIF?: {rif_coincide}")
+                    log_messages.append(f"¿Coincide el Comprobante?: {comp_coincide}")
+                else:
+                    log_messages.append("ERROR DE DEBUG: No se encontró el comprobante '20251000278221' en GALAC después de normalizar.")
+                log_messages.append("--- FIN DEBUG ---\n")
+            # ======================== FIN DEL BLOQUE DE DIAGNÓSTICO =========================
             
             if "ANULADO" in str(row_cp.get('APLICACION', '')).upper():
                 resultado['CP_Vs_Galac'] = 'No Aplica (Anulado)'
