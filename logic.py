@@ -1120,8 +1120,8 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
                     ws2.write_row(current_row, 0, galac_headers, header_format)
                     current_row += 1
                     for r_idx, row in df_tipo.iterrows():
-                        ws2.write_row(current_row, 0, row.values[:-1])
-                        current_row += 1
+                        ws2.write_row(current_row, 0, row.fillna('').values[:-1])
+                        current_row +=1
 
             # Aplicar formatos a las columnas
             ws2.set_column('A:A', 12, date_format)
@@ -1146,7 +1146,7 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
             current_row += 1
             if not df_error_cuenta.empty:
                  for r_idx, row in df_error_cuenta.iterrows():
-                    ws3.write_row(current_row, 0, row.values)
+                    ws3.write_row(current_row, 0, row.fillna('').values)
                     current_row += 1
 
             current_row += 1 # Fila en blanco
@@ -1156,7 +1156,7 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
             current_row += 1
             if not df_error_monto.empty:
                 for r_idx, row in df_error_monto.iterrows():
-                    ws3.write_row(current_row, 0, row.values)
+                    ws3.write_row(current_row, 0, row.fillna('').values)
                     current_row += 1
             
             # Aplicar formatos a las columnas
