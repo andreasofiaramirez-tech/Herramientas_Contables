@@ -952,7 +952,7 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
             'FECHA': ['FECHA', 'FECHARET', 'OPERACION', 'FECHARETENCION'],
             'NOMBREPROVEEDOR': ['PROVEEDOR', 'NOMBRE', 'RAZONSOCIAL', 'RAZONSOCIALDELSUJETORETENIDO']
         }
-
+        find_and_rename(df_cp, galac_synonyms['NOMBREPROVEEDOR'], 'NOMBREPROVEEDOR', 'CP')
         for df_galac, nombre_archivo in [(df_galac_iva, 'GALAC IVA'), (df_galac_islr, 'GALAC ISLR'), (df_galac_mun, 'Municipal')]:
             for col_estandar, sinonimos in galac_synonyms.items():
                 find_and_rename(df_galac, sinonimos, col_estandar, nombre_archivo)
