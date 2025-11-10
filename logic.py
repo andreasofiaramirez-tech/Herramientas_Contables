@@ -871,60 +871,80 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         
         results = []; indices_galac_encontrados = set()
         for index, row_cp in df_cp.iterrows():
+            # ======================= INICIO DE LA CORRECCIÓN FINAL =======================
+            # 1. Determinar el subtipo "declarado" por el usuario
             subtipo_original = str(row_cp.get('SUBTIPO', '')).upper()
-            subtipo = 'OTRO'
-            if 'IVA' in subtipo_original: subtipo = 'IVA'
-            elif 'ISLR' in subtipo_original: subtipo = 'ISLR'
-            elif 'MUNICIPAL' in subtipo_original: subtipo = 'MUNICIPAL'
+            subtipo_declarado = 'OTRO'
+            if 'IVA' in subtipo_original: subtipo_declarado = 'IVA'
+            elif 'ISLR' in subtipo_original: subtipo_declarado = 'ISLR'
+            elif 'MUNICIPAL' in subtipo_original: subtipo_declarado = 'MUNICIPAL'
+            
+            # Extraer todos los datos del CP
             rif_cp = row_cp.get('RIF_norm', ''); comprobante_cp_norm = row_cp.get('COMPROBANTE_norm', ''); factura_cp = row_cp.get('FACTURA_norm', '')
+            aplicacion_str = str(row_cp.get('APLICACION', ''))
             if not factura_cp:
-                aplicacion_str = str(row_cp.get('APLICACION', ''))
                 match_fact = re.search(r'FACT\s*N?[°º]?\s*(\S+)', aplicacion_str.upper())
                 if match_fact: factura_cp = _normalizar_valor(match_fact.group(1))
             monto_cp = row_cp.get('MONTO', 0)
+            
             resultado = {'CP_Vs_Galac': 'No Encontrado en GALAC', 'Asiento_en_CG': 'No', 'Monto_coincide_CG': 'No Aplica'}
-            if "ANULADO" in str(row_cp.get('APLICACION', '')).upper():
+            
+            if "ANULADO" in aplicacion_str.upper():
                 resultado['CP_Vs_Galac'] = 'No Aplica (Anulado)'
             else:
-                df_galac_target = df_galac_full[df_galac_full['TIPO'] == subtipo]
                 match_found = False
-                if not df_galac_target.empty and rif_cp:
-                    if subtipo == 'IVA':
-                        monto_match_series = pd.Series(np.isclose(df_galac_target['MONTO'], monto_cp), index=df_galac_target.index)
-                        comprobante_match_series = df_galac_target.get('COMPROBANTE_norm', pd.Series(dtype=str)).str.contains(comprobante_cp_norm, na=False)
-                        match = (df_galac_target['RIF_norm'] == rif_cp) & (comprobante_match_series) & (monto_match_series)
-                        if match.any():
-                            match_found = True; indices_galac_encontrados.update(df_galac_target[match].index)
-                    elif subtipo == 'ISLR':
-                        match_group = df_galac_target[(df_galac_target['RIF_norm'] == rif_cp) & (df_galac_target['COMPROBANTE_norm'] == comprobante_cp_norm) & (df_galac_target['FACTURA_norm'] == factura_cp)]
-                        if not match_group.empty:
-                            suma_monto_galac = match_group['MONTO'].sum()
-                            if np.isclose(suma_monto_galac, monto_cp):
-                                match_found = True; indices_galac_encontrados.update(match_group.index)
+                
+                # 2. Función auxiliar para buscar en cualquier archivo de GALAC
+                def buscar_coincidencia(tipo_a_buscar):
+                    df_target = df_galac_full[df_galac_full['TIPO'] == tipo_a_buscar]
+                    if df_target.empty or not rif_cp: return False, None
                     
-                    # ======================= INICIO DE LA CORRECCIÓN MUNICIPAL =======================
-                    elif subtipo == 'MUNICIPAL': 
-                        monto_match_series = pd.Series(np.isclose(df_galac_target['MONTO'], monto_cp), index=df_galac_target.index)
-                        match = (df_galac_target['RIF_norm'] == rif_cp) & (df_galac_target.get('FACTURA_norm', pd.Series(dtype=str)) == factura_cp) & (monto_match_series)
-                        if match.any():
-                            match_found = True; indices_galac_encontrados.update(df_galac_target[match].index)
-                    # ======================== FIN DE LA CORRECCIÓN MUNICIPAL =========================
+                    if tipo_a_buscar == 'IVA':
+                        monto_match = pd.Series(np.isclose(df_target['MONTO'], monto_cp), index=df_target.index)
+                        comp_match = df_target.get('COMPROBANTE_norm', pd.Series(dtype=str)).str.contains(comprobante_cp_norm, na=False)
+                        match_final = df_target[(df_target['RIF_norm'] == rif_cp) & comp_match & monto_match]
+                        return not match_final.empty, match_final.index
+                    
+                    elif tipo_a_buscar == 'ISLR':
+                        match_group = df_target[(df_target['RIF_norm'] == rif_cp) & (df_target['COMPROBANTE_norm'] == comprobante_cp_norm) & (df_target['FACTURA_norm'] == factura_cp)]
+                        if not match_group.empty and np.isclose(match_group['MONTO'].sum(), monto_cp):
+                            return True, match_group.index
+                            
+                    elif tipo_a_buscar == 'MUNICIPAL':
+                        monto_match = pd.Series(np.isclose(df_target['MONTO'], monto_cp), index=df_target.index)
+                        match_final = df_target[(df_target['RIF_norm'] == rif_cp) & (df_target['FACTURA_norm'] == factura_cp) & monto_match]
+                        return not match_final.empty, match_final.index
+                        
+                    return False, None
 
-                if match_found:
+                # 3. Lógica "Confiar pero Verificar"
+                # Primero, busca en el subtipo declarado
+                encontrado_en_declarado, indices = buscar_coincidencia(subtipo_declarado)
+                
+                if encontrado_en_declarado:
                     resultado['CP_Vs_Galac'] = 'Sí'
-                elif rif_cp:
-                    if resultado['CP_Vs_Galac'] == 'No Encontrado en GALAC' and not df_galac_target.empty:
-                        match_doc_errado = (df_galac_target['RIF_norm'] == rif_cp) & (np.isclose(df_galac_target['MONTO'].abs(), abs(monto_cp)))
-                        if match_doc_errado.sum() == 1: resultado['CP_Vs_Galac'] = 'Error: Documento No Coincide'
+                    indices_galac_encontrados.update(indices)
+                else:
+                    # Si no lo encuentra, busca en los otros tipos
+                    for otro_tipo in [t for t in ['IVA', 'ISLR', 'MUNICIPAL'] if t != subtipo_declarado]:
+                        encontrado_en_otro, indices_otro = buscar_coincidencia(otro_tipo)
+                        if encontrado_en_otro:
+                            resultado['CP_Vs_Galac'] = f"Error: Subtipo {subtipo_declarado}, Encontrado en {otro_tipo}"
+                            # No se marcan como encontrados para que aparezcan en el reporte
+                            break # Salir al encontrar el primer error
+            # ======================== FIN DE LA CORRECCIÓN FINAL =========================
+            
+            # ... (Resto de la función sin cambios) ...
             asiento_cp = row_cp.get('ASIENTO', '')
             if asiento_cp:
                 df_asiento_cg = df_cg[df_cg['ASIENTO'] == asiento_cp]
                 if not df_asiento_cg.empty:
                     resultado['Asiento_en_CG'] = 'Sí'
-                    monto_cg = df_asiento_cg[df_asiento_cg['CUENTACONTABLE'] == CUENTAS_MAP.get(subtipo, '')]['CREDITOVES'].sum()
+                    monto_cg = df_asiento_cg[df_asiento_cg['CUENTACONTABLE'] == CUENTAS_MAP.get(subtipo_declarado, '')]['CREDITOVES'].sum()
                     if np.isclose(monto_cg, abs(monto_cp)): resultado['Monto_coincide_CG'] = 'Sí'
                     else: resultado['Monto_coincide_CG'] = 'No'
             results.append(resultado)
+        
         df_cp_results = df_cp.join(pd.DataFrame(results))
         df_galac_no_cp = df_galac_full.drop(list(indices_galac_encontrados))
         reporte_bytes = generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, CUENTAS_MAP)
