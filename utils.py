@@ -384,7 +384,8 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
         cg_headers_final = cg_original_cols + ['Observacion']
         asientos_con_error = df_incidencias['Asiento'].unique()
         df_cg_errores = df_cg[df_cg['ASIENTO'].isin(asientos_con_error)].copy()
-        
+        df_cg_errores.rename(columns={'ASIENTO': 'Asiento'}, inplace=True)
+
         df_error_cuenta = pd.DataFrame(columns=cg_headers_final)
         df_error_monto = pd.DataFrame(columns=cg_headers_final)
         
