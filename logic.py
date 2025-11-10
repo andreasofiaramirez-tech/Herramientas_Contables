@@ -815,34 +815,20 @@ def _normalizar_valor(valor):
 def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun, log_messages):
     log_messages.append("--- INICIANDO PROCESO DE CONCILIACIÓN DE RETENCIONES ---")
     try:
-        # --- Carga y Limpieza (sin cambios) ---
         df_cp = pd.read_excel(file_cp, header=4, dtype=str)
         df_cg = pd.read_excel(file_cg, header=0, dtype=str)
         df_galac_iva = pd.read_excel(file_iva, header=4, dtype=str)
         df_galac_islr = pd.read_excel(file_islr, header=8, dtype=str)
         df_galac_mun = pd.read_excel(file_mun, header=8, dtype=str)
         CUENTAS_MAP = {'IVA': '2111101004', 'ISLR': '2111101005', 'MUNICIPAL': '2111101006'}
-        
-        for df, name in [(df_galac_iva, "IVA"), (df_galac_islr, "ISLR"), (df_galac_mun, "Municipal")]:
-            rif_col = next((col for col in df.columns if "RIF" in str(col).upper()), None)
-            if rif_col:
-                initial_rows = len(df)
-                df.dropna(subset=[rif_col], inplace=True)
-                monto_col = next((col for col in df.columns if "MONTO" in str(col).upper() or "RETENIDO" in str(col).upper() or "VALOR" in str(col).upper()), None)
-                if monto_col:
-                    df[monto_col] = pd.to_numeric(df[monto_col], errors='coerce')
-                    df.dropna(subset=[monto_col], inplace=True)
-                rows_removed = initial_rows - len(df)
-                if rows_removed > 0:
-                    log_messages.append(f"✔️ Limpieza GALAC {name}: Se eliminaron {rows_removed} filas de encabezados repetidos.")
-        
+
+        # --- CORRECCIÓN FINAL: CAMBIO DE ORDEN ---
+
+        # 1. Limpiar los nombres de las columnas AHORA
         for df in [df_cp, df_cg, df_galac_iva, df_galac_islr, df_galac_mun]:
             df.columns = [_limpiar_nombre_columna_retenciones(c) for c in df.columns]
         
-        if 'PROVEEDOR' in df_cp.columns: df_cp.rename(columns={'PROVEEDOR': 'RIF'}, inplace=True)
-        for df, name in [(df_galac_iva, "GALAC IVA"), (df_galac_islr, "GALAC ISLR"), (df_galac_mun, "Municipal")]:
-            if 'PROVEEDOR' in df.columns: df.rename(columns={'PROVEEDOR': 'NOMBREPROVEEDOR'}, inplace=True)
-
+        # 2. Estandarizar los nombres de las columnas AHORA
         synonyms_map = {
             'MONTO': ['MONTOTOTAL', 'MONTOBS', 'MONTO', 'IVARETENIDO', 'MONTORETENIDO', 'VALOR'], 'RIF': ['RIF', 'RIFPROV', 'RIFPROVEEDOR', 'NUMERORIF', 'NIT'], 'COMPROBANTE': ['COMPROBANTE', 'NOCOMPROBANTE', 'NREFERENCIA', 'NUMERO'], 'FACTURA': ['FACTURA', 'NDOCUMENTO', 'NUMERODEFACTURA'], 'NCONTROL': ['NCONTROL', 'NUMERODECONTROL', 'NDECONTROL', 'NDOCUMENTONDECONTROL'], 'FECHA': ['FECHA', 'FECHARET', 'OPERACION'], 'NOMBREPROVEEDOR': ['NOMBRE', 'RAZONSOCIAL', 'RAZONSOCIALDELSUJETORETENIDO'], 'CREDITOVES': ['CREDITOVES', 'CREDITO', 'CREDITOBS'], 'ASIENTO': ['ASIENTO', 'ASIENTOCONTABLE'], 'CUENTACONTABLE': ['CUENTACONTABLE', 'CUENTA']
         }
@@ -854,6 +840,22 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
                     elif standard_name not in df.columns: df[standard_name] = 0.0 if standard_name in ['MONTO', 'CREDITOVES'] else ''
         for df in [df_cp, df_cg, df_galac_iva, df_galac_islr, df_galac_mun]: estandarizar_columnas(df)
 
+        # 3. Limpiar encabezados repetidos AHORA, usando los nombres ESTANDARIZADOS
+        for df, name in [(df_galac_iva, "IVA"), (df_galac_islr, "ISLR"), (df_galac_mun, "Municipal")]:
+            if 'RIF' in df.columns and 'MONTO' in df.columns:
+                initial_rows = len(df)
+                df.dropna(subset=['RIF'], inplace=True)
+                df['MONTO'] = pd.to_numeric(df['MONTO'], errors='coerce')
+                df.dropna(subset=['MONTO'], inplace=True)
+                rows_removed = initial_rows - len(df)
+                if rows_removed > 0: log_messages.append(f"✔️ Limpieza GALAC {name}: Se eliminaron {rows_removed} filas de encabezados repetidos.")
+        
+        # 4. Manejar casos especiales AHORA
+        if 'PROVEEDOR' in df_cp.columns: df_cp.rename(columns={'PROVEEDOR': 'RIF'}, inplace=True)
+        for df, name in [(df_galac_iva, "GALAC IVA"), (df_galac_islr, "GALAC ISLR"), (df_galac_mun, "Municipal")]:
+            if 'PROVEEDOR' in df.columns: df.rename(columns={'PROVEEDOR': 'NOMBREPROVEEDOR'}, inplace=True)
+        
+        # --- PREPARACIÓN FINAL DE DATOS ---
         df_galac_iva['TIPO'] = 'IVA'; df_galac_islr['TIPO'] = 'ISLR'; df_galac_mun['TIPO'] = 'MUNICIPAL'
         df_galac_full = pd.concat([df_galac_iva, df_galac_islr, df_galac_mun], ignore_index=True)
         for df in [df_cp, df_galac_full]:
@@ -878,75 +880,34 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
                 if match_fact: factura_cp = _normalizar_valor(match_fact.group(1))
             monto_cp = row_cp.get('MONTO', 0)
             resultado = {'CP_Vs_Galac': 'No Encontrado en GALAC', 'Asiento_en_CG': 'No', 'Monto_coincide_CG': 'No Aplica'}
-
-            # ======================= INICIO DEL BLOQUE DE DIAGNÓSTICO =======================
-            if comprobante_cp_norm == '16329':
-                log_messages.append(f"\n--- DEBUG ISLR 16329: DATOS DEL CP ---")
-                log_messages.append(f"RIF a buscar:        |{rif_cp}|")
-                log_messages.append(f"Comprobante a buscar:|{comprobante_cp_norm}|")
-                log_messages.append(f"Factura a buscar:    |{factura_cp}|")
-                
-                df_galac_candidatos = df_galac_full[(df_galac_full['TIPO'] == 'ISLR') & (df_galac_full['RIF_norm'] == rif_cp)]
-                log_messages.append(f"Se encontraron {len(df_galac_candidatos)} candidatos en GALAC con el mismo RIF.")
-                
-                for idx, row_galac in df_galac_candidatos.iterrows():
-                    g_comp = row_galac['COMPROBANTE_norm']
-                    g_fact = row_galac['FACTURA_norm']
-                    log_messages.append(f"  - Candidato GALAC (Comp: {g_comp}, Fact: {g_fact}):")
-                    log_messages.append(f"    ¿Coincide Comprobante?: {g_comp == comprobante_cp_norm}")
-                    log_messages.append(f"    ¿Coincide Factura?: {g_fact == factura_cp}")
-                log_messages.append("--- FIN DEBUG ---\n")
-            # ======================== FIN DEL BLOQUE DE DIAGNÓSTICO =========================
-            
             if "ANULADO" in str(row_cp.get('APLICACION', '')).upper():
                 resultado['CP_Vs_Galac'] = 'No Aplica (Anulado)'
             else:
                 df_galac_target = df_galac_full[df_galac_full['TIPO'] == subtipo]
                 match_found = False
-                
                 if not df_galac_target.empty and rif_cp:
                     if subtipo == 'IVA':
                         monto_match_series = pd.Series(np.isclose(df_galac_target['MONTO'], monto_cp), index=df_galac_target.index)
                         comprobante_match_series = df_galac_target.get('COMPROBANTE_norm', pd.Series(dtype=str)).str.contains(comprobante_cp_norm, na=False)
                         match = (df_galac_target['RIF_norm'] == rif_cp) & (comprobante_match_series) & (monto_match_series)
                         if match.any():
-                            match_found = True
-                            indices_galac_encontrados.update(df_galac_target[match].index)
-                    
-                    # ======================= INICIO DE LA CORRECCIÓN ISLR =======================
+                            match_found = True; indices_galac_encontrados.update(df_galac_target[match].index)
                     elif subtipo == 'ISLR':
-                        # Buscar todas las filas que coincidan en RIF, Comprobante y Factura
-                        match_group = df_galac_target[
-                            (df_galac_target['RIF_norm'] == rif_cp) &
-                            (df_galac_target['COMPROBANTE_norm'] == comprobante_cp_norm) &
-                            (df_galac_target['FACTURA_norm'] == factura_cp)
-                        ]
-                        
-                        # Si se encontró al menos una fila...
+                        match_group = df_galac_target[(df_galac_target['RIF_norm'] == rif_cp) & (df_galac_target['COMPROBANTE_norm'] == comprobante_cp_norm) & (df_galac_target['FACTURA_norm'] == factura_cp)]
                         if not match_group.empty:
-                            # Sumar los montos de todas las filas encontradas
                             suma_monto_galac = match_group['MONTO'].sum()
-                            
-                            # Comparar la suma con el monto del CP (con una pequeña tolerancia)
                             if np.isclose(suma_monto_galac, monto_cp):
-                                match_found = True
-                                # Marcar TODOS los índices de este grupo como encontrados
-                                indices_galac_encontrados.update(match_group.index)
-                    # ======================== FIN DE LA CORRECCIÓN ISLR =========================
-
+                                match_found = True; indices_galac_encontrados.update(match_group.index)
                     elif subtipo == 'MUNICIPAL': 
                         match = (df_galac_target['RIF_norm'] == rif_cp) & (df_galac_target.get('FACTURA_norm', pd.Series(dtype=str)) == factura_cp)
                         if match.any():
-                            match_found = True
-                            indices_galac_encontrados.update(df_galac_target[match].index)
-
+                            match_found = True; indices_galac_encontrados.update(df_galac_target[match].index)
                 if match_found:
                     resultado['CP_Vs_Galac'] = 'Sí'
                 elif rif_cp:
                     if resultado['CP_Vs_Galac'] == 'No Encontrado en GALAC' and not df_galac_target.empty:
                         match_doc_errado = (df_galac_target['RIF_norm'] == rif_cp) & (np.isclose(df_galac_target['MONTO'].abs(), abs(monto_cp)))
                         if match_doc_errado.sum() == 1: resultado['CP_Vs_Galac'] = 'Error: Documento No Coincide'
-            
             asiento_cp = row_cp.get('ASIENTO', '')
             if asiento_cp:
                 df_asiento_cg = df_cg[df_cg['ASIENTO'] == asiento_cp]
@@ -956,7 +917,6 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
                     if np.isclose(monto_cg, abs(monto_cp)): resultado['Monto_coincide_CG'] = 'Sí'
                     else: resultado['Monto_coincide_CG'] = 'No'
             results.append(resultado)
-            
         df_cp_results = df_cp.join(pd.DataFrame(results))
         df_galac_no_cp = df_galac_full.drop(list(indices_galac_encontrados))
         reporte_bytes = generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, CUENTAS_MAP)
