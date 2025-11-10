@@ -814,6 +814,10 @@ def _normalizar_valor(valor):
     val_str = re.sub(r'^0+', '', val_str)
     return val_str
 
+# logic.py
+
+# ... (El resto del archivo permanece igual) ...
+
 def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun, log_messages):
     log_messages.append("--- INICIANDO PROCESO DE CONCILIACIÓN DE RETENCIONES ---")
     try:
@@ -825,25 +829,7 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         df_galac_mun = pd.read_excel(file_mun, header=8, dtype=str)
         CUENTAS_MAP = {'IVA': '2111101004', 'ISLR': '2111101005', 'MUNICIPAL': '2111101006'}
 
-        # --- Limpieza de Columnas Duplicadas ---
-        for df in [df_cp, df_cg, df_galac_iva, df_galac_islr, df_galac_mun]:
-            if df.columns.duplicated().any():
-                df = df.loc[:, ~df.columns.duplicated()]
-        
-        # --- Limpieza de Encabezados Repetidos en GALAC ---
-        for df, name in [(df_galac_iva, "IVA"), (df_galac_islr, "ISLR"), (df_galac_mun, "Municipal")]:
-            rif_col = next((col for col in df.columns if "RIF" in str(col).upper()), None)
-            if rif_col:
-                initial_rows = len(df)
-                df.dropna(subset=[rif_col], inplace=True, how='all')
-                monto_col = next((col for col in df.columns if "MONTO" in str(col).upper() or "RETENIDO" in str(col).upper() or "VALOR" in str(col).upper()), None)
-                if monto_col:
-                    df[monto_col] = pd.to_numeric(df[monto_col], errors='coerce')
-                    df.dropna(subset=[monto_col], inplace=True)
-                if len(df) < initial_rows:
-                    log_messages.append(f"✔️ Limpieza GALAC {name}: Se eliminaron {initial_rows - len(df)} filas inválidas.")
-        
-        # --- Corrección de Columna Desplazada ---
+        # --- LÓGICA PARA CORREGIR LA COLUMNA DE FACTURA DESPLAZADA EN ISLR ---
         col_factura_original_islr = next((col for col in df_galac_islr.columns if "DOCUMENTO" in str(col).upper()), None)
         if col_factura_original_islr and df_galac_islr[col_factura_original_islr].isnull().all():
             try:
@@ -852,8 +838,9 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
                     col_candidata = df_galac_islr.columns[i]
                     if not df_galac_islr[col_candidata].isnull().all():
                         df_galac_islr[col_factura_original_islr] = df_galac_islr[col_candidata]
+                        log_messages.append(f"✔️ Corrección ISLR: Columna de factura vacía '{col_factura_original_islr}' rellenada con datos de la columna '{col_candidata}'.")
                         break
-            except (IndexError, KeyError):
+            except (IndexError, KeyError) as e:
                 pass
         
         # --- Estandarización de Nombres de Columnas ---
@@ -911,11 +898,9 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
                     # ======================= INICIO DE LA CORRECCIÓN FINAL =======================
                     if tipo_a_buscar == 'IVA':
                         monto_match = pd.Series(np.isclose(df_target['MONTO'], monto_cp), index=df_target.index)
-                        # Tomar solo los últimos 6 dígitos del comprobante del CP para la comparación
-                        cp_comp_suffix = comprobante_cp_norm[-6:]
-                        # Usar endswith con el sufijo
-                        comp_match = df_target.get('COMPROBANTE_norm', pd.Series(dtype=str)).str.endswith(cp_comp_suffix, na=False)
-                        match_final = df_target[(df_target['RIF_norm'] == rif_cp) & comp_match & monto_match]
+                        # CAMBIO: Usar la factura en lugar del comprobante
+                        factura_match = (df_target.get('FACTURA_norm', pd.Series(dtype=str)) == factura_cp)
+                        match_final = df_target[(df_target['RIF_norm'] == rif_cp) & factura_match & monto_match]
                         return not match_final.empty, match_final.index
                     # ======================== FIN DE LA CORRECCIÓN FINAL =========================
                     
