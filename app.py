@@ -5,6 +5,7 @@
 # ==============================================================================
 import streamlit as st
 import pandas as pd
+from functools import partial
 
 # --- Importaciones desde nuestros módulos ---
 from logic import (
