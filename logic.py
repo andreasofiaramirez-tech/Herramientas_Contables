@@ -799,7 +799,7 @@ def _normalizar_valor(valor):
     if pd.isna(valor):
         return ''
     val_str = str(valor).strip()
-val_str = re.sub(r'[^a-zA-Z0-9]', '', val_str).upper()
+    val_str = re.sub(r'[^a-zA-Z0-9]', '', val_str).upper()
 
 # Quitar la 'J' inicial solo si es un RIF
 if val_str.startswith('J') and len(val_str) == 10:
