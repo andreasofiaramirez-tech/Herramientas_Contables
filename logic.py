@@ -816,7 +816,7 @@ def _normalizar_valor(valor):
 
 def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun, log_messages):
     """
-    (Versión Definitiva y Consolidada) Función principal que encapsula toda la lógica de conciliación de retenciones.
+    Función principal que encapsula toda la lógica de conciliación de retenciones.
     """
     log_messages.append("--- INICIANDO PROCESO DE CONCILIACIÓN DE RETENCIONES ---")
 
@@ -900,8 +900,15 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         indices_galac_encontrados = set()
         
         for index, row_cp in df_cp.iterrows():
-            subtipo = str(row_cp.get('SUBTIPO', '')).upper()
-            if 'IVA' in subtipo: subtipo = 'IVA'
+            subtipo_original = str(row_cp.get('SUBTIPO', '')).upper()
+            subtipo = 'OTRO' # Valor por defecto
+            if 'IVA' in subtipo_original:
+                subtipo = 'IVA'
+            elif 'ISLR' in subtipo_original:
+                subtipo = 'ISLR'
+            elif 'MUNICIPAL' in subtipo_original:
+                subtipo = 'MUNICIPAL'
+            
             rif_cp = row_cp.get('RIF_norm', '')
             comprobante_cp = row_cp.get('COMPROBANTE_norm', '')
             factura_cp = row_cp.get('FACTURA_norm', '')
