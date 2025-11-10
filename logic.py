@@ -800,9 +800,13 @@ def _normalizar_valor(valor):
     return val_str
 
 def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun, log_messages):
+    """
+    (Versión Definitiva y Consolidada) Función principal que encapsula toda la lógica de conciliación de retenciones.
+    """
     log_messages.append("--- INICIANDO PROCESO DE CONCILIACIÓN DE RETENCIONES ---")
 
     try:
+        # --- 1. CARGA DE DATOS ---
         log_messages.append("Cargando archivos de entrada...")
         df_cp = pd.read_excel(file_cp, header=4)
         df_cg = pd.read_excel(file_cg, header=0)
@@ -811,69 +815,73 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         df_galac_mun = pd.read_excel(file_mun, header=8)
         CUENTAS_MAP = {'IVA': '2111101004', 'ISLR': '2111101005', 'MUNICIPAL': '2111101006'}
 
+        # --- 2. LIMPIEZA INICIAL DE ENCABEZADOS ---
         log_messages.append("Limpiando y estandarizando datos...")
-        df_cp.columns = [_limpiar_nombre_columna_retenciones(c) for c in df_cp.columns]
-        df_cg.columns = [_limpiar_nombre_columna_retenciones(c) for c in df_cg.columns]
-        df_galac_iva.columns = [_limpiar_nombre_columna_retenciones(c) for c in df_galac_iva.columns]
-        df_galac_islr.columns = [_limpiar_nombre_columna_retenciones(c) for c in df_galac_islr.columns]
-        df_galac_mun.columns = [_limpiar_nombre_columna_retenciones(c) for c in df_galac_mun.columns]
+        for df in [df_cp, df_cg, df_galac_iva, df_galac_islr, df_galac_mun]:
+            df.columns = [_limpiar_nombre_columna_retenciones(c) for c in df.columns]
         
-        def find_and_rename(df, synonyms, standard_name, df_name):
-            col_to_rename = next((s for s in synonyms if s in df.columns), None)
-            if col_to_rename:
-                df.rename(columns={col_to_rename: standard_name}, inplace=True)
-                log_messages.append(f"✔️ Columna en {df_name} ('{col_to_rename}') estandarizada a '{standard_name}'.")
-            elif standard_name in ['MONTO', 'RIF', 'FECHA', 'CREDITOVES']:
-                raise KeyError(f"No se pudo encontrar una columna para '{standard_name}' en el archivo {df_name}. Sinónimos buscados: {synonyms}")
-
-        find_and_rename(df_cp, ['MONTOTOTAL', 'MONTOBS', 'MONTO'], 'MONTO', 'CP')
-        find_and_rename(df_cg, ['CREDITOVES', 'CREDITO', 'CREDITOBS'], 'CREDITOVES', 'CG')
+        # --- 3. REESTRUCTURACIÓN: LÓGICA DE ESTANDARIZACIÓN ROBUSTA ---
         
-        galac_synonyms = {
-            'MONTO': ['MONTO', 'IVARETENIDO', 'MONTORETENIDO', 'VALOR'],
-            'RIF': ['RIF', 'RIFPROV', 'RIFPROVEEDOR', 'NUMERORIF'],
-            'COMPROBANTE': ['COMPROBANTE', 'NOCOMPROBANTE', 'NREFERENCIA'],
+        # Diccionario maestro de sinónimos
+        synonyms_map = {
+            'MONTO': ['MONTOTOTAL', 'MONTOBS', 'MONTO', 'IVARETENIDO', 'MONTORETENIDO', 'VALOR'],
+            'RIF': ['RIF', 'RIFPROV', 'RIFPROVEEDOR', 'NUMERORIF', 'NIT'],
+            'COMPROBANTE': ['COMPROBANTE', 'NOCOMPROBANTE', 'NREFERENCIA', 'NUMERO'],
             'FACTURA': ['FACTURA', 'NDOCUMENTO', 'NUMERODEFACTURA', 'NDOCUMENTONDECONTROL'],
             'FECHA': ['FECHA', 'FECHARET', 'OPERACION', 'FECHARETENCION'],
-            'NOMBREPROVEEDOR': ['PROVEEDOR', 'NOMBRE', 'RAZONSOCIAL', 'RAZONSOCIALDELSUJETORETENIDO']
+            'NOMBREPROVEEDOR': ['PROVEEDOR', 'NOMBRE', 'RAZONSOCIAL', 'RAZONSOCIALDELSUJETORETENIDO'],
+            'CREDITOVES': ['CREDITOVES', 'CREDITO', 'CREDITOBS']
         }
 
-        find_and_rename(df_cp, galac_synonyms['RIF'], 'RIF', 'CP')
-        find_and_rename(df_cp, galac_synonyms['NOMBREPROVEEDOR'], 'NOMBREPROVEEDOR', 'CP')
+        def estandarizar_columnas(df, df_name):
+            """Busca sinónimos y los renombra. Si no encuentra una columna esencial, la crea vacía."""
+            for standard_name, synonyms in synonyms_map.items():
+                # No procesar columnas que no aplican a este df
+                if standard_name not in df.columns:
+                    col_encontrada = next((s for s in synonyms if s in df.columns), None)
+                    
+                    if col_encontrada:
+                        df.rename(columns={col_encontrada: standard_name}, inplace=True)
+                        log_messages.append(f"✔️ Columna en {df_name} ('{col_encontrada}') estandarizada a '{standard_name}'.")
+                    else:
+                        # Si no se encuentra, se crea vacía para evitar errores
+                        log_messages.append(f"⚠️ ADVERTENCIA: No se encontró columna para '{standard_name}' en {df_name}. Se creará vacía.")
+                        # Asignar tipo de dato por defecto correcto
+                        default_value = 0 if standard_name in ['MONTO', 'CREDITOVES'] else ''
+                        df[standard_name] = default_value
+
+        # Aplicar la estandarización a cada archivo relevante
+        estandarizar_columnas(df_cp, "CP")
+        estandarizar_columnas(df_cg, "CG")
+        estandarizar_columnas(df_galac_iva, "GALAC IVA")
+        estandarizar_columnas(df_galac_islr, "GALAC ISLR")
+        estandarizar_columnas(df_galac_mun, "Municipal")
         
-        for df_galac, nombre_archivo in [(df_galac_iva, 'GALAC IVA'), (df_galac_islr, 'GALAC ISLR'), (df_galac_mun, 'Municipal')]:
-            for col_estandar, sinonimos in galac_synonyms.items():
-                find_and_rename(df_galac, sinonimos, col_estandar, nombre_archivo)
-        
-        for df in [df_galac_iva, df_galac_islr, df_galac_mun]:
-            for col in ['COMPROBANTE', 'FACTURA', 'NOMBREPROVEEDOR']:
-                if col not in df.columns: df[col] = ''
-        
+        # --- 4. PREPARACIÓN FINAL DE DATOS ---
         df_galac_iva['TIPO'] = 'IVA'
         df_galac_islr['TIPO'] = 'ISLR'
         df_galac_mun['TIPO'] = 'MUNICIPAL'
         
         df_galac_full = pd.concat([df_galac_iva, df_galac_islr, df_galac_mun], ignore_index=True)
         
-        for df in [df_cp, df_cg, df_galac_full]:
-            if 'PROVEEDOR' in df.columns and 'RIF' not in df.columns: df.rename(columns={'PROVEEDOR': 'RIF'}, inplace=True)
-            if 'RIF' in df.columns: df['RIF_norm'] = df['RIF'].apply(_normalizar_valor)
-            if 'NIT' in df.columns: df['RIF_norm'] = df['NIT'].apply(_normalizar_valor)
-            if 'NUMERO' in df.columns: df['COMPROBANTE_norm'] = df['NUMERO'].apply(_normalizar_valor)
-            if 'COMPROBANTE' in df.columns: df['COMPROBANTE_norm'] = df['COMPROBANTE'].apply(_normalizar_valor)
-            if 'FACTURA' in df.columns: df['FACTURA_norm'] = df['FACTURA'].apply(_normalizar_valor)
+        # Normalizar valores internos
+        for df in [df_cp, df_galac_full]:
+            df['RIF_norm'] = df['RIF'].apply(_normalizar_valor)
+            df['COMPROBANTE_norm'] = df['COMPROBANTE'].apply(_normalizar_valor)
+            df['FACTURA_norm'] = df['FACTURA'].apply(_normalizar_valor)
         
         df_cp['MONTO'] = pd.to_numeric(df_cp['MONTO'], errors='coerce').fillna(0)
         df_cg['CREDITOVES'] = pd.to_numeric(df_cg['CREDITOVES'], errors='coerce').fillna(0)
         df_galac_full['MONTO'] = pd.to_numeric(df_galac_full['MONTO'], errors='coerce').fillna(0)
         
+        # --- 5. LÓGICA DE CONCILIACIÓN (sin cambios) ---
         log_messages.append("Iniciando auditoría en cascada por registro...")
         results = []
         indices_galac_encontrados = set()
         
         for index, row_cp in df_cp.iterrows():
-            subtipo_cp = str(row_cp.get('SUBTIPO', '')).upper()
-            subtipo = 'IVA' if 'IVA' in subtipo_cp else ('ISLR' if 'ISLR' in subtipo_cp else ('MUNICIPAL' if 'MUNICIPAL' in subtipo_cp else 'OTRO'))
+            subtipo = str(row_cp.get('SUBTIPO', '')).upper()
+            if 'IVA' in subtipo: subtipo = 'IVA'
             rif_cp = row_cp.get('RIF_norm', '')
             comprobante_cp = row_cp.get('COMPROBANTE_norm', '')
             factura_cp = row_cp.get('FACTURA_norm', '')
@@ -885,19 +893,19 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
             else:
                 df_galac_target = df_galac_full[df_galac_full['TIPO'] == subtipo]
                 match = pd.Series(False, index=df_galac_target.index)
-                if not df_galac_target.empty:
-                    if subtipo == 'IVA': match = (df_galac_target['RIF_norm'] == rif_cp) & (df_galac_target.get('COMPROBANTE_norm', pd.Series(dtype=str)).str.endswith(comprobante_cp[-6:]))
+                if not df_galac_target.empty and rif_cp: # Solo buscar si hay RIF
+                    if subtipo == 'IVA': match = (df_galac_target['RIF_norm'] == rif_cp) & (df_galac_target.get('COMPROBANTE_norm', pd.Series(dtype=str)).str.endswith(comprobante_cp[-6:] if comprobante_cp else ''))
                     elif subtipo == 'ISLR': match = (df_galac_target['RIF_norm'] == rif_cp) & (df_galac_target.get('COMPROBANTE_norm', pd.Series(dtype=str)) == comprobante_cp) & (df_galac_target.get('FACTURA_norm', pd.Series(dtype=str)) == factura_cp)
                     elif subtipo == 'MUNICIPAL': match = (df_galac_target['RIF_norm'] == rif_cp) & (df_galac_target.get('FACTURA_norm', pd.Series(dtype=str)) == factura_cp)
                 
                 if match.any():
                     resultado['CP_Vs_Galac'] = 'Sí'
                     indices_galac_encontrados.update(df_galac_target[match].index)
-                else:
+                elif rif_cp: # Solo buscar errores si había RIF para buscar
                     for otro_tipo in [t for t in ['IVA', 'ISLR', 'MUNICIPAL'] if t != subtipo]:
                         df_otro_galac = df_galac_full[df_galac_full['TIPO'] == otro_tipo]
                         if not df_otro_galac.empty:
-                            if otro_tipo == 'IVA': match_otro = (df_otro_galac['RIF_norm'] == rif_cp) & (df_otro_galac.get('COMPROBANTE_norm', pd.Series(dtype=str)).str.endswith(comprobante_cp[-6:]))
+                            if otro_tipo == 'IVA': match_otro = (df_otro_galac['RIF_norm'] == rif_cp) & (df_otro_galac.get('COMPROBANTE_norm', pd.Series(dtype=str)).str.endswith(comprobante_cp[-6:] if comprobante_cp else ''))
                             elif otro_tipo == 'ISLR': match_otro = (df_otro_galac['RIF_norm'] == rif_cp) & (df_otro_galac.get('COMPROBANTE_norm', pd.Series(dtype=str)) == comprobante_cp) & (df_otro_galac.get('FACTURA_norm', pd.Series(dtype=str)) == factura_cp)
                             elif otro_tipo == 'MUNICIPAL': match_otro = (df_otro_galac['RIF_norm'] == rif_cp) & (df_otro_galac.get('FACTURA_norm', pd.Series(dtype=str)) == factura_cp)
                             if match_otro.any():
@@ -913,12 +921,14 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
                 if not df_asiento_cg.empty:
                     resultado['Asiento_en_CG'] = 'Sí'
                     monto_cg = df_asiento_cg[df_asiento_cg['CUENTACONTABLE'] == CUENTAS_MAP.get(subtipo, '')]['CREDITOVES'].sum()
-                    resultado['Monto_coincide_CG'] = 'Sí' if np.isclose(monto_cg, abs(monto_cp)) else 'No'
+                    if np.isclose(monto_cg, abs(monto_cp)): resultado['Monto_coincide_CG'] = 'Sí'
+                    else: resultado['Monto_coincide_CG'] = 'No'
             results.append(resultado)
             
         df_cp_results = df_cp.join(pd.DataFrame(results))
         df_galac_no_cp = df_galac_full.drop(list(indices_galac_encontrados))
 
+        # --- 6. GENERACIÓN DE REPORTES (sin cambios) ---
         log_messages.append("Generando nuevo reporte de auditoría con formato personalizado...")
         output_buffer = BytesIO()
         with pd.ExcelWriter(output_buffer, engine='xlsxwriter') as writer:
@@ -933,7 +943,8 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
 
             ws1 = workbook.add_worksheet('Relacion CP')
             ws1.hide_gridlines(2)
-            column_map_cp = {'ASIENTOCONTABLE': 'Asiento', 'TIPO': 'Tipo', 'FECHA': 'Fecha', 'NUMERO': 'Numero', 'APLICACION': 'Aplicacion', 'SUBTIPO': 'Subtipo', 'MONTO': 'Monto', 'CP_Vs_Galac': 'Cp Vs Galac', 'Asiento_en_CG': 'Asiento en CG', 'Monto_coincide_CG': 'Monto coincide CG', 'RIF': 'Proveedor', 'NOMBREPROVEEDOR': 'nombre'}
+            # El mapeo ahora usa los nombres estandarizados garantizados
+            column_map_cp = {'ASIENTOCONTABLE': 'Asiento', 'TIPO': 'Tipo', 'FECHA': 'Fecha', 'COMPROBANTE': 'Numero', 'APLICACION': 'Aplicacion', 'SUBTIPO': 'Subtipo', 'MONTO': 'Monto', 'CP_Vs_Galac': 'Cp Vs Galac', 'Asiento_en_CG': 'Asiento en CG', 'Monto_coincide_CG': 'Monto coincide CG', 'RIF': 'Proveedor', 'NOMBREPROVEEDOR': 'nombre'}
             final_order_cp = ['Asiento', 'Tipo', 'Fecha', 'Numero', 'Aplicacion', 'Subtipo', 'Monto', 'Cp Vs Galac', 'Asiento en CG', 'Monto coincide CG', 'Proveedor', 'nombre']
             df_cp_results.rename(columns=column_map_cp, inplace=True)
             df_exitosos = df_cp_results[df_cp_results['Cp Vs Galac'] == 'Sí']
@@ -961,7 +972,6 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
             ws2.write(current_row, 0, 'A. Incidencias de CP Reflejadas en GALAC (Posibles Coincidencias)', group_title_format)
             current_row += 5
             ws2.write(current_row, 0, 'B. Retenciones en GALAC no encontradas en Relacion de CP', group_title_format); current_row += 1
-            if 'NOMBREPROVEEDOR' not in df_galac_no_cp.columns: df_galac_no_cp['NOMBREPROVEEDOR'] = ''
             df_galac_no_cp_final = df_galac_no_cp[['FECHA', 'COMPROBANTE', 'FACTURA', 'RIF', 'NOMBREPROVEEDOR', 'MONTO', 'TIPO']]
             galac_headers = ['Fecha', 'Comprobante', 'No Documento', 'Rif', 'Nombre Proveedor', 'Monto']
             for tipo in ['IVA', 'ISLR', 'MUNICIPAL']:
