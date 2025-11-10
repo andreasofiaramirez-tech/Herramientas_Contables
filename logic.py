@@ -912,6 +912,25 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
             monto_cp = row_cp.get('MONTO', 0)
             resultado = {'CP_Vs_Galac': 'No Encontrado en GALAC', 'Asiento_en_CG': 'No', 'Monto_coincide_CG': 'No Aplica'}
 
+            # ======================= INICIO DEL BLOQUE DE DIAGNÓSTICO =======================
+            if comprobante_cp == '2025100278269':
+                log_messages.append("\n--- INICIO DEBUG: REGISTRO 'RIVERSAL' ---")
+                log_messages.append(f"CP Comprobante:  |{comprobante_cp}|")
+                
+                df_galac_debug = df_galac_full[df_galac_full['RIF_norm'] == rif_cp]
+                if not df_galac_debug.empty:
+                    galac_row = df_galac_debug.iloc[0]
+                    galac_comp = galac_row['COMPROBANTE_norm']
+                    log_messages.append(f"GALAC Comprobante:|{galac_comp}|")
+                    
+                    log_messages.append(f"Prueba 1: ¿'GALAC'.endswith('CP')?: {galac_comp.endswith(comprobante_cp)}")
+                    log_messages.append(f"Prueba 2: ¿'CP'.endswith('GALAC')?: {comprobante_cp.endswith(galac_comp)}")
+                    log_messages.append(f"Prueba 3: ¿Últimos 10 dígitos son iguales?: {comprobante_cp[-10:] == galac_comp[-10:]}")
+                else:
+                    log_messages.append("ERROR DE DEBUG: No se encontró el RIF en GALAC para este registro.")
+                log_messages.append("--- FIN DEBUG ---\n")
+            # ======================== FIN DEL BLOQUE DE DIAGNÓSTICO =========================
+
             if "ANULADO" in str(row_cp.get('APLICACION', '')).upper():
                 resultado['CP_Vs_Galac'] = 'No Aplica (Anulado)'
             else:
