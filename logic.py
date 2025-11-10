@@ -903,7 +903,6 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
             comprobante_cp = row_cp.get('COMPROBANTE_norm', '')
             factura_cp = row_cp.get('FACTURA_norm', '')
             
-            # ======================= INICIO DE LA CORRECCIÓN CLAVE =======================
             # Si no hay valor en la columna FACTURA, intentar extraerlo de APLICACION
             if not factura_cp:
                 aplicacion_str = str(row_cp.get('APLICACION', ''))
@@ -912,7 +911,6 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
                 if match:
                     # Normaliza el número de factura extraído para que sea comparable
                     factura_cp = _normalizar_valor(match.group(1))
-            # ======================== FIN DE LA CORRECCIÓN CLAVE =========================
             
             monto_cp = row_cp.get('MONTO', 0)
             resultado = {'CP_Vs_Galac': 'No Encontrado en GALAC', 'Asiento_en_CG': 'No', 'Monto_coincide_CG': 'No Aplica'}
@@ -923,7 +921,7 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
                 df_galac_target = df_galac_full[df_galac_full['TIPO'] == subtipo]
                 match = pd.Series(False, index=df_galac_target.index)
                 if not df_galac_target.empty and rif_cp:
-                    if subtipo == 'IVA': match = (df_galac_target['RIF_norm'] == rif_cp) & (df_galac_target.get('COMPROBANTE_norm', pd.Series(dtype=str)) == comprobante_cp) & (df_galac_target.get('FACTURA_norm', pd.Series(dtype=str)) == factura_cp)
+                     if subtipo == 'IVA': match = (df_galac_target['RIF_norm'] == rif_cp) & (df_galac_target.get('COMPROBANTE_norm', pd.Series(dtype=str)) == comprobante_cp) & (np.isclose(df_galac_target['MONTO'], monto_cp))
                     elif subtipo == 'ISLR': match = (df_galac_target['RIF_norm'] == rif_cp) & (df_galac_target.get('COMPROBANTE_norm', pd.Series(dtype=str)) == comprobante_cp) & (df_galac_target.get('FACTURA_norm', pd.Series(dtype=str)) == factura_cp)
                     elif subtipo == 'MUNICIPAL': match = (df_galac_target['RIF_norm'] == rif_cp) & (df_galac_target.get('FACTURA_norm', pd.Series(dtype=str)) == factura_cp)
                 
