@@ -21,7 +21,8 @@ from logic import (
     run_conciliation_fondos_en_transito,
     run_conciliation_fondos_por_depositar,
     run_conciliation_devoluciones_proveedores,
-    run_conciliation_viajes # <-- AÑADE ESTA LÍNEA
+    run_conciliation_viajes,
+    run_conciliation_retenciones
 )
 
 # --- Configuración de la página de Streamlit ---
@@ -137,7 +138,6 @@ ESTRATEGIAS = {
         "label_anterior": "Saldos anteriores (Fondos por Depositar)", 
         "columnas_reporte": ['Asiento', 'Referencia', 'Fecha', 'Monto Dólar', 'Tasa', 'Bs.'], 
         "nombre_hoja_excel": "111.04.6001",
-        # --- NUEVA LÍNEA AÑADIDA ---
         "columnas_requeridas": ['Fecha', 'Asiento', 'Referencia', 'Débito Bolivar', 'Crédito Bolivar', 'Débito Dolar', 'Crédito Dolar']
     },
     "212.07.6009 - Devoluciones a Proveedores": { 
@@ -147,7 +147,6 @@ ESTRATEGIAS = {
         "label_anterior": "Partidas pendientes (Proveedores)", 
         "columnas_reporte": ['Fecha', 'Fuente', 'Referencia', 'Nombre del Proveedor', 'Monto USD', 'Monto Bs'], 
         "nombre_hoja_excel": "212.07.6009",
-        # --- NUEVA LÍNEA AÑADIDA ---
         "columnas_requeridas": ['Fecha', 'Asiento', 'Referencia', 'NIT', 'Nombre del Proveedor', 'Fuente', 'Débito Dolar', 'Crédito Dolar']
     },
 "114.03.1002 - Cuentas de viajes - anticipos de gastos": {
@@ -183,6 +182,66 @@ def render_proximamente(titulo):
     st.title(f"🛠️ {titulo}")
     st.info("Esta funcionalidad estará disponible en futuras versiones.")
     st.button("⬅️ Volver al Inicio", on_click=set_page, args=['inicio'])
+
+def render_retenciones():
+    st.title("🧾 Herramienta de Conciliación de Retenciones", anchor=False)
+    if st.button("⬅️ Volver al Inicio", key="back_from_ret"):
+        set_page('inicio')
+        # Limpiamos el estado para no mostrar resultados viejos si se vuelve a entrar
+        st.session_state.processing_ret_complete = False 
+        st.rerun()
+
+    st.markdown("""
+    Esta herramienta audita el proceso de retenciones cruzando la **Preparación Contable (CP)**, 
+    la **Fuente Oficial (GALAC)** y el **Diario Contable (CG)** para identificar discrepancias.
+    """)
+
+    # --- Carga de Archivos ---
+    st.subheader("1. Cargue los Archivos de Excel (.xlsx):", anchor=False)
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.info("Archivos de Preparación y Registro")
+        file_cp = st.file_uploader("1. Relacion_Retenciones_CP.xlsx", type="xlsx")
+        file_cg = st.file_uploader("2. Transacciones_Diario_CG.xlsx", type="xlsx")
+
+    with col2:
+        st.info("Archivos Oficiales (Fuente GALAC)")
+        file_iva = st.file_uploader("3. Retenciones_IVA.xlsx", type="xlsx")
+        file_islr = st.file_uploader("4. Retenciones_ISLR.xlsx", type="xlsx")
+        file_mun = st.file_uploader("5. Retenciones_Municipales.xlsx", type="xlsx")
+
+    # --- Ejecución del Proceso ---
+    if all([file_cp, file_cg, file_iva, file_islr, file_mun]):
+        if st.button("▶️ Iniciar Auditoría de Retenciones", type="primary", use_container_width=True):
+            with st.spinner('Ejecutando auditoría... Este proceso puede tardar unos momentos.'):
+                log_messages = []
+                # Llamamos a la nueva función maestra en logic.py
+                reporte_resultado = run_conciliation_retenciones(
+                    file_cp, file_cg, file_iva, file_islr, file_mun, log_messages
+                )
+                
+                # Guardamos los resultados en el estado de la sesión
+                st.session_state.reporte_ret_output = reporte_resultado
+                st.session_state.log_messages_ret = log_messages
+                st.session_state.processing_ret_complete = True if reporte_resultado else False
+
+    # --- Visualización de Resultados ---
+    if st.session_state.get('processing_ret_complete', False):
+        if st.session_state.reporte_ret_output:
+            st.success("✅ ¡Auditoría de retenciones completada con éxito!")
+            st.download_button(
+                "⬇️ Descargar Reporte de Auditoría (Excel)",
+                st.session_state.reporte_ret_output,
+                "Conciliacion_Retenciones_Resultado.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+        else:
+            st.error("❌ La auditoría finalizó con un error. Revisa el registro para más detalles.")
+
+        with st.expander("Ver registro detallado del proceso de auditoría"):
+            st.text_area("Log de Conciliación de Retenciones", '\n'.join(st.session_state.log_messages_ret), height=400)
 
 def render_especificaciones():
     st.title('🤖 Herramienta de Conciliación Automática', anchor=False)
@@ -356,7 +415,7 @@ def main():
     elif st.session_state.page == 'especificaciones':
         render_especificaciones()
     elif st.session_state.page == 'retenciones':
-        render_proximamente("Relaciones de Retenciones")
+        render_retenciones()
     elif st.session_state.page == 'reservas':
         render_proximamente("Reservas y Apartados")
     elif st.session_state.page == 'proximamente':
