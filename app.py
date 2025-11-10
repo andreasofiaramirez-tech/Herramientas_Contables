@@ -7,7 +7,7 @@ import streamlit as st
 import pandas as pd
 from functools import partial
 
-# --- Importaciones desde nuestros módulos ---
+# --- Importaciones desde nuestros módulos (CORREGIDO Y CONSOLIDADO) ---
 from logic import (
     run_conciliation_fondos_en_transito,
     run_conciliation_fondos_por_depositar,
@@ -43,6 +43,9 @@ if 'processing_complete' not in st.session_state:
 def password_entered():
     """Verifica la contraseña ingresada y actualiza el estado."""
     st.session_state.authentication_attempted = True
+    # Esta línea asume que has configurado un "secret" en Streamlit llamado "password"
+    # Para pruebas locales, puedes cambiarlo a una contraseña directa:
+    # if st.session_state.get("password") == "tu_contraseña_aqui":
     if st.session_state.get("password") == st.secrets.get("password"):
         st.session_state.password_correct = True
         del st.session_state["password"]
@@ -51,18 +54,12 @@ def password_entered():
 
 if not st.session_state.get("password_correct", False):
     
-    # --- INICIO DE LA MODIFICACIÓN DEL DISEÑO ---
-
-    # 1. Ajustamos la proporción de las columnas para hacer el cuadro central un poco más estrecho,
-    #    lo que compacta el contenido verticalmente.
     _ , col_main, _ = st.columns([1, 1.5, 1])
 
     with col_main:
-        # 2. Centramos el logo principal de forma más responsiva.
         _ , col_logo, _ = st.columns([1, 2, 1])
         with col_logo:
             try:
-                # Usar 'use_column_width' es mejor que un ancho fijo para la adaptabilidad.
                 st.image("assets/logo_principal.png", use_container_width=True)  
             except:
                 st.warning("No se encontró el logo principal en la carpeta 'assets'.")
@@ -70,7 +67,6 @@ if not st.session_state.get("password_correct", False):
         st.title("Bienvenido al Portal de Herramientas Contables", anchor=False)
         st.markdown("Una solución centralizada para el equipo de contabilidad.")
         
-        # Contenedor para el campo de contraseña
         with st.container(border=True):
             st.subheader("Acceso Exclusivo", anchor=False)
             st.text_input(
@@ -99,22 +95,14 @@ if not st.session_state.get("password_correct", False):
                 try:
                     st.image(logos_info[i]["path"], use_container_width=True)
                 except:
-                    # Texto alternativo si el logo no se encuentra
                     st.markdown(f"<p style='text-align: center; font-size: small;'>{logos_info[i]['fallback']}</p>", unsafe_allow_html=True)
 
-    # --- FIN DE LA MODIFICACIÓN DEL DISEÑO ---
-
-    st.stop() # CRÍTICO: Detiene la ejecución del resto de la app.
+    st.stop()
 
 # ==============================================================================
 # DICCIONARIO CENTRAL DE ESTRATEGIAS (EL "CEREBRO")
 # ==============================================================================
-from functools import partial
-
-# --- Creamos funciones parciales para las estrategias que no usan la barra de progreso ---
-# Esto evita tener que modificar todas las funciones en logic.py
 def run_conciliation_wrapper(func, df, log_messages, progress_bar=None):
-    # Esta función simple llama a la función de lógica original, ignorando progress_bar
     return func(df, log_messages)
 
 ESTRATEGIAS = {
@@ -145,12 +133,11 @@ ESTRATEGIAS = {
         "nombre_hoja_excel": "212.07.6009",
         "columnas_requeridas": ['Fecha', 'Asiento', 'Referencia', 'NIT', 'Nombre del Proveedor', 'Fuente', 'Débito Dolar', 'Crédito Dolar']
     },
-"114.03.1002 - Cuentas de viajes - anticipos de gastos": {
+    "114.03.1002 - Cuentas de viajes - anticipos de gastos": {
         "id": "cuentas_viajes",
-        "funcion_principal": run_conciliation_viajes, # La nueva función maestra
+        "funcion_principal": run_conciliation_viajes,
         "label_actual": "Movimientos del mes (Viajes)",
         "label_anterior": "Saldos anteriores (Viajes)",
-        # El orden de columnas que solicitaste para el reporte
         "columnas_reporte": ['Asiento', 'NIT', 'Nombre del Proveedor', 'Referencia', 'Fecha', 'Monto_BS', 'Monto_USD', 'Tipo'],
         "nombre_hoja_excel": "114.03.1002",
         "columnas_requeridas": ['Fecha', 'Asiento', 'Referencia', 'Nombre del Proveedor', 'NIT', 'Débito Bolivar', 'Crédito Bolivar']
@@ -168,11 +155,11 @@ def render_inicio():
     st.markdown("Seleccione la herramienta que desea utilizar:")
     col1, col2 = st.columns(2)
     with col1:
-        st.button("📄 Especificaciones", on_click=set_page, args=['especificaciones'], use_container_width=True, type="primary")
-        st.button("📦 Reservas y Apartados", on_click=set_page, args=['reservas'], use_container_width=True)
+        st.button("📄 Conciliador de Cuentas", on_click=set_page, args=['especificaciones'], use_container_width=True)
+        st.button("📦 Reservas y Apartados", on_click=set_page, args=['reservas'], use_container_width=True, disabled=True)
     with col2:
-        st.button("🧾 Relaciones de Retenciones", on_click=set_page, args=['retenciones'], use_container_width=True)
-        st.button("🔜 Próximamente", on_click=set_page, args=['proximamente'], use_container_width=True)
+        st.button("🧾 Auditoría de Retenciones", on_click=set_page, args=['retenciones'], use_container_width=True)
+        st.button("🔜 Próximamente", on_click=set_page, args=['proximamente'], use_container_width=True, disabled=True)
 
 def render_proximamente(titulo):
     st.title(f"🛠️ {titulo}")
@@ -180,10 +167,11 @@ def render_proximamente(titulo):
     st.button("⬅️ Volver al Inicio", on_click=set_page, args=['inicio'])
 
 def render_retenciones():
-    st.title("🧾 Herramienta de Conciliación de Retenciones", anchor=False)
+    st.title("🧾 Herramienta de Auditoría de Retenciones", anchor=False)
     if st.button("⬅️ Volver al Inicio", key="back_from_ret"):
         set_page('inicio')
-        st.session_state.processing_ret_complete = False 
+        if 'processing_ret_complete' in st.session_state:
+            del st.session_state['processing_ret_complete']
         st.rerun()
 
     st.markdown("""
@@ -191,7 +179,6 @@ def render_retenciones():
     la **Fuente Oficial (GALAC)** y el **Diario Contable (CG)** para identificar discrepancias.
     """)
 
-    # --- Carga de Archivos ---
     st.subheader("1. Cargue los Archivos de Excel (.xlsx):", anchor=False)
     
     col1, col2 = st.columns(2)
@@ -206,7 +193,6 @@ def render_retenciones():
         file_islr = st.file_uploader("4. Retenciones_ISLR.xlsx", type="xlsx")
         file_mun = st.file_uploader("5. Retenciones_Municipales.xlsx", type="xlsx")
 
-    # --- Ejecución del Proceso ---
     if all([file_cp, file_cg, file_iva, file_islr, file_mun]):
         if st.button("▶️ Iniciar Auditoría de Retenciones", type="primary", use_container_width=True):
             with st.spinner('Ejecutando auditoría... Este proceso puede tardar unos momentos.'):
@@ -217,43 +203,34 @@ def render_retenciones():
                 
                 st.session_state.reporte_ret_output = reporte_resultado
                 st.session_state.log_messages_ret = log_messages
-                
-                # --- CORRECCIÓN CLAVE ---
-                # Esta variable AHORA se establece en True sin importar el resultado.
-                # Su única función es indicar que el proceso ya se ejecutó.
                 st.session_state.processing_ret_complete = True
+                st.rerun()
 
-    # --- Visualización de Resultados ---
-    # Esta condición ahora se cumplirá siempre después de hacer clic en el botón.
     if st.session_state.get('processing_ret_complete', False):
         
-        # La decisión de mostrar éxito o error se basa directamente en si hay un reporte.
         if st.session_state.reporte_ret_output:
             st.success("✅ ¡Auditoría de retenciones completada con éxito!")
             st.download_button(
                 "⬇️ Descargar Reporte de Auditoría (Excel)",
                 st.session_state.reporte_ret_output,
-                "Conciliacion_Retenciones_Resultado.xlsx",
+                "Reporte_Auditoria_Retenciones.xlsx",
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
         else:
-            # Si no hay reporte, significa que hubo un error.
             st.error("❌ La auditoría finalizó con un error. Revisa el registro para más detalles.")
 
-        # El registro detallado ahora SIEMPRE se mostrará, permitiendo la depuración.
         with st.expander("Ver registro detallado del proceso de auditoría"):
-            st.text_area("Log de Conciliación de Retenciones", '\n'.join(st.session_state.log_messages_ret), height=400)
+            st.text_area("Log de Auditoría de Retenciones", '\n'.join(st.session_state.log_messages_ret), height=400)
 
 def render_especificaciones():
-    st.title('🤖 Herramienta de Conciliación Automática', anchor=False)
+    st.title('📄 Herramienta de Conciliación de Cuentas', anchor=False)
     if st.button("⬅️ Volver al Inicio", key="back_from_spec"):
         set_page('inicio')
         st.session_state.processing_complete = False 
         st.rerun()
     st.markdown("Esta aplicación automatiza el proceso de conciliación de cuentas contables.")
     
-    # --- Selección de Parámetros ---
     CASA_OPTIONS = ["FEBECA, C.A", "MAYOR BEVAL, C.A", "PRISMA, C.A", "FEBECA, C.A (QUINCALLA)"]
     CUENTA_OPTIONS = list(ESTRATEGIAS.keys())
     
@@ -264,14 +241,12 @@ def render_especificaciones():
     cuenta_seleccionada = st.selectbox("2. Seleccione la Cuenta Contable:", CUENTA_OPTIONS, label_visibility="collapsed")
     estrategia_actual = ESTRATEGIAS[cuenta_seleccionada]
 
-    # --- Carga de Archivos ---
     st.subheader("3. Cargue los Archivos de Excel (.xlsx):", anchor=False)
     st.markdown("*Asegúrese de que los datos estén en la **primera hoja** y los **encabezados en la primera fila**.*")
 
     columnas = estrategia_actual.get("columnas_requeridas", [])
     if columnas:
-        texto_columnas = "**Columnas Esenciales Requeridas:**\n"
-        texto_columnas += "\n".join([f"- `{col}`" for col in columnas])
+        texto_columnas = "**Columnas Esenciales Requeridas:**\n" + "\n".join([f"- `{col}`" for col in columnas])
         texto_columnas += "\n\n*Nota: El archivo puede contener más columnas, pero las mencionadas son cruciales para el proceso.*"
         st.info(texto_columnas, icon="ℹ️")
 
@@ -301,6 +276,7 @@ def render_especificaciones():
                     )
                     st.session_state.log_messages = log_messages
                     st.session_state.processing_complete = True
+                    st.rerun()
             except Exception as e:
                 st.error(f"❌ Ocurrió un error crítico durante el procesamiento: {e}")
                 import traceback
@@ -309,7 +285,7 @@ def render_especificaciones():
             finally:
                 progress_container.empty()
 
-    if st.session_state.processing_complete:
+    if st.session_state.get('processing_complete', False):
         st.success("✅ ¡Conciliación completada con éxito!")
         res_col1, res_col2 = st.columns(2, gap="small")
         with res_col1:
@@ -324,107 +300,45 @@ def render_especificaciones():
         with st.expander("Ver registro detallado del proceso"):
             st.text_area("Log de Conciliación", '\n'.join(st.session_state.log_messages), height=300, key="log_area")
             
-        # --- PREVISUALIZACIÓN DE SALDOS PENDIENTES ---
         st.subheader("Previsualización de Saldos Pendientes", anchor=False)
         df_vista_previa = st.session_state.df_saldos_abiertos.copy()
         
-        if estrategia_actual['id'] in ['fondos_transito', 'fondos_depositar']:
-            columnas_a_mostrar = ['Asiento', 'Referencia', 'Fecha', 'Débito Bolivar', 'Crédito Bolivar', 'Débito Dolar', 'Crédito Dolar']
-            columnas_existentes = [col for col in columnas_a_mostrar if col in df_vista_previa.columns]
-            df_vista_previa = df_vista_previa[columnas_existentes]
-            if 'Fecha' in df_vista_previa.columns:
-                df_vista_previa['Fecha'] = pd.to_datetime(df_vista_previa['Fecha']).dt.strftime('%d/%m/%Y')
-            columnas_numericas = ['Débito Bolivar', 'Crédito Bolivar', 'Débito Dolar', 'Crédito Dolar']
+        if estrategia_actual['id'] in ['fondos_transito', 'fondos_depositar', 'devoluciones_proveedores', 'cuentas_viajes']:
+            columnas_numericas = ['Débito Bolivar', 'Crédito Bolivar', 'Débito Dolar', 'Crédito Dolar', 'Monto_BS', 'Monto_USD']
             for col in columnas_numericas:
                 if col in df_vista_previa.columns:
-                    df_vista_previa[col] = df_vista_previa[col].apply(
-                        lambda x: f"{x:,.2f}".replace(',', 'TEMP').replace('.', ',').replace('TEMP', '.') if pd.notna(x) else ''
-                    )
-        
-        # --- NUEVO BLOQUE ELIF PARA PROVEEDORES ---
-        elif estrategia_actual['id'] == 'devoluciones_proveedores':
-            df_vista_previa.rename(columns={'Monto_BS': 'Monto Bolivar', 'Monto_USD': 'Monto Dolar'}, inplace=True)
-            columnas_a_mostrar = ['Asiento', 'Referencia', 'Fecha', 'Nombre del Proveedor', 'NIT', 'Monto Bolivar', 'Monto Dolar']
-            columnas_existentes = [col for col in columnas_a_mostrar if col in df_vista_previa.columns]
-            df_vista_previa = df_vista_previa[columnas_existentes]
+                    df_vista_previa[col] = df_vista_previa[col].apply(lambda x: f"{x:,.2f}".replace(',', 'TEMP').replace('.', ',').replace('TEMP', '.') if pd.notna(x) else '')
             if 'Fecha' in df_vista_previa.columns:
                 df_vista_previa['Fecha'] = pd.to_datetime(df_vista_previa['Fecha']).dt.strftime('%d/%m/%Y')
-            columnas_numericas = ['Monto Bolivar', 'Monto Dolar']
-            for col in columnas_numericas:
-                if col in df_vista_previa.columns:
-                    df_vista_previa[col] = df_vista_previa[col].apply(
-                        lambda x: f"{x:,.2f}".replace(',', 'TEMP').replace('.', ',').replace('TEMP', '.') if pd.notna(x) else ''
-                    )
+            st.dataframe(df_vista_previa, use_container_width=True)
 
-        st.dataframe(df_vista_previa, use_container_width=True)
-        
-        # --- PREVISUALIZACIÓN DE MOVIMIENTOS CONCILIADOS ---
         st.subheader("Previsualización de Movimientos Conciliados", anchor=False)
         df_conciliados_vista = st.session_state.df_conciliados.copy()
-
-        if estrategia_actual['id'] in ['fondos_transito', 'fondos_depositar']:
-            df_conciliados_vista.rename(columns={'Monto_BS': 'Monto Bolivar', 'Monto_USD': 'Monto Dolar'}, inplace=True)
-            columnas_conciliados_mostrar = ['Asiento', 'Referencia', 'Fecha', 'Monto Bolivar', 'Monto Dolar', 'Grupo_Conciliado']
-            columnas_existentes = [col for col in columnas_conciliados_mostrar if col in df_conciliados_vista.columns]
-            df_conciliados_vista = df_conciliados_vista[columnas_existentes]
-            if 'Fecha' in df_conciliados_vista.columns:
-                df_conciliados_vista['Fecha'] = pd.to_datetime(df_conciliados_vista['Fecha']).dt.strftime('%d/%m/%Y')
-            columnas_numericas = ['Monto Bolivar', 'Monto Dolar']
-            for col in columnas_numericas:
-                if col in df_conciliados_vista.columns:
-                    df_conciliados_vista[col] = df_conciliados_vista[col].apply(
-                        lambda x: f"{x:,.2f}".replace(',', 'TEMP').replace('.', ',').replace('TEMP', '.') if pd.notna(x) else ''
-                    )
         
-        # --- NUEVO BLOQUE ELIF PARA PROVEEDORES ---
-        elif estrategia_actual['id'] == 'devoluciones_proveedores':
-            df_conciliados_vista.rename(columns={'Monto_BS': 'Monto Bolivar', 'Monto_USD': 'Monto Dolar'}, inplace=True)
-            columnas_conciliados_mostrar = ['Asiento', 'Referencia', 'Fecha', 'Nombre del Proveedor', 'NIT', 'Monto Bolivar', 'Monto Dolar', 'Grupo_Conciliado']
-            columnas_existentes = [col for col in columnas_conciliados_mostrar if col in df_conciliados_vista.columns]
-            df_conciliados_vista = df_conciliados_vista[columnas_existentes]
+        if estrategia_actual['id'] in ['fondos_transito', 'fondos_depositar', 'devoluciones_proveedores', 'cuentas_viajes']:
+            columnas_numericas_conc = ['Monto_BS', 'Monto_USD']
+            for col in columnas_numericas_conc:
+                 if col in df_conciliados_vista.columns:
+                    df_conciliados_vista[col] = df_conciliados_vista[col].apply(lambda x: f"{x:,.2f}".replace(',', 'TEMP').replace('.', ',').replace('TEMP', '.') if pd.notna(x) else '')
             if 'Fecha' in df_conciliados_vista.columns:
                 df_conciliados_vista['Fecha'] = pd.to_datetime(df_conciliados_vista['Fecha']).dt.strftime('%d/%m/%Y')
-            columnas_numericas = ['Monto Bolivar', 'Monto Dolar']
-            for col in columnas_numericas:
-                if col in df_conciliados_vista.columns:
-                    df_conciliados_vista[col] = df_conciliados_vista[col].apply(
-                        lambda x: f"{x:,.2f}".replace(',', 'TEMP').replace('.', ',').replace('TEMP', '.') if pd.notna(x) else ''
-                    )
-                    
-        # --- NUEVO BLOQUE ELIF PARA VIAJES ---
-        elif estrategia_actual['id'] == 'cuentas_viajes':
-            df_conciliados_vista.rename(columns={'Monto_BS': 'Saldo Bs', 'Monto_USD': 'Saldo USD', 'Nombre del Proveedor': 'Nombre'}, inplace=True)
-            columnas_conciliados_mostrar = ['Asiento', 'NIT', 'Nombre', 'Referencia', 'Fecha', 'Saldo Bs', 'Saldo USD', 'Tipo', 'Grupo_Conciliado']
-            columnas_existentes = [col for col in columnas_conciliados_mostrar if col in df_conciliados_vista.columns]
-            df_conciliados_vista = df_conciliados_vista[columnas_existentes]
-            if 'Fecha' in df_conciliados_vista.columns:
-                df_conciliados_vista['Fecha'] = pd.to_datetime(df_conciliados_vista['Fecha']).dt.strftime('%d/%m/%Y')
-            columnas_numericas = ['Saldo Bs', 'Saldo USD']
-            for col in columnas_numericas:
-                if col in df_conciliados_vista.columns:
-                    df_conciliados_vista[col] = df_conciliados_vista[col].apply(
-                        lambda x: f"{x:,.2f}".replace(',', 'TEMP').replace('.', ',').replace('TEMP', '.') if pd.notna(x) else ''
-                    )
+            st.dataframe(df_conciliados_vista, use_container_width=True)
 
-        st.dataframe(df_conciliados_vista, use_container_width=True)
-        
 # ==============================================================================
 # FLUJO PRINCIPAL DE LA APLICACIÓN (ROUTER)
 # ==============================================================================
 def main():
-    if st.session_state.page == 'inicio':
-        render_inicio()
-    elif st.session_state.page == 'especificaciones':
-        render_especificaciones()
-    elif st.session_state.page == 'retenciones':
-        render_retenciones()
-    elif st.session_state.page == 'reservas':
-        render_proximamente("Reservas y Apartados")
-    elif st.session_state.page == 'proximamente':
-        render_proximamente("Próximamente")
-    else:
-        st.session_state.page = 'inicio'
-        st.experimental_rerun()
+    page_map = {
+        'inicio': render_inicio,
+        'especificaciones': render_especificaciones,
+        'retenciones': render_retenciones,
+        'reservas': lambda: render_proximamente("Reservas y Apartados"),
+        'proximamente': lambda: render_proximamente("Próximamente")
+    }
+    
+    current_page = st.session_state.get('page', 'inicio')
+    render_function = page_map.get(current_page, render_inicio)
+    render_function()
 
 if __name__ == "__main__":
     main()
