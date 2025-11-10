@@ -1070,7 +1070,7 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
             ws1.write_row(current_row, 0, final_order_cp, header_format)
             current_row += 1
             for r_idx, row in df_incidencias[final_order_cp].iterrows():
-                ws1.write_row(current_row, 0, row.values)
+                ws1.write_row(current_row, 0, row.fillna('').values)
                 current_row += 1
             
             current_row += 1 # Fila en blanco
@@ -1081,7 +1081,7 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
             ws1.write_row(current_row, 0, final_order_cp, header_format)
             current_row += 1
             for r_idx, row in df_exitosos[final_order_cp].iterrows():
-                ws1.write_row(current_row, 0, row.values)
+                ws1.write_row(current_row, 0, row.fillna('').values)
                 current_row += 1
             
             # Aplicar formatos a las columnas
