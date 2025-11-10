@@ -920,10 +920,11 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
                 if not df_galac_target.empty and rif_cp:
                     # ======================= INICIO DE LA CORRECCIÓN FINAL =======================
                     if subtipo == 'IVA':
-                        # Convertir el resultado de np.isclose a una Serie de Pandas con el índice correcto
                         monto_match_series = pd.Series(np.isclose(df_galac_target['MONTO'], monto_cp), index=df_galac_target.index)
+                        # CORRECCIÓN: Usar 'endswith' para el comprobante para permitir flexibilidad en los ceros iniciales
+                        comprobante_match_series = df_galac_target.get('COMPROBANTE_norm', pd.Series(dtype=str)).str.endswith(comprobante_cp)
                         match = (df_galac_target['RIF_norm'] == rif_cp) & \
-                                (df_galac_target.get('COMPROBANTE_norm', pd.Series(dtype=str)) == comprobante_cp) & \
+                                (comprobante_match_series) & \
                                 (monto_match_series)
                     # ======================== FIN DE LA CORRECCIÓN FINAL =========================
                     elif subtipo == 'ISLR': match = (df_galac_target['RIF_norm'] == rif_cp) & (df_galac_target.get('COMPROBANTE_norm', pd.Series(dtype=str)) == comprobante_cp) & (df_galac_target.get('FACTURA_norm', pd.Series(dtype=str)) == factura_cp)
