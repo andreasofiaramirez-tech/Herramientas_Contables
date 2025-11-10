@@ -815,69 +815,32 @@ def _normalizar_valor(valor):
 def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun, log_messages):
     log_messages.append("--- INICIANDO PROCESO DE CONCILIACIÓN DE RETENCIONES ---")
     try:
-        # --- 1. CARGA DE DATOS ---
+        # --- Carga y Limpieza (versión robusta final) ---
         df_cp = pd.read_excel(file_cp, header=4, dtype=str)
         df_cg = pd.read_excel(file_cg, header=0, dtype=str)
         df_galac_iva = pd.read_excel(file_iva, header=4, dtype=str)
-        # --- LECTURA POSICIONAL PARA ISLR ---
-        log_messages.append("Leyendo archivo GALAC ISLR por posición para evitar errores de encabezado...")
-        try:
-            # Leer el archivo sin encabezados, saltando las primeras 9 filas basura
-            df_galac_islr = pd.read_excel(file_islr, header=None, skiprows=9, dtype=str)
-            
-            # Asignar nombres a las columnas que nos interesan por su posición
-            # B: RIF, C: N° Referencia, F: N° Documento, N: Monto Retenido
-            df_galac_islr = df_galac_islr.rename(columns={
-                1: 'R.I.F. Proveedor',
-                2: 'N° Referencia',
-                5: 'N° Documento', # Columna F (índice 5)
-                13: 'Monto Retenido' # Columna N (índice 13)
-            })
-            log_messages.append("✔️ Lectura posicional de ISLR completada.")
-        except Exception as e:
-            log_messages.append(f"❌ Falló la lectura posicional de ISLR. Error: {e}")
-            # Si falla, volver al método anterior como respaldo
-            df_galac_islr = pd.read_excel(file_islr, header=8, dtype=str)
+        df_galac_islr = pd.read_excel(file_islr, header=8, dtype=str)
         df_galac_mun = pd.read_excel(file_mun, header=8, dtype=str)
         CUENTAS_MAP = {'IVA': '2111101004', 'ISLR': '2111101005', 'MUNICIPAL': '2111101006'}
 
-        # --- Limpieza de Columnas Duplicadas ---
+        # ... (Bloques de limpieza y estandarización sin cambios) ...
         for df, name in [(df_cp, "CP"), (df_cg, "CG"), (df_galac_iva, "IVA"), (df_galac_islr, "ISLR"), (df_galac_mun, "Municipal")]:
             if df.columns.duplicated().any():
                 df = df.loc[:, ~df.columns.duplicated()]
         
-        # --- Limpieza de Encabezados Repetidos en GALAC ---
-        for df, name in [(df_galac_iva, "IVA"), (df_galac_islr, "ISLR"), (df_galac_mun, "Municipal")]:
-            rif_col = next((col for col in df.columns if "RIF" in str(col).upper()), None)
-            if rif_col:
-                initial_rows = len(df)
-                df.dropna(subset=[rif_col], inplace=True)
-                monto_col = next((col for col in df.columns if "MONTO" in str(col).upper() or "RETENIDO" in str(col).upper() or "VALOR" in str(col).upper()), None)
-                if monto_col:
-                    df[monto_col] = pd.to_numeric(df[monto_col], errors='coerce')
-                    df.dropna(subset=[monto_col], inplace=True)
-                rows_removed = initial_rows - len(df)
-                if rows_removed > 0: log_messages.append(f"✔️ Limpieza GALAC {name}: Se eliminaron {rows_removed} filas de encabezados repetidos.")
-        
-        # ======================= INICIO DE LA CORRECCIÓN FINAL =======================
-        # --- LÓGICA ROBUSTA PARA CORREGIR LA COLUMNA DE FACTURA DESPLAZADA EN ISLR ---
         col_factura_original_islr = next((col for col in df_galac_islr.columns if "DOCUMENTO" in str(col).upper()), None)
         if col_factura_original_islr and df_galac_islr[col_factura_original_islr].isnull().all():
             try:
                 idx_col_vacia = df_galac_islr.columns.get_loc(col_factura_original_islr)
-                # Iterar por las columnas siguientes para encontrar la primera con datos
                 for i in range(idx_col_vacia + 1, len(df_galac_islr.columns)):
                     col_candidata = df_galac_islr.columns[i]
-                    # Si la columna candidata no está completamente vacía, es la correcta
                     if not df_galac_islr[col_candidata].isnull().all():
                         df_galac_islr[col_factura_original_islr] = df_galac_islr[col_candidata]
                         log_messages.append(f"✔️ Corrección ISLR: Columna de factura vacía '{col_factura_original_islr}' rellenada con datos de la columna '{col_candidata}'.")
-                        break # Salir del bucle una vez encontrada
+                        break
             except (IndexError, KeyError) as e:
-                log_messages.append(f"⚠️ ADVERTENCIA: Se intentó corregir la columna de factura de ISLR, pero falló: {e}")
-        # ======================== FIN DE LA CORRECCIÓN FINAL =========================
+                pass
         
-        # --- Estandarización de Nombres de Columnas ---
         for df in [df_cp, df_cg, df_galac_iva, df_galac_islr, df_galac_mun]:
             df.columns = [_limpiar_nombre_columna_retenciones(c) for c in df.columns]
         
@@ -906,7 +869,6 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
             for df in [df_cp, df_cg, df_galac_full]:
                 if col in df.columns: df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
         
-        # --- Lógica de Conciliación (sin cambios) ---
         results = []; indices_galac_encontrados = set()
         for index, row_cp in df_cp.iterrows():
             subtipo_original = str(row_cp.get('SUBTIPO', '')).upper()
@@ -939,10 +901,15 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
                             suma_monto_galac = match_group['MONTO'].sum()
                             if np.isclose(suma_monto_galac, monto_cp):
                                 match_found = True; indices_galac_encontrados.update(match_group.index)
+                    
+                    # ======================= INICIO DE LA CORRECCIÓN MUNICIPAL =======================
                     elif subtipo == 'MUNICIPAL': 
-                        match = (df_galac_target['RIF_norm'] == rif_cp) & (df_galac_target.get('FACTURA_norm', pd.Series(dtype=str)) == factura_cp)
+                        monto_match_series = pd.Series(np.isclose(df_galac_target['MONTO'], monto_cp), index=df_galac_target.index)
+                        match = (df_galac_target['RIF_norm'] == rif_cp) & (df_galac_target.get('FACTURA_norm', pd.Series(dtype=str)) == factura_cp) & (monto_match_series)
                         if match.any():
                             match_found = True; indices_galac_encontrados.update(df_galac_target[match].index)
+                    # ======================== FIN DE LA CORRECCIÓN MUNICIPAL =========================
+
                 if match_found:
                     resultado['CP_Vs_Galac'] = 'Sí'
                 elif rif_cp:
