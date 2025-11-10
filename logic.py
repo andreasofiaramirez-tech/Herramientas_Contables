@@ -823,17 +823,13 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         df_galac_mun = pd.read_excel(file_mun, header=8, dtype=str)
         CUENTAS_MAP = {'IVA': '2111101004', 'ISLR': '2111101005', 'MUNICIPAL': '2111101006'}
 
-        # ======================= INICIO DE LA CORRECCIÓN FINAL =======================
-        # --- 1.A: LIMPIEZA DE COLUMNAS DUPLICADAS ---
+        # --- Limpieza de Columnas Duplicadas ---
         for df, name in [(df_cp, "CP"), (df_cg, "CG"), (df_galac_iva, "IVA"), (df_galac_islr, "ISLR"), (df_galac_mun, "Municipal")]:
-            cols = pd.Series(df.columns)
-            for dup in cols[cols.duplicated()].unique():
-                cols[cols[cols == dup].index.values.tolist()] = [dup + '.' + str(i) if i != 0 else dup for i in range(sum(cols == dup))]
-            df.columns = cols
-            if any('.' in s for s in df.columns):
-                log_messages.append(f"✔️ Limpieza {name}: Se renombraron columnas duplicadas.")
+            if df.columns.duplicated().any():
+                df = df.loc[:, ~df.columns.duplicated()]
+                log_messages.append(f"✔️ Limpieza {name}: Se eliminaron columnas duplicadas.")
 
-        # --- 1.B: LIMPIEZA DE ENCABEZADOS REPETIDOS EN ARCHIVOS GALAC ---
+        # --- Limpieza de Encabezados Repetidos en GALAC ---
         for df, name in [(df_galac_iva, "IVA"), (df_galac_islr, "ISLR"), (df_galac_mun, "Municipal")]:
             rif_col = next((col for col in df.columns if "RIF" in str(col).upper()), None)
             if rif_col:
@@ -845,13 +841,28 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
                     df.dropna(subset=[monto_col], inplace=True)
                 rows_removed = initial_rows - len(df)
                 if rows_removed > 0: log_messages.append(f"✔️ Limpieza GALAC {name}: Se eliminaron {rows_removed} filas de encabezados repetidos.")
+        
+        # ======================= INICIO DE LA CORRECCIÓN FINAL =======================
+        # --- LÓGICA PARA CORREGIR LA COLUMNA DE FACTURA DESPLAZADA EN ISLR ---
+        # Antes de normalizar los nombres, buscamos la columna "Nº Documento" original.
+        col_factura_original_islr = next((col for col in df_galac_islr.columns if "DOCUMENTO" in str(col).upper()), None)
+        if col_factura_original_islr and df_galac_islr[col_factura_original_islr].isnull().all():
+            try:
+                # Obtener la posición de la columna de factura vacía
+                idx = df_galac_islr.columns.get_loc(col_factura_original_islr)
+                # La columna fantasma es la siguiente
+                col_fantasma = df_galac_islr.columns[idx + 1]
+                # Copiar los datos de la columna fantasma a la columna de factura
+                df_galac_islr[col_factura_original_islr] = df_galac_islr[col_fantasma]
+                log_messages.append("✔️ Corrección ISLR: Se corrigió la columna de factura desplazada.")
+            except (IndexError, KeyError):
+                log_messages.append("⚠️ ADVERTENCIA: Se detectó columna de factura vacía en ISLR, pero no se pudo corregir el desplazamiento.")
         # ======================== FIN DE LA CORRECCIÓN FINAL =========================
-
-        # --- 2. LIMPIEZA INICIAL DE NOMBRES DE COLUMNAS ---
+        
+        # --- Estandarización de Nombres de Columnas ---
         for df in [df_cp, df_cg, df_galac_iva, df_galac_islr, df_galac_mun]:
             df.columns = [_limpiar_nombre_columna_retenciones(c) for c in df.columns]
         
-        # ... (El resto de la función continúa exactamente igual que en la versión anterior) ...
         if 'PROVEEDOR' in df_cp.columns: df_cp.rename(columns={'PROVEEDOR': 'RIF'}, inplace=True)
         for df, name in [(df_galac_iva, "GALAC IVA"), (df_galac_islr, "GALAC ISLR"), (df_galac_mun, "Municipal")]:
             if 'PROVEEDOR' in df.columns: df.rename(columns={'PROVEEDOR': 'NOMBREPROVEEDOR'}, inplace=True)
@@ -877,6 +888,7 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
             for df in [df_cp, df_cg, df_galac_full]:
                 if col in df.columns: df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
         
+        # --- Lógica de Conciliación (sin cambios) ---
         results = []; indices_galac_encontrados = set()
         for index, row_cp in df_cp.iterrows():
             subtipo_original = str(row_cp.get('SUBTIPO', '')).upper()
