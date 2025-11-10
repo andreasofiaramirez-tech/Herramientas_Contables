@@ -7,55 +7,59 @@ import xlsxwriter
 from io import BytesIO
 import streamlit as st
 
-def mapear_columnas(df, log_messages):
-    DEBITO_SYNONYMS = ['debito', 'debitos', 'débito', 'débitos', 'debe']
-    CREDITO_SYNONYMS = ['credito', 'creditos', 'crédito', 'créditos', 'haber']
-    BS_SYNONYMS = ['ves', 'bolivar', 'bolívar', 'local', 'bs']
-    USD_SYNONYMS = ['dolar', 'dólar', 'dólares', 'usd', 'dolares', 'me']
-
-    REQUIRED_COLUMNS = {
-        'Débito Bolivar': (DEBITO_SYNONYMS, BS_SYNONYMS),
-        'Crédito Bolivar': (CREDITO_SYNONYMS, BS_SYNONYMS),
-        'Débito Dolar': (DEBITO_SYNONYMS, USD_SYNONYMS),
-        'Crédito Dolar': (CREDITO_SYNONYMS, USD_SYNONYMS)
-    }
-
-    column_mapping, current_cols = {}, [col.strip() for col in df.columns]
-
-    for req_col, (type_synonyms, curr_synonyms) in REQUIRED_COLUMNS.items():
-        found = False
-        for input_col in current_cols:
-            normalized_input = re.sub(r'[^\w]', '', input_col.lower())
-            is_type_match = any(syn in normalized_input for syn in type_synonyms)
-            is_curr_match = any(syn in normalized_input for syn in curr_synonyms)
-
-            if is_type_match and is_curr_match and input_col not in column_mapping.values():
-                column_mapping[input_col] = req_col
-                found = True
-                break
-        if not found and req_col not in df.columns:
-            log_messages.append(f"⚠️ ADVERTENCIA: No se encontró columna para '{req_col}'. Se creará vacía.")
-            df[req_col] = 0.0
-
-    df.rename(columns=column_mapping, inplace=True)
-    return df
-
-def limpiar_numero_avanzado(texto):
-    if texto is None or str(texto).strip().lower() == 'nan': return '0.0'
-    texto_limpio = re.sub(r'[^\d.,-]', '', str(texto).strip())
-    if not texto_limpio: return '0.0'
-
-    num_puntos, num_comas = texto_limpio.count('.'), texto_limpio.count(',')
-
-    if num_comas == 1 and num_puntos > 0:
-        return texto_limpio.replace('.', '').replace(',', '.')
-    elif num_puntos == 1 and num_comas > 0:
-        return texto_limpio.replace(',', '')
-    else:
-        return texto_limpio.replace(',', '.')
-
 @st.cache_data
 def cargar_y_limpiar_datos(uploaded_actual, uploaded_anterior, log_messages):
+    """
+    Carga los archivos Excel, los limpia, estandariza columnas, calcula montos netos
+    y prepara el DataFrame unificado para la conciliación.
+    """
+    def mapear_columnas(df, log_messages):
+        DEBITO_SYNONYMS = ['debito', 'debitos', 'débito', 'débitos', 'debe']
+        CREDITO_SYNONYMS = ['credito', 'creditos', 'crédito', 'créditos', 'haber']
+        BS_SYNONYMS = ['ves', 'bolivar', 'bolívar', 'local', 'bs']
+        USD_SYNONYMS = ['dolar', 'dólar', 'dólares', 'usd', 'dolares', 'me']
+
+        REQUIRED_COLUMNS = {
+            'Débito Bolivar': (DEBITO_SYNONYMS, BS_SYNONYMS),
+            'Crédito Bolivar': (CREDITO_SYNONYMS, BS_SYNONYMS),
+            'Débito Dolar': (DEBITO_SYNONYMS, USD_SYNONYMS),
+            'Crédito Dolar': (CREDITO_SYNONYMS, USD_SYNONYMS)
+        }
+
+        column_mapping, current_cols = {}, [col.strip() for col in df.columns]
+
+        for req_col, (type_synonyms, curr_synonyms) in REQUIRED_COLUMNS.items():
+            found = False
+            for input_col in current_cols:
+                normalized_input = re.sub(r'[^\w]', '', input_col.lower())
+                is_type_match = any(syn in normalized_input for syn in type_synonyms)
+                is_curr_match = any(syn in normalized_input for syn in curr_synonyms)
+
+                if is_type_match and is_curr_match and input_col not in column_mapping.values():
+                    column_mapping[input_col] = req_col
+                    found = True
+                    break
+            if not found and req_col not in df.columns:
+                log_messages.append(f"⚠️ ADVERTENCIA: No se encontró columna para '{req_col}'. Se creará vacía.")
+                df[req_col] = 0.0
+
+        df.rename(columns=column_mapping, inplace=True)
+        return df
+
+    def limpiar_numero_avanzado(texto):
+        if texto is None or str(texto).strip().lower() == 'nan': return '0.0'
+        texto_limpio = re.sub(r'[^\d.,-]', '', str(texto).strip())
+        if not texto_limpio: return '0.0'
+
+        num_puntos, num_comas = texto_limpio.count('.'), texto_limpio.count(',')
+
+        if num_comas == 1 and num_puntos > 0:
+            return texto_limpio.replace('.', '').replace(',', '.')
+        elif num_puntos == 1 and num_comas > 0:
+            return texto_limpio.replace(',', '')
+        else:
+            return texto_limpio.replace(',', '.')
+
     def procesar_excel(archivo_buffer):
         try:
             archivo_buffer.seek(0)
@@ -285,6 +289,9 @@ def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrate
     
 @st.cache_data
 def generar_csv_saldos_abiertos(df_saldos_abiertos):
+    """
+    Genera el archivo CSV con los saldos pendientes para el próximo ciclo de conciliación.
+    """
     columnas_csv = ['Asiento', 'Referencia', 'Fecha', 'Débito Bolivar', 'Crédito Bolivar', 'Débito Dolar', 'Crédito Dolar', 'Fuente', 'Nombre del Proveedor', 'NIT']
     df_saldos_a_exportar = df_saldos_abiertos.reindex(columns=columnas_csv).copy()
     
@@ -298,7 +305,7 @@ def generar_csv_saldos_abiertos(df_saldos_abiertos):
     return df_saldos_a_exportar.to_csv(index=False, sep=';', encoding='utf-8-sig').encode('utf-8-sig')
 
 # ==============================================================================
-# REPORTE PARA LA HERRAMIENTA DE RETENCIONES
+# NUEVA FUNCIÓN DE REPORTE PARA LA HERRAMIENTA DE RETENCIONES
 # ==============================================================================
 
 def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_map):
@@ -320,14 +327,13 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
         # --- HOJA 1: Relacion CP ---
         ws1 = workbook.add_worksheet('Relacion CP')
         ws1.hide_gridlines(2)
-       column_map_cp = {'ASIENTO': 'Asiento', 'TIPO': 'Tipo', 'FECHA': 'Fecha', 'COMPROBANTE': 'Numero', 'APLICACION': 'Aplicacion', 'SUBTIPO': 'Subtipo', 'MONTO': 'Monto', 'CP_Vs_Galac': 'Cp Vs Galac', 'Asiento_en_CG': 'Asiento en CG', 'Monto_coincide_CG': 'Monto coincide CG', 'RIF': 'RIF', 'NOMBREPROVEEDOR': 'Nombre Proveedor'}
-        final_order_cp = ['Asiento', 'Tipo', 'Fecha', 'Numero', 'Aplicacion', 'Subtipo', 'Monto', 'Cp Vs Galac', 'Asiento en CG', 'Monto coincide CG', 'RIF', 'Nombre Proveedor']
-        final_order_cp = ['Asiento', 'Tipo', 'Fecha', 'Numero', 'Aplicacion', 'Subtipo', 'Monto', 'Cp Vs Galac', 'Asiento en CG', 'Monto coincide CG', 'Proveedor', 'nombre']
         
-        # Preparamos los datos para el reporte
+        column_map_cp = {'ASIENTO': 'Asiento', 'TIPO': 'Tipo', 'FECHA': 'Fecha', 'COMPROBANTE': 'Numero', 'APLICACION': 'Aplicacion', 'SUBTIPO': 'Subtipo', 'MONTO': 'Monto', 'CP_Vs_Galac': 'Cp Vs Galac', 'Asiento_en_CG': 'Asiento en CG', 'Monto_coincide_CG': 'Monto coincide CG', 'RIF': 'RIF', 'NOMBREPROVEEDOR': 'Nombre Proveedor'}
+        final_order_cp = ['Asiento', 'Tipo', 'Fecha', 'Numero', 'Aplicacion', 'Subtipo', 'Monto', 'Cp Vs Galac', 'Asiento en CG', 'Monto coincide CG', 'RIF', 'Nombre Proveedor']
+        
         df_reporte_cp = df_cp_results.copy()
         df_reporte_cp.rename(columns=column_map_cp, inplace=True)
-        # Asegurarse de que todas las columnas existan antes de filtrar
+        
         for col in final_order_cp:
             if col not in df_reporte_cp.columns:
                 df_reporte_cp[col] = ''
@@ -339,14 +345,12 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
         ws1.merge_range('A1:L1', 'Relacion de Retenciones CP', main_title_format)
         current_row = 2
         
-        # Escribir Incidencias
         ws1.write(current_row, 0, 'Incidencias Encontradas', group_title_format); current_row += 1
         ws1.write_row(current_row, 0, final_order_cp, header_format); current_row += 1
         if not df_incidencias.empty:
             for r_idx, row in df_incidencias[final_order_cp].iterrows():
                 ws1.write_row(current_row, 0, row.fillna('').values); current_row += 1
         
-        # Escribir Exitosos
         current_row += 1
         ws1.write(current_row, 0, 'Conciliacion Exitosa', group_title_format); current_row += 1
         ws1.write_row(current_row, 0, final_order_cp, header_format); current_row += 1
@@ -364,9 +368,11 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
         ws2.write(current_row, 0, 'A. Incidencias de CP Reflejadas en GALAC (Posibles Coincidencias)', group_title_format)
         current_row += 5
         ws2.write(current_row, 0, 'B. Retenciones en GALAC no encontradas en Relacion de CP', group_title_format); current_row += 1
+        
         if 'NOMBREPROVEEDOR' not in df_galac_no_cp.columns: df_galac_no_cp['NOMBREPROVEEDOR'] = ''
         df_galac_no_cp_final = df_galac_no_cp[['FECHA', 'COMPROBANTE', 'FACTURA', 'RIF', 'NOMBREPROVEEDOR', 'MONTO', 'TIPO']]
         galac_headers = ['Fecha', 'Comprobante', 'No Documento', 'Rif', 'Nombre Proveedor', 'Monto']
+        
         for tipo in ['IVA', 'ISLR', 'MUNICIPAL']:
             df_tipo = df_galac_no_cp_final[df_galac_no_cp_final['TIPO'] == tipo]
             if not df_tipo.empty:
@@ -386,6 +392,7 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
         cg_headers_final = cg_original_cols + ['Observacion']
         asientos_con_error = df_incidencias['Asiento'].unique()
         df_cg_errores = df_cg[df_cg['ASIENTO'].isin(asientos_con_error)].copy()
+        
         df_cg_errores.rename(columns={'ASIENTO': 'Asiento'}, inplace=True)
 
         df_error_cuenta = pd.DataFrame(columns=cg_headers_final)
@@ -393,7 +400,9 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
         
         if not df_incidencias.empty and not df_cg_errores.empty:
             merged_errors = pd.merge(df_cg_errores, df_incidencias[['Asiento', 'Cp Vs Galac', 'Monto coincide CG', 'Subtipo']], on='Asiento', how='left')
+            
             merged_errors.rename(columns={'Asiento': 'ASIENTO'}, inplace=True)
+
             conditions = [(merged_errors['CUENTACONTABLE'] != merged_errors['Subtipo'].map(cuentas_map)), (merged_errors['Monto coincide CG'] == 'No')]
             choices = ['Cuenta Contable no corresponde al Subtipo', 'Monto en Diario no coincide con Relacion CP']
             merged_errors['Observacion'] = np.select(conditions, choices, default='Error no clasificado')
