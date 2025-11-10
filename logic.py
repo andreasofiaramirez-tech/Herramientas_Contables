@@ -909,12 +909,7 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         log_messages.append("Cargando archivos de entrada...")
         
         df_cp = pd.read_excel(file_cp, header=4)
-        
-        # --- CORRECCIÓN CLAVE ---
-        # Ajustamos el número de fila del encabezado para el archivo CG según la imagen.
-        # Fila 1 en Excel corresponde a header=0.
         df_cg = pd.read_excel(file_cg, header=0)
-        
         df_galac_iva = pd.read_excel(file_iva, header=0)
         df_galac_islr = pd.read_excel(file_islr, header=0)
         df_galac_mun = pd.read_excel(file_mun, header=0)
@@ -922,21 +917,37 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         CUENTAS_MAP = {'IVA': '2111101004', 'ISLR': '2111101005', 'MUNICIPAL': '2111101006'}
 
         log_messages.append("Limpiando y estandarizando datos...")
+        # Limpiamos los nombres de todas las columnas primero
         df_cp.columns = [_limpiar_nombre_columna_retenciones(c) for c in df_cp.columns]
         df_cg.columns = [_limpiar_nombre_columna_retenciones(c) for c in df_cg.columns]
         
-        df_cp.rename(columns={
-            'PROVEEDOR': 'RIF',
-            'ASIENTOCONTABLE': 'ASIENTOCONTABLE',
-            'MONTOTOTAL': 'MONTO',
-            'MONTOBS': 'MONTO'
-        }, inplace=True)
+        # --- INICIO DE LA CORRECCIÓN ROBUSTA ---
+        # En lugar de un rename(), ahora buscamos activamente la columna correcta.
         
-        df_cg.rename(columns={
-            'CREDITO': 'CREDITOVES',
-            'CREDITOVES': 'CREDITOVES',
-            'CREDITOBS': 'CREDITOVES'
-        }, inplace=True)
+        # Búsqueda y renombrado para df_cp ('MONTO')
+        monto_synonyms_cp = ['MONTOTOTAL', 'MONTOBS', 'MONTO']
+        columna_monto_encontrada = False
+        for col in df_cp.columns:
+            if col in monto_synonyms_cp:
+                df_cp.rename(columns={col: 'MONTO'}, inplace=True)
+                log_messages.append(f"✔️ Columna de monto en CP ('{col}') estandarizada a 'MONTO'.")
+                columna_monto_encontrada = True
+                break
+        if not columna_monto_encontrada:
+             raise KeyError("No se pudo encontrar una columna de Monto ('Monto', 'Monto Total', 'Monto Bs') en el archivo CP.")
+
+        # Búsqueda y renombrado para df_cg ('CREDITOVES')
+        credito_synonyms_cg = ['CREDITOVES', 'CREDITO', 'CREDITOBS']
+        columna_credito_encontrada = False
+        for col in df_cg.columns:
+            if col in credito_synonyms_cg:
+                df_cg.rename(columns={col: 'CREDITOVES'}, inplace=True)
+                log_messages.append(f"✔️ Columna de crédito en CG ('{col}') estandarizada a 'CREDITOVES'.")
+                columna_credito_encontrada = True
+                break
+        if not columna_credito_encontrada:
+            raise KeyError("No se pudo encontrar una columna de Crédito ('Crédito VES', 'Credito') en el archivo CG.")
+        # --- FIN DE LA CORRECCIÓN ROBUSTA ---
 
         df_galac_iva.columns = [_limpiar_nombre_columna_retenciones(c) for c in df_galac_iva.columns]
         df_galac_islr.columns = [_limpiar_nombre_columna_retenciones(c) for c in df_galac_islr.columns]
@@ -954,6 +965,7 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         df_galac_full = pd.concat([df_galac_iva, df_galac_islr, df_galac_mun], ignore_index=True)
         
         for df in [df_cp, df_cg, df_galac_full]:
+            if 'PROVEEDOR' in df.columns and 'RIF' not in df.columns: df.rename(columns={'PROVEEDOR': 'RIF'}, inplace=True)
             if 'RIF' in df.columns: df['RIF_norm'] = df['RIF'].apply(_normalizar_valor)
             if 'NIT' in df.columns: df['RIF_norm'] = df['NIT'].apply(_normalizar_valor)
             if 'NUMERO' in df.columns: df['COMPROBANTE_norm'] = df['NUMERO'].apply(_normalizar_valor)
