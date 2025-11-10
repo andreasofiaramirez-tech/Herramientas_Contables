@@ -187,7 +187,6 @@ def render_retenciones():
     st.title("🧾 Herramienta de Conciliación de Retenciones", anchor=False)
     if st.button("⬅️ Volver al Inicio", key="back_from_ret"):
         set_page('inicio')
-        # Limpiamos el estado para no mostrar resultados viejos si se vuelve a entrar
         st.session_state.processing_ret_complete = False 
         st.rerun()
 
@@ -216,18 +215,23 @@ def render_retenciones():
         if st.button("▶️ Iniciar Auditoría de Retenciones", type="primary", use_container_width=True):
             with st.spinner('Ejecutando auditoría... Este proceso puede tardar unos momentos.'):
                 log_messages = []
-                # Llamamos a la nueva función maestra en logic.py
                 reporte_resultado = run_conciliation_retenciones(
                     file_cp, file_cg, file_iva, file_islr, file_mun, log_messages
                 )
                 
-                # Guardamos los resultados en el estado de la sesión
                 st.session_state.reporte_ret_output = reporte_resultado
                 st.session_state.log_messages_ret = log_messages
-                st.session_state.processing_ret_complete = True if reporte_resultado else False
+                
+                # --- CORRECCIÓN CLAVE ---
+                # Esta variable AHORA se establece en True sin importar el resultado.
+                # Su única función es indicar que el proceso ya se ejecutó.
+                st.session_state.processing_ret_complete = True
 
     # --- Visualización de Resultados ---
+    # Esta condición ahora se cumplirá siempre después de hacer clic en el botón.
     if st.session_state.get('processing_ret_complete', False):
+        
+        # La decisión de mostrar éxito o error se basa directamente en si hay un reporte.
         if st.session_state.reporte_ret_output:
             st.success("✅ ¡Auditoría de retenciones completada con éxito!")
             st.download_button(
@@ -238,8 +242,10 @@ def render_retenciones():
                 use_container_width=True
             )
         else:
+            # Si no hay reporte, significa que hubo un error.
             st.error("❌ La auditoría finalizó con un error. Revisa el registro para más detalles.")
 
+        # El registro detallado ahora SIEMPRE se mostrará, permitiendo la depuración.
         with st.expander("Ver registro detallado del proceso de auditoría"):
             st.text_area("Log de Conciliación de Retenciones", '\n'.join(st.session_state.log_messages_ret), height=400)
 
