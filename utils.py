@@ -296,3 +296,119 @@ def generar_csv_saldos_abiertos(df_saldos_abiertos):
             df_saldos_a_exportar[col] = df_saldos_a_exportar[col].round(2).apply(lambda x: f"{x:.2f}".replace('.', ','))
             
     return df_saldos_a_exportar.to_csv(index=False, sep=';', encoding='utf-8-sig').encode('utf-8-sig')
+
+# ==============================================================================
+# REPORTE PARA LA HERRAMIENTA DE RETENCIONES
+# ==============================================================================
+
+def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_map):
+    """
+    Genera el archivo Excel de reporte para la auditoría de retenciones.
+    """
+    output_buffer = BytesIO()
+    with pd.ExcelWriter(output_buffer, engine='xlsxwriter') as writer:
+        workbook = writer.book
+        # --- Formatos ---
+        main_title_format = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'font_size': 14})
+        group_title_format = workbook.add_format({'bold': True, 'italic': True, 'font_size': 12})
+        subgroup_title_format = workbook.add_format({'bold': True})
+        header_format = workbook.add_format({'bold': True, 'text_wrap': True, 'valign': 'top', 'fg_color': '#D9EAD3', 'border': 1, 'align': 'center'})
+        money_format = workbook.add_format({'num_format': '#,##0.00'})
+        date_format = workbook.add_format({'num_format': 'dd/mm/yyyy'})
+        text_format = workbook.add_format({'num_format': '@'})
+
+        # --- HOJA 1: Relacion CP ---
+        ws1 = workbook.add_worksheet('Relacion CP')
+        ws1.hide_gridlines(2)
+        column_map_cp = {'ASIENTO': 'Asiento', 'TIPO': 'Tipo', 'FECHA': 'Fecha', 'COMPROBANTE': 'Numero', 'APLICACION': 'Aplicacion', 'SUBTIPO': 'Subtipo', 'MONTO': 'Monto', 'CP_Vs_Galac': 'Cp Vs Galac', 'Asiento_en_CG': 'Asiento en CG', 'Monto_coincide_CG': 'Monto coincide CG', 'RIF': 'Proveedor', 'NOMBREPROVEEDOR': 'nombre'}
+        final_order_cp = ['Asiento', 'Tipo', 'Fecha', 'Numero', 'Aplicacion', 'Subtipo', 'Monto', 'Cp Vs Galac', 'Asiento en CG', 'Monto coincide CG', 'Proveedor', 'nombre']
+        
+        # Preparamos los datos para el reporte
+        df_reporte_cp = df_cp_results.copy()
+        df_reporte_cp.rename(columns=column_map_cp, inplace=True)
+        # Asegurarse de que todas las columnas existan antes de filtrar
+        for col in final_order_cp:
+            if col not in df_reporte_cp.columns:
+                df_reporte_cp[col] = ''
+
+        df_exitosos = df_reporte_cp[df_reporte_cp['Cp Vs Galac'] == 'Sí']
+        df_anulados = df_reporte_cp[df_reporte_cp['Cp Vs Galac'] == 'No Aplica (Anulado)']
+        df_incidencias = df_reporte_cp.drop(df_exitosos.index).drop(df_anulados.index)
+        
+        ws1.merge_range('A1:L1', 'Relacion de Retenciones CP', main_title_format)
+        current_row = 2
+        
+        # Escribir Incidencias
+        ws1.write(current_row, 0, 'Incidencias Encontradas', group_title_format); current_row += 1
+        ws1.write_row(current_row, 0, final_order_cp, header_format); current_row += 1
+        if not df_incidencias.empty:
+            for r_idx, row in df_incidencias[final_order_cp].iterrows():
+                ws1.write_row(current_row, 0, row.fillna('').values); current_row += 1
+        
+        # Escribir Exitosos
+        current_row += 1
+        ws1.write(current_row, 0, 'Conciliacion Exitosa', group_title_format); current_row += 1
+        ws1.write_row(current_row, 0, final_order_cp, header_format); current_row += 1
+        if not df_exitosos.empty:
+            for r_idx, row in df_exitosos[final_order_cp].iterrows():
+                ws1.write_row(current_row, 0, row.fillna('').values); current_row += 1
+                
+        ws1.set_column('A:B', 15); ws1.set_column('C:C', 12, date_format); ws1.set_column('D:D', 20, text_format); ws1.set_column('E:F', 25); ws1.set_column('G:G', 15, money_format); ws1.set_column('H:J', 25); ws1.set_column('K:L', 30)
+
+        # --- HOJA 2: Análisis GALAC ---
+        ws2 = workbook.add_worksheet('Análisis GALAC')
+        ws2.hide_gridlines(2)
+        ws2.merge_range('A1:G1', 'Análisis de Retenciones Oficiales (GALAC)', main_title_format)
+        current_row = 2
+        ws2.write(current_row, 0, 'A. Incidencias de CP Reflejadas en GALAC (Posibles Coincidencias)', group_title_format)
+        current_row += 5
+        ws2.write(current_row, 0, 'B. Retenciones en GALAC no encontradas en Relacion de CP', group_title_format); current_row += 1
+        df_galac_no_cp_final = df_galac_no_cp[['FECHA', 'COMPROBANTE', 'FACTURA', 'RIF', 'NOMBREPROVEEDOR', 'MONTO', 'TIPO']]
+        galac_headers = ['Fecha', 'Comprobante', 'No Documento', 'Rif', 'Nombre Proveedor', 'Monto']
+        for tipo in ['IVA', 'ISLR', 'MUNICIPAL']:
+            df_tipo = df_galac_no_cp_final[df_galac_no_cp_final['TIPO'] == tipo]
+            if not df_tipo.empty:
+                df_tipo = df_tipo.fillna('')
+                current_row += 1
+                ws2.write(current_row, 0, f'Informe de Retenciones de {tipo}', subgroup_title_format); current_row += 1
+                ws2.write_row(current_row, 0, galac_headers, header_format); current_row += 1
+                for r_idx, row in df_tipo.iterrows():
+                    ws2.write_row(current_row, 0, row.values[:-1]); current_row += 1
+        ws2.set_column('A:A', 12, date_format); ws2.set_column('B:D', 20); ws2.set_column('E:E', 35); ws2.set_column('F:F', 18, money_format)
+
+        # --- HOJA 3: Diario CG ---
+        ws3 = workbook.add_worksheet('Diario CG')
+        ws3.hide_gridlines(2)
+        ws3.merge_range('A1:I1', 'Asientos con Errores de Conciliación', main_title_format)
+        cg_original_cols = [c for c in ['ASIENTO', 'FUENTE', 'CUENTACONTABLE', 'DESCRIPCIONDELACUENTACONTABLE', 'REFERENCIA', 'DEBITOVES', 'CREDITOVES', 'RIF', 'NIT'] if c in df_cg.columns]
+        cg_headers_final = cg_original_cols + ['Observacion']
+        asientos_con_error = df_incidencias['Asiento'].unique()
+        df_cg_errores = df_cg[df_cg['ASIENTO'].isin(asientos_con_error)].copy()
+        
+        df_error_cuenta = pd.DataFrame(columns=cg_headers_final)
+        df_error_monto = pd.DataFrame(columns=cg_headers_final)
+        
+        if not df_incidencias.empty and not df_cg_errores.empty:
+            merged_errors = pd.merge(df_cg_errores, df_incidencias[['Asiento', 'Cp Vs Galac', 'Monto coincide CG', 'Subtipo']], on='Asiento', how='left')
+            conditions = [(merged_errors['CUENTACONTABLE'] != merged_errors['Subtipo'].map(cuentas_map)), (merged_errors['Monto coincide CG'] == 'No')]
+            choices = ['Cuenta Contable no corresponde al Subtipo', 'Monto en Diario no coincide con Relacion CP']
+            merged_errors['Observacion'] = np.select(conditions, choices, default='Error no clasificado')
+            df_cg_final = merged_errors[cg_headers_final].drop_duplicates()
+            df_error_cuenta = df_cg_final[df_cg_final['Observacion'] == 'Cuenta Contable no corresponde al Subtipo']
+            df_error_monto = df_cg_final[df_cg_final['Observacion'] == 'Monto en Diario no coincide con Relacion CP']
+        
+        current_row = 2
+        ws3.write(current_row, 0, 'INCIDENCIA: Cuenta Contable Incorrecta', group_title_format); current_row += 1
+        ws3.write_row(current_row, 0, cg_headers_final, header_format); current_row += 1
+        if not df_error_cuenta.empty:
+             for r_idx, row in df_error_cuenta[cg_headers_final].iterrows():
+                ws3.write_row(current_row, 0, row.fillna('').values); current_row += 1
+        current_row += 1
+        ws3.write(current_row, 0, 'INCIDENCIA: Monto del Diario vs. Relación CP', group_title_format); current_row += 1
+        ws3.write_row(current_row, 0, cg_headers_final, header_format); current_row += 1
+        if not df_error_monto.empty:
+            for r_idx, row in df_error_monto[cg_headers_final].iterrows():
+                ws3.write_row(current_row, 0, row.fillna('').values); current_row += 1
+        ws3.set_column('A:E', 20); ws3.set_column('F:G', 15, money_format); ws3.set_column('H:H', 20); ws3.set_column('I:I', 40)
+
+    return output_buffer.getvalue()
