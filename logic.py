@@ -878,6 +878,25 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
                 if match_fact: factura_cp = _normalizar_valor(match_fact.group(1))
             monto_cp = row_cp.get('MONTO', 0)
             resultado = {'CP_Vs_Galac': 'No Encontrado en GALAC', 'Asiento_en_CG': 'No', 'Monto_coincide_CG': 'No Aplica'}
+
+            # ======================= INICIO DEL BLOQUE DE DIAGNÓSTICO =======================
+            if comprobante_cp_norm == '16329':
+                log_messages.append(f"\n--- DEBUG ISLR 16329: DATOS DEL CP ---")
+                log_messages.append(f"RIF a buscar:        |{rif_cp}|")
+                log_messages.append(f"Comprobante a buscar:|{comprobante_cp_norm}|")
+                log_messages.append(f"Factura a buscar:    |{factura_cp}|")
+                
+                df_galac_candidatos = df_galac_full[(df_galac_full['TIPO'] == 'ISLR') & (df_galac_full['RIF_norm'] == rif_cp)]
+                log_messages.append(f"Se encontraron {len(df_galac_candidatos)} candidatos en GALAC con el mismo RIF.")
+                
+                for idx, row_galac in df_galac_candidatos.iterrows():
+                    g_comp = row_galac['COMPROBANTE_norm']
+                    g_fact = row_galac['FACTURA_norm']
+                    log_messages.append(f"  - Candidato GALAC (Comp: {g_comp}, Fact: {g_fact}):")
+                    log_messages.append(f"    ¿Coincide Comprobante?: {g_comp == comprobante_cp_norm}")
+                    log_messages.append(f"    ¿Coincide Factura?: {g_fact == factura_cp}")
+                log_messages.append("--- FIN DEBUG ---\n")
+            # ======================== FIN DEL BLOQUE DE DIAGNÓSTICO =========================
             
             if "ANULADO" in str(row_cp.get('APLICACION', '')).upper():
                 resultado['CP_Vs_Galac'] = 'No Aplica (Anulado)'
