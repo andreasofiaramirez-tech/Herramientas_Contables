@@ -901,7 +901,7 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
                 df_galac_target = df_galac_full[df_galac_full['TIPO'] == subtipo]
                 match = pd.Series(False, index=df_galac_target.index)
                 if not df_galac_target.empty and rif_cp:
-                    if subtipo == 'IVA': match = (df_galac_target['RIF_norm'] == rif_cp) & (df_galac_target.get('COMPROBANTE_norm', pd.Series(dtype=str)).str.endswith(comprobante_cp[-6:] if comprobante_cp else ''))
+                    if subtipo == 'IVA': match = (df_galac_target['RIF_norm'] == rif_cp) & (df_galac_target.get('COMPROBANTE_norm', pd.Series(dtype=str)) == comprobante_cp)
                     elif subtipo == 'ISLR': match = (df_galac_target['RIF_norm'] == rif_cp) & (df_galac_target.get('COMPROBANTE_norm', pd.Series(dtype=str)) == comprobante_cp) & (df_galac_target.get('FACTURA_norm', pd.Series(dtype=str)) == factura_cp)
                     elif subtipo == 'MUNICIPAL': match = (df_galac_target['RIF_norm'] == rif_cp) & (df_galac_target.get('FACTURA_norm', pd.Series(dtype=str)) == factura_cp)
                 
@@ -936,7 +936,7 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         df_cp_results = df_cp.join(pd.DataFrame(results))
         df_galac_no_cp = df_galac_full.drop(list(indices_galac_encontrados))
 
-        # --- 6. GENERACIÓN DE REPORTES (DELEGADO, sin cambios) ---
+        # --- 6. GENERACIÓN DE REPORTES ---
         log_messages.append("Generando reporte de auditoría con formato personalizado...")
         reporte_bytes = generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, CUENTAS_MAP)
         log_messages.append("¡Proceso de conciliación de retenciones completado con éxito!")
