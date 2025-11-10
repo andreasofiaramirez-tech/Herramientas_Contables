@@ -902,8 +902,6 @@ def _normalizar_valor(valor):
 
 # --- Función Maestra de Conciliación de Retenciones ---
 
-# EN logic.py, REEMPLAZA LA FUNCIÓN COMPLETA CON ESTA VERSIÓN FINAL Y DEFINITIVA
-
 def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun, log_messages):
     """
     (Versión Definitiva) Función principal que encapsula toda la lógica de conciliación de retenciones
@@ -941,7 +939,6 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
                 df.rename(columns={col_to_rename: standard_name}, inplace=True)
                 log_messages.append(f"✔️ Columna en {df_name} ('{col_to_rename}') estandarizada a '{standard_name}'.")
             else:
-                # Solo lanzamos error para columnas críticas
                 critical_cols = ['MONTO', 'RIF', 'FECHA', 'CREDITOVES']
                 if standard_name in critical_cols:
                     raise KeyError(f"No se pudo encontrar una columna para '{standard_name}' en el archivo {df_name}. Sinónimos buscados: {synonyms}")
@@ -950,13 +947,13 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         find_and_rename(df_cp, ['MONTOTOTAL', 'MONTOBS', 'MONTO'], 'MONTO', 'CP')
         find_and_rename(df_cg, ['CREDITOVES', 'CREDITO', 'CREDITOBS'], 'CREDITOVES', 'CG')
         
-        # --- CORRECCIÓN CLAVE: LISTA DE SINÓNIMOS DE FECHA CORREGIDA Y EXPANDIDA ---
+        # --- CORRECCIÓN CLAVE: AÑADIDO 'OPERACION' A LOS SINÓNIMOS DE FECHA ---
         galac_synonyms = {
             'MONTO': ['MONTO', 'IVARETENIDO', 'MONTORETENIDO', 'VALOR'],
             'RIF': ['RIF', 'RIFPROV', 'RIFPROVEEDOR', 'NUMERORIF'],
             'COMPROBANTE': ['COMPROBANTE', 'NOCOMPROBANTE', 'NREFERENCIA'],
-            'FACTURA': ['FACTURA', 'NDOCUMENTO', 'NUMERODEFACTURA', 'NDOCUMENTONDECONTROL'], # Añadido N de Control para IVA
-            'FECHA': ['FECHA', 'FECHARET', 'FECHAOPERACION', 'FECHARETENCION'] # Lista corregida
+            'FACTURA': ['FACTURA', 'NDOCUMENTO', 'NUMERODEFACTURA', 'NDOCUMENTONDECONTROL'],
+            'FECHA': ['FECHA', 'FECHARET', 'OPERACION', 'FECHARETENCION'] # 'OPERACION' añadido aquí
         }
 
         # Iteramos sobre cada DataFrame de GALAC para estandarizarlo
