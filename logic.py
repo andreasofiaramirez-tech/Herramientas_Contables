@@ -914,6 +914,32 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
             
             monto_cp = row_cp.get('MONTO', 0)
             resultado = {'CP_Vs_Galac': 'No Encontrado en GALAC', 'Asiento_en_CG': 'No', 'Monto_coincide_CG': 'No Aplica'}
+
+            # ======================= INICIO DEL BLOQUE DE DIAGNÓSTICO =======================
+            if comprobante_cp == '20251000278224':
+                log_messages.append("\n--- INICIO DEBUG: REGISTRO 'CESTATICKET' ---")
+                log_messages.append(f"CP RIF:         |{rif_cp}| (Tipo: {type(rif_cp)})")
+                log_messages.append(f"CP Comprobante:  |{comprobante_cp}| (Tipo: {type(comprobante_cp)})")
+                log_messages.append(f"CP Monto:        |{monto_cp}| (Tipo: {type(monto_cp)})")
+                
+                df_galac_debug = df_galac_full[df_galac_full['COMPROBANTE_norm'] == '20251000278224']
+                if not df_galac_debug.empty:
+                    galac_row = df_galac_debug.iloc[0]
+                    galac_rif = galac_row['RIF_norm']
+                    galac_comp = galac_row['COMPROBANTE_norm']
+                    galac_monto = galac_row['MONTO']
+                    
+                    log_messages.append(f"GALAC RIF:       |{galac_rif}| (Tipo: {type(galac_rif)})")
+                    log_messages.append(f"GALAC Comprobante:|{galac_comp}| (Tipo: {type(galac_comp)})")
+                    log_messages.append(f"GALAC Monto:     |{galac_monto}| (Tipo: {type(galac_monto)})")
+                    
+                    log_messages.append(f"¿Coincide RIF?: {rif_cp == galac_rif}")
+                    log_messages.append(f"¿Coincide Comprobante?: {comprobante_cp == galac_comp}")
+                    log_messages.append(f"¿Coincide Monto (con np.isclose)?: {np.isclose(monto_cp, galac_monto)}")
+                else:
+                    log_messages.append("ERROR DE DEBUG: No se encontró el comprobante en GALAC.")
+                log_messages.append("--- FIN DEBUG ---\n")
+            # ======================== FIN DEL BLOQUE DE DIAGNÓSTICO =========================
             
             if "ANULADO" in str(row_cp.get('APLICACION', '')).upper():
                 resultado['CP_Vs_Galac'] = 'No Aplica (Anulado)'
