@@ -6,6 +6,7 @@ import re
 from itertools import combinations
 from io import BytesIO
 import unicodedata
+import xlsxwriter
 
 # --- Constantes de Tolerancia ---
 TOLERANCIA_MAX_BS = 2.00
