@@ -859,29 +859,33 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
             elif 'MUNICIPAL' in subtipo_original: subtipo = 'MUNICIPAL'
             rif_cp = row_cp.get('RIF_norm', ''); comprobante_cp_norm = row_cp.get('COMPROBANTE_norm', ''); factura_cp = row_cp.get('FACTURA_norm', '')
             
-            # ======================= INICIO DEL BLOQUE DE DIAGNÓSTICO =======================
-            if _normalizar_valor(row_cp.get('COMPROBANTE', '')) == '16310':
-                log_messages.append("\n--- INICIO DEBUG: REGISTRO ISLR 16310 ---")
-                log_messages.append(f"CP Comprobante (antes de norm): |{row_cp.get('COMPROBANTE')}|")
-                log_messages.append(f"CP Comprobante (después de norm):|{comprobante_cp_norm}| (Longitud: {len(comprobante_cp_norm)})")
-                
-                df_galac_debug = df_galac_full[df_galac_full['COMPROBANTE_norm'] == '16310']
-                if not df_galac_debug.empty:
-                    galac_row = df_galac_debug.iloc[0]
-                    galac_comp_orig = galac_row['COMPROBANTE']
-                    galac_comp_norm = galac_row['COMPROBANTE_norm']
-                    log_messages.append(f"GALAC Comprobante (antes de norm):|{galac_comp_orig}|")
-                    log_messages.append(f"GALAC Comprobante (después de norm):|{galac_comp_norm}| (Longitud: {len(galac_comp_norm)})")
-                    log_messages.append(f"¿Coinciden los valores normalizados?: {comprobante_cp_norm == galac_comp_norm}")
-                else:
-                    log_messages.append("ERROR DE DEBUG: No se encontró el comprobante '16310' en GALAC después de normalizar.")
-                log_messages.append("--- FIN DEBUG ---\n")
-            # ======================== FIN DEL BLOQUE DE DIAGNÓSTICO =========================
 
             if not factura_cp:
                 aplicacion_str = str(row_cp.get('APLICACION', ''))
                 match_fact = re.search(r'FACT\s*N?[°º]?\s*(\S+)', aplicacion_str.upper())
                 if match_fact: factura_cp = _normalizar_valor(match_fact.group(1))
+
+
+            # ======================= INICIO DEL BLOQUE DE DIAGNÓSTICO =======================
+            if comprobante_cp_norm == '16310':
+                log_messages.append("\n--- INICIO DEBUG FACTURA: ISLR 16310 ---")
+                log_messages.append(f"CP Aplicacion:      |{aplicacion_str}|")
+                log_messages.append(f"CP Factura extraída:|{match_fact.group(1) if match_fact else 'No encontrada'}|")
+                log_messages.append(f"CP Factura norm:    |{factura_cp}| (Longitud: {len(factura_cp)})")
+                
+                df_galac_debug = df_galac_full[df_galac_full['COMPROBANTE_norm'] == '16310']
+                if not df_galac_debug.empty:
+                    galac_row = df_galac_debug.iloc[0]
+                    galac_fact_orig = galac_row['FACTURA']
+                    galac_fact_norm = galac_row['FACTURA_norm']
+                    log_messages.append(f"GALAC Factura (orig): |{galac_fact_orig}|")
+                    log_messages.append(f"GALAC Factura norm:   |{galac_fact_norm}| (Longitud: {len(galac_fact_norm)})")
+                    log_messages.append(f"¿Coinciden las facturas normalizadas?: {factura_cp == galac_fact_norm}")
+                else:
+                    log_messages.append("ERROR DE DEBUG: No se encontró el comprobante '16310' en GALAC.")
+                log_messages.append("--- FIN DEBUG ---\n")
+            # ======================== FIN DEL BLOQUE DE DIAGNÓSTICO =========================
+            
             monto_cp = row_cp.get('MONTO', 0)
             resultado = {'CP_Vs_Galac': 'No Encontrado en GALAC', 'Asiento_en_CG': 'No', 'Monto_coincide_CG': 'No Aplica'}
             
