@@ -1089,6 +1089,7 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
             for tipo in ['IVA', 'ISLR', 'MUNICIPAL']:
                 df_tipo = df_galac_no_cp_final[df_galac_no_cp_final['TIPO'] == tipo]
                 if not df_tipo.empty:
+                    df_tipo = df_tipo.fillna(0)
                     current_row += 1
                     ws2.write(current_row, 0, f'Informe de Retenciones de {tipo}', subgroup_title_format)
                     current_row += 1
