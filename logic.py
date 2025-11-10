@@ -792,12 +792,24 @@ def _limpiar_nombre_columna_retenciones(col_name):
     return re.sub(r'[^A-Z0-9]', '', s.upper())
 
 def _normalizar_valor(valor):
+    """
+    (Versión Robusta y Completa) Normaliza RIF, comprobantes y facturas.
+    """
     if pd.isna(valor):
         return ''
+    
+    # Convertir a string y limpiar caracteres no alfanuméricos.
     val_str = str(valor).strip()
     val_str = re.sub(r'[^a-zA-Z0-9]', '', val_str).upper()
+
+    # Quitar la 'J' inicial solo si es un RIF.
     if val_str.startswith('J') and len(val_str) == 10:
         val_str = val_str[1:]
+    
+    # CORRECCIÓN: Añadir de nuevo la eliminación de ceros a la izquierda.
+    # Esto convertirá '004052' en '4052'.
+    val_str = re.sub(r'^0+', '', val_str)
+        
     return val_str
 
 def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun, log_messages):
