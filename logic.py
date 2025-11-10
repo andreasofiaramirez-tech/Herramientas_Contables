@@ -277,10 +277,6 @@ def conciliar_grupos_por_referencia_usd(df, log_messages):
     return total_conciliados
 
 def conciliar_pares_globales_exactos_usd(df, log_messages):
-    """
-    (Versión CORREGIDA) Busca y concilia pares 1-a-1 de débito/crédito cuyo monto absoluto es EXACTAMENTE el mismo.
-    Ahora maneja múltiples pares del mismo monto.
-    """
     log_messages.append("\n--- FASE PARES GLOBALES EXACTOS (USD) ---")
     total_conciliados = 0
     df_pendientes = df.loc[~df['Conciliado']].copy()
@@ -352,13 +348,8 @@ def conciliar_lote_por_grupo_usd(df, clave_grupo, fase_name, log_messages):
     return 0
 
 def conciliar_pares_banco_a_banco_usd(df, log_messages):
-    """
-    Busca y concilia pares 1-a-1 de débito/crédito DENTRO del grupo 'BANCO A BANCO'.
-    Maneja múltiples pares del mismo monto de forma robusta.
-    """
     log_messages.append("\n--- FASE PARES BANCO A BANCO (USD) ---")
     total_conciliados = 0
-    # Seleccionamos solo los movimientos pendientes que pertenecen al grupo de banco
     df_pendientes = df.loc[(~df['Conciliado']) & (df['Clave_Grupo'] == 'GRUPO_BANCO')].copy()
     
     if df_pendientes.empty:
@@ -366,7 +357,6 @@ def conciliar_pares_banco_a_banco_usd(df, log_messages):
 
     df_pendientes['Monto_Abs'] = df_pendientes['Monto_USD'].abs()
     
-    # Agrupamos por el monto absoluto para encontrar pares potenciales
     grupos_por_monto = df_pendientes.groupby('Monto_Abs')
     
     for monto, grupo in grupos_por_monto:
@@ -376,7 +366,6 @@ def conciliar_pares_banco_a_banco_usd(df, log_messages):
         debitos = grupo[grupo['Monto_USD'] > 0].index.to_list()
         creditos = grupo[grupo['Monto_USD'] < 0].index.to_list()
         
-        # Determinamos cuántos pares podemos formar
         pares_a_conciliar = min(len(debitos), len(creditos))
         
         if pares_a_conciliar > 0:
@@ -397,14 +386,10 @@ def conciliar_pares_banco_a_banco_usd(df, log_messages):
     return total_conciliados
 
 def conciliar_grupos_complejos_usd(df, log_messages, progress_bar=None):
-    """
-    Versión OPTIMIZADA que busca grupos complejos (1-vs-2 y 2-vs-1) utilizando
-    diccionarios para búsquedas O(1) en lugar de fuerza bruta combinatoria.
-    """
     log_messages.append("\n--- FASE GRUPOS COMPLEJOS OPTIMIZADA (USD) ---")
     
     pendientes = df.loc[~df['Conciliado']]
-    LIMITE_MOVIMIENTOS = 500  # Podemos aumentar el límite con el algoritmo optimizado
+    LIMITE_MOVIMIENTOS = 500
     if len(pendientes) > LIMITE_MOVIMIENTOS:
         log_messages.append(f"ℹ️ Se omitió la fase de grupos complejos por haber demasiados movimientos pendientes (> {LIMITE_MOVIMIENTOS}).")
         return 0
@@ -419,7 +404,6 @@ def conciliar_grupos_complejos_usd(df, log_messages, progress_bar=None):
     indices_usados = set()
 
     # --- CASO 1: 1 Débito vs 2 Créditos ---
-    # Creamos un diccionario con la suma de cada par de créditos
     log_messages.append("Construyendo mapa de sumas de créditos...")
     sumas_pares_creditos = {}
     if len(creditos) >= 2:
@@ -439,7 +423,6 @@ def conciliar_grupos_complejos_usd(df, log_messages, progress_bar=None):
         monto_d = df.loc[idx_d, 'Monto_USD']
         target_sum_c = -monto_d
         
-        # Buscamos una suma cercana en nuestro diccionario
         for suma_c, pares in sumas_pares_creditos.items():
             if abs(target_sum_c - suma_c) <= TOLERANCIA_MAX_USD:
                 for idx_c1, idx_c2 in pares:
@@ -461,7 +444,6 @@ def conciliar_grupos_complejos_usd(df, log_messages, progress_bar=None):
     if progress_bar: progress_bar.progress(0.5)
 
     # --- CASO 2: 2 Débitos vs 1 Crédito ---
-    # Actualizamos los movimientos disponibles
     debitos_disponibles = debitos.drop(indices_usados, errors='ignore')
     creditos_disponibles = creditos.drop(indices_usados, errors='ignore')
     
@@ -508,10 +490,6 @@ def conciliar_grupos_complejos_usd(df, log_messages, progress_bar=None):
     return total_conciliados_fase
     
 def conciliar_pares_globales_remanentes_usd(df, log_messages):
-    """
-    Versión OPTIMIZADA que busca pares 1-a-1 usando un self-merge de pandas,
-    evitando bucles anidados de Python.
-    """
     log_messages.append("\n--- FASE GLOBAL 1-a-1 (USD) ---")
     
     pendientes = df.loc[~df['Conciliado']].copy()
@@ -524,28 +502,20 @@ def conciliar_pares_globales_remanentes_usd(df, log_messages):
     if debitos.empty or creditos.empty:
         return 0
 
-    # Convertimos el índice en una columna para que el merge lo preserve.
-    # Esto creará las columnas 'index_d' e 'index_c' que necesitamos.
     debitos.reset_index(inplace=True)
     creditos.reset_index(inplace=True)
 
     debitos['join_key'] = 1
     creditos['join_key'] = 1
 
-    # Cruzamos todos los débitos con todos los créditos
     pares_potenciales = pd.merge(debitos, creditos, on='join_key', suffixes=('_d', '_c'))
     
-    # Calculamos la diferencia absoluta entre los montos
     pares_potenciales['diferencia'] = abs(pares_potenciales['Monto_USD_d'] + pares_potenciales['Monto_USD_c'])
     
-    # Filtramos solo aquellos pares que están dentro de la tolerancia
     pares_validos = pares_potenciales[pares_potenciales['diferencia'] <= TOLERANCIA_MAX_USD].copy()
     
-    # Ordenamos por la menor diferencia para encontrar los mejores matches primero
     pares_validos.sort_values(by='diferencia', inplace=True)
     
-    # Eliminamos duplicados para que cada movimiento se use solo una vez
-    # Ahora 'index_d' e 'index_c' existirán y esta línea funcionará.
     pares_finales = pares_validos.drop_duplicates(subset=['index_d'], keep='first')
     pares_finales = pares_finales.drop_duplicates(subset=['index_c'], keep='first')
     
@@ -554,10 +524,8 @@ def conciliar_pares_globales_remanentes_usd(df, log_messages):
         indices_d = pares_finales['index_d'].tolist()
         indices_c = pares_finales['index_c'].tolist()
         
-        # Aplicamos la conciliación en lote
         df.loc[indices_d + indices_c, 'Conciliado'] = True
         
-        # Actualizamos los grupos de conciliación
         for _, row in pares_finales.iterrows():
             idx_d, asiento_d = row['index_d'], row['Asiento_d']
             idx_c, asiento_c = row['index_c'], row['Asiento_c']
@@ -582,15 +550,8 @@ def conciliar_gran_total_final_usd(df, log_messages):
 
 # --- (C) Módulo: Devoluciones a Proveedores ---
 def normalizar_datos_proveedores(df, log_messages):
-    """
-    (Versión MEJORADA) Normaliza los datos para la conciliación de proveedores,
-    utilizando el NIT/RIF como la clave principal para una mayor precisión.
-    """
     df_copy = df.copy()
     
-    # --- LÓGICA MEJORADA PARA ENCONTRAR Y USAR EL NIT/RIF ---
-    
-    # 1. Buscamos la columna del identificador único (NIT o RIF)
     nit_col_name = None
     for col in df_copy.columns:
         if str(col).strip().upper() in ['NIT', 'RIF']:
@@ -599,13 +560,11 @@ def normalizar_datos_proveedores(df, log_messages):
             
     if nit_col_name:
         log_messages.append(f"✔️ Se encontró la columna de identificador fiscal ('{nit_col_name}') y se usará como clave principal.")
-        # 2. Creamos la clave usando el NIT/RIF normalizado (sin guiones, puntos, etc.)
         df_copy['Clave_Proveedor'] = df_copy[nit_col_name].astype(str).str.upper().str.replace(r'[^A-Z0-9]', '', regex=True)
     else:
         log_messages.append("⚠️ ADVERTENCIA: No se encontró la columna 'NIT' o 'RIF'. Se recurrirá a usar 'Nombre del Proveedor', lo cual es menos preciso.")
         df_copy['Clave_Proveedor'] = df_copy['Nombre del Proveedor'].astype(str).str.strip().str.upper()
 
-    # La lógica para extraer la clave de la factura/documento no cambia
     def extraer_clave_comp(row):
         if row['Monto_USD'] > 0:
             return str(row['Fuente']).strip().upper()
@@ -619,23 +578,19 @@ def normalizar_datos_proveedores(df, log_messages):
     return df_copy
 
 def run_conciliation_devoluciones_proveedores(df, log_messages):
-    """Orquesta el proceso completo de conciliación para Devoluciones a Proveedores."""
     log_messages.append("\n--- INICIANDO LÓGICA DE DEVOLUCIONES A PROVEEDORES (USD) ---")
     
-    # Esta llamada ahora usará la lógica mejorada con NIT/RIF
     df = normalizar_datos_proveedores(df, log_messages) 
     
     total_conciliados = 0
     df_procesable = df.loc[(~df['Conciliado']) & (df['Clave_Proveedor'].notna()) & (df['Clave_Comp'].notna())]
     
-    # El groupby ahora usará la clave basada en NIT, que es mucho más precisa
     grupos = df_procesable.groupby(['Clave_Proveedor', 'Clave_Comp'])
     
     log_messages.append(f"ℹ️ Se encontraron {len(grupos)} grupos de Proveedor/COMP para analizar.")
     for (proveedor_clave, comp), grupo in grupos:
         if abs(round(grupo['Monto_USD'].sum(), 2)) <= TOLERANCIA_MAX_USD:
             indices = grupo.index
-            # Usamos la clave del proveedor (el NIT) en el ID del grupo para mayor claridad
             df.loc[indices, ['Conciliado', 'Grupo_Conciliado']] = [True, f"PROV_{proveedor_clave}_{comp}"]
             total_conciliados += len(indices)
 
@@ -649,10 +604,6 @@ def run_conciliation_devoluciones_proveedores(df, log_messages):
 
 # --- (D) Módulo: Cuentas de Viajes ---
 def normalizar_referencia_viajes(df, log_messages):
-    """
-    Clasifica los movimientos de la cuenta de viajes en 'IMPUESTOS' o 'VIATICOS'
-    basado en palabras clave en la columna 'Referencia'.
-    """
     log_messages.append("✔️ Fase de Normalización: Clasificando movimientos por tipo (Impuestos/Viáticos).")
     
     def clasificar_tipo(referencia_str):
@@ -665,10 +616,8 @@ def normalizar_referencia_viajes(df, log_messages):
             return 'VIATICOS'
         return 'OTRO'
 
-    # Creamos la nueva columna 'Tipo' que se usará en el reporte
     df['Tipo'] = df['Referencia'].apply(clasificar_tipo)
     
-    # También necesitamos normalizar el NIT para usarlo como clave
     nit_col_name = next((col for col in df.columns if str(col).strip().upper() in ['NIT', 'RIF']), None)
     if nit_col_name:
         df['NIT_Normalizado'] = df[nit_col_name].astype(str).str.upper().str.replace(r'[^A-Z0-9]', '', regex=True)
@@ -679,14 +628,9 @@ def normalizar_referencia_viajes(df, log_messages):
     return df
 
 def conciliar_pares_exactos_por_nit_viajes(df, log_messages):
-    """
-    Busca y concilia pares 1-a-1 de débito/crédito que se anulan mutuamente (suma cero)
-    y que pertenecen al MISMO NIT_Normalizado.
-    """
     log_messages.append("\n--- FASE 1: Búsqueda de Pares Exactos por NIT ---")
     total_conciliados = 0
     
-    # Agrupamos por NIT y por el valor absoluto del monto para encontrar pares potenciales
     df_pendientes = df.loc[~df['Conciliado']].copy()
     df_pendientes['Monto_Abs'] = df_pendientes['Monto_BS'].abs()
     
@@ -705,7 +649,6 @@ def conciliar_pares_exactos_por_nit_viajes(df, log_messages):
             for i in range(pares_a_conciliar):
                 idx_d, idx_c = debitos[i], creditos[i]
                 
-                # Doble chequeo de que la suma es cero (o muy cercana)
                 if abs(df.loc[idx_d, 'Monto_BS'] + df.loc[idx_c, 'Monto_BS']) <= 0.01:
                     asiento_d, asiento_c = df.loc[idx_d, 'Asiento'], df.loc[idx_c, 'Asiento']
                     df.loc[[idx_d, idx_c], 'Conciliado'] = True
@@ -718,9 +661,6 @@ def conciliar_pares_exactos_por_nit_viajes(df, log_messages):
     return total_conciliados
 
 def conciliar_grupos_por_nit_viajes(df, log_messages):
-    """
-    Para cada NIT, busca combinaciones de movimientos pendientes que sumen cero.
-    """
     log_messages.append("\n--- FASE 2: Búsqueda de Grupos por NIT ---")
     total_conciliados_fase = 0
     
@@ -731,16 +671,14 @@ def conciliar_grupos_por_nit_viajes(df, log_messages):
         if nit == 'SIN_NIT' or len(grupo) < 2:
             continue
             
-        # Si todo el grupo de un NIT ya suma cero, lo conciliamos
         if abs(grupo['Monto_BS'].sum()) <= TOLERANCIA_MAX_BS:
             indices = grupo.index
             df.loc[indices, ['Conciliado', 'Grupo_Conciliado']] = [True, f'GRUPO_TOTAL_NIT_{nit}']
             total_conciliados_fase += len(indices)
             log_messages.append(f"✔️ Conciliado grupo completo para NIT {nit} ({len(indices)} movimientos).")
-            continue # Pasamos al siguiente NIT
+            continue
 
-        # Si no, buscamos sub-combinaciones (lógica similar a la de USD)
-        LIMITE_COMBINACION = 10 # Límite de seguridad para evitar congelamiento
+        LIMITE_COMBINACION = 10
         movimientos_grupo = grupo.index.to_list()
         
         if len(movimientos_grupo) > LIMITE_COMBINACION:
@@ -805,28 +743,21 @@ def run_conciliation_fondos_por_depositar(df, log_messages, progress_bar=None):
     log_messages.append("\n--- INICIANDO LÓGICA DE FONDOS POR DEPOSITAR (USD) ---")
     df = normalizar_referencia_fondos_usd(df)
     
-    # PASO 1: Conciliaciones automáticas
     conciliar_automaticos_usd(df, log_messages)
     if progress_bar: progress_bar.progress(0.1, text="Fase 1/6: Conciliaciones automáticas completada.")
     
-    # PASO 2: Grupos por referencia ESPECÍFICA (Ignora 'BANCO A BANCO')
     conciliar_grupos_por_referencia_usd(df, log_messages)
     if progress_bar: progress_bar.progress(0.2, text="Fase 2/6: Grupos por referencia específica completada.")
     
-    # --- NUEVO PASO ESTRATÉGICO ---
-    # PASO 3: Lógica dedicada para encontrar pares dentro de 'BANCO A BANCO'
     conciliar_pares_banco_a_banco_usd(df, log_messages)
     if progress_bar: progress_bar.progress(0.35, text="Fase 3/6: Pares 'Banco a Banco' completada.")
     
-    # PASO 4: Pares globales con monto EXACTO (Ahora más robusto)
     conciliar_pares_globales_exactos_usd(df, log_messages)
     if progress_bar: progress_bar.progress(0.5, text="Fase 4/6: Pares globales exactos completada.")
     
-    # PASO 5: Búsqueda de pares globales con TOLERANCIA (versión optimizada)
     conciliar_pares_globales_remanentes_usd(df, log_messages)
     if progress_bar: progress_bar.progress(0.65, text="Fase 5/6: Búsqueda de pares con tolerancia completada.")
 
-    # PASO 6: Búsqueda de grupos complejos (versión optimizada)
     conciliar_grupos_complejos_usd(df, log_messages, progress_bar)
     if progress_bar: progress_bar.progress(0.9, text="Fase 6/6: Búsqueda de grupos complejos completada.")
     
@@ -835,42 +766,15 @@ def run_conciliation_fondos_por_depositar(df, log_messages, progress_bar=None):
     log_messages.append("\n--- PROCESO DE CONCILIACIÓN FINALIZADO ---")
     return df
 
-def run_conciliation_devoluciones_proveedores(df, log_messages):
-    """Orquesta el proceso completo de conciliación para Devoluciones a Proveedores."""
-    log_messages.append("\n--- INICIANDO LÓGICA DE DEVOLUCIONES A PROVEEDORES (USD) ---")
-    df = normalizar_datos_proveedores(df)
-    log_messages.append("✔️ Datos normalizados: Claves de Proveedor y COMP generadas.")
-    total_conciliados = 0
-    df_procesable = df.loc[(~df['Conciliado']) & (df['Clave_Proveedor'].notna()) & (df['Clave_Comp'].notna())]
-    grupos = df_procesable.groupby(['Clave_Proveedor', 'Clave_Comp'])
-    log_messages.append(f"ℹ️ Se encontraron {len(grupos)} grupos de Proveedor/COMP para analizar.")
-    for (proveedor, comp), grupo in grupos:
-        if abs(round(grupo['Monto_USD'].sum(), 2)) <= TOLERANCIA_MAX_USD:
-            indices = grupo.index
-            df.loc[indices, ['Conciliado', 'Grupo_Conciliado']] = [True, f"PROV_{proveedor}_{comp}"]
-            total_conciliados += len(indices)
-    if total_conciliados > 0:
-        log_messages.append(f"✔️ Conciliación por Proveedor/COMP: {total_conciliados} movimientos conciliados.")
-    else:
-        log_messages.append("ℹ️ No se encontraron conciliaciones automáticas por Proveedor/COMP.")
-    log_messages.append("\n--- PROCESO DE CONCILIACIÓN FINALIZADO ---")
-    return df
-
 def run_conciliation_viajes(df, log_messages, progress_bar=None):
-    """
-    Orquesta el proceso completo de conciliación para la cuenta de Viajes.
-    """
     log_messages.append("\n--- INICIANDO LÓGICA DE CUENTAS DE VIAJES (BS) ---")
     
-    # Paso 0: Clasificar y preparar datos
     df = normalizar_referencia_viajes(df, log_messages)
     if progress_bar: progress_bar.progress(0.2, text="Fase de Normalización completada.")
     
-    # Paso 1: Buscar pares exactos por NIT (alta precisión)
     conciliar_pares_exactos_por_nit_viajes(df, log_messages)
     if progress_bar: progress_bar.progress(0.5, text="Fase 1/2: Búsqueda de pares exactos completada.")
     
-    # Paso 2: Buscar grupos complejos por NIT (baja precisión)
     conciliar_grupos_por_nit_viajes(df, log_messages)
     if progress_bar: progress_bar.progress(0.9, text="Fase 2/2: Búsqueda de grupos complejos completada.")
     
@@ -881,37 +785,24 @@ def run_conciliation_viajes(df, log_messages, progress_bar=None):
 # LÓGICAS PARA LA HERRAMIENTA DE RELACIONES DE RETENCIONES
 # ==============================================================================
 
-# --- Funciones Auxiliares Específicas de Retenciones ---
-
 def _limpiar_nombre_columna_retenciones(col_name):
-    """Limpia y normaliza un nombre de columna, manejando acentos."""
     s = str(col_name).strip()
-    # Normaliza para remover acentos (ej: 'Crédito' -> 'Credito')
     s = ''.join(c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn')
-    # Convierte a mayúsculas y elimina caracteres no alfanuméricos
     return re.sub(r'[^A-Z0-9]', '', s.upper())
     
 def _normalizar_valor(valor):
-    """Normaliza RIF, comprobantes y facturas para una comparación precisa."""
     if pd.isna(valor):
         return ''
-    # Convierte a string, elimina espacios, guiones, puntos, y quita ceros a la izquierda
     val_str = str(valor).strip().upper().replace('.', '').replace('-', '')
-    val_str = re.sub(r'^0+', '', val_str) # Elimina ceros iniciales
-    if val_str.startswith('J'): # Quita la 'J' de los RIFs si existe
+    val_str = re.sub(r'^0+', '', val_str)
+    if val_str.startswith('J'):
         val_str = val_str[1:]
     return val_str
 
-# --- Función Maestra de Conciliación de Retenciones ---
-
 def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun, log_messages):
-    """
-    (Versión Definitiva y Consolidada) Función principal que encapsula toda la lógica de conciliación de retenciones.
-    """
     log_messages.append("--- INICIANDO PROCESO DE CONCILIACIÓN DE RETENCIONES ---")
 
     try:
-        # --- 1. CARGA Y PREPARACIÓN DE DATOS ---
         log_messages.append("Cargando archivos de entrada...")
         df_cp = pd.read_excel(file_cp, header=4)
         df_cg = pd.read_excel(file_cg, header=0)
@@ -928,18 +819,12 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         df_galac_mun.columns = [_limpiar_nombre_columna_retenciones(c) for c in df_galac_mun.columns]
         
         def find_and_rename(df, synonyms, standard_name, df_name):
-            col_to_rename = None
-            for synonym in synonyms:
-                if synonym in df.columns:
-                    col_to_rename = synonym
-                    break
+            col_to_rename = next((s for s in synonyms if s in df.columns), None)
             if col_to_rename:
                 df.rename(columns={col_to_rename: standard_name}, inplace=True)
                 log_messages.append(f"✔️ Columna en {df_name} ('{col_to_rename}') estandarizada a '{standard_name}'.")
-            else:
-                critical_cols = ['MONTO', 'RIF', 'FECHA', 'CREDITOVES']
-                if standard_name in critical_cols:
-                    raise KeyError(f"No se pudo encontrar una columna para '{standard_name}' en el archivo {df_name}. Sinónimos buscados: {synonyms}")
+            elif standard_name in ['MONTO', 'RIF', 'FECHA', 'CREDITOVES']:
+                raise KeyError(f"No se pudo encontrar una columna para '{standard_name}' en el archivo {df_name}. Sinónimos buscados: {synonyms}")
 
         find_and_rename(df_cp, ['MONTOTOTAL', 'MONTOBS', 'MONTO'], 'MONTO', 'CP')
         find_and_rename(df_cg, ['CREDITOVES', 'CREDITO', 'CREDITOBS'], 'CREDITOVES', 'CG')
@@ -953,20 +838,15 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
             'NOMBREPROVEEDOR': ['PROVEEDOR', 'NOMBRE', 'RAZONSOCIAL', 'RAZONSOCIALDELSUJETORETENIDO']
         }
 
-        # ======================= INICIO DE LA CORRECCIÓN =======================
-        # Se estandariza el nombre del proveedor en el archivo CP, igual que en los archivos GALAC.
-        # Esto asegura que la columna 'NOMBREPROVEEDOR' exista antes de generar el reporte.
         find_and_rename(df_cp, galac_synonyms['NOMBREPROVEEDOR'], 'NOMBREPROVEEDOR', 'CP')
-        # ======================== FIN DE LA CORRECCIÓN =========================
-
+        
         for df_galac, nombre_archivo in [(df_galac_iva, 'GALAC IVA'), (df_galac_islr, 'GALAC ISLR'), (df_galac_mun, 'Municipal')]:
             for col_estandar, sinonimos in galac_synonyms.items():
                 find_and_rename(df_galac, sinonimos, col_estandar, nombre_archivo)
         
         for df in [df_galac_iva, df_galac_islr, df_galac_mun]:
-            if 'COMPROBANTE' not in df.columns: df['COMPROBANTE'] = ''
-            if 'FACTURA' not in df.columns: df['FACTURA'] = ''
-            if 'NOMBREPROVEEDOR' not in df.columns: df['NOMBREPROVEEDOR'] = ''
+            for col in ['COMPROBANTE', 'FACTURA', 'NOMBREPROVEEDOR']:
+                if col not in df.columns: df[col] = ''
         
         df_galac_iva['TIPO'] = 'IVA'
         df_galac_islr['TIPO'] = 'ISLR'
@@ -986,14 +866,13 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         df_cg['CREDITOVES'] = pd.to_numeric(df_cg['CREDITOVES'], errors='coerce').fillna(0)
         df_galac_full['MONTO'] = pd.to_numeric(df_galac_full['MONTO'], errors='coerce').fillna(0)
         
-        # --- 2. LÓGICA DE CONCILIACIÓN ---
         log_messages.append("Iniciando auditoría en cascada por registro...")
         results = []
         indices_galac_encontrados = set()
         
         for index, row_cp in df_cp.iterrows():
-            subtipo = str(row_cp.get('SUBTIPO', '')).upper()
-            if 'IVA' in subtipo: subtipo = 'IVA'
+            subtipo_cp = str(row_cp.get('SUBTIPO', '')).upper()
+            subtipo = 'IVA' if 'IVA' in subtipo_cp else ('ISLR' if 'ISLR' in subtipo_cp else ('MUNICIPAL' if 'MUNICIPAL' in subtipo_cp else 'OTRO'))
             rif_cp = row_cp.get('RIF_norm', '')
             comprobante_cp = row_cp.get('COMPROBANTE_norm', '')
             factura_cp = row_cp.get('FACTURA_norm', '')
@@ -1010,10 +889,9 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
                     elif subtipo == 'ISLR': match = (df_galac_target['RIF_norm'] == rif_cp) & (df_galac_target.get('COMPROBANTE_norm', pd.Series(dtype=str)) == comprobante_cp) & (df_galac_target.get('FACTURA_norm', pd.Series(dtype=str)) == factura_cp)
                     elif subtipo == 'MUNICIPAL': match = (df_galac_target['RIF_norm'] == rif_cp) & (df_galac_target.get('FACTURA_norm', pd.Series(dtype=str)) == factura_cp)
                 
-                found_df = df_galac_target[match]
-                if not found_df.empty:
+                if match.any():
                     resultado['CP_Vs_Galac'] = 'Sí'
-                    indices_galac_encontrados.update(found_df.index)
+                    indices_galac_encontrados.update(df_galac_target[match].index)
                 else:
                     for otro_tipo in [t for t in ['IVA', 'ISLR', 'MUNICIPAL'] if t != subtipo]:
                         df_otro_galac = df_galac_full[df_galac_full['TIPO'] == otro_tipo]
@@ -1034,14 +912,12 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
                 if not df_asiento_cg.empty:
                     resultado['Asiento_en_CG'] = 'Sí'
                     monto_cg = df_asiento_cg[df_asiento_cg['CUENTACONTABLE'] == CUENTAS_MAP.get(subtipo, '')]['CREDITOVES'].sum()
-                    if np.isclose(monto_cg, abs(monto_cp)): resultado['Monto_coincide_CG'] = 'Sí'
-                    else: resultado['Monto_coincide_CG'] = 'No'
+                    resultado['Monto_coincide_CG'] = 'Sí' if np.isclose(monto_cg, abs(monto_cp)) else 'No'
             results.append(resultado)
             
         df_cp_results = df_cp.join(pd.DataFrame(results))
-        df_galac_no_cp = df_galac_full.drop(indices_galac_encontrados)
+        df_galac_no_cp = df_galac_full.drop(list(indices_galac_encontrados))
 
-        # --- 3. GENERACIÓN DE REPORTES ---
         log_messages.append("Generando nuevo reporte de auditoría con formato personalizado...")
         output_buffer = BytesIO()
         with pd.ExcelWriter(output_buffer, engine='xlsxwriter') as writer:
@@ -1054,10 +930,9 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
             date_format = workbook.add_format({'num_format': 'dd/mm/yyyy'})
             text_format = workbook.add_format({'num_format': '@'})
 
-            # HOJA 1: Relacion de Retenciones CP
             ws1 = workbook.add_worksheet('Relacion CP')
             ws1.hide_gridlines(2)
-           column_map_cp = {'ASIENTOCONTABLE': 'Asiento', 'TIPO': 'Tipo', 'FECHA': 'Fecha', 'NUMERO': 'Numero', 'APLICACION': 'Aplicacion', 'SUBTIPO': 'Subtipo', 'MONTO': 'Monto', 'CP_Vs_Galac': 'Cp Vs Galac', 'Asiento_en_CG': 'Asiento en CG', 'Monto_coincide_CG': 'Monto coincide CG', 'RIF': 'Proveedor', 'NOMBREPROVEEDOR': 'nombre'}
+            column_map_cp = {'ASIENTOCONTABLE': 'Asiento', 'TIPO': 'Tipo', 'FECHA': 'Fecha', 'NUMERO': 'Numero', 'APLICACION': 'Aplicacion', 'SUBTIPO': 'Subtipo', 'MONTO': 'Monto', 'CP_Vs_Galac': 'Cp Vs Galac', 'Asiento_en_CG': 'Asiento en CG', 'Monto_coincide_CG': 'Monto coincide CG', 'RIF': 'Proveedor', 'NOMBREPROVEEDOR': 'nombre'}
             final_order_cp = ['Asiento', 'Tipo', 'Fecha', 'Numero', 'Aplicacion', 'Subtipo', 'Monto', 'Cp Vs Galac', 'Asiento en CG', 'Monto coincide CG', 'Proveedor', 'nombre']
             df_cp_results.rename(columns=column_map_cp, inplace=True)
             df_exitosos = df_cp_results[df_cp_results['Cp Vs Galac'] == 'Sí']
@@ -1065,32 +940,26 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
             df_incidencias = df_cp_results.drop(df_exitosos.index).drop(df_anulados.index)
             ws1.merge_range('A1:L1', 'Relacion de Retenciones CP', main_title_format)
             current_row = 2
-            ws1.write(current_row, 0, 'Incidencias Encontradas', group_title_format)
+            ws1.write(current_row, 0, 'Incidencias Encontradas', group_title_format); current_row += 1
+            ws1.write_row(current_row, 0, final_order_cp, header_format); current_row += 1
+            if not df_incidencias.empty:
+                for r_idx, row in df_incidencias[final_order_cp].iterrows():
+                    ws1.write_row(current_row, 0, row.fillna('').values); current_row += 1
             current_row += 1
-            ws1.write_row(current_row, 0, final_order_cp, header_format)
-            current_row += 1
-            for r_idx, row in df_incidencias[final_order_cp].iterrows():
-                ws1.write_row(current_row, 0, row.fillna('').values)
-                current_row += 1
-            current_row += 1
-            ws1.write(current_row, 0, 'Conciliacion Exitosa', group_title_format)
-            current_row += 1
-            ws1.write_row(current_row, 0, final_order_cp, header_format)
-            current_row += 1
-            for r_idx, row in df_exitosos[final_order_cp].iterrows():
-                ws1.write_row(current_row, 0, row.fillna('').values)
-                current_row += 1
+            ws1.write(current_row, 0, 'Conciliacion Exitosa', group_title_format); current_row += 1
+            ws1.write_row(current_row, 0, final_order_cp, header_format); current_row += 1
+            if not df_exitosos.empty:
+                for r_idx, row in df_exitosos[final_order_cp].iterrows():
+                    ws1.write_row(current_row, 0, row.fillna('').values); current_row += 1
             ws1.set_column('A:B', 15); ws1.set_column('C:C', 12, date_format); ws1.set_column('D:D', 20, text_format); ws1.set_column('E:F', 25); ws1.set_column('G:G', 15, money_format); ws1.set_column('H:J', 25); ws1.set_column('K:L', 30)
 
-            # HOJA 2: Análisis GALAC
             ws2 = workbook.add_worksheet('Análisis GALAC')
             ws2.hide_gridlines(2)
             ws2.merge_range('A1:G1', 'Análisis de Retenciones Oficiales (GALAC)', main_title_format)
             current_row = 2
             ws2.write(current_row, 0, 'A. Incidencias de CP Reflejadas en GALAC (Posibles Coincidencias)', group_title_format)
             current_row += 5
-            ws2.write(current_row, 0, 'B. Retenciones en GALAC no encontradas en Relacion de CP', group_title_format)
-            current_row += 1
+            ws2.write(current_row, 0, 'B. Retenciones en GALAC no encontradas en Relacion de CP', group_title_format); current_row += 1
             if 'NOMBREPROVEEDOR' not in df_galac_no_cp.columns: df_galac_no_cp['NOMBREPROVEEDOR'] = ''
             df_galac_no_cp_final = df_galac_no_cp[['FECHA', 'COMPROBANTE', 'FACTURA', 'RIF', 'NOMBREPROVEEDOR', 'MONTO', 'TIPO']]
             galac_headers = ['Fecha', 'Comprobante', 'No Documento', 'Rif', 'Nombre Proveedor', 'Monto']
@@ -1099,16 +968,12 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
                 if not df_tipo.empty:
                     df_tipo = df_tipo.fillna('')
                     current_row += 1
-                    ws2.write(current_row, 0, f'Informe de Retenciones de {tipo}', subgroup_title_format)
-                    current_row += 1
-                    ws2.write_row(current_row, 0, galac_headers, header_format)
-                    current_row += 1
+                    ws2.write(current_row, 0, f'Informe de Retenciones de {tipo}', subgroup_title_format); current_row += 1
+                    ws2.write_row(current_row, 0, galac_headers, header_format); current_row += 1
                     for r_idx, row in df_tipo.iterrows():
-                        ws2.write_row(current_row, 0, row.values[:-1])
-                        current_row += 1
+                        ws2.write_row(current_row, 0, row.values[:-1]); current_row += 1
             ws2.set_column('A:A', 12, date_format); ws2.set_column('B:D', 20); ws2.set_column('E:E', 35); ws2.set_column('F:F', 18, money_format)
 
-            # HOJA 3: Diario CG
             ws3 = workbook.add_worksheet('Diario CG')
             ws3.hide_gridlines(2)
             ws3.merge_range('A1:I1', 'Asientos con Errores de Conciliación', main_title_format)
@@ -1117,7 +982,6 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
             asientos_con_error = df_incidencias['Asiento'].unique()
             df_cg_errores = df_cg[df_cg['ASIENTO'].isin(asientos_con_error)].copy()
             
-            # --- CORRECCIÓN: Inicializar DataFrames vacíos ---
             df_error_cuenta = pd.DataFrame(columns=cg_headers_final)
             df_error_monto = pd.DataFrame(columns=cg_headers_final)
             
@@ -1131,23 +995,17 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
                 df_error_monto = df_cg_final[df_cg_final['Observacion'] == 'Monto en Diario no coincide con Relacion CP']
             
             current_row = 2
-            ws3.write(current_row, 0, 'INCIDENCIA: Cuenta Contable Incorrecta', group_title_format)
-            current_row += 1
-            ws3.write_row(current_row, 0, cg_headers_final, header_format)
-            current_row += 1
+            ws3.write(current_row, 0, 'INCIDENCIA: Cuenta Contable Incorrecta', group_title_format); current_row += 1
+            ws3.write_row(current_row, 0, cg_headers_final, header_format); current_row += 1
             if not df_error_cuenta.empty:
                  for r_idx, row in df_error_cuenta.iterrows():
-                    ws3.write_row(current_row, 0, row.fillna('').values)
-                    current_row += 1
+                    ws3.write_row(current_row, 0, row.fillna('').values); current_row += 1
             current_row += 1
-            ws3.write(current_row, 0, 'INCIDENCIA: Monto del Diario vs. Relación CP', group_title_format)
-            current_row += 1
-            ws3.write_row(current_row, 0, cg_headers_final, header_format)
-            current_row += 1
+            ws3.write(current_row, 0, 'INCIDENCIA: Monto del Diario vs. Relación CP', group_title_format); current_row += 1
+            ws3.write_row(current_row, 0, cg_headers_final, header_format); current_row += 1
             if not df_error_monto.empty:
                 for r_idx, row in df_error_monto.iterrows():
-                    ws3.write_row(current_row, 0, row.fillna('').values)
-                    current_row += 1
+                    ws3.write_row(current_row, 0, row.fillna('').values); current_row += 1
             ws3.set_column('A:E', 20); ws3.set_column('F:G', 15, money_format); ws3.set_column('H:H', 20); ws3.set_column('I:I', 40)
 
         log_messages.append("¡Proceso de conciliación de retenciones completado con éxito!")
