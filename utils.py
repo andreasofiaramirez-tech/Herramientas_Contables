@@ -320,20 +320,28 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
         group_title_format = workbook.add_format({'bold': True, 'italic': True, 'font_size': 12})
         subgroup_title_format = workbook.add_format({'bold': True})
         header_format = workbook.add_format({'bold': True, 'text_wrap': True, 'valign': 'top', 'fg_color': '#D9EAD3', 'border': 1, 'align': 'center'})
-        money_format = workbook.add_format({'num_format': '#,##0.00'})
-        date_format = workbook.add_format({'num_format': 'dd/mm/yyyy'})
-        text_format = workbook.add_format({'num_format': '@'})
+        money_format = workbook.add_format({'num_format': '#,##0.00', 'align': 'center'})
+        date_format = workbook.add_format({'num_format': 'dd/mm/yyyy', 'align': 'center'})
+        text_format = workbook.add_format({'num_format': '@', 'align': 'center'})
+        
+        # ======================= INICIO DE LA CORRECCIÓN FINAL =======================
+        # Nuevo formato para texto general centrado
+        center_text_format = workbook.add_format({'align': 'center'})
+        # ======================== FIN DE LA CORRECCIÓN FINAL =========================
 
         # --- HOJA 1: Relacion CP ---
         ws1 = workbook.add_worksheet('Relacion CP')
         ws1.hide_gridlines(2)
-        
         column_map_cp = {'ASIENTO': 'Asiento', 'TIPO': 'Tipo', 'FECHA': 'Fecha', 'COMPROBANTE': 'Numero', 'APLICACION': 'Aplicacion', 'SUBTIPO': 'Subtipo', 'MONTO': 'Monto', 'CP_Vs_Galac': 'Cp Vs Galac', 'Asiento_en_CG': 'Asiento en CG', 'Monto_coincide_CG': 'Monto coincide CG', 'RIF': 'RIF', 'NOMBREPROVEEDOR': 'Nombre Proveedor'}
         final_order_cp = ['Asiento', 'Tipo', 'Fecha', 'Numero', 'Aplicacion', 'Subtipo', 'Monto', 'Cp Vs Galac', 'Asiento en CG', 'Monto coincide CG', 'RIF', 'Nombre Proveedor']
         
         df_reporte_cp = df_cp_results.copy()
-        df_reporte_cp.rename(columns=column_map_cp, inplace=True)
         
+        # CORRECCIÓN: Eliminar la hora de la columna de fecha ANTES de escribir
+        if 'FECHA' in df_reporte_cp.columns:
+            df_reporte_cp['FECHA'] = pd.to_datetime(df_reporte_cp['FECHA'], errors='coerce').dt.date
+
+        df_reporte_cp.rename(columns=column_map_cp, inplace=True)
         for col in final_order_cp:
             if col not in df_reporte_cp.columns:
                 df_reporte_cp[col] = ''
@@ -349,16 +357,35 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
         ws1.write_row(current_row, 0, final_order_cp, header_format); current_row += 1
         if not df_incidencias.empty:
             for r_idx, row in df_incidencias[final_order_cp].iterrows():
-                ws1.write_row(current_row, 0, row.fillna('').values); current_row += 1
+                # CORRECCIÓN: Escribir cada celda individualmente para aplicar formato
+                for col_idx, value in enumerate(row.values):
+                    # Aplicar formato específico o el general centrado
+                    if final_order_cp[col_idx] == 'Fecha':
+                        ws1.write_datetime(current_row, col_idx, value, date_format)
+                    elif final_order_cp[col_idx] == 'Monto':
+                        ws1.write_number(current_row, col_idx, value, money_format)
+                    else:
+                        ws1.write(current_row, col_idx, value, center_text_format)
+                current_row += 1
         
         current_row += 1
         ws1.write(current_row, 0, 'Conciliacion Exitosa', group_title_format); current_row += 1
         ws1.write_row(current_row, 0, final_order_cp, header_format); current_row += 1
         if not df_exitosos.empty:
             for r_idx, row in df_exitosos[final_order_cp].iterrows():
-                ws1.write_row(current_row, 0, row.fillna('').values); current_row += 1
+                for col_idx, value in enumerate(row.values):
+                    if final_order_cp[col_idx] == 'Fecha':
+                        ws1.write_datetime(current_row, col_idx, value, date_format)
+                    elif final_order_cp[col_idx] == 'Monto':
+                        ws1.write_number(current_row, col_idx, value, money_format)
+                    else:
+                        ws1.write(current_row, col_idx, value, center_text_format)
+                current_row += 1
                 
-        ws1.set_column('A:B', 15); ws1.set_column('C:C', 12, date_format); ws1.set_column('D:D', 20, text_format); ws1.set_column('E:F', 25); ws1.set_column('G:G', 15, money_format); ws1.set_column('H:J', 25); ws1.set_column('K:L', 30)
+        # Autoajuste de columnas
+        for i, col in enumerate(final_order_cp):
+            max_len = max(df_reporte_cp[col].astype(str).map(len).max(), len(col))
+            ws1.set_column(i, i, max_len + 2)
 
         # --- HOJA 2: Análisis GALAC ---
         ws2 = workbook.add_worksheet('Análisis GALAC')
