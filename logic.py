@@ -874,3 +874,206 @@ def run_conciliation_viajes(df, log_messages, progress_bar=None):
     
     log_messages.append("\n--- PROCESO DE CONCILIACIÓN FINALIZADO ---")
     return df
+
+# ==============================================================================
+# LÓGICAS PARA LA HERRAMIENTA DE RELACIONES DE RETENCIONES
+# ==============================================================================
+
+# --- Funciones Auxiliares Específicas de Retenciones ---
+
+def _limpiar_nombre_columna_retenciones(col_name):
+    """Limpia un nombre de columna para estandarizarlo."""
+    return re.sub(r'[^A-Z0-9]', '', str(col_name).strip().upper())
+
+def _normalizar_valor(valor):
+    """Normaliza RIF, comprobantes y facturas para una comparación precisa."""
+    if pd.isna(valor):
+        return ''
+    # Convierte a string, elimina espacios, guiones, puntos, y quita ceros a la izquierda
+    val_str = str(valor).strip().upper().replace('.', '').replace('-', '')
+    val_str = re.sub(r'^0+', '', val_str) # Elimina ceros iniciales
+    if val_str.startswith('J'): # Quita la 'J' de los RIFs si existe
+        val_str = val_str[1:]
+    return val_str
+
+# --- Función Maestra de Conciliación de Retenciones ---
+
+def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun, log_messages):
+    """
+    Función principal que encapsula toda la lógica de conciliación de retenciones
+    para ser ejecutada desde la interfaz de Streamlit.
+    """
+    log_messages.append("--- INICIANDO PROCESO DE CONCILIACIÓN DE RETENCIONES ---")
+
+    try:
+        # --- 1. CARGA Y PREPARACIÓN DE DATOS ---
+        log_messages.append("Cargando archivos de entrada...")
+        
+        # ADAPTACIÓN STREAMLIT: Leemos desde objetos de archivo en memoria, no desde rutas
+        df_cp = pd.read_excel(file_cp, header=10) # Encabezado en fila 11
+        df_cg = pd.read_excel(file_cg, header=5)  # Encabezado en fila 6
+        df_galac_iva = pd.read_excel(file_iva, header=0)
+        df_galac_islr = pd.read_excel(file_islr, header=0)
+        df_galac_mun = pd.read_excel(file_mun, header=0)
+
+        # Mapeo de subtipo a cuenta contable (centralizado aquí)
+        CUENTAS_MAP = {
+            'IVA': '2111101004',
+            'ISLR': '2111101005',
+            'MUNICIPAL': '2111101006'
+        }
+
+        log_messages.append("Limpiando y estandarizando datos...")
+        # Limpieza y estandarización de columnas
+        df_cp.columns = [_limpiar_nombre_columna_retenciones(c) for c in df_cp.columns]
+        df_cg.columns = [_limpiar_nombre_columna_retenciones(c) for c in df_cg.columns]
+        
+        # Estandarización de archivos GALAC
+        df_galac_iva.columns = [_limpiar_nombre_columna_retenciones(c) for c in df_galac_iva.columns]
+        df_galac_islr.columns = [_limpiar_nombre_columna_retenciones(c) for c in df_galac_islr.columns]
+        df_galac_mun.columns = [_limpiar_nombre_columna_retenciones(c) for c in df_galac_mun.columns]
+        
+        df_galac_iva = df_galac_iva.rename(columns={'RIF': 'RIF', 'COMPROBANTE': 'COMPROBANTE', 'MONTO': 'MONTO', 'FACTURA': 'FACTURA', 'FECHA': 'FECHA'})
+        df_galac_islr = df_galac_islr.rename(columns={'RIF': 'RIF', 'COMPROBANTE': 'COMPROBANTE', 'MONTORETENIDO': 'MONTO', 'FACTURA': 'FACTURA', 'FECHAEMISION': 'FECHA'})
+        df_galac_mun = df_galac_mun.rename(columns={'RIF': 'RIF', 'MONTODELARETENCION': 'MONTO', 'NUMERODEFACTURA': 'FACTURA', 'FECHADEEMISION': 'FECHA'})
+        df_galac_mun['COMPROBANTE'] = '' # Municipal no tiene comprobante, se añade vacío
+
+        df_galac_iva['TIPO'] = 'IVA'
+        df_galac_islr['TIPO'] = 'ISLR'
+        df_galac_mun['TIPO'] = 'MUNICIPAL'
+        
+        df_galac_full = pd.concat([df_galac_iva, df_galac_islr, df_galac_mun], ignore_index=True)
+        
+        # Normalización agresiva de datos clave
+        for df in [df_cp, df_cg, df_galac_full]:
+            if 'RIF' in df.columns: df['RIF_norm'] = df['RIF'].apply(_normalizar_valor)
+            if 'NIT' in df.columns: df['RIF_norm'] = df['NIT'].apply(_normalizar_valor)
+            if 'NUMERO' in df.columns: df['COMPROBANTE_norm'] = df['NUMERO'].apply(_normalizar_valor)
+            if 'COMPROBANTE' in df.columns: df['COMPROBANTE_norm'] = df['COMPROBANTE'].apply(_normalizar_valor)
+            if 'FACTURA' in df.columns: df['FACTURA_norm'] = df['FACTURA'].apply(_normalizar_valor)
+
+        df_cp['MONTO'] = pd.to_numeric(df_cp['MONTO'], errors='coerce').fillna(0)
+        df_cg['CREDITOVES'] = pd.to_numeric(df_cg['CREDITOVES'], errors='coerce').fillna(0)
+        df_galac_full['MONTO'] = pd.to_numeric(df_galac_full['MONTO'], errors='coerce').fillna(0)
+
+        # --- 2. LÓGICA DE CONCILIACIÓN ---
+        log_messages.append("Iniciando auditoría en cascada por registro...")
+        results = []
+        indices_galac_encontrados = set()
+
+        for index, row_cp in df_cp.iterrows():
+            subtipo = row_cp.get('SUBTIPO', '').upper()
+            rif_cp = row_cp.get('RIF_norm', '')
+            comprobante_cp = row_cp.get('COMPROBANTE_norm', '')
+            factura_cp = row_cp.get('FACTURA_norm', '')
+            monto_cp = row_cp.get('MONTO', 0)
+            
+            resultado = {
+                'CP_Vs_Galac': 'No Encontrado en GALAC',
+                'Asiento_en_CG': 'No',
+                'Monto_coincide_CG': 'No Aplica'
+            }
+
+            if "ANULADO" in str(row_cp.get('APLICACION', '')).upper():
+                resultado['CP_Vs_Galac'] = 'No Aplica (Anulado)'
+            else:
+                df_galac_target = df_galac_full[df_galac_full['TIPO'] == subtipo]
+                
+                # Búsqueda Primaria
+                match = pd.Series(False, index=df_galac_target.index)
+                if subtipo == 'IVA':
+                    match = (df_galac_target['RIF_norm'] == rif_cp) & (df_galac_target['COMPROBANTE_norm'].str.endswith(comprobante_cp[-6:]))
+                elif subtipo == 'ISLR':
+                    match = (df_galac_target['RIF_norm'] == rif_cp) & (df_galac_target['COMPROBANTE_norm'] == comprobante_cp) & (df_galac_target['FACTURA_norm'] == factura_cp)
+                elif subtipo == 'MUNICIPAL':
+                    match = (df_galac_target['RIF_norm'] == rif_cp) & (df_galac_target['FACTURA_norm'] == factura_cp)
+                
+                found_df = df_galac_target[match]
+                
+                if not found_df.empty:
+                    resultado['CP_Vs_Galac'] = 'Sí'
+                    indices_galac_encontrados.update(found_df.index)
+                else:
+                    # Búsquedas Secundarias
+                    for otro_tipo in [t for t in ['IVA', 'ISLR', 'MUNICIPAL'] if t != subtipo]:
+                        df_otro_galac = df_galac_full[df_galac_full['TIPO'] == otro_tipo]
+                        if not df_otro_galac.empty:
+                             # Re-run match logic for other types
+                            if otro_tipo == 'IVA':
+                                match_otro = (df_otro_galac['RIF_norm'] == rif_cp) & (df_otro_galac['COMPROBANTE_norm'].str.endswith(comprobante_cp[-6:]))
+                            elif otro_tipo == 'ISLR':
+                                match_otro = (df_otro_galac['RIF_norm'] == rif_cp) & (df_otro_galac['COMPROBANTE_norm'] == comprobante_cp) & (df_otro_galac['FACTURA_norm'] == factura_cp)
+                            elif otro_tipo == 'MUNICIPAL':
+                                match_otro = (df_otro_galac['RIF_norm'] == rif_cp) & (df_otro_galac['FACTURA_norm'] == factura_cp)
+                            
+                            if match_otro.any():
+                                resultado['CP_Vs_Galac'] = f'Error: Subtipo {subtipo}, Encontrado en {otro_tipo}'
+                                break
+                    
+                    if resultado['CP_Vs_Galac'] == 'No Encontrado en GALAC':
+                        match_doc_errado = (df_galac_target['RIF_norm'] == rif_cp) & (np.isclose(df_galac_target['MONTO'].abs(), abs(monto_cp)))
+                        if match_doc_errado.sum() == 1:
+                            resultado['CP_Vs_Galac'] = 'Error: Documento No Coincide'
+
+            # Verificación contra Diario CG
+            asiento_cp = row_cp.get('ASIENTOCONTABLE', '')
+            if asiento_cp:
+                df_asiento_cg = df_cg[df_cg['ASIENTO'] == asiento_cp]
+                if not df_asiento_cg.empty:
+                    resultado['Asiento_en_CG'] = 'Sí'
+                    monto_cg = df_asiento_cg[df_asiento_cg['CUENTACONTABLE'] == CUENTAS_MAP.get(subtipo, '')]['CREDITOVES'].sum()
+                    if np.isclose(monto_cg, abs(monto_cp)):
+                        resultado['Monto_coincide_CG'] = 'Sí'
+                    else:
+                        resultado['Monto_coincide_CG'] = 'No'
+
+            results.append(resultado)
+
+        df_cp_results = df_cp.join(pd.DataFrame(results))
+        df_galac_no_cp = df_galac_full.drop(indices_galac_encontrados)
+
+        # --- 3. GENERACIÓN DE REPORTES ---
+        log_messages.append("Generando reporte final en formato Excel...")
+        
+        # ADAPTACIÓN STREAMLIT: Escribimos en un buffer de memoria en lugar de un archivo físico
+        output_buffer = BytesIO()
+        with pd.ExcelWriter(output_buffer, engine='xlsxwriter') as writer:
+            # Hoja 1: GALAC (Omisiones)
+            df_galac_no_cp.to_excel(writer, sheet_name='GALAC', index=False)
+            
+            # Hoja 2: Relacion CP (Panel de control)
+            df_cp_results.to_excel(writer, sheet_name='Relacion CP', index=False)
+            
+            # Hoja 3: Diario CG (Accionable)
+            df_errores = df_cp_results[
+                (df_cp_results['CP_Vs_Galac'] != 'Sí') | 
+                (df_cp_results['Asiento_en_CG'] != 'Sí') | 
+                (df_cp_results['Monto_coincide_CG'] != 'Sí')
+            ]
+            asientos_con_error = df_errores['ASIENTOCONTABLE'].unique()
+            df_cg_errores = df_cg[df_cg['ASIENTO'].isin(asientos_con_error)]
+            df_cg_errores.to_excel(writer, sheet_name='Diario CG', index=False)
+            
+            # Aplicar formatos (lógica original)
+            workbook = writer.book
+            formato_titulo = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'font_size': 14})
+            worksheet_galac = writer.sheets['GALAC']
+            worksheet_galac.set_column('A:G', 15)
+            worksheet_galac.merge_range('A1:G1', 'Retenciones en GALAC No Encontradas en CP (Omisiones)', formato_titulo)
+            
+            worksheet_cp = writer.sheets['Relacion CP']
+            worksheet_cp.set_column('A:J', 15)
+            worksheet_cp.merge_range('A1:J1', 'Panel de Control de Conciliación - Relación CP', formato_titulo)
+
+            worksheet_cg = writer.sheets['Diario CG']
+            worksheet_cg.set_column('A:H', 15)
+            worksheet_cg.merge_range('A1:H1', 'Detalle de Asientos con Discrepancias en Diario', formato_titulo)
+
+        log_messages.append("¡Proceso de conciliación de retenciones completado con éxito!")
+        return output_buffer.getvalue()
+
+    except Exception as e:
+        log_messages.append(f"❌ ERROR CRÍTICO en la conciliación de retenciones: {e}")
+        import traceback
+        log_messages.append(traceback.format_exc())
+        return None
