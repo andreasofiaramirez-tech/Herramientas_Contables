@@ -974,17 +974,43 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
             resultados.append({'Estado_Conciliacion': estado, 'Detalle': mensaje})
 
         # Unir los resultados al DataFrame original de CP
-        df_resultados = pd.DataFrame(resultados)
-        df_cp_final = pd.concat([df_cp.reset_index(drop=True), df_resultados], axis=1)
+       df_resultados = pd.DataFrame(resultados)
+        df_cp_temp = pd.concat([df_cp.reset_index(drop=True), df_resultados], axis=1)
+
+        # --- CAPA DE TRADUCCIÓN: Convertir el nuevo formato de resultados al formato antiguo ---
+        
+        def traducir_resultados(row):
+            estado = row['Estado_Conciliacion']
+            detalle = row['Detalle']
+            
+            # Lógica de traducción
+            if estado == 'Conciliado':
+                cp_vs_galac = 'Sí'
+            elif 'RIF no se encuentra' in detalle or 'Monto de retencion no encontrado' in detalle:
+                cp_vs_galac = 'No Encontrado en GALAC'
+            else:
+                # Para "Parcialmente Conciliado", usamos el detalle como el resultado
+                cp_vs_galac = detalle
+            
+            # Creamos las columnas que el reporteador espera, con valores por defecto
+            asiento_en_cg = 'No Aplica' # La nueva lógica no verifica CG, así que es 'No Aplica'
+            monto_coincide_cg = 'No Aplica' # Igual que el anterior
+            
+            return cp_vs_galac, asiento_en_cg, monto_coincide_cg
+
+        # Aplicamos la función de traducción para crear las columnas que utils.py necesita
+        df_cp_temp[['CP_Vs_Galac', 'Asiento_en_CG', 'Monto_coincide_CG']] = df_cp_temp.apply(traducir_resultados, axis=1, result_type='expand')
+
+        # Creamos el DataFrame final con el formato esperado
+        df_cp_final = df_cp_temp.copy()
 
         log_messages.append("¡Proceso de conciliación completado con éxito!")
-        # Aquí se llamaría a la función que genera el reporte en Excel
-        # return generar_reporte(df_cp_final, ...)
         
-        # Por ahora, para ver el resultado, puedes imprimirlo o devolverlo
-        # print(df_cp_final[['RIF', 'Comprobante', 'Monto', 'Subtipo', 'Estado_Conciliacion', 'Detalle']].to_markdown())
-        
-        return None # Placeholder para el archivo de reporte
+        # Ahora sí podemos llamar a la función del reporte, que encontrará las columnas que busca
+        # (Necesitamos crear un df_galac_no_cp vacío para que no falle)
+        df_galac_no_cp_dummy = pd.DataFrame(columns=['FECHA', 'COMPROBANTE', 'FACTURA', 'RIF', 'NOMBREPROVEEDOR', 'MONTO', 'TIPO'])
+
+        return generar_reporte_retenciones(df_cp_final, df_galac_no_cp_dummy, pd.DataFrame(), {})
 
     except Exception as e:
         log_messages.append(f"❌ ERROR CRÍTICO en la nueva conciliación: {e}")
