@@ -826,7 +826,12 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
             df.columns = [_limpiar_nombre_columna_retenciones(c) for c in df.columns]
 
         synonyms_map = {
-            'MONTO': ['MONTOTOTAL', 'MONTOBS', 'MONTO', 'IVARETENIDO', 'MONTORETENIDO', 'VALOR'], 'RIF': ['RIF', 'PROVEEDOR', 'RIFPROV', 'RIFPROVEEDOR', 'NUMERORIF', 'NIT'], 'COMPROBANTE': ['COMPROBANTE', 'NOCOMPROBANTE', 'NREFERENCIA', 'NUMERO'], 'FACTURA': ['FACTURA', 'NDOCUMENTO', 'NUMERODEFACTURA'], 'FECHA': ['FECHA', 'FECHARET', 'OPERACION'], 'CREDITOVES': ['CREDITOVES', 'CREDITO', 'CREDITOBS'], 'ASIENTO': ['ASIENTO', 'ASIENTOCONTABLE'], 'CUENTACONTABLE': ['CUENTACONTABLE', 'CUENTA']
+            'MONTO': ['MONTOTOTAL', 'MONTOBS', 'MONTO', 'IVARETENIDO', 'MONTORETENIDO', 'VALOR'], 
+            'RIF': ['RIF', 'PROVEEDOR', 'RIFPROV', 'RIFPROVEEDOR', 'NUMERORIF', 'NIT'], 
+            'COMPROBANTE': ['COMPROBANTE', 'NOCOMPROBANTE', 'NREFERENCIA', 'NUMERO'], 
+            'FACTURA': ['FACTURA', 'NDOCUMENTO', 'NUMERODEFACTURA'], 
+            'FECHA': ['FECHA', 'FECHARET', 'OPERACION'], 'CREDITOVES': ['CREDITOVES', 'CREDITO', 'CREDITOBS'], 'ASIENTO': ['ASIENTO', 'ASIENTOCONTABLE'], 
+            'CUENTACONTABLE': ['CUENTACONTABLE', 'CUENTA']
         }
         def estandarizar_columnas(df):
             for standard_name, synonyms in synonyms_map.items():
@@ -874,6 +879,52 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         
         # Guardar un índice único para CP para poder reconstruir el orden original
         df_cp['CP_INDEX'] = df_cp.index
+
+        # --- BLOQUE DE DEBUG TEMPORAL ---
+        print("\n--- INICIANDO DEBUG DE DATOS PARA FILA ESPECÍFICA ---")
+        
+        # Filtramos la fila específica en CP usando su número de comprobante único
+        fila_cp_debug = df_cp[df_cp['NUMERO'] == '20251000278224']
+        
+        # Filtramos la fila correspondiente en GALAC
+        fila_galac_debug = df_galac_full[df_galac_full['COMPROBANTE'] == '20251000278224']
+
+        if not fila_cp_debug.empty and not fila_galac_debug.empty:
+            # Extraemos los valores de CP
+            cp_rif_norm = fila_cp_debug['RIF_norm'].iloc[0]
+            cp_comp_norm = fila_cp_debug['COMPROBANTE_norm'].iloc[0]
+            cp_comp_6dig = cp_comp_norm[-6:]
+            cp_fact_norm = fila_cp_debug['FACTURA_norm'].iloc[0]
+            cp_monto = fila_cp_debug['MONTO'].iloc[0]
+
+            # Extraemos los valores de GALAC
+            galac_rif_norm = fila_galac_debug['RIF_norm'].iloc[0]
+            galac_comp_norm = fila_galac_debug['COMPROBANTE_norm'].iloc[0]
+            galac_comp_6dig = galac_comp_norm[-6:]
+            galac_fact_norm = fila_galac_debug['FACTURA_norm'].iloc[0]
+            galac_monto = fila_galac_debug['MONTO'].iloc[0]
+
+            # Creamos una tabla de comparación para verlos lado a lado
+            debug_table = pd.DataFrame({
+                'Campo': ['RIF Normalizado', 'Comprobante Normalizado', 'Comprobante 6 Digitos', 'Factura Normalizada', 'Monto', 'Tipo de Monto'],
+                'Valor en CP': [cp_rif_norm, cp_comp_norm, cp_comp_6dig, cp_fact_norm, cp_monto, type(cp_monto)],
+                'Valor en GALAC': [galac_rif_norm, galac_comp_norm, galac_comp_6dig, galac_fact_norm, galac_monto, type(galac_monto)]
+            })
+            
+            print(debug_table)
+            
+            # Comparamos cada campo y mostramos el resultado
+            print("\n--- RESULTADOS DE LA COMPARACIÓN DIRECTA ---")
+            print(f"RIFs coinciden?      -> {cp_rif_norm == galac_rif_norm}")
+            print(f"Comprobantes 6 dig?  -> {cp_comp_6dig == galac_comp_6dig}")
+            print(f"Facturas coinciden?  -> {cp_fact_norm == galac_fact_norm}")
+            print(f"Montos coinciden?    -> {np.isclose(cp_monto, galac_monto)}")
+            
+        else:
+            print("!!! ERROR DE DEBUG: No se pudo encontrar la fila en CP o en GALAC para el comprobante 20251000278224.")
+        
+        print("--- FIN DEL DEBUG ---\n")
+        # --- FIN DEL BLOQUE DE DEBUG ---
         
         # --- 3. PROCESO DE CONCILIACIÓN VECTORIZADO ---
         log_messages.append("Paso 3: Ejecutando conciliación principal (CP vs GALAC)...")
