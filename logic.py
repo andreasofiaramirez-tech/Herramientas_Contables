@@ -828,38 +828,27 @@ def _extraer_factura_cp(aplicacion):
 # --- NUEVAS FUNCIONES DE CARGA Y PREPARACIÓN ---
 
 def preparar_df_cp(file_cp):
-    df = pd.read_excel(file_cp, header=4, dtype=str).rename(columns={
-        'Asiento Contable': 'Asiento',
-        'Proveedor': 'RIF',
-        'Tipo': 'Tipo',               
-        'Fecha': 'Fecha',             
-        'Número': 'Comprobante',
-        'Monto': 'Monto',
-        'Aplicación': 'Aplicacion',
-        'Subtipo': 'Subtipo'
+    df = pd.read_excel(file_cp, header=4).astype(str).rename(columns={
+        'Asiento Contable': 'Asiento', 'Proveedor': 'RIF', 'Tipo': 'Tipo', 
+        'Fecha': 'Fecha', 'Número': 'Comprobante', 'Monto': 'Monto',
+        'Aplicación': 'Aplicacion', 'Subtipo': 'Subtipo'
     })
     df['RIF_norm'] = df['RIF'].apply(_normalizar_rif)
     df['Comprobante_norm'] = df['Comprobante'].apply(_normalizar_numerico)
     df['Factura_norm'] = df['Aplicacion'].apply(_extraer_factura_cp)
-    df['Monto'] = pd.to_numeric(df['Monto'], errors='coerce').fillna(0)
+    df['Monto'] = df['Monto'].str.replace(',', '.', regex=False).astype(float)
     return df
 
-def preparar_df_iva(file_path): # El argumento se llama file_path
-    """Carga y prepara el archivo de Retenciones de IVA."""
-    
-    # ¡CORRECCIÓN APLICADA AQUÍ! Se usa 'file_path' en lugar de 'file_iva'.
-    df = pd.read_excel(file_path, header=4, dtype=str).rename(columns={
-        'Rif Prov.': 'RIF', 
-        'Nº Documento': 'Factura', 
-        'No. Comprobante': 'Comprobante', 
-        'IVA Retenido': 'Monto'
+def preparar_df_iva(file_iva):
+    df = pd.read_excel(file_iva, header=4).astype(str).rename(columns={
+        'Rif Prov.': 'RIF', 'Nº Documento': 'Factura', 
+        'No. Comprobante': 'Comprobante', 'IVA Retenido': 'Monto'
     })
     
-    df['RIF_norm'] = df['RIF'].apply(_normalizar_rif)
+    ddf['RIF_norm'] = df['RIF'].apply(_normalizar_rif)
     df['Comprobante_norm'] = df['Comprobante'].apply(_normalizar_numerico)
     df['Factura_norm'] = df['Factura'].apply(_normalizar_numerico)
-    df['Monto'] = pd.to_numeric(df['Monto'], errors='coerce').fillna(0)
-    
+    df['Monto'] = df['Monto'].str.replace(',', '.', regex=False).astype(float)
     return df
 
 def preparar_df_municipal(file_path):
