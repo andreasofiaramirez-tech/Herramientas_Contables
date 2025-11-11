@@ -900,52 +900,44 @@ def preparar_df_islr(file_path):
 
 def _conciliar_iva(cp_row, df_iva):
     """
-    (Versión Mejorada) Aplica la lógica de conciliación de IVA buscando el "mejor match"
-    cuando existen múltiples transacciones con el mismo monto.
+    (Versión Definitiva) Aplica la lógica de conciliación de IVA usando la
+    clave de cruce correcta: RIF + Comprobante.
     """
     rif_cp = cp_row['RIF_norm']
-    monto_cp = cp_row['Monto']
+    comprobante_cp = cp_row['Comprobante_norm']
     
-    # 1. Encontrar TODAS las posibles coincidencias por RIF y Monto
-    posibles_matches = df_iva[(df_iva['RIF_norm'] == rif_cp) & (np.isclose(df_iva['Monto'], monto_cp))]
+    # 1. Buscar el match usando la clave principal y única: RIF + Comprobante
+    match_encontrado = df_iva[(df_iva['RIF_norm'] == rif_cp) & (df_iva['Comprobante_norm'] == comprobante_cp)]
     
-    if posibles_matches.empty:
+    # 2. Validar si se encontró una única coincidencia
+    if match_encontrado.empty:
+        # Si no se encuentra, verificamos si al menos el RIF existía
         if rif_cp not in df_iva['RIF_norm'].values:
             return 'No Conciliado', 'RIF no se encuentra en GALAC'
         else:
-            return 'No Conciliado', f"Monto de retencion no encontrado en GALAC. Monto CP: {monto_cp:.2f}"
+            return 'No Conciliado', f"Numero de Retencion no encontrado en GALAC. CP: {comprobante_cp}"
 
-    # --- ¡CORRECCIÓN CRÍTICA! ---
-    # 2. En lugar de tomar el primero, buscamos el "match perfecto" dentro de las posibilidades.
-    #    El match perfecto es aquel donde el Comprobante también coincide.
+    # Si encontramos el match, tomamos la primera (y única) fila
+    match_row = match_encontrado.iloc[0]
     
-    match_perfecto = posibles_matches[posibles_matches['Comprobante_norm'] == cp_row['Comprobante_norm']]
-    
-    if not match_perfecto.empty:
-        # Si encontramos el match perfecto (RIF + Monto + Comprobante), lo usamos.
-        match_encontrado = match_perfecto.iloc[0]
-    else:
-        # Si no hay match perfecto, volvemos al comportamiento anterior:
-        # tomamos el primer posible match para poder reportar los errores.
-        match_encontrado = posibles_matches.iloc[0]
-    
-    # 3. Validaciones (el resto de la lógica no cambia)
+    # 3. Ahora que tenemos la fila correcta, validamos los demás campos
     errores = []
     
-    if cp_row['Factura_norm'] != match_encontrado['Factura_norm']:
-        msg = f"Numero de factura no coincide. CP: {cp_row['Factura_norm']}, GALAC: {match_encontrado['Factura_norm']}"
+    # Validación de Factura
+    if cp_row['Factura_norm'] != match_row['Factura_norm']:
+        msg = f"Numero de factura no coincide. CP: {cp_row['Factura_norm']}, GALAC: {match_row['Factura_norm']}"
         errores.append(msg)
         
-    # Esta validación ahora se hará contra el "mejor match" encontrado
-    if cp_row['Comprobante_norm'] != match_encontrado['Comprobante_norm']:
-        msg = f"Numero de Retencion no coincide. CP: {cp_row['Comprobante_norm']}, GALAC: {match_encontrado['Comprobante_norm']}"
+    # Validación de Monto (usando np.isclose para seguridad con decimales)
+    if not np.isclose(cp_row['Monto'], match_row['Monto']):
+        msg = f"Monto no coincide. CP: {cp_row['Monto']:.2f}, GALAC: {match_row['Monto']:.2f}"
         errores.append(msg)
         
     if not errores:
         return 'Conciliado', 'OK'
     else:
+        # Si la clave principal (Comprobante) coincidió pero otros campos no, es un error parcial
         return 'Parcialmente Conciliado', ' | '.join(errores)
-
 def _conciliar_municipal(cp_row, df_municipal):
     """Aplica la lógica de conciliación Municipal para una sola fila de CP."""
     rif_cp = cp_row['RIF_norm']
