@@ -310,7 +310,8 @@ def generar_csv_saldos_abiertos(df_saldos_abiertos):
 
 def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_map):
     """
-    Genera el archivo Excel de reporte para la auditoría de retenciones.
+    Genera el archivo Excel de reporte para la auditoría de retenciones,
+    incluyendo una sección para registros anulados.
     """
     output_buffer = BytesIO()
     with pd.ExcelWriter(output_buffer, engine='xlsxwriter') as writer:
@@ -318,7 +319,6 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
         # --- Formatos ---
         main_title_format = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'font_size': 14})
         group_title_format = workbook.add_format({'bold': True, 'italic': True, 'font_size': 12})
-        subgroup_title_format = workbook.add_format({'bold': True})
         header_format = workbook.add_format({'bold': True, 'text_wrap': True, 'valign': 'top', 'fg_color': '#D9EAD3', 'border': 1, 'align': 'center'})
         money_format = workbook.add_format({'num_format': '#,##0.00', 'align': 'center'})
         date_format = workbook.add_format({'num_format': 'dd/mm/yyyy', 'align': 'center'})
@@ -328,18 +328,15 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
         ws1 = workbook.add_worksheet('Relacion CP')
         ws1.hide_gridlines(2)
         
-        column_map_cp = {
-            'Asiento': 'Asiento', 'Tipo': 'Tipo', 'Fecha': 'Fecha', 
-            'Comprobante': 'Numero', 'Aplicacion': 'Aplicacion', 
-            'Subtipo': 'Subtipo', 'Monto': 'Monto', 
-            'CP_Vs_Galac': 'Cp Vs Galac', 'Asiento_en_CG': 'Asiento en CG', 
-            'Monto_coincide_CG': 'Monto coincide CG', 'RIF': 'RIF', 'Nombre Proveedor': 'Nombre Proveedor'
-        }
-        final_order_cp = list(column_map_cp.values())
+        final_order_cp = [
+            'Asiento', 'Tipo', 'Fecha', 'Numero', 'Aplicacion', 'Subtipo', 'Monto', 
+            'Cp Vs Galac', 'Asiento en CG', 'Monto coincide CG', 'RIF', 'Nombre Proveedor'
+        ]
         
-        df_reporte_cp = df_cp_results.copy().rename(columns=column_map_cp)
-
-        # 1. Renombramos las columnas ANTES de procesar las fechas
+        df_reporte_cp = df_cp_results.copy()
+        
+        # --- PREPARACIÓN DE DATOS PARA REPORTE ---
+        # 1. Renombramos las columnas
         df_reporte_cp.rename(columns={
             'Asiento': 'Asiento', 'Tipo': 'Tipo', 'Fecha': 'Fecha', 
             'Comprobante': 'Numero', 'Aplicacion': 'Aplicacion', 
@@ -348,8 +345,7 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
             'Monto_coincide_CG': 'Monto coincide CG', 'RIF': 'RIF', 'Nombre Proveedor': 'Nombre Proveedor'
         }, inplace=True)
         
-        # 2. Convertimos TODA la columna 'Fecha' a datetime de una vez.
-        #    Los errores se convertirán en NaT (Not a Time), que podemos detectar.
+        # 2. Convertimos la columna 'Fecha'
         if 'Fecha' in df_reporte_cp.columns:
             df_reporte_cp['Fecha'] = pd.to_datetime(df_reporte_cp['Fecha'], errors='coerce')
         
@@ -358,8 +354,11 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
             if col not in df_reporte_cp.columns:
                 df_reporte_cp[col] = ''
         
+        # --- ¡NUEVA LÓGICA DE SEPARACIÓN! ---
+        # 4. Separamos el DataFrame en tres grupos: Incidencias, Exitosos y Anulados.
         df_exitosos = df_reporte_cp[df_reporte_cp['Cp Vs Galac'] == 'Sí']
-        df_incidencias = df_reporte_cp[df_reporte_cp['Cp Vs Galac'] != 'Sí']
+        df_anulados = df_reporte_cp[df_reporte_cp['Cp Vs Galac'] == 'Anulado']
+        df_incidencias = df_reporte_cp.drop(df_exitosos.index).drop(df_anulados.index)
         
         ws1.merge_range('A1:L1', 'Relacion de Retenciones CP', main_title_format)
         current_row = 2
@@ -371,15 +370,11 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
             for _, row in df_incidencias[final_order_cp].iterrows():
                 for col_idx, value in enumerate(row.values):
                     col_name = final_order_cp[col_idx]
-                    if col_name == 'Fecha':
-                        fecha_valida = pd.to_datetime(value, errors='coerce')
-                        if pd.notna(fecha_valida):
-                            ws1.write_datetime(current_row, col_idx, fecha_valida, date_format)
-                        else:
-                            ws1.write_blank(current_row, col_idx, None, center_text_format)
+                    if col_name == 'Fecha' and pd.notna(value):
+                        ws1.write_datetime(current_row, col_idx, value, date_format)
                     elif col_name == 'Monto':
                         ws1.write_number(current_row, col_idx, value, money_format)
-                    else:
+                    elif pd.notna(value):
                         ws1.write(current_row, col_idx, value, center_text_format)
                 current_row += 1
         
@@ -392,21 +387,33 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
             for _, row in df_exitosos[final_order_cp].iterrows():
                 for col_idx, value in enumerate(row.values):
                     col_name = final_order_cp[col_idx]
-                    if col_name == 'Fecha':
-                        fecha_valida = pd.to_datetime(value, errors='coerce')
-                        if pd.notna(fecha_valida):
-                            ws1.write_datetime(current_row, col_idx, fecha_valida, date_format)
-                        else:
-                            ws1.write_blank(current_row, col_idx, None, center_text_format)
+                    if col_name == 'Fecha' and pd.notna(value):
+                        ws1.write_datetime(current_row, col_idx, value, date_format)
                     elif col_name == 'Monto':
                         ws1.write_number(current_row, col_idx, value, money_format)
-                    else:
+                    elif pd.notna(value):
+                        ws1.write(current_row, col_idx, value, center_text_format)
+                current_row += 1
+        
+        current_row += 1
+
+        # --- ¡NUEVO BLOQUE! Escritura de Anulados ---
+        ws1.write(current_row, 0, 'Registros Anulados', group_title_format); current_row += 1
+        ws1.write_row(current_row, 0, final_order_cp, header_format); current_row += 1
+        if not df_anulados.empty:
+            for _, row in df_anulados[final_order_cp].iterrows():
+                for col_idx, value in enumerate(row.values):
+                    col_name = final_order_cp[col_idx]
+                    if col_name == 'Fecha' and pd.notna(value):
+                        ws1.write_datetime(current_row, col_idx, value, date_format)
+                    elif col_name == 'Monto':
+                        ws1.write_number(current_row, col_idx, value, money_format)
+                    elif pd.notna(value):
                         ws1.write(current_row, col_idx, value, center_text_format)
                 current_row += 1
                 
         # Autoajuste de columnas
         for i, col in enumerate(final_order_cp):
-            # Asegurarse que la columna exista antes de calcular el max_len
             if col in df_reporte_cp.columns:
                 max_len = max(df_reporte_cp[col].astype(str).map(len).max(), len(col))
                 ws1.set_column(i, i, max_len + 2)
