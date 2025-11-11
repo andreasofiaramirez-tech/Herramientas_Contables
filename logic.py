@@ -848,11 +848,12 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         # Normalizar claves de texto
         for df in [df_cp, df_galac_full]:
             df['RIF_norm'] = df['RIF'].apply(_normalizar_valor)
-            df['COMPROBANTE_norm'] = df['COMPROBANTE'].apply(_normalizar_valor)
-            df['FACTURA_norm'] = df['FACTURA'].apply(_normalizar_valor)
-            # **NUEVO**: Extraer factura de la columna APLICACION si es necesario
-            mask_factura_vacia = df['FACTURA_norm'] == ''
-            df.loc[mask_factura_vacia, 'FACTURA_norm'] = df.loc[mask_factura_vacia, 'APLICACION'].str.upper().str.extract(r'FACT\s*N?[°º]?\s*(\S+)')[0].apply(_normalizar_valor)
+            df['COMPROBANTE_norm'] = df.get('COMPROBANTE', pd.Series(dtype=str)).apply(_normalizar_valor)
+            df['FACTURA_norm'] = df.get('FACTURA', pd.Series(dtype=str)).apply(_normalizar_valor)
+            
+            if 'APLICACION' in df.columns:
+                mask_factura_vacia = (df['FACTURA_norm'] == '') | (df['FACTURA_norm'].isna())
+                df.loc[mask_factura_vacia, 'FACTURA_norm'] = df.loc[mask_factura_vacia, 'APLICACION'].str.upper().str.extract(r'FACT\s*N?[°º]?\s*(\S+)')[0].apply(_normalizar_valor)
 
 
         # Normalizar y convertir montos y fechas
