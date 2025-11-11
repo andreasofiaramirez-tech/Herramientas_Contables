@@ -798,15 +798,24 @@ def _normalizar_rif(valor):
     return val_str
 
 def _normalizar_numerico(valor):
-    """(Versión Final) Normaliza un valor numérico, eliminando espacios y el ".0" de los floats."""
+    """
+    (Versión Definitiva) Normaliza un valor numérico como texto,
+    eliminando cualquier caracter no-numérico Y los ceros a la izquierda.
+    """
     if pd.isna(valor):
         return ''
-    # Añadimos .strip() para eliminar espacios invisibles al principio y al final
+    
+    # 1. Quita espacios al principio y al final
     val_str = str(valor).strip()
-    try:
-        return f"{int(float(val_str)):d}"
-    except (ValueError, TypeError):
-        return re.sub(r'[^0-9]', '', val_str)
+    
+    # 2. Quita todo lo que no sea un dígito
+    solo_digitos = re.sub(r'[^0-9]', '', val_str)
+    
+    if not solo_digitos:
+        return ''
+        
+    # 3. Convierte a entero para eliminar ceros a la izquierda y luego de nuevo a string
+    return str(int(solo_digitos))
 
 def _extraer_factura_cp(aplicacion):
     """
@@ -932,6 +941,28 @@ def _conciliar_iva(cp_row, df_iva):
         # Si la clave principal (Comprobante) coincidió pero otros campos no, es un error parcial
         return 'Parcialmente Conciliado', ' | '.join(errores)
 
+def _conciliar_islr(cp_row, df_islr):
+    """Aplica la lógica de conciliación de ISLR (clave: RIF + Comprobante)."""
+    rif_cp = cp_row['RIF_norm']
+    comprobante_cp = cp_row['Comprobante_norm']
+    
+    match_encontrado = df_islr[(df_islr['RIF_norm'] == rif_cp) & (df_islr['Comprobante_norm'] == comprobante_cp)]
+    
+    if match_encontrado.empty:
+        return 'No Conciliado', 'No encontrado en ISLR'
+
+    match_row = match_encontrado.iloc[0]
+    errores = []
+    
+    if not np.isclose(cp_row['Monto'], match_row['Monto']):
+        msg = f"Monto no coincide. CP: {cp_row['Monto']:.2f}, GALAC: {match_row['Monto']:.2f}"
+        errores.append(msg)
+        
+    if not errores:
+        return 'Conciliado', 'OK'
+    else:
+        return 'Parcialmente Conciliado', ' | '.join(errores)
+
 def _conciliar_municipal(cp_row, df_municipal):
     """Aplica la lógica de conciliación Municipal para una sola fila de CP."""
     rif_cp = cp_row['RIF_norm']
@@ -965,7 +996,7 @@ def _traducir_resultados_para_reporte(row):
     estado = row['Estado_Conciliacion']
     detalle = row['Detalle']
     
-    # ¡NUEVA LÓGICA DE TRADUCCIÓN!
+    # LÓGICA DE TRADUCCIÓN!
     # El orden es importante: primero verificamos el caso más específico (Anulado).
     if estado == 'Anulado':
         cp_vs_galac = 'Anulado'
@@ -986,43 +1017,92 @@ def _traducir_resultados_para_reporte(row):
 def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun, log_messages):
     try:
         log_messages.append("--- INICIANDO PROCESO DE CONCILIACIÓN DE RETENCIONES ---")
-        # --- PREPARACIÓN DE DATOS ---
-        df_cp = preparar_df_cp(file_cp) # Asume que esta función ya renombra 'Asiento Contable' a 'Asiento'
-        df_iva = preparar_df_iva(file_iva)
         
-        # --- ¡NUEVA LÓGICA DE CARGA PARA CG! ---
-        # Cargamos el archivo de CG si existe
+        # --- PREPARACIÓN DE DATOS ---
+        df_cp = preparar_df_cp(file_cp)
+        df_iva = preparar_df_iva(file_iva)
+        df_islr = preparar_df_islr(file_islr)
+        df_municipal = preparar_df_municipal(file_mun)
+        
         if file_cg:
             df_cg_dummy = pd.read_excel(file_cg, header=0, dtype=str)
-            # Estandarizamos sus nombres de columna a mayúsculas sin espacios/símbolos
             df_cg_dummy.columns = [re.sub(r'[^A-Z0-9]', '', col.upper()) for col in df_cg_dummy.columns]
         else:
-            df_cg_dummy = pd.DataFrame() # Si no se carga, creamos un DF vacío
+            df_cg_dummy = pd.DataFrame()
         
-        # --- LÓGICA DE CONCILIACIÓN ---
+        # --- LÓGICA DE CONCILIACIÓN CON BÚSQUEDA CRUZADA COMPLETA ---
+        log_messages.append("Iniciando conciliación por tipo de impuesto...")
         resultados = []
         
-        for _, row in df_cp.iterrows():
+        for index, row in df_cp.iterrows():
+            
             if 'ANULADO' in str(row.get('Aplicacion', '')).upper():
-                estado = 'Anulado'
-                mensaje = 'Movimiento Anulado en CP'
-                resultados.append({'Estado_Conciliacion': estado, 'Detalle': mensaje})
-                continue # <-- Saltamos al siguiente registro sin intentar conciliar
+                resultados.append({'Estado_Conciliacion': 'Anulado', 'Detalle': 'Movimiento Anulado en CP'})
+                continue
+
             subtipo = str(row.get('Subtipo', '')).upper()
-            estado, mensaje = 'No Conciliado', 'Lógica no implementada'
+            estado = 'No Conciliado'
+            mensaje = 'Lógica no implementada para este subtipo'
+
+            # --- ¡LÓGICA MEJORADA DE BÚSQUEDA CRUZADA COMPLETA! ---
             if 'IVA' in subtipo:
                 estado, mensaje = _conciliar_iva(row, df_iva)
+                # Si la búsqueda principal falla, intentar en los otros dos archivos
+                if 'No Conciliado' in estado:
+                    estado_islr, _ = _conciliar_islr(row, df_islr)
+                    if 'Conciliado' in estado_islr:
+                        estado = 'Error de Subtipo'
+                        mensaje = 'Declarado como IVA, pero encontrado en ISLR'
+                    else:
+                        estado_mun, _ = _conciliar_municipal(row, df_municipal)
+                        if 'Conciliado' in estado_mun:
+                            estado = 'Error de Subtipo'
+                            mensaje = 'Declarado como IVA, pero encontrado en Municipal'
+            
+            elif 'ISLR' in subtipo:
+                estado, mensaje = _conciliar_islr(row, df_islr)
+                # Si la búsqueda principal falla, intentar en los otros dos archivos
+                if 'No Conciliado' in estado:
+                    estado_iva, _ = _conciliar_iva(row, df_iva)
+                    if 'Conciliado' in estado_iva:
+                        estado = 'Error de Subtipo'
+                        mensaje = 'Declarado como ISLR, pero encontrado en IVA'
+                    else:
+                        estado_mun, _ = _conciliar_municipal(row, df_municipal)
+                        if 'Conciliado' in estado_mun:
+                            estado = 'Error de Subtipo'
+                            mensaje = 'Declarado como ISLR, pero encontrado en Municipal'
+
+            elif 'MUNICIPAL' in subtipo:
+                estado, mensaje = _conciliar_municipal(row, df_municipal)
+                # Si la búsqueda principal falla, intentar en los otros dos archivos
+                if 'No Conciliado' in estado:
+                    estado_iva, _ = _conciliar_iva(row, df_iva)
+                    if 'Conciliado' in estado_iva:
+                        estado = 'Error de Subtipo'
+                        mensaje = 'Declarado como Municipal, pero encontrado en IVA'
+                    else:
+                        estado_islr, _ = _conciliar_islr(row, df_islr)
+                        if 'Conciliado' in estado_islr:
+                            estado = 'Error de Subtipo'
+                            mensaje = 'Declarado como Municipal, pero encontrado en ISLR'
+
             resultados.append({'Estado_Conciliacion': estado, 'Detalle': mensaje})
 
-        df_cp = pd.concat([df_cp.reset_index(drop=True), pd.DataFrame(resultados)], axis=1)
-        df_cp[['CP_Vs_Galac', 'Asiento_en_CG', 'Monto_coincide_CG']] = df_cp.apply(_traducir_resultados_para_reporte, axis=1, result_type='expand')
+        # --- PREPARACIÓN FINAL Y LLAMADA AL REPORTE ---
+        df_resultados = pd.DataFrame(resultados)
+        df_cp_temp = pd.concat([df_cp.reset_index(drop=True), df_resultados], axis=1)
+
+        df_cp_temp[['CP_Vs_Galac', 'Asiento_en_CG', 'Monto_coincide_CG']] = df_cp_temp.apply(_traducir_resultados_para_reporte, axis=1, result_type='expand')
+
+        df_cp_final = df_cp_temp.copy()
         
         log_messages.append("¡Proceso de conciliación completado con éxito!")
         
-        # --- PREPARACIÓN FINAL Y LLAMADA AL REPORTE ---
         df_galac_no_cp = pd.DataFrame(columns=['FECHA', 'COMPROBANTE', 'FACTURA', 'RIF', 'NOMBREPROVEEDOR', 'MONTO', 'TIPO'])
-        
-        return generar_reporte_retenciones(df_cp, df_galac_no_cp, df_cg_dummy, {})
+        cuentas_map_dummy = {}
+
+        return generar_reporte_retenciones(df_cp_final, df_galac_no_cp, df_cg_dummy, cuentas_map_dummy)
 
     except Exception as e:
         log_messages.append(f"❌ ERROR CRÍTICO: {e}")
