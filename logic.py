@@ -808,7 +808,7 @@ def _normalizar_valor(valor):
 def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun, log_messages):
     log_messages.append("--- INICIANDO PROCESO DE CONCILIACIÓN DE RETENCIONES (VERSIÓN OPTIMIZADA) ---")
     try:
-        # --- 1. CARGA Y PREPARACIÓN INICIAL (Como antes, pero añadiendo fechas) ---
+        # --- 1. CARGA Y PREPARACIÓN INICIAL ---
         log_messages.append("Paso 1: Cargando y estandarizando archivos...")
         df_cp = pd.read_excel(file_cp, header=4, dtype=str)
         df_cg = pd.read_excel(file_cg, header=0, dtype=str)
@@ -839,6 +839,8 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         # Consolidar GALAC
         df_galac_iva['TIPO'] = 'IVA'; df_galac_islr['TIPO'] = 'ISLR'; df_galac_mun['TIPO'] = 'MUNICIPAL'
         df_galac_full = pd.concat([df_galac_iva, df_galac_islr, df_galac_mun], ignore_index=True)
+        columnas_criticas_galac = ['RIF', 'COMPROBANTE', 'MONTO']
+        df_galac_full.dropna(subset=[col for col in columnas_criticas_galac if col in df_galac_full.columns], inplace=True)
 
         # --- 2. NORMALIZACIÓN PROFUNDA Y CREACIÓN DE CLAVES ---
         log_messages.append("Paso 2: Normalizando datos y creando claves de conciliación...")
@@ -858,7 +860,7 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
             for df in [df_cp, df_cg, df_galac_full]:
                 if col in df.columns: df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
         
-        # **NUEVO Y CRÍTICO**: Normalizar fechas
+        # Normalizar fechas
         for df in [df_cp, df_galac_full]:
             if 'FECHA' in df.columns: df['FECHA_norm'] = pd.to_datetime(df['FECHA'], errors='coerce')
 
