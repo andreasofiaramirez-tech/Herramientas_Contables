@@ -938,6 +938,7 @@ def _conciliar_iva(cp_row, df_iva):
     else:
         # Si la clave principal (Comprobante) coincidió pero otros campos no, es un error parcial
         return 'Parcialmente Conciliado', ' | '.join(errores)
+
 def _conciliar_municipal(cp_row, df_municipal):
     """Aplica la lógica de conciliación Municipal para una sola fila de CP."""
     rif_cp = cp_row['RIF_norm']
@@ -992,6 +993,66 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         # --- PREPARACIÓN DE DATOS ---
         df_cp = preparar_df_cp(file_cp) # Asume que esta función ya renombra 'Asiento Contable' a 'Asiento'
         df_iva = preparar_df_iva(file_iva)
+
+        # --- BLOQUE DE ANÁLISIS FORENSE (A PRUEBA DE FALLOS) ---
+        print("\n" + "="*70)
+        print("--- INICIANDO ANÁLISIS FORENSE DE DATOS ---")
+        print("="*70)
+
+        # --- Identificadores de la primera fila con error que vemos en tus imágenes ---
+        ASIENTO_CP_A_BUSCAR = 'CP00078323'
+        COMPROBANTE_A_BUSCAR = '20251000278221'
+
+        def analizar_fila(df, etiqueta, id_busqueda):
+            print(f"\n--- ANALIZANDO DATAFRAME: {etiqueta} ---")
+            if df.empty:
+                print("!!! DataFrame está vacío.")
+                return
+
+            print("Columnas disponibles:", df.columns.tolist())
+            fila = pd.DataFrame()
+            try:
+                if etiqueta == 'CP':
+                    col_busqueda = 'Asiento'
+                    fila = df[df[col_busqueda] == id_busqueda]
+                elif etiqueta == 'IVA':
+                    col_busqueda = 'Comprobante'
+                    # Buscamos convirtiendo todo a string para evitar errores de tipo
+                    fila = df[df[col_busqueda].astype(str).str.strip() == id_busqueda]
+            except KeyError as e:
+                print(f"!!! ERROR FATAL: La columna de búsqueda '{e}' no existe en el DataFrame {etiqueta}.")
+                return
+
+            if fila.empty:
+                print(f"!!! NO SE ENCONTRÓ LA FILA CON ID '{id_busqueda}' EN {etiqueta} !!!")
+                return
+
+            print(f"--- DATOS DE LA FILA ENCONTRADA EN {etiqueta} (ID: {id_busqueda}) ---")
+            fila_datos = fila.iloc[0]
+
+            campos_a_revisar = ['RIF_norm', 'Comprobante_norm', 'Factura_norm', 'Monto']
+            for campo in campos_a_revisar:
+                if campo in fila_datos:
+                    valor = fila_datos[campo]
+                    print(f"\n  Campo: {campo}")
+                    print(f"    > Valor entre marcadores < : >{valor}<")
+                    print(f"    > Tipo de dato           < : {type(valor)}")
+                    try:
+                        print(f"    > Longitud (como str)    < : {len(str(valor))}")
+                        print(f"    > Bytes (utf-8)          < : {str(valor).encode('utf-8')}")
+                    except Exception as e:
+                        print(f"    > No se pudo analizar: {e}")
+                else:
+                    print(f"\n  !!! CAMPO '{campo}' NO ENCONTRADO EN {etiqueta} !!!")
+        
+        # Ejecutamos el análisis para la fila problemática
+        analizar_fila(df_cp, 'CP', ASIENTO_CP_A_BUSCAR)
+        analizar_fila(df_iva, 'IVA', COMPROBANTE_A_BUSCAR)
+
+        print("\n" + "="*70)
+        print("--- FIN DEL ANÁLISIS FORENSE ---")
+        print("="*70 + "\n")
+        # --- FIN DEL BLOQUE ---
         
         # --- ¡NUEVA LÓGICA DE CARGA PARA CG! ---
         # Cargamos el archivo de CG si existe
