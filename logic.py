@@ -799,9 +799,19 @@ def _normalizar_rif(valor):
     return val_str
 
 def _normalizar_numerico(valor):
-    """Normaliza un valor para que sea puramente numérico (para facturas, comprobantes, etc.)."""
-    if pd.isna(valor): return ''
-    return re.sub(r'[^0-9]', '', str(valor))
+    """
+    (Versión Definitiva y Robusta) Normaliza un valor para que sea puramente numérico.
+    Maneja números largos, notación científica y convierte floats a string sin decimales.
+    """
+    if pd.isna(valor):
+        return ''
+    # Si el valor parece un número (incluyendo floats), lo convertimos a entero y luego a string
+    try:
+        # Esto convierte '20251000278224.0' en '20251000278224'
+        return f"{int(float(valor)):d}"
+    except (ValueError, TypeError):
+        # Si no se puede convertir a float (porque tiene letras), limpiamos los no-dígitos
+        return re.sub(r'[^0-9]', '', str(valor))
 
 def _extraer_factura_cp(aplicacion):
     """Extrae los últimos 6 dígitos del número de factura desde la columna 'Aplicación' de CP."""
