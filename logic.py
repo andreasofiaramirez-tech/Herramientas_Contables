@@ -959,7 +959,7 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         
         # Evaluar resultados de la verificación con CG
         df_cp_final['Asiento_en_CG'] = np.where(df_cp_final['CUENTACONTABLE'].notna(), 'Sí', 'No')
-        monto_coincide_cg = np.isclose(df_cp_final['MONTO_cp'].abs(), df_cp_final['CREDITOVES_cg'].fillna(0))
+        monto_coincide_cg = np.isclose(df_cp_final['MONTO'].abs(), df_cp_final['CREDITOVES'].fillna(0))
         df_cp_final['Monto_coincide_CG'] = np.select(
             [df_cp_final['Asiento_en_CG'] == 'No', monto_coincide_cg],
             ['No Aplica', 'Sí'],
