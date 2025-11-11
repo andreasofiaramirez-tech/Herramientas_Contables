@@ -884,7 +884,7 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         print("\n--- INICIANDO DEBUG DE DATOS PARA FILA ESPECÍFICA ---")
         
         # Filtramos la fila específica en CP usando su número de comprobante único
-        fila_cp_debug = df_cp[df_cp['NUMERO'] == '20251000278224']
+        fila_cp_debug = df_cp[df_cp['COMPROBANTE'] == '20251000278224']
         
         # Filtramos la fila correspondiente en GALAC
         fila_galac_debug = df_galac_full[df_galac_full['COMPROBANTE'] == '20251000278224']
