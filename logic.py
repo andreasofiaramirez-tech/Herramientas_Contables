@@ -786,3 +786,208 @@ def run_conciliation_viajes(df, log_messages, progress_bar=None):
 # LÓGICAS PARA LA HERRAMIENTA DE RELACIONES DE RETENCIONES
 # ==============================================================================
 
+# --- NUEVAS FUNCIONES DE NORMALIZACIÓN (Paso 4) ---
+
+def _normalizar_rif(valor):
+    """Normaliza RIF eliminando prefijos (J-, V-, etc.) y caracteres no alfanuméricos."""
+    if pd.isna(valor): return ''
+    # Elimina todo lo que no sea letra o número y convierte a mayúsculas
+    val_str = re.sub(r'[^A-Z0-9]', '', str(valor).upper())
+    # Quita la letra inicial si es un RIF venezolano estándar
+    if val_str.startswith(('J', 'V', 'E', 'G')) and len(val_str) > 8:
+        return val_str[1:]
+    return val_str
+
+def _normalizar_numerico(valor):
+    """Normaliza un valor para que sea puramente numérico (para facturas, comprobantes, etc.)."""
+    if pd.isna(valor): return ''
+    return re.sub(r'[^0-9]', '', str(valor))
+
+def _extraer_factura_cp(aplicacion):
+    """Extrae los últimos 6 dígitos del número de factura desde la columna 'Aplicación' de CP."""
+    if pd.isna(aplicacion): return ''
+    # Busca cualquier secuencia de dígitos que venga después de "FACT N°" o similar
+    match = re.search(r'FACT\s*N?[°º]?\s*(\S+)', str(aplicacion).upper())
+    if match:
+        # Normaliza el número encontrado y toma los últimos 6 dígitos
+        numero_completo = _normalizar_numerico(match.group(1))
+        return numero_completo[-6:]
+    return ''
+
+# --- NUEVAS FUNCIONES DE CARGA Y PREPARACIÓN ---
+
+def preparar_df_cp(file_path):
+    """Carga y prepara el archivo de Relación CP."""
+    df = pd.read_excel(file_path, header=0, dtype=str)
+    # Renombrar columnas según la tabla de mapeo
+    df.rename(columns={'Proveedor': 'RIF', 'Número': 'Comprobante', 'Monto': 'Monto'}, inplace=True)
+    # Aplicar normalización a las columnas clave
+    df['RIF_norm'] = df['RIF'].apply(_normalizar_rif)
+    df['Comprobante_norm'] = df['Comprobante'].apply(_normalizar_numerico)
+    df['Factura_norm'] = df['Aplicación'].apply(_extraer_factura_cp)
+    df['Monto'] = pd.to_numeric(df['Monto'], errors='coerce').fillna(0)
+    return df
+
+def preparar_df_iva(file_path):
+    """Carga y prepara el archivo de Retenciones de IVA."""
+    df = pd.read_excel(file_path, header=4, dtype=str)
+    df.rename(columns={'Rif Prov.': 'RIF', 'Nº Documento': 'Factura', 'No. Comprobante': 'Comprobante', 'IVA Retenido': 'Monto'}, inplace=True)
+    df['RIF_norm'] = df['RIF'].apply(_normalizar_rif)
+    df['Comprobante_norm'] = df['Comprobante'].apply(_normalizar_numerico)
+    df['Factura_norm'] = df['Factura'].apply(_normalizar_numerico)
+    df['Monto'] = pd.to_numeric(df['Monto'], errors='coerce').fillna(0)
+    return df
+
+def preparar_df_municipal(file_path):
+    """Carga y prepara el archivo de Retenciones Municipales."""
+    df = pd.read_excel(file_path, header=8, dtype=str)
+    df.rename(columns={'Número Rif': 'RIF', 'Número de Factura': 'Factura', 'Valor': 'Monto'}, inplace=True)
+    df['RIF_norm'] = df['RIF'].apply(_normalizar_rif)
+    df['Factura_norm'] = df['Factura'].apply(_normalizar_numerico)
+    df['Monto'] = pd.to_numeric(df['Monto'], errors='coerce').fillna(0)
+    # Añadimos una columna de Comprobante vacía para consistencia
+    df['Comprobante_norm'] = ''
+    return df
+
+def preparar_df_islr(file_path):
+    """Carga y prepara el archivo de Retenciones de ISLR (con manejo especial del RIF)."""
+    df = pd.read_excel(file_path, header=8, dtype=str)
+    # CASO ESPECIAL: El RIF está en una columna sin nombre, a la izquierda de 'Nº Documento'
+    try:
+        # Encontramos la posición de la columna 'Nº Documento'
+        col_factura_idx = df.columns.get_loc('Nº Documento')
+        # La columna del RIF es la anterior a esa
+        col_rif_pos = col_factura_idx - 1
+        # Extraemos esa columna y la nombramos 'RIF'
+        df['RIF'] = df.iloc[:, col_rif_pos]
+    except KeyError:
+        # Si 'Nº Documento' no existe, no podemos encontrar el RIF de esta forma
+        print("Advertencia: No se encontró la columna 'Nº Documento' en el archivo de ISLR para ubicar el RIF.")
+        df['RIF'] = ''
+
+    df.rename(columns={'Nº Referencia': 'Comprobante', 'Monto Retenido': 'Monto'}, inplace=True)
+    df['RIF_norm'] = df['RIF'].apply(_normalizar_rif)
+    df['Comprobante_norm'] = df['Comprobante'].apply(_normalizar_numerico)
+    df['Monto'] = pd.to_numeric(df['Monto'], errors='coerce').fillna(0)
+    df['Factura_norm'] = '' # ISLR no cruza por factura según la lógica
+    return df
+
+# --- NUEVAS FUNCIONES DE LÓGICA DE CONCILIACIÓN ---
+
+def _conciliar_iva(cp_row, df_iva):
+    """Aplica la lógica de conciliación de IVA para una sola fila de CP."""
+    # 1. Identificar el RIF en CP y ubicarlo en IVA
+    rif_cp = cp_row['RIF_norm']
+    monto_cp = cp_row['Monto']
+    
+    # 2. Crear Grupo a partir de RIF y buscar coincidencia de monto
+    posibles_matches = df_iva[(df_iva['RIF_norm'] == rif_cp) & (df_iva['Monto'] == monto_cp)]
+    
+    if posibles_matches.empty:
+        # Si no hay match de RIF+Monto, verificamos si al menos el RIF existía
+        if rif_cp not in df_iva['RIF_norm'].values:
+            return 'No Conciliado', 'RIF no se encuentra en GALAC'
+        else:
+            return 'No Conciliado', f"Monto de retencion no encontrado en GALAC. Monto CP: {monto_cp:.2f}"
+
+    # Si encontramos al menos un match de RIF+Monto, tomamos el primero
+    match_encontrado = posibles_matches.iloc[0]
+    
+    # 3. Validaciones (se acumulan todos los errores)
+    errores = []
+    
+    # Validación de Factura
+    if cp_row['Factura_norm'] != match_encontrado['Factura_norm']:
+        msg = f"Numero de factura no coincide. CP: {cp_row['Factura_norm']}, GALAC: {match_encontrado['Factura_norm']}"
+        errores.append(msg)
+        
+    # Validación de Comprobante de Retención
+    if cp_row['Comprobante_norm'] != match_encontrado['Comprobante_norm']:
+        msg = f"Numero de Retencion no coincide. CP: {cp_row['Comprobante_norm']}, GALAC: {match_encontrado['Comprobante_norm']}"
+        errores.append(msg)
+        
+    if not errores:
+        return 'Conciliado', 'OK'
+    else:
+        return 'Parcialmente Conciliado', ' | '.join(errores)
+
+def _conciliar_municipal(cp_row, df_municipal):
+    """Aplica la lógica de conciliación Municipal para una sola fila de CP."""
+    rif_cp = cp_row['RIF_norm']
+    monto_cp = cp_row['Monto']
+    
+    posibles_matches = df_municipal[(df_municipal['RIF_norm'] == rif_cp) & (df_municipal['Monto'] == monto_cp)]
+    
+    if posibles_matches.empty:
+        if rif_cp not in df_municipal['RIF_norm'].values:
+            return 'No Conciliado', 'RIF no se encuentra en GALAC'
+        else:
+            return 'No Conciliado', f"Monto de retencion no encontrado en GALAC. Monto CP: {monto_cp:.2f}"
+            
+    match_encontrado = posibles_matches.iloc[0]
+    
+    errores = []
+    if cp_row['Factura_norm'] != match_encontrado['Factura_norm']:
+        msg = f"Numero de factura no coincide. CP: {cp_row['Factura_norm']}, GALAC: {match_encontrado['Factura_norm']}"
+        errores.append(msg)
+        
+    if not errores:
+        return 'Conciliado', 'OK'
+    else:
+        return 'Parcialmente Conciliado', ' | '.join(errores)
+
+def run_conciliacion_retenciones:
+    log_messages.append("--- INICIANDO NUEVO PROCESO DE CONCILIACIÓN ---")
+    try:
+        # Paso 1 y 2: Cargar todos los archivos con sus encabezados correctos
+        log_messages.append("Cargando y preparando archivos de entrada...")
+        df_cp = preparar_df_cp(file_cp)
+        df_iva = preparar_df_iva(file_iva)
+        df_islr = preparar_df_islr(file_islr) # Asumimos una lógica similar para ISLR
+        df_municipal = preparar_df_municipal(file_mun)
+        # df_cg = ... (se cargaría de forma similar si se necesita)
+
+        log_messages.append("Iniciando conciliación por tipo de impuesto...")
+        resultados = []
+        
+        # Iteramos sobre cada fila del archivo CP para aplicar la lógica
+        for index, row in df_cp.iterrows():
+            subtipo = str(row.get('Subtipo', '')).upper()
+            
+            # Paso 5: Identificar archivo de búsqueda principal
+            estado = 'No Conciliado'
+            mensaje = 'Subtipo no reconocido'
+
+            if 'IVA' in subtipo:
+                estado, mensaje = _conciliar_iva(row, df_iva)
+                # Si no se encuentra, buscar en los demás (lógica de cruce)
+                if estado == 'No Conciliado':
+                    # Aquí se podría añadir la búsqueda en ISLR y Municipal si se desea
+                    pass
+            elif 'MUNICIPAL' in subtipo:
+                estado, mensaje = _conciliar_municipal(row, df_municipal)
+
+            # elif 'ISLR' in subtipo:
+                # estado, mensaje = _conciliar_islr(row, df_islr) # Se crearía una función _conciliar_islr
+            
+            # Guardamos el resultado para esta fila de CP
+            resultados.append({'Estado_Conciliacion': estado, 'Detalle': mensaje})
+
+        # Unir los resultados al DataFrame original de CP
+        df_resultados = pd.DataFrame(resultados)
+        df_cp_final = pd.concat([df_cp.reset_index(drop=True), df_resultados], axis=1)
+
+        log_messages.append("¡Proceso de conciliación completado con éxito!")
+        # Aquí se llamaría a la función que genera el reporte en Excel
+        # return generar_reporte(df_cp_final, ...)
+        
+        # Por ahora, para ver el resultado, puedes imprimirlo o devolverlo
+        print(df_cp_final[['RIF', 'Comprobante', 'Monto', 'Subtipo', 'Estado_Conciliacion', 'Detalle']].to_markdown())
+        
+        return None # Placeholder para el archivo de reporte
+
+    except Exception as e:
+        log_messages.append(f"❌ ERROR CRÍTICO en la nueva conciliación: {e}")
+        import traceback
+        log_messages.append(traceback.format_exc())
+        return None
