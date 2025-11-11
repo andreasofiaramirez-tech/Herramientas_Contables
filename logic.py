@@ -805,12 +805,11 @@ def _normalizar_numerico(valor):
     """
     if pd.isna(valor):
         return ''
-    # Si el valor parece un número (incluyendo floats), lo convertimos a entero y luego a string
     try:
-        # Esto convierte '20251000278224.0' en '20251000278224'
+        # Intenta convertir a float, luego a entero, y finalmente a string para eliminar el ".0"
         return f"{int(float(valor)):d}"
     except (ValueError, TypeError):
-        # Si no se puede convertir a float (porque tiene letras), limpiamos los no-dígitos
+        # Si lo anterior falla (ej. contiene letras), limpia los caracteres no numéricos
         return re.sub(r'[^0-9]', '', str(valor))
 
 def _extraer_factura_cp(aplicacion):
