@@ -805,20 +805,23 @@ def _normalizar_numerico(valor):
 
 def _extraer_factura_cp(aplicacion):
     """
-    (Versión Corregida) Extrae el NÚMERO COMPLETO de factura desde la 
-    columna 'Aplicación' y lo normaliza.
+    (Versión Final y Robusta) Extrae el número de factura COMPLETO de la 
+    columna 'Aplicación' y lo pasa a la función de normalización numérica.
     """
-    if pd.isna(aplicacion): return ''
+    if pd.isna(aplicacion):
+        return ''
     
-    # Busca cualquier secuencia de caracteres que venga después de "FACT N°" o similar
+    # Busca la secuencia de caracteres que sigue a "FACT N°"
     match = re.search(r'FACT\s*N?[°º]?\s*(\S+)', str(aplicacion).upper())
     
     if match:
-        # Se toma el número COMPLETO encontrado en el texto
-        numero_completo_texto = match.group(1)
+        # El texto extraído (ej. '00002508') se guarda en una variable
+        numero_texto_extraido = match.group(1)
         
-        # Se pasa a la función de normalización que ya elimina ceros a la izquierda y no-numéricos
-        return _normalizar_numerico(numero_completo_texto)
+        # ¡CORRECCIÓN CRÍTICA!
+        # Se pasa este texto a nuestra función de normalización principal,
+        # que se encargará de eliminar caracteres, espacios Y ceros a la izquierda.
+        return _normalizar_numerico(numero_texto_extraido)
         
     return ''
 
