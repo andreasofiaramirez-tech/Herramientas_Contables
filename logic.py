@@ -818,7 +818,7 @@ def _extraer_factura_cp(aplicacion):
 
 def preparar_df_cp(file_path):
     """Carga y prepara el archivo de Relación CP."""
-    df = pd.read_excel(file_path, header=0, dtype=str)
+    df = pd.read_excel(file_path, header=4, dtype=str)
     # Renombrar columnas según la tabla de mapeo
     df.rename(columns={'Proveedor': 'RIF', 'Número': 'Comprobante', 'Monto': 'Monto'}, inplace=True)
     # Aplicar normalización a las columnas clave
