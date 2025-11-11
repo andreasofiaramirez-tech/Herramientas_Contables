@@ -332,10 +332,6 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
         final_order_cp = ['Asiento', 'Tipo', 'Fecha', 'Numero', 'Aplicacion', 'Subtipo', 'Monto', 'Cp Vs Galac', 'Asiento en CG', 'Monto coincide CG', 'RIF', 'Nombre Proveedor']
         
         df_reporte_cp = df_cp_results.copy()
-        
-        # Eliminar la hora de la columna de fecha ANTES de escribir
-        if 'FECHA' in df_reporte_cp.columns:
-            df_reporte_cp['FECHA'] = pd.to_datetime(df_reporte_cp['FECHA'], errors='coerce').dt.date
 
         df_reporte_cp.rename(columns=column_map_cp, inplace=True)
         for col in final_order_cp:
@@ -355,11 +351,12 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
             for r_idx, row in df_incidencias[final_order_cp].iterrows():
                 for col_idx, value in enumerate(row.values):
                     if final_order_cp[col_idx] == 'Fecha':
-                        # ¡NUEVA VERIFICACIÓN! Solo escribe si la fecha es válida
-                        if pd.notna(value):
-                            ws1.write_datetime(current_row, col_idx, value, date_format)
+                        # ¡NUEVA LÓGICA ROBUSTA!
+                        fecha_valida = pd.to_datetime(value, errors='coerce')
+                        if pd.notna(fecha_valida):
+                            ws1.write_datetime(current_row, col_idx, fecha_valida, date_format)
                         else:
-                            ws1.write_blank(current_row, col_idx, None, center_text_format) # Escribe una celda en blanco si no es válida
+                            ws1.write_blank(current_row, col_idx, None, center_text_format)
                     elif final_order_cp[col_idx] == 'Monto':
                         ws1.write_number(current_row, col_idx, value, money_format)
                     else:
@@ -369,15 +366,16 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
         current_row += 1
         ws1.write(current_row, 0, 'Conciliacion Exitosa', group_title_format); current_row += 1
         ws1.write_row(current_row, 0, final_order_cp, header_format); current_row += 1
-        if not df_exitosos.empty:
+       if not df_exitosos.empty:
             for r_idx, row in df_exitosos[final_order_cp].iterrows():
                 for col_idx, value in enumerate(row.values):
                     if final_order_cp[col_idx] == 'Fecha':
-                        # ¡NUEVA VERIFICACIÓN! Solo escribe si la fecha es válida
-                        if pd.notna(value):
-                            ws1.write_datetime(current_row, col_idx, value, date_format)
+                        # ¡NUEVA LÓGICA ROBUSTA!
+                        fecha_valida = pd.to_datetime(value, errors='coerce')
+                        if pd.notna(fecha_valida):
+                            ws1.write_datetime(current_row, col_idx, fecha_valida, date_format)
                         else:
-                            ws1.write_blank(current_row, col_idx, None, center_text_format) # Escribe una celda en blanco si no es válida
+                            ws1.write_blank(current_row, col_idx, None, center_text_format)
                     elif final_order_cp[col_idx] == 'Monto':
                         ws1.write_number(current_row, col_idx, value, money_format)
                     else:
