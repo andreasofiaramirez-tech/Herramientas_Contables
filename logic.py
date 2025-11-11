@@ -845,7 +845,7 @@ def preparar_df_iva(file_iva):
         'No. Comprobante': 'Comprobante', 'IVA Retenido': 'Monto'
     })
     
-    ddf['RIF_norm'] = df['RIF'].apply(_normalizar_rif)
+    df['RIF_norm'] = df['RIF'].apply(_normalizar_rif)
     df['Comprobante_norm'] = df['Comprobante'].apply(_normalizar_numerico)
     df['Factura_norm'] = df['Factura'].apply(_normalizar_numerico)
     df['Monto'] = df['Monto'].str.replace(',', '.', regex=False).astype(float)
