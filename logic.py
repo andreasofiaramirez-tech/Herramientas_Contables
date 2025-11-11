@@ -960,64 +960,31 @@ def _traducir_resultados_para_reporte(row):
     return cp_vs_galac, asiento_en_cg, monto_coincide_cg
 
 def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun, log_messages):
-    log_messages.append("--- INICIANDO NUEVO PROCESO DE CONCILIACIÓN ---")
     try:
-        # Paso 1 y 2: Cargar todos los archivos con sus encabezados correctos
-        log_messages.append("Cargando y preparando archivos de entrada...")
+        log_messages.append("--- INICIANDO PROCESO DE CONCILIACIÓN DE RETENCIONES ---")
         df_cp = preparar_df_cp(file_cp)
         df_iva = preparar_df_iva(file_iva)
-        df_islr = preparar_df_islr(file_islr) # Asumimos una lógica similar para ISLR
-        df_municipal = preparar_df_municipal(file_mun)
-        # df_cg = ... (se cargaría de forma similar si se necesita)
-
-        log_messages.append("Iniciando conciliación por tipo de impuesto...")
-        resultados = []
         
-        # Iteramos sobre cada fila del archivo CP para aplicar la lógica
-        for index, row in df_cp.iterrows():
+        resultados = []
+        for _, row in df_cp.iterrows():
             subtipo = str(row.get('Subtipo', '')).upper()
-            
-            # Paso 5: Identificar archivo de búsqueda principal
-            estado = 'No Conciliado'
-            mensaje = 'Subtipo no reconocido'
-
+            estado, mensaje = 'No Conciliado', 'Lógica no implementada'
             if 'IVA' in subtipo:
                 estado, mensaje = _conciliar_iva(row, df_iva)
-                # Si no se encuentra, buscar en los demás (lógica de cruce)
-                if estado == 'No Conciliado':
-                    # Aquí se podría añadir la búsqueda en ISLR y Municipal si se desea
-                    pass
-            elif 'MUNICIPAL' in subtipo:
-                estado, mensaje = _conciliar_municipal(row, df_municipal)
-
-            # elif 'ISLR' in subtipo:
-                # estado, mensaje = _conciliar_islr(row, df_islr) # Se crearía una función _conciliar_islr
-            
-            # Guardamos el resultado para esta fila de CP
             resultados.append({'Estado_Conciliacion': estado, 'Detalle': mensaje})
 
-    df_resultados = pd.DataFrame(resultados)
-        df_cp_temp = pd.concat([df_cp.reset_index(drop=True), df_resultados], axis=1)
-
-        # Aplicamos la función de traducción para crear las columnas que utils.py necesita
-        df_cp_temp[['CP_Vs_Galac', 'Asiento_en_CG', 'Monto_coincide_CG']] = df_cp_temp.apply(_traducir_resultados_para_reporte, axis=1, result_type='expand')
-
-        # Creamos el DataFrame final con todas las columnas necesarias para el reporte
-        df_cp_final = df_cp_temp.copy()
-
+        df_cp = pd.concat([df_cp.reset_index(drop=True), pd.DataFrame(resultados)], axis=1)
+        df_cp[['CP_Vs_Galac', 'Asiento_en_CG', 'Monto_coincide_CG']] = df_cp.apply(_traducir_resultados_para_reporte, axis=1, result_type='expand')
+        
         log_messages.append("¡Proceso de conciliación completado con éxito!")
         
-        # Preparamos DataFrames vacíos para que la función de reporte no falle
-        df_galac_no_cp_dummy = pd.DataFrame(columns=['FECHA', 'COMPROBANTE', 'FACTURA', 'RIF', 'NOMBREPROVEEDOR', 'MONTO', 'TIPO'])
-        df_cg_dummy = pd.DataFrame()
-        cuentas_map_dummy = {} # El reporteador lo pide, pero no lo usamos activamente aquí
+        df_galac_no_cp = pd.DataFrame(columns=['FECHA', 'COMPROBANTE', 'FACTURA', 'RIF', 'NOMBREPROVEEDOR', 'MONTO', 'TIPO'])
+        df_cg_dummy = pd.read_excel(file_cg, header=0, dtype=str) if file_cg else pd.DataFrame()
 
-        # Llamamos a la función de reporte con el DataFrame final y los dummies
-        return generar_reporte_retenciones(df_cp_final, df_galac_no_cp_dummy, df_cg_dummy, cuentas_map_dummy)
-    
+        return generar_reporte_retenciones(df_cp, df_galac_no_cp, df_cg_dummy, {})
 
     except Exception as e:
-        log_messages.append(f"❌ ERROR CRÍTICO en la nueva conciliación: {e}")
+        log_messages.append(f"❌ ERROR CRÍTICO: {e}")
         import traceback
         log_messages.append(traceback.format_exc())
         return None
