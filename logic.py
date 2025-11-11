@@ -804,14 +804,22 @@ def _normalizar_numerico(valor):
     return re.sub(r'[^0-9]', '', str(valor))
 
 def _extraer_factura_cp(aplicacion):
-    """Extrae los últimos 6 dígitos del número de factura desde la columna 'Aplicación' de CP."""
+    """
+    (Versión Corregida) Extrae el NÚMERO COMPLETO de factura desde la 
+    columna 'Aplicación' y lo normaliza.
+    """
     if pd.isna(aplicacion): return ''
-    # Busca cualquier secuencia de dígitos que venga después de "FACT N°" o similar
+    
+    # Busca cualquier secuencia de caracteres que venga después de "FACT N°" o similar
     match = re.search(r'FACT\s*N?[°º]?\s*(\S+)', str(aplicacion).upper())
+    
     if match:
-        # Normaliza el número encontrado y toma los últimos 6 dígitos
-        numero_completo = _normalizar_numerico(match.group(1))
-        return numero_completo[-6:]
+        # Se toma el número COMPLETO encontrado en el texto
+        numero_completo_texto = match.group(1)
+        
+        # Se pasa a la función de normalización que ya elimina ceros a la izquierda y no-numéricos
+        return _normalizar_numerico(numero_completo_texto)
+        
     return ''
 
 # --- NUEVAS FUNCIONES DE CARGA Y PREPARACIÓN ---
