@@ -869,7 +869,7 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
             
             if 'APLICACION' in df.columns:
                 mask_factura_vacia = (df['FACTURA_norm'] == '') | (df['FACTURA_norm'].isna())
-                df.loc[mask_factura_vacia, 'FACTURA_norm'] = extracted_facturas.apply(_normalizar_factura)
+                df.loc[mask_factura_vacia, 'FACTURA_norm'] = df.loc[mask_factura_vacia, 'APLICACION'].str.upper().str.extract(r'FACT\s*N?[°º]?\s*(\S+)')[0].apply(_normalizar_factura)
 
 
         # Normalizar y convertir montos y fechas
