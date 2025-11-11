@@ -843,11 +843,19 @@ def preparar_df_cp(file_cp):
 
 def preparar_df_iva(file_path):
     """Carga y prepara el archivo de Retenciones de IVA."""
-    df = pd.read_excel(file_path, header=4, dtype=str)
-    df.rename(columns={'Rif Prov.': 'RIF', 'Nº Documento': 'Factura', 'No. Comprobante': 'Comprobante', 'IVA Retenido': 'Monto'}, inplace=True)
+    df = pd.read_excel(file_iva, header=4, dtype=str).rename(columns={
+        'Rif Prov.': 'RIF', 
+        'Nº Documento': 'Factura', 
+        'No. Comprobante': 'Comprobante', # <-- Asegúrate de que este rename sea correcto
+        'IVA Retenido': 'Monto'
+    })
     df['RIF_norm'] = df['RIF'].apply(_normalizar_rif)
+    
+    # --- ¡CORRECCIÓN CRÍTICA AQUÍ! ---
+    # Asegúrate de que AMBAS columnas se normalicen con _normalizar_numerico
     df['Comprobante_norm'] = df['Comprobante'].apply(_normalizar_numerico)
     df['Factura_norm'] = df['Factura'].apply(_normalizar_numerico)
+    
     df['Monto'] = pd.to_numeric(df['Monto'], errors='coerce').fillna(0)
     return df
 
@@ -888,33 +896,44 @@ def preparar_df_islr(file_path):
 # --- NUEVAS FUNCIONES DE LÓGICA DE CONCILIACIÓN ---
 
 def _conciliar_iva(cp_row, df_iva):
-    """Aplica la lógica de conciliación de IVA para una sola fila de CP."""
-    # 1. Identificar el RIF en CP y ubicarlo en IVA
+    """
+    (Versión Mejorada) Aplica la lógica de conciliación de IVA buscando el "mejor match"
+    cuando existen múltiples transacciones con el mismo monto.
+    """
     rif_cp = cp_row['RIF_norm']
     monto_cp = cp_row['Monto']
     
-    # 2. Crear Grupo a partir de RIF y buscar coincidencia de monto
-    posibles_matches = df_iva[(df_iva['RIF_norm'] == rif_cp) & (df_iva['Monto'] == monto_cp)]
+    # 1. Encontrar TODAS las posibles coincidencias por RIF y Monto
+    posibles_matches = df_iva[(df_iva['RIF_norm'] == rif_cp) & (np.isclose(df_iva['Monto'], monto_cp))]
     
     if posibles_matches.empty:
-        # Si no hay match de RIF+Monto, verificamos si al menos el RIF existía
         if rif_cp not in df_iva['RIF_norm'].values:
             return 'No Conciliado', 'RIF no se encuentra en GALAC'
         else:
             return 'No Conciliado', f"Monto de retencion no encontrado en GALAC. Monto CP: {monto_cp:.2f}"
 
-    # Si encontramos al menos un match de RIF+Monto, tomamos el primero
-    match_encontrado = posibles_matches.iloc[0]
+    # --- ¡CORRECCIÓN CRÍTICA! ---
+    # 2. En lugar de tomar el primero, buscamos el "match perfecto" dentro de las posibilidades.
+    #    El match perfecto es aquel donde el Comprobante también coincide.
     
-    # 3. Validaciones (se acumulan todos los errores)
+    match_perfecto = posibles_matches[posibles_matches['Comprobante_norm'] == cp_row['Comprobante_norm']]
+    
+    if not match_perfecto.empty:
+        # Si encontramos el match perfecto (RIF + Monto + Comprobante), lo usamos.
+        match_encontrado = match_perfecto.iloc[0]
+    else:
+        # Si no hay match perfecto, volvemos al comportamiento anterior:
+        # tomamos el primer posible match para poder reportar los errores.
+        match_encontrado = posibles_matches.iloc[0]
+    
+    # 3. Validaciones (el resto de la lógica no cambia)
     errores = []
     
-    # Validación de Factura
     if cp_row['Factura_norm'] != match_encontrado['Factura_norm']:
         msg = f"Numero de factura no coincide. CP: {cp_row['Factura_norm']}, GALAC: {match_encontrado['Factura_norm']}"
         errores.append(msg)
         
-    # Validación de Comprobante de Retención
+    # Esta validación ahora se hará contra el "mejor match" encontrado
     if cp_row['Comprobante_norm'] != match_encontrado['Comprobante_norm']:
         msg = f"Numero de Retencion no coincide. CP: {cp_row['Comprobante_norm']}, GALAC: {match_encontrado['Comprobante_norm']}"
         errores.append(msg)
