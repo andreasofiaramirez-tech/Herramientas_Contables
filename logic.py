@@ -965,8 +965,11 @@ def _traducir_resultados_para_reporte(row):
     estado = row['Estado_Conciliacion']
     detalle = row['Detalle']
     
-    # Lógica de traducción
-    if estado == 'Conciliado':
+    # ¡NUEVA LÓGICA DE TRADUCCIÓN!
+    # El orden es importante: primero verificamos el caso más específico (Anulado).
+    if estado == 'Anulado':
+        cp_vs_galac = 'Anulado'
+    elif estado == 'Conciliado':
         cp_vs_galac = 'Sí'
     elif 'RIF no se encuentra' in detalle or 'Monto de retencion no encontrado' in detalle:
         cp_vs_galac = 'No Encontrado en GALAC'
@@ -974,7 +977,7 @@ def _traducir_resultados_para_reporte(row):
         # Para "Parcialmente Conciliado" y otros, usamos el detalle como el resultado
         cp_vs_galac = detalle
     
-    # Columnas de CG con valores por defecto ya que la nueva lógica no las usa
+    # Columnas de CG con valores por defecto
     asiento_en_cg = 'No Aplica'
     monto_coincide_cg = 'No Aplica'
     
