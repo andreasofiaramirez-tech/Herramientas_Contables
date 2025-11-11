@@ -922,25 +922,21 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         date_match_islr = (conciliado_islr['FECHA_norm'] - conciliado_islr['FECHA_galac_max']).abs() <= pd.Timedelta(days=30)
         conciliado_islr['CP_Vs_Galac'] = np.where(monto_match_islr & date_match_islr, 'Sí', 'No Encontrado en GALAC')
 
-        # --- 4. CONSOLIDACIÓN DE RESULTADOS Y BÚSQUEDA DE ERRORES ---
-        log_messages.append("Paso 4: Consolidando resultados y buscando errores de clasificación...")
+        # --- 4. CONSOLIDACIÓN Y VERIFICACIÓN FINAL ---
+        log_messages.append("Paso 4: Consolidando resultados y verificando contra CG...")
         
-        # Unir los resultados de vuelta
-        df_cp_results = pd.concat([conciliado_iva_mun, conciliado_islr], ignore_index=True)
+        # Se concatenan los tres DataFrames correctos.
+        df_cp_results = pd.concat([conciliado_iva, conciliado_mun, conciliado_islr], ignore_index=True)
         
-        # Identificar los que no conciliaron para buscar en otros tipos
-        no_conciliados = df_cp_results[df_cp_results['CP_Vs_Galac'] == 'No Encontrado en GALAC']
-        for index, row in no_conciliados.iterrows():
-            tipo_declarado = row['SUBTIPO_DECLARADO']
-            otros_tipos = [t for t in ['IVA', 'ISLR', 'MUNICIPAL'] if t != tipo_declarado]
-            for otro_tipo in otros_tipos:
-                # Se podría implementar una lógica de búsqueda similar a la original aquí,
-                # pero por simplicidad y rendimiento, esta parte se puede refinar más adelante si es necesario.
-                # Por ahora, nos enfocamos en la conciliación principal.
-                pass # Lógica de búsqueda cruzada simplificada por ahora.
-
-        # Marcar Anulados
         df_cp_results.loc[df_cp_results['APLICACION'].str.contains('ANULADO', case=False, na=False), 'CP_Vs_Galac'] = 'No Aplica (Anulado)'
+        
+        df_cg_grouped = df_cg.groupby(['ASIENTO', 'CUENTACONTABLE'])['CREDITOVES'].sum().reset_index()
+        df_cp_results['CUENTA_ESPERADA'] = df_cp_results['SUBTIPO_DECLARADO'].map(CUENTAS_MAP)
+        df_cp_final = pd.merge(df_cp_results, df_cg_grouped, left_on=['ASIENTO', 'CUENTA_ESPERADA'], right_on=['ASIENTO', 'CUENTACONTABLE'], how='left')
+        
+        df_cp_final['Asiento_en_CG'] = np.where(df_cp_final['CUENTACONTABLE'].notna(), 'Sí', 'No')
+        monto_coincide_cg = np.isclose(df_cp_final['MONTO'].abs(), df_cp_final['CREDITOVES'].fillna(0))
+        df_cp_final['Monto_coincide_CG'] = np.select([df_cp_final['Asiento_en_CG'] == 'No', monto_coincide_cg], ['No Aplica', 'Sí'], default='No')
         
         # --- 5. VERIFICACIÓN CONTRA CONTABILIDAD GENERAL (CG) ---
         log_messages.append("Paso 5: Verificando contra Contabilidad General...")
