@@ -982,7 +982,7 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         # return generar_reporte(df_cp_final, ...)
         
         # Por ahora, para ver el resultado, puedes imprimirlo o devolverlo
-        print(df_cp_final[['RIF', 'Comprobante', 'Monto', 'Subtipo', 'Estado_Conciliacion', 'Detalle']].to_markdown())
+        # print(df_cp_final[['RIF', 'Comprobante', 'Monto', 'Subtipo', 'Estado_Conciliacion', 'Detalle']].to_markdown())
         
         return None # Placeholder para el archivo de reporte
 
