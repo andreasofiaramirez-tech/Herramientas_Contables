@@ -816,15 +816,20 @@ def _extraer_factura_cp(aplicacion):
 
 # --- NUEVAS FUNCIONES DE CARGA Y PREPARACIÓN ---
 
-def preparar_df_cp(file_path):
-    """Carga y prepara el archivo de Relación CP."""
-    df = pd.read_excel(file_path, header=4, dtype=str)
-    # Renombrar columnas según la tabla de mapeo
-    df.rename(columns={'Proveedor': 'RIF', 'Número': 'Comprobante', 'Monto': 'Monto'}, inplace=True)
-    # Aplicar normalización a las columnas clave
+def preparar_df_cp(file_cp):
+    df = pd.read_excel(file_cp, header=4, dtype=str).rename(columns={
+        'Asiento Contable': 'Asiento',
+        'Proveedor': 'RIF',
+        'Tipo': 'Tipo',               
+        'Fecha': 'Fecha',             
+        'Número': 'Comprobante',
+        'Monto': 'Monto',
+        'Aplicación': 'Aplicacion',
+        'Subtipo': 'Subtipo'
+    })
     df['RIF_norm'] = df['RIF'].apply(_normalizar_rif)
     df['Comprobante_norm'] = df['Comprobante'].apply(_normalizar_numerico)
-    df['Factura_norm'] = df['Aplicación'].apply(_extraer_factura_cp)
+    df['Factura_norm'] = df['Aplicacion'].apply(_extraer_factura_cp)
     df['Monto'] = pd.to_numeric(df['Monto'], errors='coerce').fillna(0)
     return df
 
