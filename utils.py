@@ -308,19 +308,6 @@ def generar_csv_saldos_abiertos(df_saldos_abiertos):
 # NUEVA FUNCIÓN DE REPORTE PARA LA HERRAMIENTA DE RETENCIONES
 # ==============================================================================
 
-# utils.py
-
-import pandas as pd
-import numpy as np
-import re
-import xlsxwriter
-from io import BytesIO
-import streamlit as st
-
-# ==============================================================================
-# FUNCIÓN DE REPORTE FINAL Y CORREGIDA
-# ==============================================================================
-
 def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_map):
     """
     Genera el archivo Excel de reporte para la auditoría de retenciones.
@@ -352,7 +339,21 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
         
         df_reporte_cp = df_cp_results.copy().rename(columns=column_map_cp)
 
-        # Asegurarse de que todas las columnas existan para evitar errores
+        # 1. Renombramos las columnas ANTES de procesar las fechas
+        df_reporte_cp.rename(columns={
+            'Asiento': 'Asiento', 'Tipo': 'Tipo', 'Fecha': 'Fecha', 
+            'Comprobante': 'Numero', 'Aplicacion': 'Aplicacion', 
+            'Subtipo': 'Subtipo', 'Monto': 'Monto', 
+            'CP_Vs_Galac': 'Cp Vs Galac', 'Asiento_en_CG': 'Asiento en CG', 
+            'Monto_coincide_CG': 'Monto coincide CG', 'RIF': 'RIF', 'Nombre Proveedor': 'Nombre Proveedor'
+        }, inplace=True)
+        
+        # 2. Convertimos TODA la columna 'Fecha' a datetime de una vez.
+        #    Los errores se convertirán en NaT (Not a Time), que podemos detectar.
+        if 'Fecha' in df_reporte_cp.columns:
+            df_reporte_cp['Fecha'] = pd.to_datetime(df_reporte_cp['Fecha'], errors='coerce')
+        
+        # 3. Aseguramos que todas las columnas existan
         for col in final_order_cp:
             if col not in df_reporte_cp.columns:
                 df_reporte_cp[col] = ''
