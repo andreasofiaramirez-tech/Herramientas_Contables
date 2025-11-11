@@ -890,6 +890,58 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         # Guardar un índice único para CP para poder reconstruir el orden original
         df_cp['CP_INDEX'] = df_cp.index
 
+        # --- BLOQUE DE DEBUG DEFINITIVO (MICROSCOPIO DE DATOS) ---
+        print("\n" + "="*50)
+        print("--- INICIANDO ANÁLISIS FORENSE DE DATOS ---")
+        print("="*50)
+
+        def analizar_valor(etiqueta, valor):
+            """Función de ayuda para imprimir un análisis detallado de un valor."""
+            print(f"\n--- Análisis de: {etiqueta} ---")
+            print(f"    Valor entre >...< : >{valor}<")
+            print(f"    Tipo              : {type(valor)}")
+            try:
+                print(f"    Longitud          : {len(str(valor))}")
+                print(f"    Bytes (utf-8)     : {str(valor).encode('utf-8')}")
+            except:
+                print("    No se pudo analizar longitud/bytes.")
+
+        # Buscamos la fila en los DataFrames originales, ANTES de cualquier merge
+        fila_cp_debug = df_cp[df_cp['COMPROBANTE'] == '20251000278224']
+        fila_galac_debug = df_galac_full[df_galac_full['COMPROBANTE'] == '20251000278224']
+
+        if not fila_cp_debug.empty and not fila_galac_debug.empty:
+            # --- ANÁLISIS DEL COMPROBANTE ---
+            cp_comprobante = fila_cp_debug['COMPROBANTE'].iloc[0]
+            galac_comprobante = fila_galac_debug['COMPROBANTE'].iloc[0]
+            analizar_valor("CP - Comprobante (Original)", cp_comprobante)
+            analizar_valor("GALAC - Comprobante (Original)", galac_comprobante)
+            
+            # --- ANÁLISIS DEL COMPROBANTE NORMALIZADO ---
+            cp_comprobante_norm = fila_cp_debug['COMPROBANTE_norm'].iloc[0]
+            galac_comprobante_norm = fila_galac_debug['COMPROBANTE_norm'].iloc[0]
+            analizar_valor("CP - Comprobante (Normalizado)", cp_comprobante_norm)
+            analizar_valor("GALAC - Comprobante (Normalizado)", galac_comprobante_norm)
+            
+            # --- ANÁLISIS DEL RIF NORMALIZADO ---
+            cp_rif_norm = fila_cp_debug['RIF_norm'].iloc[0]
+            galac_rif_norm = fila_galac_debug['RIF_norm'].iloc[0]
+            analizar_valor("CP - RIF (Normalizado)", cp_rif_norm)
+            analizar_valor("GALAC - RIF (Normalizado)", galac_rif_norm)
+            
+            print("\n" + "="*50)
+            print("--- COMPARACIÓN DIRECTA FINAL ---")
+            print(f"RIFs Normalizados Coinciden?      -> {cp_rif_norm == galac_rif_norm}")
+            print(f"Comprobantes Normalizados Coinciden? -> {cp_comprobante_norm == galac_comprobante_norm}")
+            print("="*50)
+
+        else:
+            print("\n!!! ERROR DE DEBUG: No se pudo encontrar la fila en CP o en GALAC para el comprobante 20251000278224.")
+            print(f"    Fila encontrada en CP?    -> {not fila_cp_debug.empty}")
+            print(f"    Fila encontrada en GALAC? -> {not fila_galac_debug.empty}")
+        
+        print("\n--- FIN DEL ANÁLISIS FORENSE ---\n")
+        # --- FIN DEL BLOQUE DE DEBUG DEFINITIVO ---
         
         # --- 3. PROCESO DE CONCILIACIÓN VECTORIZADO ---
         log_messages.append("Paso 3: Ejecutando conciliación principal (CP vs GALAC)...")
