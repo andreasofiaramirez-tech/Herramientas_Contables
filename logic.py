@@ -876,47 +876,49 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         # --- 3. PROCESO DE CONCILIACIÓN VECTORIZADO ---
         log_messages.append("Paso 3: Ejecutando conciliación principal (CP vs GALAC)...")
         
-        # Separar CP por tipo de retención para aplicar lógicas distintas
-        cp_iva_mun = df_cp[df_cp['SUBTIPO_DECLARADO'].isin(['IVA', 'MUNICIPAL'])]
-        cp_islr = df_cp[df_cp['SUBTIPO_DECLARADO'] == 'ISLR']
+        # --- 3a. Conciliación para IVA (Lógica por Comprobante) ---
+        cp_iva = df_cp[df_cp['SUBTIPO_DECLARADO'] == 'IVA'].copy()
+        galac_iva = df_galac_full[df_galac_full['TIPO'] == 'IVA'].copy()
+        
+        # Se cruza por RIF y Comprobante, que es la clave correcta según los datos.
+        conciliado_iva = pd.merge(cp_iva, galac_iva.add_suffix('_galac'),
+                                      left_on=['RIF_norm', 'COMPROBANTE_norm'],
+                                      right_on=['RIF_norm_galac', 'COMPROBANTE_norm_galac'],
+                                      how='left')
+        
+        monto_match_iva = np.isclose(conciliado_iva['MONTO'], conciliado_iva['MONTO_galac'])
+        date_match_iva = (conciliado_iva['FECHA_norm'] - conciliado_iva['FECHA_norm_galac']).abs() <= pd.Timedelta(days=30)
+        conciliado_iva['CP_Vs_Galac'] = np.where(monto_match_iva & date_match_iva, 'Sí', 'No Encontrado en GALAC')
+        
 
-        # --- 3a. Conciliación para IVA y MUNICIPAL (Lógica 1 a 1) ---
-        keys_iva_mun = ['RIF_norm', 'FACTURA_norm', 'SUBTIPO_DECLARADO']
-        df_galac_iva_mun = df_galac_full[df_galac_full['TIPO'].isin(['IVA', 'MUNICIPAL'])]
+        # --- 3b. Conciliación para MUNICIPAL (Lógica por Factura) ---
+        cp_mun = df_cp[df_cp['SUBTIPO_DECLARADO'] == 'MUNICIPAL'].copy()
+        galac_mun = df_galac_full[df_galac_full['TIPO'] == 'MUNICIPAL'].copy()
         
-        conciliado_iva_mun = pd.merge(
-            cp_iva_mun,
-            df_galac_iva_mun.rename(columns={'TIPO': 'SUBTIPO_DECLARADO'}),
-            on=keys_iva_mun,
-            how='left',
-            suffixes=('_cp', '_galac')
-        )
+        # Se cruza por RIF y Factura, que es la clave correcta para este tipo.
+        conciliado_mun = pd.merge(cp_mun, galac_mun.add_suffix('_galac'),
+                                      left_on=['RIF_norm', 'FACTURA_norm'],
+                                      right_on=['RIF_norm_galac', 'FACTURA_norm_galac'],
+                                      how='left')
         
-        # Validar monto y fecha
-        monto_match = np.isclose(conciliado_iva_mun['MONTO_cp'], conciliado_iva_mun['MONTO_galac'])
-        # **NUEVO**: Validar que las fechas no difieran en más de 30 días (configurable)
-        date_match = (conciliado_iva_mun['FECHA_norm_cp'] - conciliado_iva_mun['FECHA_norm_galac']).abs() <= pd.Timedelta(days=30)
+        monto_match_mun = np.isclose(conciliado_mun['MONTO'], conciliado_mun['MONTO_galac'])
+        date_match_mun = (conciliado_mun['FECHA_norm'] - conciliado_mun['FECHA_norm_galac']).abs() <= pd.Timedelta(days=30)
+        conciliado_mun['CP_Vs_Galac'] = np.where(monto_match_mun & date_match_mun, 'Sí', 'No Encontrado en GALAC')
+
+
+        # --- 3c. Conciliación para ISLR (Lógica de Agrupación por Comprobante) ---
+        cp_islr = df_cp[df_cp['SUBTIPO_DECLARADO'] == 'ISLR'].copy()
         
-        conciliado_iva_mun['CP_Vs_Galac'] = np.where(monto_match & date_match, 'Sí', 'No Encontrado en GALAC')
-        
-        # --- 3b. Conciliación para ISLR (Lógica de Agrupación) ---
-        df_galac_islr_grouped = df_galac_full[df_galac_full['TIPO'] == 'ISLR'].groupby(['RIF_norm', 'COMPROBANTE_norm']).agg(
+        # Agrupa el reporte de GALAC para sumar los montos por RIF y Comprobante.
+        galac_islr_grouped = df_galac_full[df_galac_full['TIPO'] == 'ISLR'].groupby(['RIF_norm', 'COMPROBANTE_norm'], as_index=False).agg(
             MONTO_galac_sum=('MONTO', 'sum'),
-            FECHA_galac_max=('FECHA_norm', 'max') # Tomamos una fecha de referencia
-        ).reset_index()
-
-        conciliado_islr = pd.merge(
-            cp_islr,
-            df_galac_islr_grouped,
-            on=['RIF_norm', 'COMPROBANTE_norm'],
-            how='left',
-            suffixes=('_cp', '_galac')
+            FECHA_galac_max=('FECHA_norm', 'max')
         )
-
-        # Validar monto y fecha
-        monto_match_islr = np.isclose(conciliado_islr['MONTO_cp'], conciliado_islr['MONTO_galac_sum'])
+        
+        conciliado_islr = pd.merge(cp_islr, galac_islr_grouped, on=['RIF_norm', 'COMPROBANTE_norm'], how='left')
+        
+        monto_match_islr = np.isclose(conciliado_islr['MONTO'], conciliado_islr['MONTO_galac_sum'])
         date_match_islr = (conciliado_islr['FECHA_norm'] - conciliado_islr['FECHA_galac_max']).abs() <= pd.Timedelta(days=30)
-
         conciliado_islr['CP_Vs_Galac'] = np.where(monto_match_islr & date_match_islr, 'Sí', 'No Encontrado en GALAC')
 
         # --- 4. CONSOLIDACIÓN DE RESULTADOS Y BÚSQUEDA DE ERRORES ---
