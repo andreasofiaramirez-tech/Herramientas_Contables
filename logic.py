@@ -973,8 +973,7 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
             # Guardamos el resultado para esta fila de CP
             resultados.append({'Estado_Conciliacion': estado, 'Detalle': mensaje})
 
-        # Unir los resultados al DataFrame original de CP
-       df_resultados = pd.DataFrame(resultados)
+    df_resultados = pd.DataFrame(resultados)
         df_cp_temp = pd.concat([df_cp.reset_index(drop=True), df_resultados], axis=1)
 
         # --- CAPA DE TRADUCCIÓN: Convertir el nuevo formato de resultados al formato antiguo ---
