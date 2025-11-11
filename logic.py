@@ -810,22 +810,21 @@ def _normalizar_numerico(valor):
 
 def _extraer_factura_cp(aplicacion):
     """
-    (Versión Final y Robusta) Extrae el número de factura COMPLETO de la 
-    columna 'Aplicación' y lo pasa a la función de normalización numérica.
+    (Versión Final y Robusta) Extrae el número de factura buscando el
+    último "bloque" de texto alfanumérico en la cadena de aplicación.
     """
     if pd.isna(aplicacion):
         return ''
     
-    # Busca la secuencia de caracteres que sigue a "FACT N°"
-    match = re.search(r'FACT\s*N?[°º]?\s*(\S+)', str(aplicacion).upper())
+    # Esta expresión regular busca uno o más caracteres de palabra (letras, números, _)
+    # o guiones, que se encuentren al final de la línea ($).
+    match = re.search(r'([\w-]+)$', str(aplicacion).strip())
     
     if match:
-        # El texto extraído (ej. '00002508') se guarda en una variable
+        # El texto extraído (ej. 'B-00010' o 'A-7000095120') se guarda
         numero_texto_extraido = match.group(1)
         
-        # ¡CORRECCIÓN CRÍTICA!
-        # Se pasa este texto a nuestra función de normalización principal,
-        # que se encargará de eliminar caracteres, espacios Y ceros a la izquierda.
+        # Lo pasamos a nuestra función de normalización para limpiar letras y ceros
         return _normalizar_numerico(numero_texto_extraido)
         
     return ''
@@ -987,54 +986,6 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         # --- PREPARACIÓN DE DATOS ---
         df_cp = preparar_df_cp(file_cp) # Asume que esta función ya renombra 'Asiento Contable' a 'Asiento'
         df_iva = preparar_df_iva(file_iva)
-
-        # --- BLOQUE DE PRUEBA DE FUEGO ---
-        print("\n\n" + "="*50)
-        print("--- PRUEBA DE FUEGO: COMPARACIÓN DIRECTA ---")
-        
-        # Identificadores de la fila que sabemos que falla
-        asiento_a_buscar = 'CP00078323'
-        comprobante_a_buscar = '20251000278221'
-
-        # Buscamos la fila en ambos DataFrames
-        fila_cp = df_cp[df_cp['Asiento'] == asiento_a_buscar]
-        fila_iva = df_iva[df_iva['Comprobante'].astype(str) == comprobante_a_buscar]
-
-        if not fila_cp.empty and not fila_iva.empty:
-            print(f"¡ÉXITO! Se encontraron ambas filas para la comparación.")
-            
-            # Extraemos los valores clave de cada una
-            cp_row = fila_cp.iloc[0]
-            iva_row = fila_iva.iloc[0]
-            
-            cp_rif = cp_row['RIF_norm']
-            iva_rif = iva_row['RIF_norm']
-            
-            cp_comp = cp_row['Comprobante_norm']
-            iva_comp = iva_row['Comprobante_norm']
-            
-            cp_fact = cp_row['Factura_norm']
-            iva_fact = iva_row['Factura_norm']
-            
-            cp_monto = cp_row['Monto']
-            iva_monto = iva_row['Monto']
-            
-            # Imprimimos la comparación directa
-            print("\n--- COMPARANDO VALORES NORMALIZADOS ---")
-            print(f"RIF       | CP: '{cp_rif}' | IVA: '{iva_rif}' | ¿Coinciden? -> {cp_rif == iva_rif}")
-            print(f"Comprobante | CP: '{cp_comp}' | IVA: '{iva_comp}' | ¿Coinciden? -> {cp_comp == iva_comp}")
-            print(f"Factura   | CP: '{cp_fact}' | IVA: '{iva_fact}' | ¿Coinciden? -> {cp_fact == iva_fact}")
-            print(f"Monto     | CP: {cp_monto} | IVA: {iva_monto} | ¿Coinciden? -> {np.isclose(cp_monto, iva_monto)}")
-
-        else:
-            print("\n!!! FALLO CRÍTICO DEL DEBUG !!!")
-            print(f"No se pudo encontrar una de las filas.")
-            print(f"¿Se encontró la fila en CP (Asiento {asiento_a_buscar})? -> {not fila_cp.empty}")
-            print(f"¿Se encontró la fila en IVA (Comprobante {comprobante_a_buscar})? -> {not fila_iva.empty}")
-        
-        print("--- FIN DE LA PRUEBA DE FUEGO ---")
-        print("="*50 + "\n\n")
-        # --- FIN DEL BLOQUE ---
         
         # --- ¡NUEVA LÓGICA DE CARGA PARA CG! ---
         # Cargamos el archivo de CG si existe
@@ -1047,7 +998,13 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         
         # --- LÓGICA DE CONCILIACIÓN ---
         resultados = []
+        
         for _, row in df_cp.iterrows():
+            if 'ANULADO' in str(row.get('Aplicacion', '')).upper():
+                estado = 'Anulado'
+                mensaje = 'Movimiento Anulado en CP'
+                resultados.append({'Estado_Conciliacion': estado, 'Detalle': mensaje})
+                continue # <-- Saltamos al siguiente registro sin intentar conciliar
             subtipo = str(row.get('Subtipo', '')).upper()
             estado, mensaje = 'No Conciliado', 'Lógica no implementada'
             if 'IVA' in subtipo:
