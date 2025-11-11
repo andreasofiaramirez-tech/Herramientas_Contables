@@ -994,64 +994,52 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         df_cp = preparar_df_cp(file_cp) # Asume que esta función ya renombra 'Asiento Contable' a 'Asiento'
         df_iva = preparar_df_iva(file_iva)
 
-        # --- BLOQUE DE ANÁLISIS FORENSE (A PRUEBA DE FALLOS) ---
-        print("\n" + "="*70)
-        print("--- INICIANDO ANÁLISIS FORENSE DE DATOS ---")
-        print("="*70)
-
-        # --- Identificadores de la primera fila con error que vemos en tus imágenes ---
-        ASIENTO_CP_A_BUSCAR = 'CP00078323'
-        COMPROBANTE_A_BUSCAR = '20251000278221'
-
-        def analizar_fila(df, etiqueta, id_busqueda):
-            print(f"\n--- ANALIZANDO DATAFRAME: {etiqueta} ---")
-            if df.empty:
-                print("!!! DataFrame está vacío.")
-                return
-
-            print("Columnas disponibles:", df.columns.tolist())
-            fila = pd.DataFrame()
-            try:
-                if etiqueta == 'CP':
-                    col_busqueda = 'Asiento'
-                    fila = df[df[col_busqueda] == id_busqueda]
-                elif etiqueta == 'IVA':
-                    col_busqueda = 'Comprobante'
-                    # Buscamos convirtiendo todo a string para evitar errores de tipo
-                    fila = df[df[col_busqueda].astype(str).str.strip() == id_busqueda]
-            except KeyError as e:
-                print(f"!!! ERROR FATAL: La columna de búsqueda '{e}' no existe en el DataFrame {etiqueta}.")
-                return
-
-            if fila.empty:
-                print(f"!!! NO SE ENCONTRÓ LA FILA CON ID '{id_busqueda}' EN {etiqueta} !!!")
-                return
-
-            print(f"--- DATOS DE LA FILA ENCONTRADA EN {etiqueta} (ID: {id_busqueda}) ---")
-            fila_datos = fila.iloc[0]
-
-            campos_a_revisar = ['RIF_norm', 'Comprobante_norm', 'Factura_norm', 'Monto']
-            for campo in campos_a_revisar:
-                if campo in fila_datos:
-                    valor = fila_datos[campo]
-                    print(f"\n  Campo: {campo}")
-                    print(f"    > Valor entre marcadores < : >{valor}<")
-                    print(f"    > Tipo de dato           < : {type(valor)}")
-                    try:
-                        print(f"    > Longitud (como str)    < : {len(str(valor))}")
-                        print(f"    > Bytes (utf-8)          < : {str(valor).encode('utf-8')}")
-                    except Exception as e:
-                        print(f"    > No se pudo analizar: {e}")
-                else:
-                    print(f"\n  !!! CAMPO '{campo}' NO ENCONTRADO EN {etiqueta} !!!")
+        # --- BLOQUE DE PRUEBA DE FUEGO ---
+        print("\n\n" + "="*50)
+        print("--- PRUEBA DE FUEGO: COMPARACIÓN DIRECTA ---")
         
-        # Ejecutamos el análisis para la fila problemática
-        analizar_fila(df_cp, 'CP', ASIENTO_CP_A_BUSCAR)
-        analizar_fila(df_iva, 'IVA', COMPROBANTE_A_BUSCAR)
+        # Identificadores de la fila que sabemos que falla
+        asiento_a_buscar = 'CP00078323'
+        comprobante_a_buscar = '20251000278221'
 
-        print("\n" + "="*70)
-        print("--- FIN DEL ANÁLISIS FORENSE ---")
-        print("="*70 + "\n")
+        # Buscamos la fila en ambos DataFrames
+        fila_cp = df_cp[df_cp['Asiento'] == asiento_a_buscar]
+        fila_iva = df_iva[df_iva['Comprobante'].astype(str) == comprobante_a_buscar]
+
+        if not fila_cp.empty and not fila_iva.empty:
+            print(f"¡ÉXITO! Se encontraron ambas filas para la comparación.")
+            
+            # Extraemos los valores clave de cada una
+            cp_row = fila_cp.iloc[0]
+            iva_row = fila_iva.iloc[0]
+            
+            cp_rif = cp_row['RIF_norm']
+            iva_rif = iva_row['RIF_norm']
+            
+            cp_comp = cp_row['Comprobante_norm']
+            iva_comp = iva_row['Comprobante_norm']
+            
+            cp_fact = cp_row['Factura_norm']
+            iva_fact = iva_row['Factura_norm']
+            
+            cp_monto = cp_row['Monto']
+            iva_monto = iva_row['Monto']
+            
+            # Imprimimos la comparación directa
+            print("\n--- COMPARANDO VALORES NORMALIZADOS ---")
+            print(f"RIF       | CP: '{cp_rif}' | IVA: '{iva_rif}' | ¿Coinciden? -> {cp_rif == iva_rif}")
+            print(f"Comprobante | CP: '{cp_comp}' | IVA: '{iva_comp}' | ¿Coinciden? -> {cp_comp == iva_comp}")
+            print(f"Factura   | CP: '{cp_fact}' | IVA: '{iva_fact}' | ¿Coinciden? -> {cp_fact == iva_fact}")
+            print(f"Monto     | CP: {cp_monto} | IVA: {iva_monto} | ¿Coinciden? -> {np.isclose(cp_monto, iva_monto)}")
+
+        else:
+            print("\n!!! FALLO CRÍTICO DEL DEBUG !!!")
+            print(f"No se pudo encontrar una de las filas.")
+            print(f"¿Se encontró la fila en CP (Asiento {asiento_a_buscar})? -> {not fila_cp.empty}")
+            print(f"¿Se encontró la fila en IVA (Comprobante {comprobante_a_buscar})? -> {not fila_iva.empty}")
+        
+        print("--- FIN DE LA PRUEBA DE FUEGO ---")
+        print("="*50 + "\n\n")
         # --- FIN DEL BLOQUE ---
         
         # --- ¡NUEVA LÓGICA DE CARGA PARA CG! ---
