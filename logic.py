@@ -878,20 +878,53 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         # --- 3. PROCESO DE CONCILIACIÓN VECTORIZADO ---
         log_messages.append("Paso 3: Ejecutando conciliación principal (CP vs GALAC)...")
         
-        # --- 3a. Conciliación para IVA (Lógica por Comprobante) ---
+        # --- 3a. Conciliación para IVA (Lógica Detallada en Cascada) ---
+        log_messages.append("... Ejecutando lógica de IVA detallada.")
         cp_iva = df_cp[df_cp['SUBTIPO_DECLARADO'] == 'IVA'].copy()
         galac_iva = df_galac_full[df_galac_full['TIPO'] == 'IVA'].copy()
+
+        # Paso 1: Crear la clave de cruce flexible (últimos 6 dígitos del comprobante)
+        # Se usa .str[-6:] para tomar los últimos 6 caracteres. .fillna('') maneja casos vacíos.
+        cp_iva['COMPROBANTE_6_dig'] = cp_iva['COMPROBANTE_norm'].fillna('').str[-6:]
+        galac_iva['COMPROBANTE_6_dig'] = galac_iva['COMPROBANTE_norm'].fillna('').str[-6:]
         
-        # Se cruza por RIF y Comprobante, que es la clave correcta según los datos.
-        conciliado_iva = pd.merge(cp_iva, galac_iva.add_suffix('_galac'),
-                                      left_on=['RIF_norm', 'COMPROBANTE_norm'],
-                                      right_on=['RIF_norm_galac', 'COMPROBANTE_norm_galac'],
-                                      how='left')
+        # Paso 2: Realizar el cruce principal usando RIF y la clave flexible de 6 dígitos
+        conciliado_iva = pd.merge(
+            cp_iva,
+            galac_iva.add_suffix('_galac'),
+            left_on=['RIF_norm', 'COMPROBANTE_6_dig'],
+            right_on=['RIF_norm_galac', 'COMPROBANTE_6_dig_galac'],
+            how='left'
+        )
+
+        # Para evitar duplicados si un comprobante de CP coincide con varios en GALAC, nos quedamos con el primero.
+        conciliado_iva.drop_duplicates(subset=['CP_INDEX'], keep='first', inplace=True)
+
+        # Paso 3: Definir las condiciones de validación en cascada
+        # Primero, verificamos si se encontró una coincidencia de RIF + Comprobante (si no, las columnas de galac estarán vacías)
+        comprobante_encontrado = conciliado_iva['RIF_norm_galac'].notna()
         
-        monto_match_iva = np.isclose(conciliado_iva['MONTO'], conciliado_iva['MONTO_galac'])
-        date_match_iva = (conciliado_iva['FECHA_norm'] - conciliado_iva['FECHA_norm_galac']).abs() <= pd.Timedelta(days=30)
-        conciliado_iva['CP_Vs_Galac'] = np.where(monto_match_iva & date_match_iva, 'Sí', 'No Encontrado en GALAC')
-        
+        # Luego, las condiciones de match para Monto y Factura (solo para las filas donde se encontró el comprobante)
+        monto_match = np.isclose(conciliado_iva['MONTO'], conciliado_iva['MONTO_galac'].fillna(0))
+        factura_match = (conciliado_iva['FACTURA_norm'] == conciliado_iva.get('FACTURA_norm_galac'))
+
+        # Paso 4: Asignar los resultados y mensajes de error detallados usando np.select
+        # El orden aquí es crucial: se evalúa de arriba hacia abajo.
+        conditions = [
+            (comprobante_encontrado) & (factura_match) & (monto_match),
+            (comprobante_encontrado) & (factura_match) & (~monto_match),
+            (comprobante_encontrado) & (~factura_match),
+            (~comprobante_encontrado)
+        ]
+
+        choices = [
+            'Sí',
+            'Error: Monto no coincide',
+            'Error: Nº Factura no coincide con el Comprobante',
+            'Error: Nº Comprobante no encontrado en GALAC'
+        ]
+
+        conciliado_iva['CP_Vs_Galac'] = np.select(conditions, choices, default='Error Desconocido')
 
         # --- 3b. Conciliación para MUNICIPAL (Lógica por Factura) ---
         cp_mun = df_cp[df_cp['SUBTIPO_DECLARADO'] == 'MUNICIPAL'].copy()
