@@ -839,6 +839,7 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         # Consolidar GALAC
         df_galac_iva['TIPO'] = 'IVA'; df_galac_islr['TIPO'] = 'ISLR'; df_galac_mun['TIPO'] = 'MUNICIPAL'
         df_galac_full = pd.concat([df_galac_iva, df_galac_islr, df_galac_mun], ignore_index=True)
+        df_galac_full['galac_unique_id'] = df_galac_full.index
         columnas_criticas_galac = ['RIF', 'COMPROBANTE', 'MONTO']
         df_galac_full.dropna(subset=[col for col in columnas_criticas_galac if col in df_galac_full.columns], inplace=True)
 
@@ -973,9 +974,19 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         df_cp_final.sort_values('CP_INDEX', inplace=True)
         # Limpiar columnas auxiliares antes de generar el reporte
         
-        # Identificar los registros de GALAC que no se usaron
-       
-        reporte_bytes = generar_reporte_retenciones(df_cp_final, pd.DataFrame(), df_cg, CUENTAS_MAP)
+        # --- Cálculo de registros de GALAC no encontrados en CP ---
+        # Obtenemos los IDs únicos de las filas de Galac que sí se encontraron
+        # La columna puede tener el sufijo '_galac' o '_islr' etc. Buscamos cualquiera que termine en 'galac_unique_id'
+        id_col_name = next((col for col in df_cp_final.columns if 'galac_unique_id' in col), None)
+        if id_col_name:
+            ids_encontrados = df_cp_final[id_col_name].dropna().unique()
+            # Filtramos el df_galac_full original para quedarnos con las filas que NO están en ids_encontrados
+            df_galac_no_cp = df_galac_full[~df_galac_full['galac_unique_id'].isin(ids_encontrados)].copy()
+        else:
+            df_galac_no_cp = pd.DataFrame() # Creamos un DF vacío si no se encontró ninguna coincidencia
+
+        reporte_bytes = generar_reporte_retenciones(df_cp_final, df_galac_no_cp, df_cg, CUENTAS_MAP)
+        
         log_messages.append("¡Proceso de conciliación de retenciones completado con éxito!")
         return reporte_bytes
 
