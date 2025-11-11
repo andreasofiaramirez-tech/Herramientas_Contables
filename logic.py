@@ -936,7 +936,7 @@ def _conciliar_municipal(cp_row, df_municipal):
     else:
         return 'Parcialmente Conciliado', ' | '.join(errores)
 
-def run_conciliation_retenciones:
+def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun, log_messages):
     log_messages.append("--- INICIANDO NUEVO PROCESO DE CONCILIACIÓN ---")
     try:
         # Paso 1 y 2: Cargar todos los archivos con sus encabezados correctos
