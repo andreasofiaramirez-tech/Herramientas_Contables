@@ -308,6 +308,19 @@ def generar_csv_saldos_abiertos(df_saldos_abiertos):
 # NUEVA FUNCIÓN DE REPORTE PARA LA HERRAMIENTA DE RETENCIONES
 # ==============================================================================
 
+# utils.py
+
+import pandas as pd
+import numpy as np
+import re
+import xlsxwriter
+from io import BytesIO
+import streamlit as st
+
+# ==============================================================================
+# FUNCIÓN DE REPORTE FINAL Y CORREGIDA
+# ==============================================================================
+
 def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_map):
     """
     Genera el archivo Excel de reporte para la auditoría de retenciones.
@@ -322,61 +335,69 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
         header_format = workbook.add_format({'bold': True, 'text_wrap': True, 'valign': 'top', 'fg_color': '#D9EAD3', 'border': 1, 'align': 'center'})
         money_format = workbook.add_format({'num_format': '#,##0.00', 'align': 'center'})
         date_format = workbook.add_format({'num_format': 'dd/mm/yyyy', 'align': 'center'})
-        text_format = workbook.add_format({'num_format': '@', 'align': 'center'})
         center_text_format = workbook.add_format({'align': 'center'})
 
         # --- HOJA 1: Relacion CP ---
         ws1 = workbook.add_worksheet('Relacion CP')
         ws1.hide_gridlines(2)
-        column_map_cp = {'ASIENTO': 'Asiento', 'TIPO': 'Tipo', 'FECHA': 'Fecha', 'COMPROBANTE': 'Numero', 'APLICACION': 'Aplicacion', 'SUBTIPO': 'Subtipo', 'MONTO': 'Monto', 'CP_Vs_Galac': 'Cp Vs Galac', 'Asiento_en_CG': 'Asiento en CG', 'Monto_coincide_CG': 'Monto coincide CG', 'RIF': 'RIF', 'NOMBREPROVEEDOR': 'Nombre Proveedor'}
-        final_order_cp = ['Asiento', 'Tipo', 'Fecha', 'Numero', 'Aplicacion', 'Subtipo', 'Monto', 'Cp Vs Galac', 'Asiento en CG', 'Monto coincide CG', 'RIF', 'Nombre Proveedor']
         
-        df_reporte_cp = df_cp_results.copy()
+        column_map_cp = {
+            'Asiento': 'Asiento', 'Tipo': 'Tipo', 'Fecha': 'Fecha', 
+            'Comprobante': 'Numero', 'Aplicacion': 'Aplicacion', 
+            'Subtipo': 'Subtipo', 'Monto': 'Monto', 
+            'CP_Vs_Galac': 'Cp Vs Galac', 'Asiento_en_CG': 'Asiento en CG', 
+            'Monto_coincide_CG': 'Monto coincide CG', 'RIF': 'RIF', 'Nombre Proveedor': 'Nombre Proveedor'
+        }
+        final_order_cp = list(column_map_cp.values())
+        
+        df_reporte_cp = df_cp_results.copy().rename(columns=column_map_cp)
 
-        df_reporte_cp.rename(columns=column_map_cp, inplace=True)
+        # Asegurarse de que todas las columnas existan para evitar errores
         for col in final_order_cp:
             if col not in df_reporte_cp.columns:
                 df_reporte_cp[col] = ''
-
+        
         df_exitosos = df_reporte_cp[df_reporte_cp['Cp Vs Galac'] == 'Sí']
-        df_anulados = df_reporte_cp[df_reporte_cp['Cp Vs Galac'] == 'No Aplica (Anulado)']
-        df_incidencias = df_reporte_cp.drop(df_exitosos.index).drop(df_anulados.index)
+        df_incidencias = df_reporte_cp[df_reporte_cp['Cp Vs Galac'] != 'Sí']
         
         ws1.merge_range('A1:L1', 'Relacion de Retenciones CP', main_title_format)
         current_row = 2
         
+        # --- Escritura de Incidencias ---
         ws1.write(current_row, 0, 'Incidencias Encontradas', group_title_format); current_row += 1
         ws1.write_row(current_row, 0, final_order_cp, header_format); current_row += 1
         if not df_incidencias.empty:
-            for r_idx, row in df_incidencias[final_order_cp].iterrows():
+            for _, row in df_incidencias[final_order_cp].iterrows():
                 for col_idx, value in enumerate(row.values):
-                    if final_order_cp[col_idx] == 'Fecha':
-                        # ¡NUEVA LÓGICA ROBUSTA!
+                    col_name = final_order_cp[col_idx]
+                    if col_name == 'Fecha':
                         fecha_valida = pd.to_datetime(value, errors='coerce')
                         if pd.notna(fecha_valida):
                             ws1.write_datetime(current_row, col_idx, fecha_valida, date_format)
                         else:
                             ws1.write_blank(current_row, col_idx, None, center_text_format)
-                    elif final_order_cp[col_idx] == 'Monto':
+                    elif col_name == 'Monto':
                         ws1.write_number(current_row, col_idx, value, money_format)
                     else:
                         ws1.write(current_row, col_idx, value, center_text_format)
                 current_row += 1
         
         current_row += 1
+        
+        # --- Escritura de Conciliaciones Exitosas ---
         ws1.write(current_row, 0, 'Conciliacion Exitosa', group_title_format); current_row += 1
         ws1.write_row(current_row, 0, final_order_cp, header_format); current_row += 1
-       if not df_exitosos.empty:
-            for r_idx, row in df_exitosos[final_order_cp].iterrows():
+        if not df_exitosos.empty:
+            for _, row in df_exitosos[final_order_cp].iterrows():
                 for col_idx, value in enumerate(row.values):
-                    if final_order_cp[col_idx] == 'Fecha':
-                        # ¡NUEVA LÓGICA ROBUSTA!
+                    col_name = final_order_cp[col_idx]
+                    if col_name == 'Fecha':
                         fecha_valida = pd.to_datetime(value, errors='coerce')
                         if pd.notna(fecha_valida):
                             ws1.write_datetime(current_row, col_idx, fecha_valida, date_format)
                         else:
                             ws1.write_blank(current_row, col_idx, None, center_text_format)
-                    elif final_order_cp[col_idx] == 'Monto':
+                    elif col_name == 'Monto':
                         ws1.write_number(current_row, col_idx, value, money_format)
                     else:
                         ws1.write(current_row, col_idx, value, center_text_format)
@@ -384,8 +405,12 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
                 
         # Autoajuste de columnas
         for i, col in enumerate(final_order_cp):
-            max_len = max(df_reporte_cp[col].astype(str).map(len).max(), len(col))
-            ws1.set_column(i, i, max_len + 2)
+            # Asegurarse que la columna exista antes de calcular el max_len
+            if col in df_reporte_cp.columns:
+                max_len = max(df_reporte_cp[col].astype(str).map(len).max(), len(col))
+                ws1.set_column(i, i, max_len + 2)
+            else:
+                ws1.set_column(i, i, len(col) + 2)
 
         # --- HOJA 2: Análisis GALAC ---
         ws2 = workbook.add_worksheet('Análisis GALAC')
