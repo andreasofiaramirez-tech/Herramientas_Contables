@@ -974,9 +974,8 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         # Limpiar columnas auxiliares antes de generar el reporte
         
         # Identificar los registros de GALAC que no se usaron
-        # (Esta parte es más compleja con merges, se puede implementar con un merge con `indicator=True`)
-        
-        reporte_bytes = generar_reporte_retenciones(df_cp_final, pd.DataFrame(), df_cg) # Placeholder para df_galac_no_cp
+       
+        reporte_bytes = generar_reporte_retenciones(df_cp_final, pd.DataFrame(), df_cg, CUENTAS_MAP)
         log_messages.append("¡Proceso de conciliación de retenciones completado con éxito!")
         return reporte_bytes
 
