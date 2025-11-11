@@ -962,9 +962,20 @@ def _traducir_resultados_para_reporte(row):
 def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun, log_messages):
     try:
         log_messages.append("--- INICIANDO PROCESO DE CONCILIACIÓN DE RETENCIONES ---")
-        df_cp = preparar_df_cp(file_cp)
+        # --- PREPARACIÓN DE DATOS ---
+        df_cp = preparar_df_cp(file_cp) # Asume que esta función ya renombra 'Asiento Contable' a 'Asiento'
         df_iva = preparar_df_iva(file_iva)
         
+        # --- ¡NUEVA LÓGICA DE CARGA PARA CG! ---
+        # Cargamos el archivo de CG si existe
+        if file_cg:
+            df_cg_dummy = pd.read_excel(file_cg, header=0, dtype=str)
+            # Estandarizamos sus nombres de columna a mayúsculas sin espacios/símbolos
+            df_cg_dummy.columns = [re.sub(r'[^A-Z0-9]', '', col.upper()) for col in df_cg_dummy.columns]
+        else:
+            df_cg_dummy = pd.DataFrame() # Si no se carga, creamos un DF vacío
+        
+        # --- LÓGICA DE CONCILIACIÓN ---
         resultados = []
         for _, row in df_cp.iterrows():
             subtipo = str(row.get('Subtipo', '')).upper()
@@ -978,9 +989,9 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         
         log_messages.append("¡Proceso de conciliación completado con éxito!")
         
+        # --- PREPARACIÓN FINAL Y LLAMADA AL REPORTE ---
         df_galac_no_cp = pd.DataFrame(columns=['FECHA', 'COMPROBANTE', 'FACTURA', 'RIF', 'NOMBREPROVEEDOR', 'MONTO', 'TIPO'])
-        df_cg_dummy = pd.read_excel(file_cg, header=0, dtype=str) if file_cg else pd.DataFrame()
-
+        
         return generar_reporte_retenciones(df_cp, df_galac_no_cp, df_cg_dummy, {})
 
     except Exception as e:
