@@ -789,19 +789,24 @@ def run_conciliation_viajes(df, log_messages, progress_bar=None):
 # --- NUEVAS FUNCIONES DE NORMALIZACIÓN (Paso 4) ---
 
 def _normalizar_rif(valor):
-    """Normaliza RIF eliminando prefijos (J-, V-, etc.) y caracteres no alfanuméricos."""
+    """Normaliza RIF, eliminando espacios y caracteres no alfanuméricos."""
     if pd.isna(valor): return ''
-    # Elimina todo lo que no sea letra o número y convierte a mayúsculas
-    val_str = re.sub(r'[^A-Z0-9]', '', str(valor).upper())
-    # Quita la letra inicial si es un RIF venezolano estándar
+    val_str = str(valor).strip().upper()
+    val_str = re.sub(r'[^A-Z0-9]', '', val_str)
     if val_str.startswith(('J', 'V', 'E', 'G')) and len(val_str) > 8:
         return val_str[1:]
     return val_str
 
 def _normalizar_numerico(valor):
-    """Normaliza un valor para que sea puramente numérico (para facturas, comprobantes, etc.)."""
-    if pd.isna(valor): return ''
-    return re.sub(r'[^0-9]', '', str(valor))
+    """(Versión Final) Normaliza un valor numérico, eliminando espacios y el ".0" de los floats."""
+    if pd.isna(valor):
+        return ''
+    # Añadimos .strip() para eliminar espacios invisibles al principio y al final
+    val_str = str(valor).strip()
+    try:
+        return f"{int(float(val_str)):d}"
+    except (ValueError, TypeError):
+        return re.sub(r'[^0-9]', '', val_str)
 
 def _extraer_factura_cp(aplicacion):
     """
