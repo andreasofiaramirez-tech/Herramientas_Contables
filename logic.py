@@ -810,10 +810,6 @@ def _normalizar_valor(valor):
     val_str = re.sub(r'^0+', '', val_str)
     return val_str
 
-# logic.py
-
-# ... (El resto del archivo permanece igual) ...
-
 def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun, log_messages):
     log_messages.append("--- INICIANDO PROCESO DE CONCILIACIÓN DE RETENCIONES ---")
     try:
@@ -825,9 +821,6 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         df_galac_mun = pd.read_excel(file_mun, header=8, dtype=str)
         CUENTAS_MAP = {'IVA': '2111101004', 'ISLR': '2111101005', 'MUNICIPAL': '2111101006'}
 
-        # --- Limpieza y Correcciones Previas ---
-        # (Todos los bloques de limpieza que hemos desarrollado se mantienen aquí)
-        
         # --- Estandarización de Nombres de Columnas ---
         for df in [df_cp, df_cg, df_galac_iva, df_galac_islr, df_galac_mun]:
             df.columns = [_limpiar_nombre_columna_retenciones(c) for c in df.columns]
@@ -891,7 +884,6 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
                         match_final = df_target[(df_target['RIF_norm'] == rif_cp) & factura_match & monto_match]
                         return not match_final.empty, match_final.index
                     
-                    # ======================= INICIO DE LA CORRECCIÓN FINAL =======================
                     elif tipo_a_buscar == 'ISLR':
                         # Lógica flexible para la factura
                         factura_match_flexible = df_target.get('FACTURA_norm', pd.Series(dtype=str)).str.contains(factura_cp, na=False)
@@ -899,7 +891,6 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
                         match_group = df_target[(df_target['RIF_norm'] == rif_cp) & (df_target['COMPROBANTE_norm'] == comprobante_cp_norm) & factura_match_flexible]
                         if not match_group.empty and np.isclose(match_group['MONTO'].sum(), monto_cp):
                             return True, match_group.index
-                    # ======================== FIN DE LA CORRECCIÓN FINAL =========================
 
                     elif tipo_a_buscar == 'MUNICIPAL':
                         monto_match = pd.Series(np.isclose(df_target['MONTO'], monto_cp), index=df_target.index)
@@ -918,7 +909,6 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
                             resultado['CP_Vs_Galac'] = f"Error: Subtipo {subtipo_declarado}, Encontrado en {otro_tipo}"
                             break
             
-            # ... (Resto de la función sin cambios) ...
             asiento_cp = row_cp.get('ASIENTO', '')
             if asiento_cp:
                 df_asiento_cg = df_cg[df_cg['ASIENTO'] == asiento_cp]
