@@ -323,11 +323,7 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
         money_format = workbook.add_format({'num_format': '#,##0.00', 'align': 'center'})
         date_format = workbook.add_format({'num_format': 'dd/mm/yyyy', 'align': 'center'})
         text_format = workbook.add_format({'num_format': '@', 'align': 'center'})
-        
-        # ======================= INICIO DE LA CORRECCIÓN FINAL =======================
-        # Nuevo formato para texto general centrado
         center_text_format = workbook.add_format({'align': 'center'})
-        # ======================== FIN DE LA CORRECCIÓN FINAL =========================
 
         # --- HOJA 1: Relacion CP ---
         ws1 = workbook.add_worksheet('Relacion CP')
@@ -337,7 +333,7 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
         
         df_reporte_cp = df_cp_results.copy()
         
-        # CORRECCIÓN: Eliminar la hora de la columna de fecha ANTES de escribir
+        # Eliminar la hora de la columna de fecha ANTES de escribir
         if 'FECHA' in df_reporte_cp.columns:
             df_reporte_cp['FECHA'] = pd.to_datetime(df_reporte_cp['FECHA'], errors='coerce').dt.date
 
@@ -357,11 +353,13 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
         ws1.write_row(current_row, 0, final_order_cp, header_format); current_row += 1
         if not df_incidencias.empty:
             for r_idx, row in df_incidencias[final_order_cp].iterrows():
-                # CORRECCIÓN: Escribir cada celda individualmente para aplicar formato
                 for col_idx, value in enumerate(row.values):
-                    # Aplicar formato específico o el general centrado
                     if final_order_cp[col_idx] == 'Fecha':
-                        ws1.write_datetime(current_row, col_idx, value, date_format)
+                        # ¡NUEVA VERIFICACIÓN! Solo escribe si la fecha es válida
+                        if pd.notna(value):
+                            ws1.write_datetime(current_row, col_idx, value, date_format)
+                        else:
+                            ws1.write_blank(current_row, col_idx, None, center_text_format) # Escribe una celda en blanco si no es válida
                     elif final_order_cp[col_idx] == 'Monto':
                         ws1.write_number(current_row, col_idx, value, money_format)
                     else:
@@ -375,7 +373,11 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
             for r_idx, row in df_exitosos[final_order_cp].iterrows():
                 for col_idx, value in enumerate(row.values):
                     if final_order_cp[col_idx] == 'Fecha':
-                        ws1.write_datetime(current_row, col_idx, value, date_format)
+                        # ¡NUEVA VERIFICACIÓN! Solo escribe si la fecha es válida
+                        if pd.notna(value):
+                            ws1.write_datetime(current_row, col_idx, value, date_format)
+                        else:
+                            ws1.write_blank(current_row, col_idx, None, center_text_format) # Escribe una celda en blanco si no es válida
                     elif final_order_cp[col_idx] == 'Monto':
                         ws1.write_number(current_row, col_idx, value, money_format)
                     else:
