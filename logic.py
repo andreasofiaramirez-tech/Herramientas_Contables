@@ -1091,27 +1091,30 @@ def _conciliar_municipal(cp_row, df_municipal):
 
 def _traducir_resultados_para_reporte(row):
     """
-    Toma una fila con los resultados de la nueva lógica y la convierte
-    al formato de columnas que el reporteador de utils.py espera.
+    (Versión Corregida y Simplificada) Convierte los resultados de la
+    conciliación al formato esperado por el reporteador, asegurando que
+    los mensajes de error detallados NUNCA se pierdan.
     """
     estado = row['Estado_Conciliacion']
     detalle = row['Detalle']
     
-    # LÓGICA DE TRADUCCIÓN!
-    # El orden es importante: primero verificamos el caso más específico (Anulado).
+    # Columnas de CG con valores por defecto (sin cambios)
+    asiento_en_cg = 'No Aplica'
+    monto_coincide_cg = 'No Aplica'
+    
+    # --- LÓGICA DE TRADUCCIÓN CORREGIDA ---
+    
+    # 1. Primero manejamos los casos simples y exitosos.
     if estado == 'Anulado':
         cp_vs_galac = 'Anulado'
     elif estado == 'Conciliado':
         cp_vs_galac = 'Sí'
-    elif 'RIF no se encuentra' in detalle or 'Monto de retencion no encontrado' in detalle:
-        cp_vs_galac = 'No Encontrado en GALAC'
-    else:
-        # Para "Parcialmente Conciliado" y otros, usamos el detalle como el resultado
-        cp_vs_galac = detalle
     
-    # Columnas de CG con valores por defecto
-    asiento_en_cg = 'No Aplica'
-    monto_coincide_cg = 'No Aplica'
+    # 2. PARA TODO LO DEMÁS (No Conciliado, Parcialmente Conciliado, etc.):
+    #    El 'detalle' ya contiene el mensaje de error exacto que necesitamos.
+    #    Lo pasamos directamente, sin simplificarlo ni sobrescribirlo.
+    else:
+        cp_vs_galac = detalle
     
     return cp_vs_galac, asiento_en_cg, monto_coincide_cg
 
