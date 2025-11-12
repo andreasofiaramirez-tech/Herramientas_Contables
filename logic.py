@@ -1045,30 +1045,6 @@ def _conciliar_islr(cp_row, df_islr):
         errores.append(info_msg)
         
     return ('Conciliado', 'OK') if not errores else ('Parcialmente Conciliado', ' | '.join(errores))
-def _conciliar_municipal(cp_row, df_municipal):
-    """Aplica la lógica de conciliación Municipal para una sola fila de CP."""
-    rif_cp = cp_row['RIF_norm']
-    monto_cp = cp_row['Monto']
-    
-    posibles_matches = df_municipal[(df_municipal['RIF_norm'] == rif_cp) & (df_municipal['Monto'] == monto_cp)]
-    
-    if posibles_matches.empty:
-        if rif_cp not in df_municipal['RIF_norm'].values:
-            return 'No Conciliado', 'RIF no se encuentra en GALAC'
-        else:
-            return 'No Conciliado', f"Monto de retencion no encontrado en GALAC. Monto CP: {monto_cp:.2f}"
-            
-    match_encontrado = posibles_matches.iloc[0]
-    
-    errores = []
-    if cp_row['Factura_norm'] != match_encontrado['Factura_norm']:
-        msg = f"Numero de factura no coincide. CP: {cp_row['Factura_norm']}, GALAC: {match_encontrado['Factura_norm']}"
-        errores.append(msg)
-        
-    if not errores:
-        return 'Conciliado', 'OK'
-    else:
-        return 'Parcialmente Conciliado', ' | '.join(errores)
 
 def _traducir_resultados_para_reporte(row):
     """
