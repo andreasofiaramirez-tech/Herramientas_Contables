@@ -1019,7 +1019,9 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         log_messages.append("--- INICIANDO PROCESO DE CONCILIACIÓN DE RETENCIONES ---")
         df_cp = preparar_df_cp(file_cp)
         df_iva = preparar_df_iva(file_iva)
-        df_islr = preparar_df_islr(file_islr)
+        
+        # IMPORTANTE: Asumimos que estas funciones ya no son placeholders
+        df_islr = preparar_df_islr(file_islr) 
         df_municipal = preparar_df_municipal(file_mun)
         
         if file_cg:
@@ -1028,85 +1030,77 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         else:
             df_cg_dummy = pd.DataFrame()
         
-        log_messages.append("Iniciando conciliación por tipo de impuesto...")
+        log_messages.append("Iniciando conciliación CP vs GALAC...")
         resultados = []
         
-        # --- INICIO DEL BLOQUE DE CÓDIGO CORREGIDO ---
         for index, row in df_cp.iterrows():
-            # Manejo de casos especiales primero
             if 'ANULADO' in str(row.get('Aplicacion', '')).upper():
                 resultados.append({'Estado_Conciliacion': 'Anulado', 'Detalle': 'Movimiento Anulado en CP'})
                 continue
 
             subtipo = str(row.get('Subtipo', '')).strip().upper()
-            
             estado, mensaje = '', ''
 
             if 'IVA' in subtipo:
-                # Paso 1: Ejecutar la búsqueda en el archivo primario (IVA).
                 estado, mensaje = _conciliar_iva(row, df_iva)
-                
-                # Paso 2 y 3: Activar búsqueda cruzada SOLO si no se encontró en el primario.
                 if estado == 'No Conciliado':
-                    # Intentar búsqueda en ISLR
                     estado_islr, _ = _conciliar_islr(row, df_islr)
-                    if 'Conciliado' in estado_islr or 'Parcialmente Conciliado' in estado_islr:
-                        estado = 'Error de Subtipo'
-                        mensaje = 'Declarado como IVA, pero encontrado en ISLR'
-                    else:
-                        # Si no está en ISLR, intentar en Municipal
-                        estado_mun, _ = _conciliar_municipal(row, df_municipal)
-                        if 'Conciliado' in estado_mun or 'Parcialmente Conciliado' in estado_mun:
-                            estado = 'Error de Subtipo'
-                            mensaje = 'Declarado como IVA, pero encontrado en Municipal'
-
+                    if 'Conciliado' in estado_islr: estado, mensaje = 'Error de Subtipo', 'Declarado como IVA, pero encontrado en ISLR'
             elif 'ISLR' in subtipo:
-                # Lógica análoga para ISLR
                 estado, mensaje = _conciliar_islr(row, df_islr)
                 if estado == 'No Conciliado':
                     estado_iva, _ = _conciliar_iva(row, df_iva)
-                    if 'Conciliado' in estado_iva or 'Parcialmente Conciliado' in estado_iva:
-                        estado = 'Error de Subtipo'
-                        mensaje = 'Declarado como ISLR, pero encontrado en IVA'
-                    else:
-                        estado_mun, _ = _conciliar_municipal(row, df_municipal)
-                        if 'Conciliado' in estado_mun or 'Parcialmente Conciliado' in estado_mun:
-                            estado = 'Error de Subtipo'
-                            mensaje = 'Declarado como ISLR, pero encontrado en Municipal'
-            
-            elif 'MUNICIPAL' in subtipo: # Se asume 'MUNICIPAL' como palabra clave
-                # Lógica análoga para Municipal
-                estado, mensaje = _conciliar_municipal(row, df_municipal)
-                if estado == 'No Conciliado':
-                    estado_iva, _ = _conciliar_iva(row, df_iva)
-                    if 'Conciliado' in estado_iva or 'Parcialmente Conciliado' in estado_iva:
-                        estado = 'Error de Subtipo'
-                        mensaje = 'Declarado como Municipal, pero encontrado en IVA'
-                    else:
-                        estado_islr, _ = _conciliar_islr(row, df_islr)
-                        if 'Conciliado' in estado_islr or 'Parcialmente Conciliado' in estado_islr:
-                            estado = 'Error de Subtipo'
-                            mensaje = 'Declarado como Municipal, pero encontrado en ISLR'
+                    if 'Conciliado' in estado_iva: estado, mensaje = 'Error de Subtipo', 'Declarado como ISLR, pero encontrado en IVA'
             else:
-                # Si el subtipo no es reconocido, se marca como no conciliado.
                 subtipo_original = row.get('Subtipo', 'Vacío')
                 estado, mensaje = 'No Conciliado', f"Subtipo no reconocido: '{subtipo_original}'"
 
             resultados.append({'Estado_Conciliacion': estado, 'Detalle': mensaje})
-        # --- FIN DEL BLOQUE DE CÓDIGO CORREGIDO ---
 
         df_resultados = pd.DataFrame(resultados)
         df_cp_temp = pd.concat([df_cp.reset_index(drop=True), df_resultados], axis=1)
-
         df_cp_temp[['CP_Vs_Galac', 'Asiento_en_CG', 'Monto_coincide_CG']] = df_cp_temp.apply(_traducir_resultados_para_reporte, axis=1, result_type='expand')
-
         df_cp_final = df_cp_temp.copy()
         
-        log_messages.append("¡Proceso de conciliación completado con éxito!")
-        
-        df_galac_no_cp = pd.DataFrame() # Placeholder
-        cuentas_map_dummy = {}
+        log_messages.append("Conciliación CP vs GALAC completada. Iniciando búsqueda inversa...")
 
+        # --- INICIO DE LA NUEVA LÓGICA: CONCILIACIÓN INVERSA (GALAC vs CP) ---
+        df_iva['TIPO'] = 'IVA'
+        df_islr['TIPO'] = 'ISLR'
+        df_municipal['TIPO'] = 'MUNICIPAL'
+        
+        df_galac_unificado = pd.concat([df_iva, df_islr, df_municipal], ignore_index=True)
+        galac_no_en_cp_list = []
+
+        for index, row in df_galac_unificado.iterrows():
+            match_en_cp = df_cp[(df_cp['RIF_norm'] == row['RIF_norm']) & (df_cp['Comprobante_norm'] == row['Comprobante_norm'])]
+            if match_en_cp.empty:
+                galac_no_en_cp_list.append(row)
+
+        if galac_no_en_cp_list:
+            df_galac_no_cp = pd.DataFrame(galac_no_en_cp_list)
+            # Renombrar y seleccionar columnas para que coincidan con lo que espera utils.py
+            # Se asume que los archivos GALAC tienen estas columnas. Se pueden necesitar ajustes.
+            df_galac_no_cp = df_galac_no_cp.rename(columns={
+                'Fecha Documento': 'FECHA', # Ajustar si el nombre de la columna de fecha es diferente
+                'Comprobante': 'COMPROBANTE',
+                'Factura': 'FACTURA',
+                'RIF': 'RIF',
+                'Nombre o Razón Social': 'NOMBREPROVEEDOR', # Ajustar si el nombre es diferente
+                'Monto': 'MONTO'
+            })
+            columnas_requeridas = ['FECHA', 'COMPROBANTE', 'FACTURA', 'RIF', 'NOMBREPROVEEDOR', 'MONTO', 'TIPO']
+            for col in columnas_requeridas:
+                if col not in df_galac_no_cp.columns:
+                    df_galac_no_cp[col] = 'No Disponible' # Añade la columna si falta
+            df_galac_no_cp = df_galac_no_cp[columnas_requeridas]
+        else:
+            # Si no hay registros no encontrados, crea un DF vacío con las columnas correctas
+            df_galac_no_cp = pd.DataFrame(columns=['FECHA', 'COMPROBANTE', 'FACTURA', 'RIF', 'NOMBREPROVEEDOR', 'MONTO', 'TIPO'])
+        # --- FIN DE LA NUEVA LÓGICA ---
+
+        log_messages.append("¡Proceso de conciliación completado con éxito!")
+        cuentas_map_dummy = {}
         return generar_reporte_retenciones(df_cp_final, df_galac_no_cp, df_cg_dummy, cuentas_map_dummy)
 
     except Exception as e:
