@@ -310,8 +310,8 @@ def generar_csv_saldos_abiertos(df_saldos_abiertos):
 
 def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_map):
     """
-    Genera el archivo Excel de reporte para la auditoría de retenciones,
-    incluyendo una sección para registros anulados.
+    Genera el archivo Excel de reporte final, asegurando que todos los formatos
+    y anchos de columna sean correctos y editables.
     """
     output_buffer = BytesIO()
     with pd.ExcelWriter(output_buffer, engine='xlsxwriter') as writer:
@@ -323,7 +323,7 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
         money_format = workbook.add_format({'num_format': '#,##0.00', 'align': 'center', 'locked': False})
         date_format = workbook.add_format({'num_format': 'dd/mm/yyyy', 'align': 'center', 'locked': False})
         center_text_format = workbook.add_format({'align': 'center', 'valign': 'top', 'locked': False})
-        long_text_format = workbook.add_format({'align': 'left',    # Alinear a la izquierda es mejor para texto largo'valign': 'top','locked': False,'text_wrap': True})
+        long_text_format = workbook.add_format({'align': 'left', 'valign': 'top', 'locked': False, 'text_wrap': True})
 
         # --- HOJA 1: Relacion CP ---
         ws1 = workbook.add_worksheet('Relacion CP')
@@ -336,26 +336,18 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
         
         df_reporte_cp = df_cp_results.copy()
         
-        # --- PREPARACIÓN DE DATOS PARA REPORTE ---
-        # 1. Renombramos las columnas
         df_reporte_cp.rename(columns={
-            'Asiento': 'Asiento', 'Tipo': 'Tipo', 'Fecha': 'Fecha', 
-            'Comprobante': 'Numero', 'Aplicacion': 'Aplicacion', 
-            'Subtipo': 'Subtipo', 'Monto': 'Monto', 
-            'CP_Vs_Galac': 'Cp Vs Galac', 'Asiento_en_CG': 'Asiento en CG', 
-            'Monto_coincide_CG': 'Monto coincide CG', 'RIF': 'RIF', 'Nombre Proveedor': 'Nombre Proveedor'
+            'Comprobante': 'Numero', 'CP_Vs_Galac': 'Cp Vs Galac', 
+            'Asiento_en_CG': 'Asiento en CG', 'Monto_coincide_CG': 'Monto coincide CG'
         }, inplace=True)
         
-        # 2. Convertimos la columna 'Fecha'
         if 'Fecha' in df_reporte_cp.columns:
             df_reporte_cp['Fecha'] = pd.to_datetime(df_reporte_cp['Fecha'], errors='coerce')
         
-        # 3. Aseguramos que todas las columnas existan
         for col in final_order_cp:
             if col not in df_reporte_cp.columns:
                 df_reporte_cp[col] = ''
         
-        # 4. Separamos el DataFrame en tres grupos: Incidencias, Exitosos y Anulados.
         df_exitosos = df_reporte_cp[df_reporte_cp['Cp Vs Galac'] == 'Sí']
         df_anulados = df_reporte_cp[df_reporte_cp['Cp Vs Galac'] == 'Anulado']
         df_incidencias = df_reporte_cp.drop(df_exitosos.index).drop(df_anulados.index)
@@ -375,10 +367,8 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
                     elif col_name == 'Monto':
                         ws1.write_number(current_row, col_idx, value, money_format)
                     elif col_name == 'Cp Vs Galac' and pd.notna(value):
-                        # Usamos el formato específico para esta columna
                         ws1.write(current_row, col_idx, value, long_text_format)
                     elif pd.notna(value):
-                        # Las otras columnas de texto usan el formato centrado normal
                         ws1.write(current_row, col_idx, value, center_text_format)
                 current_row += 1
         
@@ -395,6 +385,8 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
                         ws1.write_datetime(current_row, col_idx, value, date_format)
                     elif col_name == 'Monto':
                         ws1.write_number(current_row, col_idx, value, money_format)
+                    elif col_name == 'Cp Vs Galac' and pd.notna(value):
+                        ws1.write(current_row, col_idx, value, long_text_format)
                     elif pd.notna(value):
                         ws1.write(current_row, col_idx, value, center_text_format)
                 current_row += 1
@@ -412,24 +404,19 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
                         ws1.write_datetime(current_row, col_idx, value, date_format)
                     elif col_name == 'Monto':
                         ws1.write_number(current_row, col_idx, value, money_format)
+                    elif col_name == 'Cp Vs Galac' and pd.notna(value):
+                        ws1.write(current_row, col_idx, value, long_text_format)
                     elif pd.notna(value):
                         ws1.write(current_row, col_idx, value, center_text_format)
                 current_row += 1
                 
-        # Autoajuste de columnas
-        # Bloque de autoajuste con límite de ancho.
+        # --- Bloque de autoajuste ---
         for i, col_name in enumerate(final_order_cp):
             column_data = df_reporte_cp[col_name].astype(str)
             max_data_len = column_data.map(len).max() if not column_data.empty else 0
             header_len = len(col_name)
-            
-            # Calculamos el ancho requerido
             column_width = max(header_len, max_data_len) + 2
-            
-            # Aplicamos el límite de Excel
-            if column_width > 255:
-                column_width = 255
-            
+            column_width = min(column_width, 255)
             ws1.set_column(i, i, column_width)
             
         # --- HOJA 2: Análisis GALAC ---
