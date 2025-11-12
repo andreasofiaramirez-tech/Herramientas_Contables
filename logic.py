@@ -1132,7 +1132,7 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         
         df_cp = preparar_df_cp(file_cp)
         df_iva = preparar_df_iva(file_iva)
-        df_islr = preparar_df_islr(file_islr)
+        df_islr = preparar_df_islr(file_islr, log_messages)
         df_municipal = preparar_df_municipal(file_mun)
         
         if file_cg:
