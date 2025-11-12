@@ -1294,7 +1294,14 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         cuentas_map_dummy = {}
 
         # Llamada final al generador de reportes de utils.py
-        return generar_reporte_retenciones(df_cp_final, df_galac_no_cp, df_cg_dummy, cuentas_map_dummy)
+        return generar_reporte_retenciones(
+            df_cp_final,
+            df_iva,
+            df_islr,
+            df_municipal,
+            df_cg_dummy,
+            cuentas_map_dummy
+        )
 
     except Exception as e:
         # Bloque de manejo de errores críticos
