@@ -911,38 +911,43 @@ def preparar_df_municipal(file_path):
 
 def preparar_df_islr(file_path):
     """
-    (Versión Corregida sin Columnas Duplicadas) Carga y prepara el archivo de ISLR.
-    - Usa la lógica posicional para la Factura y elimina el renombrado conflictivo.
-    - Añade correctamente el Nombre del Proveedor.
+    (Versión Definitiva y Corregida) Carga y prepara el archivo de ISLR, combinando
+    la búsqueda robusta de columnas por nombre y la extracción posicional para la factura.
     """
     df = pd.read_excel(file_path, header=8, dtype=str)
-    
-    # 1. Extracción posicional del RIF y la Factura (esta lógica es la correcta)
+
+    # --- 1. Búsqueda Robusta de Columnas por Nombre (para RIF y Proveedor) ---
+    # Usamos el mismo método que en la función de Municipal para máxima fiabilidad.
+    column_map = {}
+    for col in df.columns:
+        col_normalized = col.strip().upper().replace(" ", "").replace(".", "")
+        if col_normalized == 'RIFPROVEEDOR':
+            column_map[col] = 'RIF'
+        elif col_normalized == 'RAZÓNSOCIALDELSUJETORETENIDO':
+            column_map[col] = 'Nombre_Proveedor'
+    df.rename(columns=column_map, inplace=True)
+
+    # --- 2. Extracción Posicional para la Factura (la columna sin nombre) ---
     try:
         col_anclaje_idx = df.columns.get_loc('Nº Documento')
-        col_rif_idx = col_anclaje_idx - 1
         col_factura_idx = col_anclaje_idx + 1
-        df['RIF'] = df.iloc[:, col_rif_idx]
         df['Factura'] = df.iloc[:, col_factura_idx]
     except KeyError:
-        df['RIF'] = ''
         df['Factura'] = ''
 
-    # 2. Renombrar las otras columnas (SE HA ELIMINADO LA LÍNEA CONFLICTIVA)
+    # --- 3. Renombrar Columnas Restantes con Nombres Fijos ---
     df.rename(columns={
-        'Razón Social del Sujeto Retenido': 'Nombre_Proveedor',
         'Nº Referencia': 'Comprobante',
         'Monto Retenido': 'Monto'
-        # La línea 'Nº Documento': 'Factura' ha sido eliminada.
     }, inplace=True)
 
-    # 3. Verificamos que las columnas clave existan para evitar errores
+    # --- 4. Asegurar que las columnas clave existan para evitar errores ---
     if 'RIF' not in df.columns: df['RIF'] = ''
     if 'Nombre_Proveedor' not in df.columns: df['Nombre_Proveedor'] = ''
     if 'Factura' not in df.columns: df['Factura'] = ''
     if 'Monto' not in df.columns: df['Monto'] = 0
-    
-    # 4. Normalizar TODOS los datos (esta parte ahora funcionará)
+
+    # --- 5. Normalizar TODOS los datos ---
     df['RIF_norm'] = df['RIF'].apply(_normalizar_rif)
     df['Comprobante_norm'] = df['Comprobante'].apply(_normalizar_numerico)
     df['Factura_norm'] = df['Factura'].apply(_normalizar_numerico)
