@@ -902,14 +902,17 @@ def preparar_df_islr(file_path):
 
 def _conciliar_iva(cp_row, df_iva):
     """
-    (Versión Definitiva) Aplica la lógica de conciliación de IVA usando la
-    clave de cruce correcta: RIF + Comprobante.
+    (Versión Corregida con Errores Claros) Lógica de conciliación de IVA que, en caso de fallo,
+    informa al usuario sobre los comprobantes disponibles en GALAC para el RIF correspondiente.
     """
     rif_cp = cp_row['RIF_norm']
-    comprobante_cp = cp_row['Comprobante_norm']
+    comprobante_cp_norm = cp_row['Comprobante_norm']
     
-    # 1. Buscar el match usando la clave principal y única: RIF + Comprobante
-    match_encontrado = df_iva[(df_iva['RIF_norm'] == rif_cp) & (df_iva['Comprobante_norm'] == comprobante_cp)]
+    # 1. Buscar el match usando la clave principal: RIF + Comprobante (ambos normalizados)
+    match_encontrado = df_iva[
+        (df_iva['RIF_norm'] == rif_cp) & 
+        (df_iva['Comprobante_norm'] == comprobante_cp_norm)
+    ]
     
     # 2. Si no se encuentra una coincidencia exacta...
     if match_encontrado.empty:
@@ -934,25 +937,20 @@ def _conciliar_iva(cp_row, df_iva):
                              f"Para ese RIF, GALAC tiene estos: [{comprobantes_str}]")
                              
             return 'No Conciliado', mensaje_error
-    
-    # 3. Ahora que tenemos la fila correcta, validamos los demás campos
+
+    # 3. Si se encontró la coincidencia, el proceso continúa como antes.
+    match_row = match_encontrado.iloc[0]
     errores = []
     
-    # Validación de Factura
     if cp_row['Factura_norm'] != match_row['Factura_norm']:
         msg = f"Numero de factura no coincide. CP: {cp_row['Factura_norm']}, GALAC: {match_row['Factura_norm']}"
         errores.append(msg)
         
-    # Validación de Monto (usando np.isclose para seguridad con decimales)
     if not np.isclose(cp_row['Monto'], match_row['Monto']):
         msg = f"Monto no coincide. CP: {cp_row['Monto']:.2f}, GALAC: {match_row['Monto']:.2f}"
         errores.append(msg)
         
-    if not errores:
-        return 'Conciliado', 'OK'
-    else:
-        # Si la clave principal (Comprobante) coincidió pero otros campos no, es un error parcial
-        return 'Parcialmente Conciliado', ' | '.join(errores)
+    return ('Conciliado', 'OK') if not errores else ('Parcialmente Conciliado', ' | '.join(errores))
 
 def _conciliar_islr(cp_row, df_islr):
     """Aplica la lógica de conciliación de ISLR (clave: RIF + Comprobante)."""
