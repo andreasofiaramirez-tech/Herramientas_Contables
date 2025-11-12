@@ -1189,9 +1189,9 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
             # Creamos nombres "canónicos" que usaremos en el resto del código.
     
             # Posibles nombres para la columna de DÉBITO
-            debit_names = ['DEBITOVES', 'DEBITO', 'DEBEVESDÉBITO', 'MONEDALOCAL']
+            debit_names = ['DEBITOVES', 'DÉBITOVES', 'DEBITO', 'DÉBITO','DEBEVESDÉBITO', 'DEBITOLOCAL']
             # Posibles nombres para la columna de CRÉDITO
-            credit_names = ['CREDITOVES', 'CREDITO', 'CRÉDITO', 'CREDITOVESMCREDITOLOCAL']
+            credit_names = ['CREDITOVES', 'CRÉDITOVES', 'CREDITO', 'CRÉDITO', 'CREDITOLOCAL']
 
             # Buscamos y renombramos la columna de DÉBITO
             for col_name in df_cg_dummy.columns:
