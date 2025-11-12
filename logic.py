@@ -864,53 +864,44 @@ def preparar_df_iva(file_iva):
     df['Monto'] = df['Monto'].str.replace(',', '.', regex=False).astype(float)
     return df
 
-def preparar_df_municipal(file_path, log_messages):
+def preparar_df_municipal(file_path):
     """
-    (Versión de Diagnóstico Corregida) Este código imprimirá en el log
-    los nombres de las columnas y una muestra de los datos del archivo Municipal.
+    (Versión Final y Robusta) Carga y prepara el archivo de Retenciones Municipales,
+    buscando dinámicamente las columnas clave para evitar errores de nombrado.
     """
-    log_messages.append("--- INICIANDO DIAGNÓSTICO DEL ARCHIVO MUNICIPAL ---")
-    try:
-        # Leemos el archivo exactamente como lo hace la lógica original
-        df = pd.read_excel(file_path, header=8, dtype=str)
+    df = pd.read_excel(file_path, header=8, dtype=str)
+    
+    # --- Búsqueda Robusta de Columnas ---
+    column_map = {}
+    for col in df.columns:
+        # Normalizamos el nombre de la columna para la comparación
+        # (quitamos espacios, convertimos a minúsculas)
+        col_normalized = col.strip().lower().replace(" ", "")
         
-        # 1. Imprimimos las columnas detectadas para ver sus nombres exactos
-        log_messages.append("Columnas detectadas en Municipal (rodeadas por '|'):")
-        # Usamos un bucle for que es más seguro y claro
-        if hasattr(df, 'columns'):
-            for col in df.columns:
-                log_messages.append(f"|{col}|")
-        
-        # 2. Imprimimos las primeras 5 filas del DataFrame tal como se leyó
-        log_messages.append("--- Muestra de datos crudos del archivo Municipal (primeras 5 filas): ---")
-        log_messages.append(df.head().to_string())
-        
-        log_messages.append("--- FIN DEL DIAGNÓSTICO ---")
-
-        # El resto del código de procesamiento se mantiene para que el script no se detenga.
-        df.rename(columns={'Número Rif': 'RIF', 'Número de Factura': 'Factura', 'Valor': 'Monto'}, inplace=True)
-        # Aseguramos que las columnas existan antes de intentar normalizarlas
-        if 'RIF' in df.columns:
-            df['RIF_norm'] = df['RIF'].apply(_normalizar_rif)
-        else:
-            df['RIF_norm'] = ''
+        if col_normalized == 'númerorif':
+            column_map[col] = 'RIF'
+        elif col_normalized == 'númerodefactura':
+            column_map[col] = 'Factura'
+        elif col_normalized == 'valor':
+            column_map[col] = 'Monto'
             
-        if 'Factura' in df.columns:
-            df['Factura_norm'] = df['Factura'].apply(_normalizar_numerico)
-        else:
-            df['Factura_norm'] = ''
-            
-        if 'Monto' in df.columns:
-            df['Monto'] = pd.to_numeric(df['Monto'], errors='coerce').fillna(0)
-        else:
-            df['Monto'] = 0
+    # Renombramos usando el mapa que creamos
+    df.rename(columns=column_map, inplace=True)
 
-        df['Comprobante_norm'] = ''
-        return df
-
-    except Exception as e:
-        log_messages.append(f"❌ ERROR CRÍTICO DURANTE DIAGNÓSTICO MUNICIPAL: {e}")
-        return pd.DataFrame()
+    # Verificamos que las columnas clave ahora existen
+    if 'RIF' not in df.columns: df['RIF'] = ''
+    if 'Factura' not in df.columns: df['Factura'] = ''
+    if 'Monto' not in df.columns: df['Monto'] = 0
+    
+    # --- Normalización de Datos ---
+    df['RIF_norm'] = df['RIF'].apply(_normalizar_rif)
+    df['Factura_norm'] = df['Factura'].apply(_normalizar_numerico)
+    df['Monto'] = pd.to_numeric(df['Monto'], errors='coerce').fillna(0)
+    
+    # Añadimos una columna de Comprobante vacía para consistencia
+    df['Comprobante_norm'] = ''
+    
+    return df
 
 def preparar_df_islr(file_path):
     """
@@ -1083,39 +1074,21 @@ def _conciliar_municipal(cp_row, df_municipal):
     monto_cp = cp_row['Monto']
     factura_cp_norm = cp_row['Factura_norm']
     
-    # --- PASO 1: Búsqueda inicial por RIF y Monto (usando isclose) ---
-    
-    # Filtramos primero por RIF para optimizar
     candidatos_por_rif = df_municipal[df_municipal['RIF_norm'] == rif_cp]
     
-    # Si no hay ningún registro para ese RIF, el error es claro.
     if candidatos_por_rif.empty:
         return 'No Conciliado', 'RIF no se encuentra en GALAC'
         
-    # Ahora, dentro de los candidatos por RIF, buscamos coincidencias de monto usando isclose
-    # Esto resuelve el CASO VERDE.
     posibles_matches = candidatos_por_rif[np.isclose(candidatos_por_rif['Monto'], monto_cp)]
     
-    # Si después de buscar por RIF y Monto no hay nada, el monto no se encontró.
     if posibles_matches.empty:
         return 'No Conciliado', f"Monto de retencion no encontrado en GALAC. Monto CP: {monto_cp:.2f}"
 
-    # --- PASO 2: Búsqueda de la Factura EXACTA dentro de los posibles matches ---
-    
-    # Dentro de las filas que coinciden en RIF y Monto, buscamos una que también coincida en Factura.
-    # Esto resuelve el CASO NARANJA.
     match_perfecto = posibles_matches[posibles_matches['Factura_norm'] == factura_cp_norm]
     
-    # --- PASO 3: Generar Resultados Basados en lo Encontrado ---
-    
-    # Si encontramos una fila que coincide en RIF, Monto Y Factura, está conciliado.
     if not match_perfecto.empty:
         return 'Conciliado', 'OK'
-    
-    # Si no hubo un match perfecto, pero sí hubo candidatos por RIF y Monto,
-    # significa que la factura es lo que no coincide.
     else:
-        # Extraemos la factura del primer candidato para mostrarla en el error.
         factura_sugerida_galac = posibles_matches.iloc[0]['Factura_norm']
         msg = f"Numero de factura no coincide. CP: {factura_cp_norm}, GALAC sugiere: {factura_sugerida_galac}"
         return 'Parcialmente Conciliado', msg
@@ -1156,7 +1129,7 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         df_cp = preparar_df_cp(file_cp)
         df_iva = preparar_df_iva(file_iva)
         df_islr = preparar_df_islr(file_islr)
-        df_municipal = preparar_df_municipal(file_mun, log_messages)
+        df_municipal = preparar_df_municipal(file_mun)
         
         if file_cg:
             df_cg_dummy = pd.read_excel(file_cg, header=0, dtype=str)
