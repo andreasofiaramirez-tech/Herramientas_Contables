@@ -317,12 +317,12 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
     with pd.ExcelWriter(output_buffer, engine='xlsxwriter') as writer:
         workbook = writer.book
         # --- Formatos ---
-        main_title_format = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'font_size': 14})
-        group_title_format = workbook.add_format({'bold': True, 'italic': True, 'font_size': 12})
-        header_format = workbook.add_format({'bold': True, 'text_wrap': True, 'valign': 'top', 'fg_color': '#D9EAD3', 'border': 1, 'align': 'center'})
-        money_format = workbook.add_format({'num_format': '#,##0.00', 'align': 'center'})
-        date_format = workbook.add_format({'num_format': 'dd/mm/yyyy', 'align': 'center'})
-        center_text_format = workbook.add_format({'align': 'center'})
+        main_title_format = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'font_size': 14, 'locked': False})
+        group_title_format = workbook.add_format({'bold': True, 'italic': True, 'font_size': 12, 'locked': False})
+        header_format = workbook.add_format({'bold': True, 'text_wrap': True, 'valign': 'top', 'fg_color': '#D9EAD3', 'border': 1, 'align': 'center', 'locked': False})
+        money_format = workbook.add_format({'num_format': '#,##0.00', 'align': 'center', 'locked': False})
+        date_format = workbook.add_format({'num_format': 'dd/mm/yyyy', 'align': 'center', 'locked': False})
+        center_text_format = workbook.add_format({'align': 'center', 'locked': False})
 
         # --- HOJA 1: Relacion CP ---
         ws1 = workbook.add_worksheet('Relacion CP')
