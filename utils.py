@@ -308,15 +308,15 @@ def generar_csv_saldos_abiertos(df_saldos_abiertos):
 # NUEVA FUNCIÓN DE REPORTE PARA LA HERRAMIENTA DE RETENCIONES
 # ==============================================================================
 
-def generar_reporte_retenciones(df_cp_results, df_iva, df_islr, df_municipal, df_cg, cuentas_map):
+def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_map):
     """
-    Genera el reporte Excel final, asegurando que el renombrado de columnas se
-    aplique antes de que cualquier hoja intente usar los datos.
+    Genera el archivo Excel de reporte final, conteniendo únicamente las hojas
+    'Relacion CP' y 'Diario CG'. (Versión final y limpia).
     """
     output_buffer = BytesIO()
     with pd.ExcelWriter(output_buffer, engine='xlsxwriter') as writer:
         workbook = writer.book
-        # --- Formatos (sin cambios) ---
+        # --- Formatos ---
         main_title_format = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'font_size': 14, 'locked': False})
         group_title_format = workbook.add_format({'bold': True, 'italic': True, 'font_size': 12, 'locked': False})
         header_format = workbook.add_format({'bold': True, 'text_wrap': True, 'valign': 'top', 'fg_color': '#D9EAD3', 'border': 1, 'align': 'center', 'locked': False})
@@ -325,14 +325,9 @@ def generar_reporte_retenciones(df_cp_results, df_iva, df_islr, df_municipal, df
         center_text_format = workbook.add_format({'align': 'center', 'valign': 'top', 'locked': False})
         long_text_format = workbook.add_format({'align': 'left', 'valign': 'top', 'locked': False, 'text_wrap': True})
 
-        # --- 1. PREPARACIÓN CENTRALIZADA DE DATOS DE CP (CAMBIO CLAVE) ---
-        # Hacemos una copia y la renombramos una sola vez al principio.
+        # --- PREPARACIÓN DE DATOS ---
         df_reporte_cp = df_cp_results.copy()
-        df_reporte_cp.rename(columns={
-            'Comprobante': 'Numero', 
-            'CP_Vs_Galac': 'Cp Vs Galac', 
-            'Validacion_CG': 'Validacion CG'
-        }, inplace=True)
+        df_reporte_cp.rename(columns={'Comprobante': 'Numero', 'CP_Vs_Galac': 'Cp Vs Galac', 'Validacion_CG': 'Validacion CG'}, inplace=True)
         if 'Fecha' in df_reporte_cp.columns: df_reporte_cp['Fecha'] = pd.to_datetime(df_reporte_cp['Fecha'], errors='coerce')
 
         # --- HOJA 1: Relacion CP ---
