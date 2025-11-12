@@ -841,7 +841,7 @@ def _extraer_factura_cp(aplicacion):
 # --- NUEVAS FUNCIONES DE CARGA Y PREPARACIÓN ---
 
 def preparar_df_cp(file_cp):
-    df = pd.read_excel(file_cp, header=4).astype(str).rename(columns={
+    df = pd.read_excel(file_cp, header=4, dtype=str).rename(columns={
         'Asiento Contable': 'Asiento', 'Proveedor': 'RIF', 'Tipo': 'Tipo', 
         'Fecha': 'Fecha', 'Número': 'Comprobante', 'Monto': 'Monto',
         'Aplicación': 'Aplicacion', 'Subtipo': 'Subtipo'
@@ -853,7 +853,7 @@ def preparar_df_cp(file_cp):
     return df
 
 def preparar_df_iva(file_iva):
-    df = pd.read_excel(file_iva, header=4).astype(str).rename(columns={
+    df = pd.read_excel(file_iva, header=4, dtype=str).rename(columns={
         'Rif Prov.': 'RIF', 'Nº Documento': 'Factura', 
         'No. Comprobante': 'Comprobante', 'IVA Retenido': 'Monto'
     })
