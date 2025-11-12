@@ -989,59 +989,48 @@ def _conciliar_iva(cp_row, df_iva):
 
 def _conciliar_islr(cp_row, df_islr):
     """
-    (Versión con Lógica de Grupo) Maneja el caso de un comprobante con múltiples facturas.
-    Valida la factura específica de CP y añade un mensaje informativo si existen otras.
+    (Versión Definitiva con Suma Inteligente) Maneja comprobantes con múltiples
+    facturas Y múltiples retenciones para una misma factura.
     """
     rif_cp = cp_row['RIF_norm']
     comprobante_cp_norm = cp_row['Comprobante_norm']
     factura_cp_norm = cp_row['Factura_norm']
     
-    # --- PASO 1: ENCONTRAR EL GRUPO DEL COMPROBANTE ---
+    # 1. Encontrar el grupo completo del comprobante
     comprobante_group = df_islr[
         (df_islr['RIF_norm'] == rif_cp) & 
         (df_islr['Comprobante_norm'] == comprobante_cp_norm)
     ]
     
-    # Si el grupo está vacío, significa que el comprobante no existe para ese RIF.
     if comprobante_group.empty:
-        # Aquí podemos mantener la lógica de error detallado que ya funcionaba bien
-        if rif_cp not in df_islr['RIF_norm'].values:
-            return 'No Conciliado', 'RIF no se encuentra en el reporte de ISLR'
-        else:
-            return 'No Conciliado', f"Comprobante de CP ({cp_row['Comprobante']}) no encontrado."
+        # Lógica de error si el comprobante no existe (se mantiene)
+        if rif_cp not in df_islr['RIF_norm'].values: return 'No Conciliado', 'RIF no se encuentra en el reporte de ISLR'
+        return 'No Conciliado', f"Comprobante de CP ({cp_row['Comprobante']}) no encontrado."
 
-    # --- PASO 2: BUSCAR LA FACTURA ESPECÍFICA DENTRO DEL GRUPO ---
-    specific_invoice_match = comprobante_group[comprobante_group['Factura_norm'] == factura_cp_norm]
+    # 2. Dentro de ese grupo, encontrar TODAS las retenciones para nuestra factura específica
+    specific_invoice_matches = comprobante_group[comprobante_group['Factura_norm'] == factura_cp_norm]
     
-    # Si, después de encontrar el comprobante, no encontramos nuestra factura específica...
-    if specific_invoice_match.empty:
+    if specific_invoice_matches.empty:
+        # Error si la factura no está en el grupo
         all_invoices_in_group = comprobante_group['Factura'].unique().tolist()
         msg = (f"Factura de CP ({cp_row['Factura']}) no encontrada para el Comprobante {cp_row['Comprobante']}. "
                f"Este comprobante en GALAC contiene estas facturas: {all_invoices_in_group}")
         return 'No Conciliado', msg
 
-    # --- PASO 3: VALIDAR Y CONTEXTUALIZAR ---
-    # Si llegamos aquí, encontramos la factura. Procedemos a validar el monto.
-    match_row = specific_invoice_match.iloc[0]
+    # --- LÓGICA DE SUMA Y VALIDACIÓN ---
+    # 3. Sumar los montos de TODAS las retenciones encontradas para ESA factura
+    monto_islr_sumado = specific_invoice_matches['Monto'].sum()
     errores = []
     
-    # Validación de Monto (usando la lógica de Notas de Crédito que ya teníamos)
-    aplicacion_text = str(cp_row.get('Aplicacion', '')).upper()
-    is_credit_note = 'NC' in aplicacion_text or 'NOTA CREDITO' in aplicacion_text
-
-    if is_credit_note:
-        if not np.isclose(abs(cp_row['Monto']), abs(match_row['Monto'])):
-            msg = f"Monto (NC) no coincide. CP: {cp_row['Monto']:.2f}, ISLR: {match_row['Monto']:.2f}"
-            errores.append(msg)
-    else:
-        if not np.isclose(cp_row['Monto'], match_row['Monto']):
-            msg = f"Monto no coincide. CP: {cp_row['Monto']:.2f}, ISLR: {match_row['Monto']:.2f}"
-            errores.append(msg)
-    
-    # ¡NUEVO! Añadimos el mensaje informativo si el grupo tiene más de una factura.
-    if len(comprobante_group) > 1:
+    # 4. Comparar el monto de CP con el monto SUMADO de ISLR
+    if not np.isclose(cp_row['Monto'], monto_islr_sumado):
+        msg = f"Monto no coincide. CP: {cp_row['Monto']:.2f}, ISLR (suma de retenciones para factura): {monto_islr_sumado:.2f}"
+        errores.append(msg)
+        
+    # 5. Añadir mensaje informativo si el comprobante contenía otras facturas
+    if len(comprobante_group['Factura_norm'].unique()) > 1:
         all_invoices_in_group = comprobante_group['Factura'].unique().tolist()
-        info_msg = f"INFO: Comprobante incluye multiples facturas en GALAC: {all_invoices_in_group}"
+        info_msg = f"INFO: Comprobante {cp_row['Comprobante']} incluye otras facturas en GALAC: {all_invoices_in_group}"
         errores.append(info_msg)
         
     return ('Conciliado', 'OK') if not errores else ('Parcialmente Conciliado', ' | '.join(errores))
