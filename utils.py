@@ -428,6 +428,7 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
             
             # Aplicamos el ancho a la columna en el archivo Excel
             ws1.set_column(i, i, column_width)
+            ws1.unprotect_sheet()
 
         # --- HOJA 2: Análisis GALAC ---
         ws2 = workbook.add_worksheet('Análisis GALAC')
