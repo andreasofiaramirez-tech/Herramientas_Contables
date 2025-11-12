@@ -1017,9 +1017,10 @@ def _traducir_resultados_para_reporte(row):
 def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun, log_messages):
     try:
         log_messages.append("--- INICIANDO PROCESO DE CONCILIACIÓN DE RETENCIONES ---")
+        
         df_cp = preparar_df_cp(file_cp)
         df_iva = preparar_df_iva(file_iva)
-        df_islr = preparar_df_islr(file_islr) 
+        df_islr = preparar_df_islr(file_islr)
         df_municipal = preparar_df_municipal(file_mun)
         
         if file_cg:
@@ -1028,69 +1029,78 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         else:
             df_cg_dummy = pd.DataFrame()
         
-        log_messages.append("Iniciando conciliación CP vs GALAC (lógica directa)...")
+        log_messages.append("Iniciando conciliación por tipo de impuesto...")
         resultados = []
         
-        # --- INICIO DE LA LÓGICA SIMPLIFICADA (SIN BÚSQUEDA CRUZADA) ---
         for index, row in df_cp.iterrows():
+            
             if 'ANULADO' in str(row.get('Aplicacion', '')).upper():
                 resultados.append({'Estado_Conciliacion': 'Anulado', 'Detalle': 'Movimiento Anulado en CP'})
                 continue
 
-            subtipo = str(row.get('Subtipo', '')).strip().upper()
-            estado, mensaje = '', ''
-
-            # Lógica de conciliación directa: cada subtipo busca SOLO en su archivo correspondiente.
+            subtipo = str(row.get('Subtipo', '')).upper()
+            
+            # --- ¡NUEVA LÓGICA DE DECISIÓN A PRUEBA DE ERRORES! ---
+            
+            # 1. Determinar el tipo primario y los tipos de respaldo
             if 'IVA' in subtipo:
-                estado, mensaje = _conciliar_iva(row, df_iva)
+                tipo_primario = 'IVA'
+                busqueda_primaria = lambda r: _conciliar_iva(r, df_iva)
+                busquedas_cruzadas = [
+                    ('ISLR', lambda r: _conciliar_islr(r, df_islr)),
+                    ('Municipal', lambda r: _conciliar_municipal(r, df_municipal))
+                ]
             elif 'ISLR' in subtipo:
-                estado, mensaje = _conciliar_islr(row, df_islr)
-            # NOTA: Si tienes un subtipo para 'MUNICIPAL', deberás añadir un elif aquí.
-            # Ejemplo: elif 'MUNICIPAL' in subtipo: estado, mensaje = _conciliar_municipal(row, df_municipal)
+                tipo_primario = 'ISLR'
+                busqueda_primaria = lambda r: _conciliar_islr(r, df_islr)
+                busquedas_cruzadas = [
+                    ('IVA', lambda r: _conciliar_iva(r, df_iva)),
+                    ('Municipal', lambda r: _conciliar_municipal(r, df_municipal))
+                ]
+            elif 'MUNICIPAL' in subtipo:
+                tipo_primario = 'Municipal'
+                busqueda_primaria = lambda r: _conciliar_municipal(r, df_municipal)
+                busquedas_cruzadas = [
+                    ('IVA', lambda r: _conciliar_iva(r, df_iva)),
+                    ('ISLR', lambda r: _conciliar_islr(r, df_islr))
+                ]
             else:
-                subtipo_original = row.get('Subtipo', 'Vacío')
-                estado, mensaje = 'No Conciliado', f"Subtipo no reconocido: '{subtipo_original}'"
+                resultados.append({'Estado_Conciliacion': 'No Conciliado', 'Detalle': 'Subtipo no reconocido'})
+                continue
 
-            # El resultado de la única búsqueda realizada se añade directamente.
+            # 2. Ejecutar la búsqueda primaria
+            estado, mensaje = busqueda_primaria(row)
+
+            # 3. Si la búsqueda primaria falló COMPLETAMENTE, ejecutar la búsqueda cruzada
+            if estado == 'No Conciliado':
+                encontrado_en_otro = False
+                for nombre_otro_tipo, busqueda_otro_tipo in busquedas_cruzadas:
+                    estado_otro, _ = busqueda_otro_tipo(row)
+                    if estado_otro in ['Conciliado', 'Parcialmente Conciliado']:
+                        estado = 'Error de Subtipo'
+                        mensaje = f'Declarado como {tipo_primario}, pero encontrado en {nombre_otro_tipo}'
+                        encontrado_en_otro = True
+                        break # Detener la búsqueda tan pronto como se encuentre una coincidencia
+                
+                # Si después de todo no se encontró en ningún lado, mantenemos el mensaje de error original
+                if not encontrado_en_otro:
+                    pass # 'estado' y 'mensaje' ya tienen el error de la búsqueda primaria
+
             resultados.append({'Estado_Conciliacion': estado, 'Detalle': mensaje})
-        # --- FIN DE LA LÓGICA SIMPLIFICADA ---
 
+        # --- PREPARACIÓN FINAL Y LLAMADA AL REPORTE ---
         df_resultados = pd.DataFrame(resultados)
         df_cp_temp = pd.concat([df_cp.reset_index(drop=True), df_resultados], axis=1)
+
         df_cp_temp[['CP_Vs_Galac', 'Asiento_en_CG', 'Monto_coincide_CG']] = df_cp_temp.apply(_traducir_resultados_para_reporte, axis=1, result_type='expand')
+
         df_cp_final = df_cp_temp.copy()
         
-        log_messages.append("Conciliación CP vs GALAC completada. Iniciando búsqueda inversa...")
-
-        # Tu lógica de conciliación inversa es independiente y se mantiene igual.
-        df_iva['TIPO'] = 'IVA'
-        df_islr['TIPO'] = 'ISLR'
-        df_municipal['TIPO'] = 'MUNICIPAL'
-        
-        df_galac_unificado = pd.concat([df_iva, df_islr, df_municipal], ignore_index=True)
-        galac_no_en_cp_list = []
-
-        for index, row in df_galac_unificado.iterrows():
-            match_en_cp = df_cp[(df_cp['RIF_norm'] == row['RIF_norm']) & (df_cp['Comprobante_norm'] == row['Comprobante_norm'])]
-            if match_en_cp.empty:
-                galac_no_en_cp_list.append(row)
-
-        if galac_no_en_cp_list:
-            df_galac_no_cp = pd.DataFrame(galac_no_en_cp_list)
-            df_galac_no_cp = df_galac_no_cp.rename(columns={
-                'Fecha Documento': 'FECHA', 'Comprobante': 'COMPROBANTE', 'Factura': 'FACTURA', 'RIF': 'RIF',
-                'Nombre o Razón Social': 'NOMBREPROVEEDOR', 'Monto': 'MONTO'
-            })
-            columnas_requeridas = ['FECHA', 'COMPROBANTE', 'FACTURA', 'RIF', 'NOMBREPROVEEDOR', 'MONTO', 'TIPO']
-            for col in columnas_requeridas:
-                if col not in df_galac_no_cp.columns:
-                    df_galac_no_cp[col] = 'No Disponible'
-            df_galac_no_cp = df_galac_no_cp[columnas_requeridas]
-        else:
-            df_galac_no_cp = pd.DataFrame(columns=['FECHA', 'COMPROBANTE', 'FACTURA', 'RIF', 'NOMBREPROVEEDOR', 'MONTO', 'TIPO'])
-
         log_messages.append("¡Proceso de conciliación completado con éxito!")
+        
+        df_galac_no_cp = pd.DataFrame(columns=['FECHA', 'COMPROBANTE', 'FACTURA', 'RIF', 'NOMBREPROVEEDOR', 'MONTO', 'TIPO'])
         cuentas_map_dummy = {}
+
         return generar_reporte_retenciones(df_cp_final, df_galac_no_cp, df_cg_dummy, cuentas_map_dummy)
 
     except Exception as e:
