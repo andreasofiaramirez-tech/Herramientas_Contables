@@ -1100,11 +1100,8 @@ def _conciliar_municipal(cp_row, df_municipal):
         
 def _traducir_resultados_para_reporte(row, asientos_en_cg_set, df_cg):
     """
-    (Versión Final con Validación Completa y Unificada de CG)
-    - Unifica los resultados de CG en una sola columna.
-    - Valida la cuenta contable según el subtipo de retención.
-    - Valida el monto contra DÉBITO o CRÉDITO (para NC).
-    - Acumula y reporta todos los errores encontrados.
+    (Versión Final con Doble Lógica Jerárquica) La validación de CG ahora respeta
+    tanto los errores de subtipo como los errores de monto de la conciliación de GALAC.
     """
     # El resultado de CP vs GALAC no cambia
     estado_galac = row['Estado_Conciliacion']
@@ -1113,55 +1110,58 @@ def _traducir_resultados_para_reporte(row, asientos_en_cg_set, df_cg):
     elif estado_galac == 'Conciliado': cp_vs_galac = 'Sí'
     else: cp_vs_galac = detalle_galac
     
-    # --- INICIO DE LA NUEVA LÓGICA DE VALIDACIÓN DE CG ---
+    # --- INICIO DE LA LÓGICA DE VALIDACIÓN DE CG ---
     asiento_cp = row.get('Asiento', None)
     
-    # Si no hay asiento o no hay archivo de CG, no se puede validar.
     if not asiento_cp or df_cg.empty:
-        return cp_vs_galac, 'No Aplica' # Solo devolvemos 2 valores ahora
+        return cp_vs_galac, 'No Aplica'
 
-    # 1. VERIFICAR EXISTENCIA DEL ASIENTO
     if asiento_cp not in asientos_en_cg_set:
         return cp_vs_galac, 'Asiento no encontrado en CG'
 
-    # Si el asiento existe, procedemos con las validaciones detalladas
     errores_cg = []
     transacciones_asiento = df_cg[df_cg['ASIENTO'] == asiento_cp]
     
-    # 2. VALIDAR CUENTA CONTABLE
-    mapa_cuentas = {
-        'IVA': '2.1.3.05.1.001',
-        'ISLR': '2.1.3.02.1.002',
-        'MUNICIPAL': '2.1.3.02.4.002'
-    }
-    subtipo_cp = str(row.get('Subtipo', '')).upper()
-    cuenta_esperada = None
-    for key, value in mapa_cuentas.items():
-        if key in subtipo_cp:
-            cuenta_esperada = value
-            break
-    
-    if cuenta_esperada and 'CUENTACONTABLE' in transacciones_asiento.columns:
-        cuentas_en_asiento = set(transacciones_asiento['CUENTACONTABLE'].str.strip())
-        if cuenta_esperada not in cuentas_en_asiento:
-            errores_cg.append('Cuenta Contable no coincide con Tipo de retencion')
-
-    # 3. VALIDAR MONTO (LÓGICA DÉBITO/CRÉDITO)
-    monto_cp = row.get('Monto', 0)
-    aplicacion_text = str(row.get('Aplicacion', '')).upper()
-    es_nota_credito = 'NC' in aplicacion_text or 'NOTA CREDITO' in aplicacion_text
-    
-    columna_monto_cg = 'CREDITO_NORM' if es_nota_credito else 'DEBITO_NORM'
-    
-    if columna_monto_cg in transacciones_asiento.columns:
-        montos_cg = pd.to_numeric(transacciones_asiento[columna_monto_cg], errors='coerce').fillna(0)
-        suma_monto_cg = montos_cg.sum()
-        if not np.isclose(monto_cp, suma_monto_cg):
-            errores_cg.append(f'Monto no coincide (CP: {monto_cp:.2f}, CG: {suma_monto_cg:.2f})')
+    # --- 1. VALIDACIÓN DE CUENTA CONTABLE (con comprobación jerárquica) ---
+    if estado_galac == 'Error de Subtipo':
+        errores_cg.append('Cuenta Contable no coincide (debido a Error de Subtipo en GALAC)')
     else:
-        errores_cg.append(f'Columna de monto ({columna_monto_cg}) no encontrada en CG')
+        mapa_cuentas = {'IVA': '2.1.3.05.1.001', 'ISLR': '2.1.3.02.1.002', 'MUNICIPAL': '2.1.3.02.4.002'}
+        subtipo_cp = str(row.get('Subtipo', '')).upper()
+        cuenta_esperada = None
+        for key, value in mapa_cuentas.items():
+            if key in subtipo_cp:
+                cuenta_esperada = value
+                break
+        
+        if cuenta_esperada and 'CUENTACONTABLE' in transacciones_asiento.columns:
+            cuentas_en_asiento = set(transacciones_asiento['CUENTACONTABLE'].str.strip())
+            if cuenta_esperada not in cuentas_en_asiento:
+                errores_cg.append('Cuenta Contable no coincide con Tipo de retencion')
 
-    # 4. GENERAR RESULTADO FINAL
+    # --- 2. VALIDACIÓN DE MONTO (con comprobación jerárquica) ---
+    monto_cp = row.get('Monto', 0)
+    
+    # ¡NUEVA COMPROBACIÓN PRIORITARIA PARA MONTO!
+    # Si el detalle de GALAC ya indica un error de monto, heredamos ese error.
+    if 'Monto no coincide' in detalle_galac:
+        errores_cg.append('Monto no coincide (debido a discrepancia con GALAC)')
+    
+    # Solo si no hay error de monto en GALAC, procedemos a comparar con CG.
+    else:
+        aplicacion_text = str(row.get('Aplicacion', '')).upper()
+        es_nota_credito = 'NC' in aplicacion_text or 'NOTA CREDITO' in aplicacion_text
+        columna_monto_cg = 'CREDITO_NORM' if es_nota_credito else 'DEBITO_NORM'
+        
+        if columna_monto_cg in transacciones_asiento.columns:
+            montos_cg = pd.to_numeric(transacciones_asiento[columna_monto_cg], errors='coerce').fillna(0)
+            suma_monto_cg = montos_cg.sum()
+            if not np.isclose(monto_cp, suma_monto_cg):
+                errores_cg.append(f'Monto no coincide (CP: {monto_cp:.2f}, CG: {suma_monto_cg:.2f})')
+        else:
+            errores_cg.append(f'Columna de monto ({columna_monto_cg}) no encontrada en CG')
+
+    # --- 3. GENERAR RESULTADO FINAL ---
     if not errores_cg:
         resultado_final_cg = 'Conciliado en CG'
     else:
