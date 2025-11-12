@@ -877,10 +877,10 @@ def preparar_df_municipal(file_path):
 
 def preparar_df_islr(file_path):
     """
-    (Versión Definitiva con Agrupación) Carga y prepara el archivo de ISLR.
-    - Extrae robustamente el RIF y la Factura.
-    - Agrupa los registros por RIF, Comprobante y Factura, sumando los montos
-      para manejar casos de múltiples retenciones en un solo documento.
+    (Versión Definitiva con Agrupación y Preservación de Columnas)
+    - Agrupa los registros y suma los montos.
+    - Preserva las columnas de texto originales ('Comprobante', 'Factura', etc.)
+      para que estén disponibles en la lógica de conciliación y errores.
     """
     df = pd.read_excel(file_path, header=8, dtype=str)
     
@@ -914,19 +914,21 @@ def preparar_df_islr(file_path):
     df['Factura_norm'] = df['Factura'].apply(_normalizar_numerico)
     df['Monto'] = pd.to_numeric(df['Monto'], errors='coerce').fillna(0)
 
-    # --- 3. AGREGACIÓN Y SUMA (¡NUEVA LÓGICA!) ---
+    # --- 3. AGREGACIÓN Y SUMA (LÓGICA CORREGIDA) ---
     # Definimos las columnas por las que un registro es único
     keys_to_group = ['RIF_norm', 'Comprobante_norm', 'Factura_norm']
     
-    # Agrupamos por esas claves y sumamos la columna 'Monto'
-    # .agg() nos permite sumar y darle un nombre a la nueva columna
-    df_agrupado = df.groupby(keys_to_group, as_index=False).agg(Monto_sum=('Monto', 'sum'))
+    # Agrupamos por las claves y definimos qué hacer con las otras columnas
+    df_agrupado = df.groupby(keys_to_group, as_index=False).agg(
+        # Sumamos el Monto
+        Monto=('Monto', 'sum'),
+        # Y conservamos el primer valor de las columnas originales que necesitamos
+        Comprobante=('Comprobante', 'first'),
+        Factura=('Factura', 'first'),
+        RIF=('RIF', 'first')
+    )
     
-    # Renombramos la columna de la suma de vuelta a 'Monto' para que la función
-    # de conciliación la pueda usar sin necesidad de cambios.
-    df_agrupado.rename(columns={'Monto_sum': 'Monto'}, inplace=True)
-    
-    # Retornamos el DataFrame ya agrupado y listo para la conciliación
+    # Retornamos el DataFrame ya agrupado, que ahora contiene todas las columnas necesarias
     return df_agrupado
     
 # --- NUEVAS FUNCIONES DE LÓGICA DE CONCILIACIÓN ---
