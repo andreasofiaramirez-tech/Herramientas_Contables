@@ -435,27 +435,88 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
         # --- HOJA 2: Análisis GALAC ---
         ws2 = workbook.add_worksheet('Análisis GALAC')
         ws2.hide_gridlines(2)
-        ws2.merge_range('A1:G1', 'Análisis de Retenciones Oficiales (GALAC)', main_title_format)
-        current_row = 2
-        ws2.write(current_row, 0, 'A. Incidencias de CP Reflejadas en GALAC (Posibles Coincidencias)', group_title_format)
-        current_row += 5
-        ws2.write(current_row, 0, 'B. Retenciones en GALAC no encontradas en Relacion de CP', group_title_format); current_row += 1
-        
-        if 'NOMBREPROVEEDOR' not in df_galac_no_cp.columns: df_galac_no_cp['NOMBREPROVEEDOR'] = ''
-        df_galac_no_cp_final = df_galac_no_cp[['FECHA', 'COMPROBANTE', 'FACTURA', 'RIF', 'NOMBREPROVEEDOR', 'MONTO', 'TIPO']]
-        galac_headers = ['Fecha', 'Comprobante', 'No Documento', 'Rif', 'Nombre Proveedor', 'Monto']
-        
-        for tipo in ['IVA', 'ISLR', 'MUNICIPAL']:
-            df_tipo = df_galac_no_cp_final[df_galac_no_cp_final['TIPO'] == tipo]
-            if not df_tipo.empty:
-                df_tipo = df_tipo.fillna('')
-                current_row += 1
-                ws2.write(current_row, 0, f'Informe de Retenciones de {tipo}', group_title_format); current_row += 1
-                ws2.write_row(current_row, 0, galac_headers, header_format); current_row += 1
-                for r_idx, row in df_tipo.iterrows():
-                    ws2.write_row(current_row, 0, row.values[:-1]); current_row += 1
-        ws2.set_column('A:A', 12, date_format); ws2.set_column('B:D', 20); ws2.set_column('E:E', 35); ws2.set_column('F:F', 18, money_format)
+        ws2.merge_range('A1:H1', 'Análisis de Retenciones Oficiales (GALAC)', main_title_format)
 
+        # 1. Unificar todos los reportes de GALAC en un solo DataFrame
+        df_iva['Tipo'] = 'IVA'
+        df_islr['Tipo'] = 'ISLR'
+        df_municipal['Tipo'] = 'Municipal'
+        
+        df_galac_unificado = pd.concat([df_iva, df_islr, df_municipal], ignore_index=True)
+        # Aseguramos que todas las columnas necesarias para el merge existan
+        for col in ['RIF_norm', 'Comprobante_norm', 'Factura_norm']:
+            if col not in df_galac_unificado.columns: df_galac_unificado[col] = ''
+        
+        # 2. Hacer un "left merge" desde GALAC hacia los resultados de CP
+        # Esto nos permite ver qué filas de GALAC encontraron una correspondencia en CP
+        df_merged_galac = pd.merge(
+            df_galac_unificado,
+            df_cp_results[['RIF_norm', 'Comprobante_norm', 'Factura_norm', 'Cp Vs Galac', 'Validacion CG']],
+            on=['RIF_norm', 'Comprobante_norm', 'Factura_norm'],
+            how='left'
+        )
+
+        # 3. Crear los tres grupos principales
+        cond_exitosa_galac = (df_merged_galac['Cp Vs Galac'] == 'Sí') & (df_merged_galac['Validacion CG'] == 'Conciliado en CG')
+        cond_no_encontrada_en_cp = df_merged_galac['Cp Vs Galac'].isna()
+
+        df_exitosos_galac = df_merged_galac[cond_exitosa_galac].copy()
+        df_no_encontrados_galac = df_merged_galac[cond_no_encontrada_en_cp].copy()
+        
+        indices_a_excluir = df_exitosos_galac.index.union(df_no_encontrados_galac.index)
+        df_incidencias_galac = df_merged_galac.drop(indices_a_excluir)
+        # Creamos la columna de error combinando los resultados
+        df_incidencias_galac['Detalle del Error'] = df_incidencias_galac['Cp Vs Galac'].fillna('') + " | " + df_incidencias_galac['Validacion CG'].fillna('')
+
+        # 4. Función Auxiliar para escribir los grupos en el Excel
+        def escribir_grupo_galac(ws, title, df_grupo, headers, start_row):
+            ws.write(start_row, 0, title, group_title_format)
+            start_row += 1
+            for tipo in ['IVA', 'ISLR', 'Municipal']:
+                df_subgrupo = df_grupo[df_grupo['Tipo'] == tipo]
+                if not df_subgrupo.empty:
+                    ws.write(start_row, 1, f"Retenciones de {tipo}", group_title_format)
+                    start_row += 1
+                    ws.write_row(start_row, 0, headers, header_format)
+                    start_row += 1
+                    for index, row in df_subgrupo.iterrows():
+                        # Aseguramos que las columnas existan antes de intentar acceder a ellas
+                        fecha = row.get('Fecha', '')
+                        comprobante = row.get('Comprobante', '')
+                        factura = row.get('Factura', '')
+                        rif = row.get('RIF', '')
+                        proveedor = row.get('Nombre Proveedor', '')
+                        monto = row.get('Monto', 0)
+                        error = row.get('Detalle del Error', '')
+                        
+                        data_to_write = [fecha, comprobante, factura, rif, proveedor, monto]
+                        if 'Detalle del Error' in headers: data_to_write.append(error)
+                        
+                        ws.write_row(start_row, 0, data_to_write)
+                        start_row += 1
+                    start_row += 1
+            return start_row
+
+        # 5. Escribir los grupos en la hoja
+        current_row = 2
+        headers_incidencias = ['Fecha', 'Comprobante', 'Nro Documento', 'RIF', 'Nombre Proveedor', 'Monto', 'Detalle del Error']
+        headers_general = ['Fecha', 'Comprobante', 'Nro Documento', 'RIF', 'Nombre Proveedor', 'Monto']
+
+        current_row = escribir_grupo_galac(ws2, "A. Incidencias de CP Reflejadas en GALAC", df_incidencias_galac, headers_incidencias, current_row)
+        current_row += 2
+        current_row = escribir_grupo_galac(ws2, "B. Retenciones en GALAC no encontradas en Relacion de CP", df_no_encontrados_galac, headers_general, current_row)
+        current_row += 2
+        current_row = escribir_grupo_galac(ws2, "C. Retenciones Conciliadas Correctamente", df_exitosos_galac, headers_general, current_row)
+        
+        # Formato de columnas para la Hoja 2
+        ws2.set_column('A:A', 12, date_format)
+        ws2.set_column('B:D', 20, center_text_format)
+        ws2.set_column('E:E', 35)
+        ws2.set_column('F:F', 18, money_format)
+        ws2.set_column('G:G', 50, long_text_format) # Columna de errores
+
+
+        # --- HOJA 2: Análisis GALAC ---
         ws3 = workbook.add_worksheet('Diario CG')
         ws3.hide_gridlines(2)
         ws3.merge_range('A1:I1', 'Asientos con Errores de Conciliación', main_title_format)
