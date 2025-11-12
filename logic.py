@@ -866,33 +866,15 @@ def preparar_df_iva(file_iva):
 
 def preparar_df_municipal(file_path, log_messages):
     """
-    (Versión de Diagnóstico Temporal) Este código no procesará los datos,
-    solo imprimirá en el log los nombres de las columnas y las primeras filas
-    del archivo Municipal para que podamos ver exactamente lo que Pandas está leyendo.
+    (Versión de Prueba Definitiva) Su único propósito es forzar un error
+    para confirmar que esta función se está ejecutando.
     """
-    log_messages.append("--- INICIANDO DIAGNÓSTICO DEL ARCHIVO MUNICIPAL ---")
-    try:
-        # Leemos el archivo exactamente como lo hace la lógica original
-        df = pd.read_excel(file_path, header=8, dtype=str)
-        
-        # 1. Imprimimos las columnas detectadas para ver sus nombres exactos
-        log_messages.append("Columnas detectadas en Municipal (rodeadas por '|'):")
-        for col in df.columns:
-            log_messages.append(f"|{col}|")
-            
-        # 2. Imprimimos las primeras 5 filas del DataFrame tal como se leyó
-        log_messages.append("--- Muestra de datos crudos del archivo Municipal (primeras 5 filas): ---")
-        log_messages.append(df.head().to_string())
-        
-        log_messages.append("--- FIN DEL DIAGNÓSTICO ---")
-
-        # El resto del código de procesamiento se mantiene para que el script no se detenga.
-        df.rename(columns={'Número Rif': 'RIF', 'Número de Factura': 'Factura', 'Valor': 'Monto'}, inplace=True)
-        df['RIF_norm'] = df['RIF'].apply(_normalizar_rif)
-        df['Factura_norm'] = df['Factura'].apply(_normalizar_numerico)
-        df['Monto'] = pd.to_numeric(df['Monto'], errors='coerce').fillna(0)
-        df['Comprobante_norm'] = ''
-        return df
+    # Esta línea detendrá la ejecución del script y mostrará un error
+    # si la función es llamada correctamente.
+    raise Exception("DIAGNÓSTICO FORZADO: La función preparar_df_municipal SÍ se está ejecutando.")
+    
+    # El código de abajo nunca se alcanzará si la prueba funciona.
+    return pd.DataFrame()
 
     except Exception as e:
         log_messages.append(f"❌ ERROR CRÍTICO DURANTE DIAGNÓSTICO MUNICIPAL: {e}")
