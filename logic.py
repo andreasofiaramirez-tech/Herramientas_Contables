@@ -877,46 +877,58 @@ def preparar_df_municipal(file_path):
 
 def preparar_df_islr(file_path):
     """
-    (Versión Definitiva y Robusta) Carga y prepara el archivo de ISLR,
-    buscando dinámicamente la columna del RIF y la Factura por sus nombres.
+    (Versión de Diagnóstico Temporal) Este código no procesará los datos,
+    solo imprimirá los nombres de las columnas del archivo ISLR para que
+    podamos ver exactamente lo que Pandas está leyendo.
     """
-    df = pd.read_excel(file_path, header=8, dtype=str)
-    
-    # --- INICIO DE LA LÓGICA DE BÚSQUEDA DE COLUMNA MEJORADA ---
-    
-    # 1. Buscar la columna del RIF usando una lista de posibles nombres
-    nombres_posibles_rif = ['R.I.F Proveedor', 'Rif Prov.', 'RIF', 'R.I.F.']
-    columna_rif_encontrada = None
-    for col in df.columns:
-        if col.strip() in nombres_posibles_rif:
-            columna_rif_encontrada = col
-            break # Detenerse tan pronto como se encuentre una coincidencia
+    print("\n--- INICIANDO DIAGNÓSTICO DEL ARCHIVO ISLR ---")
+    try:
+        # Leemos el archivo exactamente como lo hace la lógica original
+        df = pd.read_excel(file_path, header=8, dtype=str)
+        
+        # ¡AQUÍ ESTÁ LA CLAVE DEL DIAGNÓSTICO!
+        # Vamos a imprimir cada nombre de columna que Pandas ha leído,
+        # rodeado de tuberías (|) para que podamos ver cualquier espacio oculto.
+        print("Columnas detectadas en el archivo de ISLR:")
+        for col in df.columns:
+            print(f"|{col}|")
+            
+        print("--- FIN DEL DIAGNÓSTICO ---")
+        
+        # El resto del código se incluye para que el script no se detenga,
+        # aunque sabemos que probablemente fallará aquí, lo cual está bien por ahora.
+        
+        nombres_posibles_rif = ['R.I.F Proveedor', 'Rif Prov.', 'RIF', 'R.I.F.']
+        columna_rif_encontrada = None
+        for col in df.columns:
+            if col.strip() in nombres_posibles_rif:
+                columna_rif_encontrada = col
+                break
 
-    if columna_rif_encontrada:
-        df.rename(columns={columna_rif_encontrada: 'RIF'}, inplace=True)
-    else:
-        # Si no encontramos la columna, no podemos continuar.
-        # En el futuro se podría lanzar un error más explícito.
-        print("Advertencia: No se encontró una columna de RIF de proveedor en el archivo de ISLR.")
-        df['RIF'] = '' # Se crea una columna vacía para evitar que el script falle
+        if columna_rif_encontrada:
+            print(f"\n¡Éxito! Se encontró la columna de RIF: '{columna_rif_encontrada}'")
+            df.rename(columns={columna_rif_encontrada: 'RIF'}, inplace=True)
+        else:
+            print("\n¡FALLA! No se encontró ninguna columna de RIF coincidente.")
+            df['RIF'] = ''
 
-    # Se mantiene la lógica de renombrar las columnas que sí tienen un encabezado fijo
-    df.rename(columns={
-        'Nº Referencia': 'Comprobante',
-        'Nº Documento': 'Factura', # El número de factura parece ser 'Nº Documento'
-        'Monto Retenido': 'Monto'
-    }, inplace=True)
-    
-    # --- FIN DE LA LÓGICA MEJORADA ---
-    
-    # 2. Normalizar todos los datos como lo hemos hecho con los otros archivos
-    # Esta parte no cambia y funcionará correctamente una vez que los datos de 'RIF' sean los correctos.
-    df['RIF_norm'] = df['RIF'].apply(_normalizar_rif)
-    df['Comprobante_norm'] = df['Comprobante'].apply(_normalizar_numerico)
-    df['Factura_norm'] = df['Factura'].apply(_normalizar_numerico)
-    df['Monto'] = pd.to_numeric(df['Monto'], errors='coerce').fillna(0)
-    
-    return df
+        df.rename(columns={
+            'Nº Referencia': 'Comprobante',
+            'Nº Documento': 'Factura',
+            'Monto Retenido': 'Monto'
+        }, inplace=True)
+        
+        df['RIF_norm'] = df['RIF'].apply(_normalizar_rif)
+        df['Comprobante_norm'] = df['Comprobante'].apply(_normalizar_numerico)
+        df['Factura_norm'] = df['Factura'].apply(_normalizar_numerico)
+        df['Monto'] = pd.to_numeric(df['Monto'], errors='coerce').fillna(0)
+        
+        return df
+
+    except Exception as e:
+        print(f"ERROR DURANTE EL DIAGNÓSTICO: {e}")
+        # Devolvemos un DataFrame vacío para evitar que el script se caiga
+        return pd.DataFrame()
     
 # --- NUEVAS FUNCIONES DE LÓGICA DE CONCILIACIÓN ---
 
