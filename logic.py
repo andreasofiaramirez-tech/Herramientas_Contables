@@ -1095,59 +1095,74 @@ def _conciliar_municipal(cp_row, df_municipal):
         
 def _traducir_resultados_para_reporte(row, asientos_en_cg_set, df_cg):
     """
-    (Versión Final con Validación Completa de CG)
-    - Valida si el asiento de CP existe en CG.
-    - Si existe, valida que el monto de CP coincida con la suma de los créditos en CG.
+    (Versión Final con Validación Completa y Unificada de CG)
+    - Unifica los resultados de CG en una sola columna.
+    - Valida la cuenta contable según el subtipo de retención.
+    - Valida el monto contra DÉBITO o CRÉDITO (para NC).
+    - Acumula y reporta todos los errores encontrados.
     """
-    estado = row['Estado_Conciliacion']
-    detalle = row['Detalle']
+    # El resultado de CP vs GALAC no cambia
+    estado_galac = row['Estado_Conciliacion']
+    detalle_galac = row['Detalle']
+    if estado_galac == 'Anulado': cp_vs_galac = 'Anulado'
+    elif estado_galac == 'Conciliado': cp_vs_galac = 'Sí'
+    else: cp_vs_galac = detalle_galac
     
-    # --- Lógica de CP vs GALAC (sin cambios) ---
-    if estado == 'Anulado':
-        cp_vs_galac = 'Anulado'
-    elif estado == 'Conciliado':
-        cp_vs_galac = 'Sí'
-    else:
-        cp_vs_galac = detalle
-    
-    # --- Lógica de Validación de CG (Mejorada) ---
+    # --- INICIO DE LA NUEVA LÓGICA DE VALIDACIÓN DE CG ---
     asiento_cp = row.get('Asiento', None)
-    monto_cp = row.get('Monto', 0)
-    asiento_en_cg = 'No Aplica'
-    monto_coincide_cg = 'No Aplica' # Valor por defecto
     
-    if asiento_cp and not df_cg.empty:
-        # Primero, verificamos si el asiento existe (usando el 'set' rápido)
-        if asiento_cp in asientos_en_cg_set:
-            asiento_en_cg = 'Asiento encontrado en CG'
-            
-            # --- ¡NUEVA LÓGICA DE COMPARACIÓN DE MONTO! ---
-            try:
-                # Filtramos el DataFrame de CG para obtener todas las filas de este asiento
-                transacciones_asiento = df_cg[df_cg['ASIENTO'] == asiento_cp]
-                
-                # Convertimos la columna de crédito a numérico, los errores se convierten en 0
-                creditos_cg = pd.to_numeric(transacciones_asiento['CRÉDITO VES'], errors='coerce').fillna(0)
-                
-                # Sumamos todos los créditos para ese asiento
-                suma_creditos_cg = creditos_cg.sum()
-                
-                # Comparamos el monto de CP con la suma de los créditos usando una tolerancia
-                if np.isclose(monto_cp, suma_creditos_cg):
-                    monto_coincide_cg = 'Sí'
-                else:
-                    monto_coincide_cg = 'No'
-                    
-            except Exception as e:
-                # Si algo falla (ej. la columna 'CRÉDITO VES' no existe), lo dejamos en 'No Aplica'
-                monto_coincide_cg = 'Error al procesar CG'
-                
-        else:
-            asiento_en_cg = 'Asiento no encontrado en CG'
-            # Si el asiento no existe, la comparación de monto no aplica
-            monto_coincide_cg = 'No Aplica'
-            
-    return cp_vs_galac, asiento_en_cg, monto_coincide_cg
+    # Si no hay asiento o no hay archivo de CG, no se puede validar.
+    if not asiento_cp or df_cg.empty:
+        return cp_vs_galac, 'No Aplica' # Solo devolvemos 2 valores ahora
+
+    # 1. VERIFICAR EXISTENCIA DEL ASIENTO
+    if asiento_cp not in asientos_en_cg_set:
+        return cp_vs_galac, 'Asiento no encontrado en CG'
+
+    # Si el asiento existe, procedemos con las validaciones detalladas
+    errores_cg = []
+    transacciones_asiento = df_cg[df_cg['ASIENTO'] == asiento_cp]
+    
+    # 2. VALIDAR CUENTA CONTABLE
+    mapa_cuentas = {
+        'IVA': '2.1.3.05.1.001',
+        'ISLR': '2.1.3.02.1.002',
+        'MUNICIPAL': '2.1.3.02.4.002'
+    }
+    subtipo_cp = str(row.get('Subtipo', '')).upper()
+    cuenta_esperada = None
+    for key, value in mapa_cuentas.items():
+        if key in subtipo_cp:
+            cuenta_esperada = value
+            break
+    
+    if cuenta_esperada and 'CUENTACONTABLE' in transacciones_asiento.columns:
+        cuentas_en_asiento = set(transacciones_asiento['CUENTACONTABLE'].str.strip())
+        if cuenta_esperada not in cuentas_en_asiento:
+            errores_cg.append('Cuenta Contable no coincide con Tipo de retencion')
+
+    # 3. VALIDAR MONTO (LÓGICA DÉBITO/CRÉDITO)
+    monto_cp = row.get('Monto', 0)
+    aplicacion_text = str(row.get('Aplicacion', '')).upper()
+    es_nota_credito = 'NC' in aplicacion_text or 'NOTA CREDITO' in aplicacion_text
+    
+    columna_monto_cg = 'CREDITO_NORM' if es_nota_credito else 'DEBITO_NORM'
+    
+    if columna_monto_cg in transacciones_asiento.columns:
+        montos_cg = pd.to_numeric(transacciones_asiento[columna_monto_cg], errors='coerce').fillna(0)
+        suma_monto_cg = montos_cg.sum()
+        if not np.isclose(monto_cp, suma_monto_cg):
+            errores_cg.append(f'Monto no coincide (CP: {monto_cp:.2f}, CG: {suma_monto_cg:.2f})')
+    else:
+        errores_cg.append(f'Columna de monto ({columna_monto_cg}) no encontrada en CG')
+
+    # 4. GENERAR RESULTADO FINAL
+    if not errores_cg:
+        resultado_final_cg = 'Conciliado en CG'
+    else:
+        resultado_final_cg = ' | '.join(errores_cg)
+        
+    return cp_vs_galac, resultado_final_cg
 
 def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun, log_messages):
     """
@@ -1163,13 +1178,34 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         df_islr = preparar_df_islr(file_islr)
         df_municipal = preparar_df_municipal(file_mun)
         
-        # --- 2. PREPARACIÓN DE DATOS DE CONTABILIDAD GENERAL (CG) ---
+        # --- 2. PREPARACIÓN DE DATOS DE CONTABILIDAD GENERAL (CG) - VERSIÓN MEJORADA ---
         if file_cg:
             df_cg_dummy = pd.read_excel(file_cg, header=0, dtype=str)
+    
+            # Estandarizamos TODOS los nombres de las columnas (a mayúsculas y sin espacios)
             df_cg_dummy.columns = [col.strip().upper().replace(' ', '') for col in df_cg_dummy.columns]
 
+            # --- Búsqueda y Estandarización de Columnas Críticas (Débito/Crédito) ---
+            # Creamos nombres "canónicos" que usaremos en el resto del código.
+    
+            # Posibles nombres para la columna de DÉBITO
+            debit_names = ['DEBITOVES', 'DEBITO', 'DEBEVESDÉBITO', 'MONEDALOCAL']
+            # Posibles nombres para la columna de CRÉDITO
+            credit_names = ['CREDITOVES', 'CREDITO', 'CRÉDITO', 'CREDITOVESMCREDITOLOCAL']
+
+            # Buscamos y renombramos la columna de DÉBITO
+            for col_name in df_cg_dummy.columns:
+                if col_name in debit_names:
+                    df_cg_dummy.rename(columns={col_name: 'DEBITO_NORM'}, inplace=True)
+                    break # Detenerse al encontrar la primera coincidencia
             
-            # Verificamos si la columna 'Asiento' existe antes de procesarla
+            # Buscamos y renombramos la columna de CRÉDITO
+            for col_name in df_cg_dummy.columns:
+                if col_name in credit_names:
+                    df_cg_dummy.rename(columns={col_name: 'CREDITO_NORM'}, inplace=True)
+                    break
+            
+            # Verificamos si la columna 'ASIENTO' existe antes de procesarla
             if 'ASIENTO' in df_cg_dummy.columns:
                 asientos_en_cg_set = set(df_cg_dummy['ASIENTO'].dropna().unique())
             else:
@@ -1243,7 +1279,7 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         df_cp_temp = pd.concat([df_cp.reset_index(drop=True), df_resultados], axis=1)
 
         # Llamada a la función "traductora" usando una lambda para pasar el conjunto de asientos de CG
-        df_cp_temp[['CP_Vs_Galac', 'Asiento_en_CG', 'Monto_coincide_CG']] = df_cp_temp.apply(
+        df_cp_temp[['CP_Vs_Galac', 'Validacion_CG']] = df_cp_temp.apply(
             lambda row: _traducir_resultados_para_reporte(row, asientos_en_cg_set, df_cg_dummy), 
             axis=1, 
             result_type='expand'
