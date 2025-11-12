@@ -875,7 +875,7 @@ def preparar_df_municipal(file_path):
     df['Comprobante_norm'] = ''
     return df
 
-ef preparar_df_islr(file_path, log_messages):
+def preparar_df_islr(file_path, log_messages):
     """
     (Versión de Diagnóstico para UI) Este código inyecta los nombres de las
     columnas del archivo ISLR directamente en el log de la interfaz de usuario.
