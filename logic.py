@@ -864,16 +864,39 @@ def preparar_df_iva(file_iva):
     df['Monto'] = df['Monto'].str.replace(',', '.', regex=False).astype(float)
     return df
 
-def preparar_df_municipal(file_path):
-    """Carga y prepara el archivo de Retenciones Municipales."""
-    df = pd.read_excel(file_path, header=8, dtype=str)
-    df.rename(columns={'Número Rif': 'RIF', 'Número de Factura': 'Factura', 'Valor': 'Monto'}, inplace=True)
-    df['RIF_norm'] = df['RIF'].apply(_normalizar_rif)
-    df['Factura_norm'] = df['Factura'].apply(_normalizar_numerico)
-    df['Monto'] = pd.to_numeric(df['Monto'], errors='coerce').fillna(0)
-    # Añadimos una columna de Comprobante vacía para consistencia
-    df['Comprobante_norm'] = ''
-    return df
+def preparar_df_municipal(file_path, log_messages):
+    """
+    (Versión de Diagnóstico Temporal) Este código no procesará los datos,
+    solo imprimirá en el log los nombres de las columnas y las primeras filas
+    del archivo Municipal para que podamos ver exactamente lo que Pandas está leyendo.
+    """
+    log_messages.append("--- INICIANDO DIAGNÓSTICO DEL ARCHIVO MUNICIPAL ---")
+    try:
+        # Leemos el archivo exactamente como lo hace la lógica original
+        df = pd.read_excel(file_path, header=8, dtype=str)
+        
+        # 1. Imprimimos las columnas detectadas para ver sus nombres exactos
+        log_messages.append("Columnas detectadas en Municipal (rodeadas por '|'):")
+        for col in df.columns:
+            log_messages.append(f"|{col}|")
+            
+        # 2. Imprimimos las primeras 5 filas del DataFrame tal como se leyó
+        log_messages.append("--- Muestra de datos crudos del archivo Municipal (primeras 5 filas): ---")
+        log_messages.append(df.head().to_string())
+        
+        log_messages.append("--- FIN DEL DIAGNÓSTICO ---")
+
+        # El resto del código de procesamiento se mantiene para que el script no se detenga.
+        df.rename(columns={'Número Rif': 'RIF', 'Número de Factura': 'Factura', 'Valor': 'Monto'}, inplace=True)
+        df['RIF_norm'] = df['RIF'].apply(_normalizar_rif)
+        df['Factura_norm'] = df['Factura'].apply(_normalizar_numerico)
+        df['Monto'] = pd.to_numeric(df['Monto'], errors='coerce').fillna(0)
+        df['Comprobante_norm'] = ''
+        return df
+
+    except Exception as e:
+        log_messages.append(f"❌ ERROR CRÍTICO DURANTE DIAGNÓSTICO MUNICIPAL: {e}")
+        return pd.DataFrame()
 
 def preparar_df_islr(file_path):
     """
@@ -1119,7 +1142,7 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         df_cp = preparar_df_cp(file_cp)
         df_iva = preparar_df_iva(file_iva)
         df_islr = preparar_df_islr(file_islr)
-        df_municipal = preparar_df_municipal(file_mun)
+        df_municipal = preparar_df_municipal(file_mun, log_messages)
         
         if file_cg:
             df_cg_dummy = pd.read_excel(file_cg, header=0, dtype=str)
