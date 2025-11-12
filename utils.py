@@ -310,13 +310,13 @@ def generar_csv_saldos_abiertos(df_saldos_abiertos):
 
 def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_map):
     """
-    Genera el archivo Excel de reporte final, asegurando la correcta alineación de datos,
-    el ancho de columnas y la altura de filas estándar.
+    Genera el archivo Excel de reporte final, utilizando la nueva columna unificada
+    'Validacion CG' y la lógica de clasificación de incidencias/éxitos actualizada.
     """
     output_buffer = BytesIO()
     with pd.ExcelWriter(output_buffer, engine='xlsxwriter') as writer:
         workbook = writer.book
-        # --- Formatos ---
+        # --- Formatos (sin cambios) ---
         main_title_format = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'font_size': 14, 'locked': False})
         group_title_format = workbook.add_format({'bold': True, 'italic': True, 'font_size': 12, 'locked': False})
         header_format = workbook.add_format({'bold': True, 'text_wrap': True, 'valign': 'top', 'fg_color': '#D9EAD3', 'border': 1, 'align': 'center', 'locked': False})
@@ -329,7 +329,7 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
         ws1 = workbook.add_worksheet('Relacion CP')
         ws1.hide_gridlines(2)
         
-        # --- NUEVO ORDEN DE COLUMNAS (UNIFICADO) ---
+        # --- 1. SE ACTUALIZA LA PLANTILLA DE COLUMNAS ---
         final_order_cp = [
             'Asiento', 'Tipo', 'Fecha', 'Numero', 'Aplicacion', 'Subtipo', 'Monto', 
             'Cp Vs Galac', 'Validacion CG', 'RIF', 'Nombre Proveedor'
@@ -337,18 +337,20 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
         
         df_reporte_cp = df_cp_results.copy()
         
-        # --- NUEVO RENOMBRADO DE COLUMNAS ---
+        # --- 2. SE ACTUALIZA EL RENOMBRADO DE COLUMNAS ---
         df_reporte_cp.rename(columns={
             'Comprobante': 'Numero', 
             'CP_Vs_Galac': 'Cp Vs Galac', 
-            'Validacion_CG': 'Validacion CG' # Renombramos la nueva columna
+            'Validacion_CG': 'Validacion CG' # Se alinea con el nuevo nombre de logic.py
         }, inplace=True)
         
         if 'Fecha' in df_reporte_cp.columns: df_reporte_cp['Fecha'] = pd.to_datetime(df_reporte_cp['Fecha'], errors='coerce')
+        
+        # Este bucle ahora funcionará correctamente con la nueva lista de columnas
         for col in final_order_cp:
             if col not in df_reporte_cp.columns: df_reporte_cp[col] = ''
         
-        # --- NUEVA LÓGICA DE FILTRADO CON CRITERIO DE ÉXITO UNIFICADO ---
+        # --- 3. SE ACTUALIZA LA LÓGICA DE FILTRADO ---
         condicion_exitosa = (
             (df_reporte_cp['Cp Vs Galac'] == 'Sí') &
             (df_reporte_cp['Validacion CG'] == 'Conciliado en CG')
@@ -361,33 +363,31 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
         indices_exitosos_y_anulados = df_exitosos.index.union(df_anulados.index)
         df_incidencias = df_reporte_cp.drop(indices_exitosos_y_anulados)
         
-        ws1.merge_range('A1:K1', 'Relacion de Retenciones CP', main_title_format) # Ajustado a 11 columnas
+        # Se ajusta el rango del título a 11 columnas (A hasta K)
+        ws1.merge_range('A1:K1', 'Relacion de Retenciones CP', main_title_format)
         current_row = 2
         
-        # --- Escritura de Incidencias ---
+        # --- Escritura de Incidencias (sin cambios en la lógica interna) ---
         ws1.write(current_row, 0, 'Incidencias Encontradas', group_title_format); current_row += 1
         ws1.write_row(current_row, 0, final_order_cp, header_format); current_row += 1
         if not df_incidencias.empty:
-            # Bucle externo: itera sobre cada REGISTRO
             for index, row in df_incidencias.iterrows():
-                # Bucle interno: itera sobre cada COLUMNA DEFINIDA
                 for col_idx, col_name in enumerate(final_order_cp):
                     value = row[col_name]
-                    # Aplicar formato según el nombre de la columna
+                    # Aplicamos formato especial a la nueva columna 'Validacion CG'
                     if col_name == 'Fecha' and pd.notna(value):
                         ws1.write_datetime(current_row, col_idx, value, date_format)
                     elif col_name == 'Monto':
                         ws1.write_number(current_row, col_idx, value, money_format)
-                    elif col_name == 'Cp Vs Galac' and pd.notna(value):
+                    elif col_name in ['Cp Vs Galac', 'Validacion CG'] and pd.notna(value):
                         ws1.write(current_row, col_idx, value, long_text_format)
                     elif pd.notna(value):
                         ws1.write(current_row, col_idx, value, center_text_format)
-                # Incrementar la fila DESPUÉS de escribir todas las columnas del registro
                 current_row += 1
         
         current_row += 1
         
-        # --- Escritura de Conciliaciones Exitosas ---
+        # --- Escritura de Conciliaciones Exitosas (sin cambios en la lógica interna) ---
         ws1.write(current_row, 0, 'Conciliacion Exitosa', group_title_format); current_row += 1
         ws1.write_row(current_row, 0, final_order_cp, header_format); current_row += 1
         if not df_exitosos.empty:
@@ -398,7 +398,7 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
                         ws1.write_datetime(current_row, col_idx, value, date_format)
                     elif col_name == 'Monto':
                         ws1.write_number(current_row, col_idx, value, money_format)
-                    elif col_name == 'Cp Vs Galac' and pd.notna(value):
+                    elif col_name in ['Cp Vs Galac', 'Validacion CG'] and pd.notna(value):
                          ws1.write(current_row, col_idx, value, long_text_format)
                     elif pd.notna(value):
                         ws1.write(current_row, col_idx, value, center_text_format)
