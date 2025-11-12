@@ -877,13 +877,14 @@ def preparar_df_municipal(file_path):
 
 def preparar_df_islr(file_path):
     """
-    (Versión Definitiva con Extracción Posicional) Carga y prepara el archivo de ISLR.
-    - Busca dinámicamente la columna del RIF por su nombre.
-    - Extrae el número de Factura de la columna sin nombre a la derecha de 'Nº Documento'.
+    (Versión Definitiva con Agrupación) Carga y prepara el archivo de ISLR.
+    - Extrae robustamente el RIF y la Factura.
+    - Agrupa los registros por RIF, Comprobante y Factura, sumando los montos
+      para manejar casos de múltiples retenciones en un solo documento.
     """
     df = pd.read_excel(file_path, header=8, dtype=str)
     
-    # 1. Búsqueda robusta de la columna RIF (esto ya funciona y se mantiene)
+    # --- 1. EXTRACCIÓN DE DATOS (Sin cambios) ---
     nombres_posibles_rif = ['R.I.F.Proveedor', 'R.I.F Proveedor', 'Rif Prov.', 'RIF', 'R.I.F.']
     columna_rif_encontrada = None
     for col in df.columns:
@@ -895,33 +896,38 @@ def preparar_df_islr(file_path):
     else:
         df['RIF'] = ''
 
-    # 2. Extracción posicional ROBUSTA de la Factura
     try:
-        # Encontrar la posición (índice) de nuestra columna de anclaje
         col_anclaje_idx = df.columns.get_loc('Nº Documento')
-        # La factura está una columna a la derecha de la columna de anclaje
         col_factura_idx = col_anclaje_idx + 1
-        # Extraer los datos usando la posición y asignarlos a una nueva columna 'Factura'
         df['Factura'] = df.iloc[:, col_factura_idx]
     except KeyError:
-        # Si 'Nº Documento' no existe, no podemos encontrar la factura.
-        print("Advertencia: No se encontró la columna 'Nº Documento' para localizar la factura en ISLR.")
         df['Factura'] = ''
 
-    # 3. Renombrar las otras columnas fijas
     df.rename(columns={
         'Nº Referencia': 'Comprobante',
         'Monto Retenido': 'Monto'
     }, inplace=True)
 
-    # 4. Normalizar TODOS los datos
+    # --- 2. NORMALIZACIÓN DE DATOS (Sin cambios) ---
     df['RIF_norm'] = df['RIF'].apply(_normalizar_rif)
     df['Comprobante_norm'] = df['Comprobante'].apply(_normalizar_numerico)
-    # ¡Crucial! Aplicamos la normalización a la columna de Factura que acabamos de extraer
     df['Factura_norm'] = df['Factura'].apply(_normalizar_numerico)
     df['Monto'] = pd.to_numeric(df['Monto'], errors='coerce').fillna(0)
 
-    return df
+    # --- 3. AGREGACIÓN Y SUMA (¡NUEVA LÓGICA!) ---
+    # Definimos las columnas por las que un registro es único
+    keys_to_group = ['RIF_norm', 'Comprobante_norm', 'Factura_norm']
+    
+    # Agrupamos por esas claves y sumamos la columna 'Monto'
+    # .agg() nos permite sumar y darle un nombre a la nueva columna
+    df_agrupado = df.groupby(keys_to_group, as_index=False).agg(Monto_sum=('Monto', 'sum'))
+    
+    # Renombramos la columna de la suma de vuelta a 'Monto' para que la función
+    # de conciliación la pueda usar sin necesidad de cambios.
+    df_agrupado.rename(columns={'Monto_sum': 'Monto'}, inplace=True)
+    
+    # Retornamos el DataFrame ya agrupado y listo para la conciliación
+    return df_agrupado
     
 # --- NUEVAS FUNCIONES DE LÓGICA DE CONCILIACIÓN ---
 
