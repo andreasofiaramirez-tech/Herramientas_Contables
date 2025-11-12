@@ -877,14 +877,12 @@ def preparar_df_municipal(file_path):
 
 def preparar_df_islr(file_path):
     """
-    (Versión Definitiva con Agrupación y Preservación de Columnas)
-    - Agrupa los registros y suma los montos.
-    - Preserva las columnas de texto originales ('Comprobante', 'Factura', etc.)
-      para que estén disponibles en la lógica de conciliación y errores.
+    (Versión Detallada) Carga y prepara el archivo de ISLR sin agrupar,
+    para permitir la validación de facturas individuales dentro de un mismo comprobante.
     """
     df = pd.read_excel(file_path, header=8, dtype=str)
     
-    # --- 1. EXTRACCIÓN DE DATOS (Sin cambios) ---
+    # 1. Extracción de datos (sin cambios)
     nombres_posibles_rif = ['R.I.F.Proveedor', 'R.I.F Proveedor', 'Rif Prov.', 'RIF', 'R.I.F.']
     columna_rif_encontrada = None
     for col in df.columns:
@@ -908,28 +906,14 @@ def preparar_df_islr(file_path):
         'Monto Retenido': 'Monto'
     }, inplace=True)
 
-    # --- 2. NORMALIZACIÓN DE DATOS (Sin cambios) ---
+    # 2. Normalización de datos (sin cambios)
     df['RIF_norm'] = df['RIF'].apply(_normalizar_rif)
     df['Comprobante_norm'] = df['Comprobante'].apply(_normalizar_numerico)
     df['Factura_norm'] = df['Factura'].apply(_normalizar_numerico)
     df['Monto'] = pd.to_numeric(df['Monto'], errors='coerce').fillna(0)
 
-    # --- 3. AGREGACIÓN Y SUMA (LÓGICA CORREGIDA) ---
-    # Definimos las columnas por las que un registro es único
-    keys_to_group = ['RIF_norm', 'Comprobante_norm', 'Factura_norm']
-    
-    # Agrupamos por las claves y definimos qué hacer con las otras columnas
-    df_agrupado = df.groupby(keys_to_group, as_index=False).agg(
-        # Sumamos el Monto
-        Monto=('Monto', 'sum'),
-        # Y conservamos el primer valor de las columnas originales que necesitamos
-        Comprobante=('Comprobante', 'first'),
-        Factura=('Factura', 'first'),
-        RIF=('RIF', 'first')
-    )
-    
-    # Retornamos el DataFrame ya agrupado, que ahora contiene todas las columnas necesarias
-    return df_agrupado
+    # NO hay paso de agregación. Retornamos el DataFrame detallado.
+    return df
     
 # --- NUEVAS FUNCIONES DE LÓGICA DE CONCILIACIÓN ---
 
@@ -1005,66 +989,43 @@ def _conciliar_iva(cp_row, df_iva):
 
 def _conciliar_islr(cp_row, df_islr):
     """
-    (Versión Mejorada con Errores Específicos) Lógica de conciliación para ISLR que
-    sugiere comprobantes, maneja Notas de Crédito y reporta errores detallados.
+    (Versión con Lógica de Grupo) Maneja el caso de un comprobante con múltiples facturas.
+    Valida la factura específica de CP y añade un mensaje informativo si existen otras.
     """
     rif_cp = cp_row['RIF_norm']
     comprobante_cp_norm = cp_row['Comprobante_norm']
+    factura_cp_norm = cp_row['Factura_norm']
     
-    # 1. Búsqueda principal por RIF + Comprobante (sin cambios)
-    match_encontrado = df_islr[
+    # --- PASO 1: ENCONTRAR EL GRUPO DEL COMPROBANTE ---
+    comprobante_group = df_islr[
         (df_islr['RIF_norm'] == rif_cp) & 
         (df_islr['Comprobante_norm'] == comprobante_cp_norm)
     ]
     
-    # 2. Si la búsqueda principal no encuentra una coincidencia exacta...
-    if match_encontrado.empty:
-        
-        # Búsqueda secundaria: intentamos encontrar una coincidencia por RIF, Factura y Monto (sin cambios)
-        probable_match = df_islr[
-            (df_islr['RIF_norm'] == rif_cp) &
-            (df_islr['Factura_norm'] == cp_row['Factura_norm']) &
-            (np.isclose(df_islr['Monto'].abs(), abs(cp_row['Monto'])))
-        ]
-        
-        if not probable_match.empty and len(probable_match) == 1:
-            comprobante_sugerido = probable_match.iloc[0]['Comprobante']
-            mensaje_error = (f"Comprobante no coincide. "
-                             f"CP: {cp_row['Comprobante']}, "
-                             f"ISLR sugiere: {comprobante_sugerido}")
-            return 'No Conciliado', mensaje_error
-            
-        # --- INICIO DE LA LÓGICA DE ERROR MEJORADA ---
-        # Si la sugerencia también falla, investigamos más a fondo.
+    # Si el grupo está vacío, significa que el comprobante no existe para ese RIF.
+    if comprobante_group.empty:
+        # Aquí podemos mantener la lógica de error detallado que ya funcionaba bien
+        if rif_cp not in df_islr['RIF_norm'].values:
+            return 'No Conciliado', 'RIF no se encuentra en el reporte de ISLR'
         else:
-            # Buscamos todos los registros que SÍ existen para ese RIF en el reporte de ISLR.
-            registros_del_rif_en_islr = df_islr[df_islr['RIF_norm'] == rif_cp]
-            
-            # Si no hay NINGÚN registro para ese RIF, entonces el RIF es el problema.
-            if registros_del_rif_en_islr.empty:
-                return 'No Conciliado', 'RIF no se encuentra en el reporte de ISLR'
-            
-            # Si hay registros, el RIF es correcto pero el Comprobante es incorrecto.
-            # Le damos al usuario una lista de los comprobantes válidos.
-            else:
-                comprobantes_disponibles_en_islr = registros_del_rif_en_islr['Comprobante'].unique().tolist()
-                # Limpiamos posibles valores nulos o vacíos antes de mostrarlos
-                comprobantes_disponibles_en_islr = [str(c) for c in comprobantes_disponibles_en_islr if pd.notna(c) and str(c).strip()]
-                comprobantes_str = ", ".join(comprobantes_disponibles_en_islr)
-                
-                mensaje_error = (f"El Comprobante de CP ({cp_row['Comprobante']}) no se encontró. "
-                                 f"Para ese RIF, ISLR tiene estos: [{comprobantes_str}]")
-                return 'No Conciliado', mensaje_error
-        # --- FIN DE LA LÓGICA DE ERROR MEJORADA ---
+            return 'No Conciliado', f"Comprobante de CP ({cp_row['Comprobante']}) no encontrado."
 
-    # 3. Si se encontró la coincidencia, procedemos a las validaciones (sin cambios)
-    match_row = match_encontrado.iloc[0]
+    # --- PASO 2: BUSCAR LA FACTURA ESPECÍFICA DENTRO DEL GRUPO ---
+    specific_invoice_match = comprobante_group[comprobante_group['Factura_norm'] == factura_cp_norm]
+    
+    # Si, después de encontrar el comprobante, no encontramos nuestra factura específica...
+    if specific_invoice_match.empty:
+        all_invoices_in_group = comprobante_group['Factura'].unique().tolist()
+        msg = (f"Factura de CP ({cp_row['Factura']}) no encontrada para el Comprobante {cp_row['Comprobante']}. "
+               f"Este comprobante en GALAC contiene estas facturas: {all_invoices_in_group}")
+        return 'No Conciliado', msg
+
+    # --- PASO 3: VALIDAR Y CONTEXTUALIZAR ---
+    # Si llegamos aquí, encontramos la factura. Procedemos a validar el monto.
+    match_row = specific_invoice_match.iloc[0]
     errores = []
     
-    if cp_row['Factura_norm'] != match_row['Factura_norm']:
-        msg = f"Numero de factura no coincide. CP: {cp_row['Factura_norm']}, ISLR: {match_row['Factura_norm']}"
-        errores.append(msg)
-    
+    # Validación de Monto (usando la lógica de Notas de Crédito que ya teníamos)
     aplicacion_text = str(cp_row.get('Aplicacion', '')).upper()
     is_credit_note = 'NC' in aplicacion_text or 'NOTA CREDITO' in aplicacion_text
 
@@ -1076,9 +1037,14 @@ def _conciliar_islr(cp_row, df_islr):
         if not np.isclose(cp_row['Monto'], match_row['Monto']):
             msg = f"Monto no coincide. CP: {cp_row['Monto']:.2f}, ISLR: {match_row['Monto']:.2f}"
             errores.append(msg)
-            
+    
+    # ¡NUEVO! Añadimos el mensaje informativo si el grupo tiene más de una factura.
+    if len(comprobante_group) > 1:
+        all_invoices_in_group = comprobante_group['Factura'].unique().tolist()
+        info_msg = f"INFO: Comprobante incluye multiples facturas en GALAC: {all_invoices_in_group}"
+        errores.append(info_msg)
+        
     return ('Conciliado', 'OK') if not errores else ('Parcialmente Conciliado', ' | '.join(errores))
-
 def _conciliar_municipal(cp_row, df_municipal):
     """Aplica la lógica de conciliación Municipal para una sola fila de CP."""
     rif_cp = cp_row['RIF_norm']
