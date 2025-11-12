@@ -877,44 +877,50 @@ def preparar_df_municipal(file_path):
 
 def preparar_df_islr(file_path):
     """
-    (Versión Final y Robusta) Carga y prepara el archivo de ISLR,
-    buscando dinámicamente la columna del RIF por su nombre exacto.
+    (Versión Definitiva con Extracción Posicional) Carga y prepara el archivo de ISLR.
+    - Busca dinámicamente la columna del RIF por su nombre.
+    - Extrae el número de Factura de la columna sin nombre a la derecha de 'Nº Documento'.
     """
     df = pd.read_excel(file_path, header=8, dtype=str)
     
-    # --- LÓGICA DE BÚSQUEDA DE COLUMNA CORREGIDA ---
-    
-    # Añadimos el nombre exacto que descubrimos en el diagnóstico a la lista.
+    # 1. Búsqueda robusta de la columna RIF (esto ya funciona y se mantiene)
     nombres_posibles_rif = ['R.I.F.Proveedor', 'R.I.F Proveedor', 'Rif Prov.', 'RIF', 'R.I.F.']
     columna_rif_encontrada = None
-    
     for col in df.columns:
         if col.strip() in nombres_posibles_rif:
             columna_rif_encontrada = col
             break
-
     if columna_rif_encontrada:
         df.rename(columns={columna_rif_encontrada: 'RIF'}, inplace=True)
     else:
-        # Este mensaje ya no debería aparecer, pero lo dejamos como una salvaguarda.
-        print("Advertencia: No se encontró una columna de RIF de proveedor en el archivo de ISLR.")
         df['RIF'] = ''
 
-    # Se mantiene la lógica de renombrar las columnas que sí tienen un encabezado fijo
+    # 2. Extracción posicional ROBUSTA de la Factura
+    try:
+        # Encontrar la posición (índice) de nuestra columna de anclaje
+        col_anclaje_idx = df.columns.get_loc('Nº Documento')
+        # La factura está una columna a la derecha de la columna de anclaje
+        col_factura_idx = col_anclaje_idx + 1
+        # Extraer los datos usando la posición y asignarlos a una nueva columna 'Factura'
+        df['Factura'] = df.iloc[:, col_factura_idx]
+    except KeyError:
+        # Si 'Nº Documento' no existe, no podemos encontrar la factura.
+        print("Advertencia: No se encontró la columna 'Nº Documento' para localizar la factura en ISLR.")
+        df['Factura'] = ''
+
+    # 3. Renombrar las otras columnas fijas
     df.rename(columns={
         'Nº Referencia': 'Comprobante',
-        'Nº Documento': 'Factura',
         'Monto Retenido': 'Monto'
     }, inplace=True)
-    
-    # --- FIN DE LA LÓGICA CORREGIDA ---
-    
-    # La normalización ahora recibirá los datos correctos.
+
+    # 4. Normalizar TODOS los datos
     df['RIF_norm'] = df['RIF'].apply(_normalizar_rif)
     df['Comprobante_norm'] = df['Comprobante'].apply(_normalizar_numerico)
+    # ¡Crucial! Aplicamos la normalización a la columna de Factura que acabamos de extraer
     df['Factura_norm'] = df['Factura'].apply(_normalizar_numerico)
     df['Monto'] = pd.to_numeric(df['Monto'], errors='coerce').fillna(0)
-    
+
     return df
     
 # --- NUEVAS FUNCIONES DE LÓGICA DE CONCILIACIÓN ---
