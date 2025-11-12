@@ -1014,7 +1014,7 @@ def _traducir_resultados_para_reporte(row):
     
     return cp_vs_galac, asiento_en_cg, monto_coincide_cg
 
-ddef run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun, log_messages):
+def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun, log_messages):
     try:
         log_messages.append("--- INICIANDO PROCESO DE CONCILIACIÓN DE RETENCIONES ---")
         df_cp = preparar_df_cp(file_cp)
