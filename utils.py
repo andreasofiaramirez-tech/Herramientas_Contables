@@ -341,9 +341,23 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
         for col in final_order_cp:
             if col not in df_reporte_cp.columns: df_reporte_cp[col] = ''
         
-        df_exitosos = df_reporte_cp[df_reporte_cp['Cp Vs Galac'] == 'Sí']
-        df_anulados = df_reporte_cp[df_reporte_cp['Cp Vs Galac'] == 'Anulado']
-        df_incidencias = df_reporte_cp.drop(df_exitosos.index).drop(df_anulados.index)
+        condicion_exitosa = (
+            (df_reporte_cp['Cp Vs Galac'] == 'Sí') &
+            (df_reporte_cp['Asiento en CG'] == 'Asiento encontrado en CG') &
+            (df_reporte_cp['Monto coincide CG'] == 'Sí')
+        )
+        
+        # Definimos la condición para los registros "Anulados".
+        condicion_anulado = (df_reporte_cp['Cp Vs Galac'] == 'Anulado')
+        
+        # Creamos los DataFrames filtrados.
+        df_exitosos = df_reporte_cp[condicion_exitosa].copy()
+        df_anulados = df_reporte_cp[condicion_anulado].copy()
+        
+        # Las incidencias son TODAS las filas que no son ni exitosas ni anuladas.
+        # Usamos los índices para asegurar que no haya solapamientos.
+        indices_exitosos_y_anulados = df_exitosos.index.union(df_anulados.index)
+        df_incidencias = df_reporte_cp.drop(indices_exitosos_y_anulados)
         
         ws1.merge_range('A1:L1', 'Relacion de Retenciones CP', main_title_format)
         current_row = 2
@@ -369,7 +383,6 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
                 # Incrementar la fila DESPUÉS de escribir todas las columnas del registro
                 current_row += 1
         
-        # (Se repite la misma lógica de bucle corregida para las otras secciones)
         current_row += 1
         
         # --- Escritura de Conciliaciones Exitosas ---
@@ -392,7 +405,6 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
         current_row += 1
 
         # --- Escritura de Anulados ---
-        # (La misma corrección aquí)
         ws1.write(current_row, 0, 'Registros Anulados', group_title_format); current_row += 1
         ws1.write_row(current_row, 0, final_order_cp, header_format); current_row += 1
         if not df_anulados.empty:
