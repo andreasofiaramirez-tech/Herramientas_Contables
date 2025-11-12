@@ -875,54 +875,47 @@ def preparar_df_municipal(file_path):
     df['Comprobante_norm'] = ''
     return df
 
-def preparar_df_islr(file_path, log_messages):
+def preparar_df_islr(file_path):
     """
-    (Versión de Diagnóstico para UI - Corregida) Este código inyecta los nombres de las
-    columnas del archivo ISLR directamente en el log de la interfaz de usuario.
+    (Versión Final y Robusta) Carga y prepara el archivo de ISLR,
+    buscando dinámicamente la columna del RIF por su nombre exacto.
     """
-    log_messages.append("--- INICIANDO DIAGNÓSTICO DEL ARCHIVO ISLR ---")
-    try:
-        df = pd.read_excel(file_path, header=8, dtype=str)
-        
-        # Inyectamos las columnas detectadas en el log de la UI
-        log_messages.append("Columnas detectadas en ISLR (rodeadas por '|'):")
-        for col in df.columns:
-            log_messages.append(f"|{col}|")
-            
-        log_messages.append("--- FIN DEL DIAGNÓSTICO ---")
+    df = pd.read_excel(file_path, header=8, dtype=str)
+    
+    # --- LÓGICA DE BÚSQUEDA DE COLUMNA CORREGIDA ---
+    
+    # Añadimos el nombre exacto que descubrimos en el diagnóstico a la lista.
+    nombres_posibles_rif = ['R.I.F.Proveedor', 'R.I.F Proveedor', 'Rif Prov.', 'RIF', 'R.I.F.']
+    columna_rif_encontrada = None
+    
+    for col in df.columns:
+        if col.strip() in nombres_posibles_rif:
+            columna_rif_encontrada = col
+            break
 
-        # El resto de la lógica de procesamiento continúa como antes
-        nombres_posibles_rif = ['R.I.F Proveedor', 'Rif Prov.', 'RIF', 'R.I.F.']
-        columna_rif_encontrada = None
-        for col in df.columns:
-            if col.strip() in nombres_posibles_rif:
-                # LA LÍNEA DEL ERROR HA SIDO CORREGIDA AQUÍ
-                columna_rif_encontrada = col
-                break
+    if columna_rif_encontrada:
+        df.rename(columns={columna_rif_encontrada: 'RIF'}, inplace=True)
+    else:
+        # Este mensaje ya no debería aparecer, pero lo dejamos como una salvaguarda.
+        print("Advertencia: No se encontró una columna de RIF de proveedor en el archivo de ISLR.")
+        df['RIF'] = ''
 
-        if columna_rif_encontrada:
-            log_messages.append(f"¡Éxito en diagnóstico! Se encontró la columna de RIF: '{columna_rif_encontrada}'")
-            df.rename(columns={columna_rif_encontrada: 'RIF'}, inplace=True)
-        else:
-            log_messages.append("¡FALLA en diagnóstico! No se encontró ninguna columna de RIF coincidente.")
-            df['RIF'] = ''
-
-        df.rename(columns={
-            'Nº Referencia': 'Comprobante',
-            'Nº Documento': 'Factura',
-            'Monto Retenido': 'Monto'
-        }, inplace=True)
-        
-        df['RIF_norm'] = df['RIF'].apply(_normalizar_rif)
-        df['Comprobante_norm'] = df['Comprobante'].apply(_normalizar_numerico)
-        df['Factura_norm'] = df['Factura'].apply(_normalizar_numerico)
-        df['Monto'] = pd.to_numeric(df['Monto'], errors='coerce').fillna(0)
-        
-        return df
-
-    except Exception as e:
-        log_messages.append(f"❌ ERROR CRÍTICO DURANTE DIAGNÓSTICO ISLR: {e}")
-        return pd.DataFrame()
+    # Se mantiene la lógica de renombrar las columnas que sí tienen un encabezado fijo
+    df.rename(columns={
+        'Nº Referencia': 'Comprobante',
+        'Nº Documento': 'Factura',
+        'Monto Retenido': 'Monto'
+    }, inplace=True)
+    
+    # --- FIN DE LA LÓGICA CORREGIDA ---
+    
+    # La normalización ahora recibirá los datos correctos.
+    df['RIF_norm'] = df['RIF'].apply(_normalizar_rif)
+    df['Comprobante_norm'] = df['Comprobante'].apply(_normalizar_numerico)
+    df['Factura_norm'] = df['Factura'].apply(_normalizar_numerico)
+    df['Monto'] = pd.to_numeric(df['Monto'], errors='coerce').fillna(0)
+    
+    return df
     
 # --- NUEVAS FUNCIONES DE LÓGICA DE CONCILIACIÓN ---
 
@@ -1132,7 +1125,7 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         
         df_cp = preparar_df_cp(file_cp)
         df_iva = preparar_df_iva(file_iva)
-        df_islr = preparar_df_islr(file_islr, log_messages)
+        df_islr = preparar_df_islr(file_islr)
         df_municipal = preparar_df_municipal(file_mun)
         
         if file_cg:
