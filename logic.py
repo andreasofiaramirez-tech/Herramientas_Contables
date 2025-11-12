@@ -1093,32 +1093,38 @@ def _conciliar_municipal(cp_row, df_municipal):
         msg = f"Numero de factura no coincide. CP: {factura_cp_norm}, GALAC sugiere: {factura_sugerida_galac}"
         return 'Parcialmente Conciliado', msg
         
-def _traducir_resultados_para_reporte(row):
+def _traducir_resultados_para_reporte(row, asientos_en_cg_set):
     """
-    (Versión Corregida y Simplificada) Convierte los resultados de la
-    conciliación al formato esperado por el reporteador, asegurando que
-    los mensajes de error detallados NUNCA se pierdan.
+    (Versión con Validación de CG) Convierte los resultados de la conciliación
+    al formato del reporte y, adicionalmente, verifica si el asiento de CP
+    existe en el archivo de Contabilidad General.
     """
     estado = row['Estado_Conciliacion']
     detalle = row['Detalle']
     
-    # Columnas de CG con valores por defecto (sin cambios)
-    asiento_en_cg = 'No Aplica'
-    monto_coincide_cg = 'No Aplica'
-    
-    # --- LÓGICA DE TRADUCCIÓN CORREGIDA ---
-    
-    # 1. Primero manejamos los casos simples y exitosos.
+    # --- Lógica de CP vs GALAC (sin cambios) ---
     if estado == 'Anulado':
         cp_vs_galac = 'Anulado'
     elif estado == 'Conciliado':
         cp_vs_galac = 'Sí'
-    
-    # 2. PARA TODO LO DEMÁS (No Conciliado, Parcialmente Conciliado, etc.):
-    #    El 'detalle' ya contiene el mensaje de error exacto que necesitamos.
-    #    Lo pasamos directamente, sin simplificarlo ni sobrescribirlo.
     else:
         cp_vs_galac = detalle
+    
+    # --- ¡NUEVA LÓGICA DE VALIDACIÓN DE ASIENTO EN CG! ---
+    asiento_cp = row.get('Asiento', None)
+    
+    # Si la fila de CP no tiene un número de asiento, no aplica la verificación.
+    if not asiento_cp:
+        asiento_en_cg = 'No Aplica'
+    # Si el asiento de CP se encuentra en nuestro conjunto de asientos de CG.
+    elif asiento_cp in asientos_en_cg_set:
+        asiento_en_cg = 'Asiento encontrado en CG'
+    # Si no se encuentra.
+    else:
+        asiento_en_cg = 'Asiento no encontrado en CG'
+    
+    # La validación del monto de CG la dejaremos para el siguiente paso.
+    monto_coincide_cg = 'No Aplica'
     
     return cp_vs_galac, asiento_en_cg, monto_coincide_cg
 
@@ -1130,13 +1136,20 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         df_iva = preparar_df_iva(file_iva)
         df_islr = preparar_df_islr(file_islr)
         df_municipal = preparar_df_municipal(file_mun)
-        
-        if file_cg:
+
+       if file_cg:
             df_cg_dummy = pd.read_excel(file_cg, header=0, dtype=str)
-            df_cg_dummy.columns = [re.sub(r'[^A-Z0-9]', '', col.upper()) for col in df_cg_dummy.columns]
+            # Aseguramos que la columna 'Asiento' exista y la normalizamos
+            if 'Asiento' in df_cg_dummy.columns:
+                # Creamos un conjunto con todos los asientos únicos para una búsqueda ultra-rápida
+                asientos_en_cg_set = set(df_cg_dummy['Asiento'].dropna().unique())
+            else:
+                log_messages.append("Advertencia: No se encontró la columna 'Asiento' en el archivo de CG.")
+                asientos_en_cg_set = set() # Creamos un conjunto vacío
         else:
             df_cg_dummy = pd.DataFrame()
-        
+            asientos_en_cg_set = set() # Creamos un conjunto vacío si no hay archivo
+
         log_messages.append("Iniciando conciliación por tipo de impuesto...")
         resultados = []
         
@@ -1198,9 +1211,11 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
 
         # --- PREPARACIÓN FINAL Y LLAMADA AL REPORTE ---
         df_resultados = pd.DataFrame(resultados)
-        df_cp_temp = pd.concat([df_cp.reset_index(drop=True), df_resultados], axis=1)
-
-        df_cp_temp[['CP_Vs_Galac', 'Asiento_en_CG', 'Monto_coincide_CG']] = df_cp_temp.apply(_traducir_resultados_para_reporte, axis=1, result_type='expand')
+         df_cp_temp[['CP_Vs_Galac', 'Asiento_en_CG', 'Monto_coincide_CG']] = df_cp_temp.apply(
+            lambda row: _traducir_resultados_para_reporte(row, asientos_en_cg_set), 
+            axis=1, 
+            result_type='expand'
+        )
 
         df_cp_final = df_cp_temp.copy()
         
