@@ -911,44 +911,43 @@ def preparar_df_municipal(file_path):
 
 def preparar_df_islr(file_path):
     """
-    (Versión Detallada) Carga y prepara el archivo de ISLR sin agrupar,
-    para permitir la validación de facturas individuales dentro de un mismo comprobante.
+    (Versión Corregida sin Columnas Duplicadas) Carga y prepara el archivo de ISLR.
+    - Usa la lógica posicional para la Factura y elimina el renombrado conflictivo.
+    - Añade correctamente el Nombre del Proveedor.
     """
     df = pd.read_excel(file_path, header=8, dtype=str)
     
-    # 1. Extracción de datos (sin cambios)
-    nombres_posibles_rif = ['R.I.F.Proveedor', 'R.I.F Proveedor', 'Rif Prov.', 'RIF', 'R.I.F.']
-    columna_rif_encontrada = None
-    for col in df.columns:
-        if col.strip() in nombres_posibles_rif:
-            columna_rif_encontrada = col
-            break
-    if columna_rif_encontrada:
-        df.rename(columns={columna_rif_encontrada: 'RIF'}, inplace=True)
-    else:
-        df['RIF'] = ''
-
+    # 1. Extracción posicional del RIF y la Factura (esta lógica es la correcta)
     try:
         col_anclaje_idx = df.columns.get_loc('Nº Documento')
+        col_rif_idx = col_anclaje_idx - 1
         col_factura_idx = col_anclaje_idx + 1
+        df['RIF'] = df.iloc[:, col_rif_idx]
         df['Factura'] = df.iloc[:, col_factura_idx]
     except KeyError:
+        df['RIF'] = ''
         df['Factura'] = ''
 
+    # 2. Renombrar las otras columnas (SE HA ELIMINADO LA LÍNEA CONFLICTIVA)
     df.rename(columns={
         'Razón Social del Sujeto Retenido': 'Nombre_Proveedor',
         'Nº Referencia': 'Comprobante',
-        'Nº Documento': 'Factura',
         'Monto Retenido': 'Monto'
+        # La línea 'Nº Documento': 'Factura' ha sido eliminada.
     }, inplace=True)
 
-    # 2. Normalización de datos (sin cambios)
+    # 3. Verificamos que las columnas clave existan para evitar errores
+    if 'RIF' not in df.columns: df['RIF'] = ''
+    if 'Nombre_Proveedor' not in df.columns: df['Nombre_Proveedor'] = ''
+    if 'Factura' not in df.columns: df['Factura'] = ''
+    if 'Monto' not in df.columns: df['Monto'] = 0
+    
+    # 4. Normalizar TODOS los datos (esta parte ahora funcionará)
     df['RIF_norm'] = df['RIF'].apply(_normalizar_rif)
     df['Comprobante_norm'] = df['Comprobante'].apply(_normalizar_numerico)
     df['Factura_norm'] = df['Factura'].apply(_normalizar_numerico)
     df['Monto'] = pd.to_numeric(df['Monto'], errors='coerce').fillna(0)
 
-    # NO hay paso de agregación. Retornamos el DataFrame detallado.
     return df
     
 # --- NUEVAS FUNCIONES DE LÓGICA DE CONCILIACIÓN ---
