@@ -1032,42 +1032,130 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         log_messages.append("Iniciando conciliación por tipo de impuesto...")
         resultados = []
         
-        for index, row in df_cp.iterrows():
-            
-            if 'ANULADO' in str(row.get('Aplicacion', '')).upper():
-                resultados.append({'Estado_Conciliacion': 'Anulado', 'Detalle': 'Movimiento Anulado en CP'})
-                continue
+       for index, row in df_cp.iterrows():
+    # Manejo de casos especiales primero
+    if 'ANULADO' in str(row.get('Aplicacion', '')).upper():
+        resultados.append({'Estado_Conciliacion': 'Anulado', 'Detalle': 'Movimiento Anulado en CP'})
+        continue
 
-            subtipo = str(row.get('Subtipo', '')).upper()
-            
-            # --- ¡NUEVA LÓGICA DE DECISIÓN A PRUEBA DE ERRORES! ---
-            
-            # 1. Determinar el tipo primario y los tipos de respaldo
-            if 'IVA' in subtipo:
-                tipo_primario = 'IVA'
-                busqueda_primaria = lambda r: _conciliar_iva(r, df_iva)
-                busquedas_cruzadas = [
-                    ('ISLR', lambda r: _conciliar_islr(r, df_islr)),
-                    ('Municipal', lambda r: _conciliar_municipal(r, df_municipal))
-                ]
-            elif 'ISLR' in subtipo:
-                tipo_primario = 'ISLR'
-                busqueda_primaria = lambda r: _conciliar_islr(r, df_islr)
-                busquedas_cruzadas = [
-                    ('IVA', lambda r: _conciliar_iva(r, df_iva)),
-                    ('Municipal', lambda r: _conciliar_municipal(r, df_municipal))
-                ]
-            elif 'MUNICIPAL' in subtipo:
-                tipo_primario = 'Municipal'
-                busqueda_primaria = lambda r: _conciliar_municipal(r, df_municipal)
-                busquedas_cruzadas = [
-                    ('IVA', lambda r: _conciliar_iva(r, df_iva)),
-                    ('ISLR', lambda r: _conciliar_islr(r, df_islr))
-                ]
+    subtipo = str(row.get('Subtipo', '')).strip().upper()
+    
+    # --- INICIO DE LA NUEVA LÓGICA DE CONCILIACIÓN ---
+
+    estado, mensaje = '', ''
+
+    if 'IVA' in subtipo:
+        # Paso 1: Ejecutar la búsqueda en el archivo primario (IVA).
+        estado, mensaje = _conciliar_iva(row, df_iva)
+        
+        # Paso 2 y 3: Activar búsqueda cruzada SOLO si no se encontró en el primario.
+        if estado == 'No Conciliado':
+            # Intentar búsqueda en ISLR
+            estado_islr, _ = _conciliar_islr(row, df_islr)
+            if 'Conciliado' in estado_islr:
+                estado = 'Error de Subtipo'
+                mensaje = 'Declarado como IVA, pero encontrado en ISLR'
             else:
-                resultados.append({'Estado_Conciliacion': 'No Conciliado', 'Detalle': 'Subtipo no reconocido'})
-                continue
+                # Si no está en ISLR, intentar en Municipal
+                estado_mun, _ = _conciliar_municipal(row, df_municipal)
+                if 'Conciliado' in estado_mun:
+                    estado = 'Error de Subtipo'
+                    mensaje = 'Declarado como IVA, pero encontrado en Municipal'
 
+    elif 'ISLR' in subtipo:
+        # Lógica análoga para ISLR
+        estado, mensaje = _conciliar_islr(row, df_islr)
+        if estado == 'No Conciliado':
+            estado_iva, _ = _conciliar_iva(row, df_iva)
+            if 'Conciliado' in estado_iva:
+                estado = 'Error de Subtipo'
+                mensaje = 'Declarado como ISLR, pero encontrado en IVA'
+            else:
+                estado_mun, _ = _conciliar_municipal(row, df_municipal)
+                if 'Conciliado' in estado_mun:
+                    estado = 'Error de Subtipo'
+                    mensaje = 'Declarado como ISLR, pero encontrado en Municipal'
+    
+    elif 'MUNICIPAL' in subtipo: # Se asume 'MUNICIPAL' como palabra clave
+        # Lógica análoga para Municipal
+        estado, mensaje = _conciliar_municipal(row, df_municipal)
+        if estado == 'No Conciliado':
+            estado_iva, _ = _conciliar_iva(row, df_iva)
+            if 'Conciliado' in estado_iva:
+                estado = 'Error de Subtipo'
+                mensaje = 'Declarado como Municipal, pero encontrado en IVA'
+            else:
+                estado_islr, _ = _conciliar_islr(row, df_islr)
+                if 'Conciliado' in estado_islr:
+                    estado = 'Error de Subtipo'
+                    mensaje = 'Declarado como Municipal, pero encontrado en ISLR'
+
+    else:
+        # Si el subtipo no es reconocido, se marca como no conciliado.
+        subtipo_original = row.get('Subtipo', 'Vacío')
+        estado, mensaje = 'No Conciliado', f"Subtipo no reconocido: '{subtipo_original}'"
+
+    resultados.append({'Estado_Conciliacion': estado, 'Detalle': mensaje})for index, row in df_cp.iterrows():
+    # Manejo de casos especiales primero
+    if 'ANULADO' in str(row.get('Aplicacion', '')).upper():
+        resultados.append({'Estado_Conciliacion': 'Anulado', 'Detalle': 'Movimiento Anulado en CP'})
+        continue
+
+    subtipo = str(row.get('Subtipo', '')).strip().upper()
+    estado, mensaje = '', ''
+
+    if 'IVA' in subtipo:
+        # Paso 1: Ejecutar la búsqueda en el archivo primario (IVA).
+        estado, mensaje = _conciliar_iva(row, df_iva)
+        
+        # Paso 2 y 3: Activar búsqueda cruzada SOLO si no se encontró en el primario.
+        if estado == 'No Conciliado':
+            # Intentar búsqueda en ISLR
+            estado_islr, _ = _conciliar_islr(row, df_islr)
+            if 'Conciliado' in estado_islr:
+                estado = 'Error de Subtipo'
+                mensaje = 'Declarado como IVA, pero encontrado en ISLR'
+            else:
+                # Si no está en ISLR, intentar en Municipal
+                estado_mun, _ = _conciliar_municipal(row, df_municipal)
+                if 'Conciliado' in estado_mun:
+                    estado = 'Error de Subtipo'
+                    mensaje = 'Declarado como IVA, pero encontrado en Municipal'
+
+    elif 'ISLR' in subtipo:
+        # Lógica análoga para ISLR
+        estado, mensaje = _conciliar_islr(row, df_islr)
+        if estado == 'No Conciliado':
+            estado_iva, _ = _conciliar_iva(row, df_iva)
+            if 'Conciliado' in estado_iva:
+                estado = 'Error de Subtipo'
+                mensaje = 'Declarado como ISLR, pero encontrado en IVA'
+            else:
+                estado_mun, _ = _conciliar_municipal(row, df_municipal)
+                if 'Conciliado' in estado_mun:
+                    estado = 'Error de Subtipo'
+                    mensaje = 'Declarado como ISLR, pero encontrado en Municipal'
+    
+    elif 'MUNICIPAL' in subtipo: # Se asume 'MUNICIPAL' como palabra clave
+        # Lógica análoga para Municipal
+        estado, mensaje = _conciliar_municipal(row, df_municipal)
+        if estado == 'No Conciliado':
+            estado_iva, _ = _conciliar_iva(row, df_iva)
+            if 'Conciliado' in estado_iva:
+                estado = 'Error de Subtipo'
+                mensaje = 'Declarado como Municipal, pero encontrado en IVA'
+            else:
+                estado_islr, _ = _conciliar_islr(row, df_islr)
+                if 'Conciliado' in estado_islr:
+                    estado = 'Error de Subtipo'
+                    mensaje = 'Declarado como Municipal, pero encontrado en ISLR'
+
+    else:
+        # Si el subtipo no es reconocido, se marca como no conciliado.
+        subtipo_original = row.get('Subtipo', 'Vacío')
+        estado, mensaje = 'No Conciliado', f"Subtipo no reconocido: '{subtipo_original}'"
+
+    resultados.append({'Estado_Conciliacion': estado, 'Detalle': mensaje})
             # 2. Ejecutar la búsqueda primaria
             estado, mensaje = busqueda_primaria(row)
 
