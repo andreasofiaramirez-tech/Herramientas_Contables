@@ -1144,13 +1144,13 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         # --- 2. PREPARACIÓN DE DATOS DE CONTABILIDAD GENERAL (CG) ---
         if file_cg:
             df_cg_dummy = pd.read_excel(file_cg, header=0, dtype=str)
+            df_cg_dummy.columns = [col.strip().upper() for col in df_cg_dummy.columns]
             # Verificamos si la columna 'Asiento' existe antes de procesarla
-            if 'Asiento' in df_cg_dummy.columns:
-                # Creamos un conjunto (set) con todos los asientos únicos para una búsqueda ultra-rápida
-                asientos_en_cg_set = set(df_cg_dummy['Asiento'].dropna().unique())
+            if 'ASIENTO' in df_cg_dummy.columns:
+                asientos_en_cg_set = set(df_cg_dummy['ASIENTO'].dropna().unique())
             else:
-                log_messages.append("Advertencia: No se encontró la columna 'Asiento' en el archivo de CG.")
-                asientos_en_cg_set = set() # Creamos un conjunto vacío para evitar errores
+                log_messages.append("Advertencia: No se encontró la columna 'ASIENTO' en el archivo de CG.")
+                asientos_en_cg_set = set()
         else:
             # Si no se proporciona un archivo de CG, inicializamos objetos vacíos
             df_cg_dummy = pd.DataFrame()
