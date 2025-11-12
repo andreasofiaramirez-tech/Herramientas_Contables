@@ -1093,10 +1093,11 @@ def _conciliar_municipal(cp_row, df_municipal):
         msg = f"Numero de factura no coincide. CP: {factura_cp_norm}, GALAC sugiere: {factura_sugerida_galac}"
         return 'Parcialmente Conciliado', msg
         
-def _traducir_resultados_para_reporte(row, asientos_en_cg_set):
+def _traducir_resultados_para_reporte(row, asientos_en_cg_set, df_cg):
     """
-    (Versión con Validación de CG - Indentación Corregida) Convierte los
-    resultados de la conciliación y verifica si el asiento de CP existe en CG.
+    (Versión Final con Validación Completa de CG)
+    - Valida si el asiento de CP existe en CG.
+    - Si existe, valida que el monto de CP coincida con la suma de los créditos en CG.
     """
     estado = row['Estado_Conciliacion']
     detalle = row['Detalle']
@@ -1109,22 +1110,43 @@ def _traducir_resultados_para_reporte(row, asientos_en_cg_set):
     else:
         cp_vs_galac = detalle
     
-    # --- Lógica de Validación de Asiento en CG (con indentación correcta) ---
+    # --- Lógica de Validación de CG (Mejorada) ---
     asiento_cp = row.get('Asiento', None)
+    monto_cp = row.get('Monto', 0)
+    asiento_en_cg = 'No Aplica'
+    monto_coincide_cg = 'No Aplica' # Valor por defecto
     
-    # Verificamos si la fila de CP tiene un número de asiento.
-    if not asiento_cp:
-        asiento_en_cg = 'No Aplica'
-    # Verificamos si el asiento de CP se encuentra en nuestro conjunto de asientos de CG.
-    elif asiento_cp in asientos_en_cg_set:
-        asiento_en_cg = 'Asiento encontrado en CG'
-    # Si no se encuentra.
-    else:
-        asiento_en_cg = 'Asiento no encontrado en CG'
-    
-    # La validación del monto de CG la dejaremos para el siguiente paso.
-    monto_coincide_cg = 'No Aplica'
-    
+    if asiento_cp and not df_cg.empty:
+        # Primero, verificamos si el asiento existe (usando el 'set' rápido)
+        if asiento_cp in asientos_en_cg_set:
+            asiento_en_cg = 'Asiento encontrado en CG'
+            
+            # --- ¡NUEVA LÓGICA DE COMPARACIÓN DE MONTO! ---
+            try:
+                # Filtramos el DataFrame de CG para obtener todas las filas de este asiento
+                transacciones_asiento = df_cg[df_cg['ASIENTO'] == asiento_cp]
+                
+                # Convertimos la columna de crédito a numérico, los errores se convierten en 0
+                creditos_cg = pd.to_numeric(transacciones_asiento['CRÉDITO VES'], errors='coerce').fillna(0)
+                
+                # Sumamos todos los créditos para ese asiento
+                suma_creditos_cg = creditos_cg.sum()
+                
+                # Comparamos el monto de CP con la suma de los créditos usando una tolerancia
+                if np.isclose(monto_cp, suma_creditos_cg):
+                    monto_coincide_cg = 'Sí'
+                else:
+                    monto_coincide_cg = 'No'
+                    
+            except Exception as e:
+                # Si algo falla (ej. la columna 'CRÉDITO VES' no existe), lo dejamos en 'No Aplica'
+                monto_coincide_cg = 'Error al procesar CG'
+                
+        else:
+            asiento_en_cg = 'Asiento no encontrado en CG'
+            # Si el asiento no existe, la comparación de monto no aplica
+            monto_coincide_cg = 'No Aplica'
+            
     return cp_vs_galac, asiento_en_cg, monto_coincide_cg
 
 def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun, log_messages):
@@ -1222,7 +1244,7 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
 
         # Llamada a la función "traductora" usando una lambda para pasar el conjunto de asientos de CG
         df_cp_temp[['CP_Vs_Galac', 'Asiento_en_CG', 'Monto_coincide_CG']] = df_cp_temp.apply(
-            lambda row: _traducir_resultados_para_reporte(row, asientos_en_cg_set), 
+            lambda row: _traducir_resultados_para_reporte(row, asientos_en_cg_set, df_cg_dummy), 
             axis=1, 
             result_type='expand'
         )
