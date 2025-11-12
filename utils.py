@@ -310,8 +310,8 @@ def generar_csv_saldos_abiertos(df_saldos_abiertos):
 
 def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_map):
     """
-    Genera el archivo Excel de reporte final, asegurando que todos los formatos
-    y anchos de columna sean correctos y editables.
+    Genera el archivo Excel de reporte final, asegurando el ajuste de texto
+    y el ancho de columna mediante el formato de columna completa y ajuste de altura de fila.
     """
     output_buffer = BytesIO()
     with pd.ExcelWriter(output_buffer, engine='xlsxwriter') as writer:
@@ -366,8 +366,6 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
                         ws1.write_datetime(current_row, col_idx, value, date_format)
                     elif col_name == 'Monto':
                         ws1.write_number(current_row, col_idx, value, money_format)
-                    elif col_name == 'Cp Vs Galac' and pd.notna(value):
-                        ws1.write(current_row, col_idx, value, long_text_format)
                     elif pd.notna(value):
                         ws1.write(current_row, col_idx, value, center_text_format)
                 current_row += 1
@@ -385,8 +383,6 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
                         ws1.write_datetime(current_row, col_idx, value, date_format)
                     elif col_name == 'Monto':
                         ws1.write_number(current_row, col_idx, value, money_format)
-                    elif col_name == 'Cp Vs Galac' and pd.notna(value):
-                        ws1.write(current_row, col_idx, value, long_text_format)
                     elif pd.notna(value):
                         ws1.write(current_row, col_idx, value, center_text_format)
                 current_row += 1
@@ -404,13 +400,11 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
                         ws1.write_datetime(current_row, col_idx, value, date_format)
                     elif col_name == 'Monto':
                         ws1.write_number(current_row, col_idx, value, money_format)
-                    elif col_name == 'Cp Vs Galac' and pd.notna(value):
-                        ws1.write(current_row, col_idx, value, long_text_format)
                     elif pd.notna(value):
                         ws1.write(current_row, col_idx, value, center_text_format)
                 current_row += 1
                 
-        # --- Bloque de autoajuste ---
+        # --- Bloque de autoajuste de ANCHO de columnas ---
         for i, col_name in enumerate(final_order_cp):
             column_data = df_reporte_cp[col_name].astype(str)
             max_data_len = column_data.map(len).max() if not column_data.empty else 0
@@ -418,6 +412,17 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
             column_width = max(header_len, max_data_len) + 2
             column_width = min(column_width, 255)
             ws1.set_column(i, i, column_width)
+
+        # --- Lógica de FORMATO de columna y ALTURA de fila ---
+        try:
+            col_idx_galac = final_order_cp.index('Cp Vs Galac')
+            # El None en el ancho significa "no cambiar el ancho ya calculado"
+            ws1.set_column(col_idx_galac, col_idx_galac, None, long_text_format)
+        except ValueError:
+            pass # Si la columna no existe, no hacer nada
+
+        # Establecer una altura por defecto para que el texto ajustado sea visible
+        ws1.set_default_row(30)
             
         # --- HOJA 2: Análisis GALAC ---
         ws2 = workbook.add_worksheet('Análisis GALAC')
