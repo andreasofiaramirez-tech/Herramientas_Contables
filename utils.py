@@ -310,8 +310,8 @@ def generar_csv_saldos_abiertos(df_saldos_abiertos):
 
 def generar_reporte_retenciones(df_cp_results, df_iva, df_islr, df_municipal, df_cg, cuentas_map):
     """
-    Genera el reporte Excel final, incluyendo la nueva Hoja 2 "Análisis GALAC"
-    con los tres grupos de clasificación solicitados.
+    Genera el reporte Excel final, asegurando que el renombrado de columnas se
+    aplique antes de que cualquier hoja intente usar los datos.
     """
     output_buffer = BytesIO()
     with pd.ExcelWriter(output_buffer, engine='xlsxwriter') as writer:
@@ -324,6 +324,16 @@ def generar_reporte_retenciones(df_cp_results, df_iva, df_islr, df_municipal, df
         date_format = workbook.add_format({'num_format': 'dd/mm/yyyy', 'align': 'center', 'locked': False})
         center_text_format = workbook.add_format({'align': 'center', 'valign': 'top', 'locked': False})
         long_text_format = workbook.add_format({'align': 'left', 'valign': 'top', 'locked': False, 'text_wrap': True})
+
+        # --- 1. PREPARACIÓN CENTRALIZADA DE DATOS DE CP (CAMBIO CLAVE) ---
+        # Hacemos una copia y la renombramos una sola vez al principio.
+        df_reporte_cp = df_cp_results.copy()
+        df_reporte_cp.rename(columns={
+            'Comprobante': 'Numero', 
+            'CP_Vs_Galac': 'Cp Vs Galac', 
+            'Validacion_CG': 'Validacion CG'
+        }, inplace=True)
+        if 'Fecha' in df_reporte_cp.columns: df_reporte_cp['Fecha'] = pd.to_datetime(df_reporte_cp['Fecha'], errors='coerce')
 
         # --- HOJA 1: Relacion CP ---
         ws1 = workbook.add_worksheet('Relacion CP')
@@ -437,19 +447,27 @@ def generar_reporte_retenciones(df_cp_results, df_iva, df_islr, df_municipal, df
         ws2.hide_gridlines(2)
         ws2.merge_range('A1:H1', 'Análisis de Retenciones Oficiales (GALAC)', main_title_format)
 
-        # Preparar DFs de GALAC
-        df_iva['Tipo'] = 'IVA'
-        df_islr['Tipo'] = 'ISLR'
-        df_municipal['Tipo'] = 'Municipal'
-
-        # --- Lógica de Merge Separada ---
+        df_iva['Tipo'] = 'IVA'; df_islr['Tipo'] = 'ISLR'; df_municipal['Tipo'] = 'Municipal'
+        
+        # --- Lógica de Merge Corregida ---
+        # Ahora usamos df_reporte_cp, que tiene los nombres de columna correctos.
         df_iva_islr = pd.concat([df_iva, df_islr], ignore_index=True)
         
         merge_keys_iva_islr = ['RIF_norm', 'Comprobante_norm', 'Factura_norm']
-        df_merged_iva_islr = pd.merge(df_iva_islr, df_cp_results[merge_keys_iva_islr + ['Cp Vs Galac', 'Validacion CG']], on=merge_keys_iva_islr, how='left')
+        df_merged_iva_islr = pd.merge(
+            df_iva_islr,
+            df_reporte_cp[merge_keys_iva_islr + ['Cp Vs Galac', 'Validacion CG']], 
+            on=merge_keys_iva_islr, 
+            how='left'
+        )
 
         merge_keys_municipal = ['RIF_norm', 'Factura_norm']
-        df_merged_municipal = pd.merge(df_municipal, df_cp_results[merge_keys_municipal + ['Cp Vs Galac', 'Validacion CG']], on=merge_keys_municipal, how='left')
+        df_merged_municipal = pd.merge(
+            df_municipal,
+            df_reporte_cp[merge_keys_municipal + ['Cp Vs Galac', 'Validacion CG']], 
+            on=merge_keys_municipal, 
+            how='left'
+        )
 
         df_merged_galac = pd.concat([df_merged_iva_islr, df_merged_municipal], ignore_index=True)
 
