@@ -311,7 +311,7 @@ def generar_csv_saldos_abiertos(df_saldos_abiertos):
 def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_map):
     """
     Genera el archivo Excel de reporte final, conteniendo únicamente las hojas
-    'Relacion CP' y 'Diario CG'. (Versión final y limpia).
+    'Relacion CP' y 'Diario CG'. (Versión final, limpia y con la firma correcta).
     """
     output_buffer = BytesIO()
     with pd.ExcelWriter(output_buffer, engine='xlsxwriter') as writer:
@@ -334,119 +334,80 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
         ws1 = workbook.add_worksheet('Relacion CP')
         ws1.hide_gridlines(2)
         
-        # --- 1. SE ACTUALIZA LA PLANTILLA DE COLUMNAS ---
         final_order_cp = [
             'Asiento', 'Tipo', 'Fecha', 'Numero', 'Aplicacion', 'Subtipo', 'Monto', 
             'Cp Vs Galac', 'Validacion CG', 'RIF', 'Nombre Proveedor'
         ]
         
-        df_reporte_cp = df_cp_results.copy()
-        
-        # --- 2. SE ACTUALIZA EL RENOMBRADO DE COLUMNAS ---
-        df_reporte_cp.rename(columns={
-            'Comprobante': 'Numero', 
-            'CP_Vs_Galac': 'Cp Vs Galac', 
-            'Validacion_CG': 'Validacion CG' # Se alinea con el nuevo nombre de logic.py
-        }, inplace=True)
-        
-        if 'Fecha' in df_reporte_cp.columns: df_reporte_cp['Fecha'] = pd.to_datetime(df_reporte_cp['Fecha'], errors='coerce')
-        
-        # Este bucle ahora funcionará correctamente con la nueva lista de columnas
         for col in final_order_cp:
             if col not in df_reporte_cp.columns: df_reporte_cp[col] = ''
         
-        # --- 3. SE ACTUALIZA LA LÓGICA DE FILTRADO ---
-        condicion_exitosa = (
-            (df_reporte_cp['Cp Vs Galac'] == 'Sí') &
-            (df_reporte_cp['Validacion CG'] == 'Conciliado en CG')
-        )
+        condicion_exitosa = ((df_reporte_cp['Cp Vs Galac'] == 'Sí') & (df_reporte_cp['Validacion CG'] == 'Conciliado en CG'))
         condicion_anulado = (df_reporte_cp['Cp Vs Galac'] == 'Anulado')
-        
         df_exitosos = df_reporte_cp[condicion_exitosa].copy()
         df_anulados = df_reporte_cp[condicion_anulado].copy()
-        
         indices_exitosos_y_anulados = df_exitosos.index.union(df_anulados.index)
         df_incidencias = df_reporte_cp.drop(indices_exitosos_y_anulados)
         
-        # Se ajusta el rango del título a 11 columnas (A hasta K)
         ws1.merge_range('A1:K1', 'Relacion de Retenciones CP', main_title_format)
         current_row = 2
         
-        # --- Escritura de Incidencias (sin cambios en la lógica interna) ---
+        # Escritura de Incidencias
         ws1.write(current_row, 0, 'Incidencias Encontradas', group_title_format); current_row += 1
         ws1.write_row(current_row, 0, final_order_cp, header_format); current_row += 1
         if not df_incidencias.empty:
             for index, row in df_incidencias.iterrows():
                 for col_idx, col_name in enumerate(final_order_cp):
                     value = row[col_name]
-                    # Aplicamos formato especial a la nueva columna 'Validacion CG'
-                    if col_name == 'Fecha' and pd.notna(value):
-                        ws1.write_datetime(current_row, col_idx, value, date_format)
-                    elif col_name == 'Monto':
-                        ws1.write_number(current_row, col_idx, value, money_format)
-                    elif col_name in ['Cp Vs Galac', 'Validacion CG'] and pd.notna(value):
-                        ws1.write(current_row, col_idx, value, long_text_format)
-                    elif pd.notna(value):
-                        ws1.write(current_row, col_idx, value, center_text_format)
+                    if col_name == 'Fecha' and pd.notna(value): ws1.write_datetime(current_row, col_idx, value, date_format)
+                    elif col_name == 'Monto': ws1.write_number(current_row, col_idx, value, money_format)
+                    elif col_name in ['Cp Vs Galac', 'Validacion CG'] and pd.notna(value): ws1.write(current_row, col_idx, value, long_text_format)
+                    elif pd.notna(value): ws1.write(current_row, col_idx, value, center_text_format)
                 current_row += 1
-        
         current_row += 1
         
-        # --- Escritura de Conciliaciones Exitosas (sin cambios en la lógica interna) ---
+        # Escritura de Conciliaciones Exitosas
         ws1.write(current_row, 0, 'Conciliacion Exitosa', group_title_format); current_row += 1
         ws1.write_row(current_row, 0, final_order_cp, header_format); current_row += 1
         if not df_exitosos.empty:
             for index, row in df_exitosos.iterrows():
                 for col_idx, col_name in enumerate(final_order_cp):
                     value = row[col_name]
-                    if col_name == 'Fecha' and pd.notna(value):
-                        ws1.write_datetime(current_row, col_idx, value, date_format)
-                    elif col_name == 'Monto':
-                        ws1.write_number(current_row, col_idx, value, money_format)
-                    elif col_name in ['Cp Vs Galac', 'Validacion CG'] and pd.notna(value):
-                         ws1.write(current_row, col_idx, value, long_text_format)
-                    elif pd.notna(value):
-                        ws1.write(current_row, col_idx, value, center_text_format)
+                    if col_name == 'Fecha' and pd.notna(value): ws1.write_datetime(current_row, col_idx, value, date_format)
+                    elif col_name == 'Monto': ws1.write_number(current_row, col_idx, value, money_format)
+                    elif col_name in ['Cp Vs Galac', 'Validacion CG'] and pd.notna(value): ws1.write(current_row, col_idx, value, long_text_format)
+                    elif pd.notna(value): ws1.write(current_row, col_idx, value, center_text_format)
                 current_row += 1
-
         current_row += 1
 
-        # --- Escritura de Anulados ---
+        # Escritura de Anulados
         ws1.write(current_row, 0, 'Registros Anulados', group_title_format); current_row += 1
         ws1.write_row(current_row, 0, final_order_cp, header_format); current_row += 1
         if not df_anulados.empty:
             for index, row in df_anulados.iterrows():
                 for col_idx, col_name in enumerate(final_order_cp):
                     value = row[col_name]
-                    if col_name == 'Fecha' and pd.notna(value):
-                        ws1.write_datetime(current_row, col_idx, value, date_format)
-                    elif col_name == 'Monto':
-                        ws1.write_number(current_row, col_idx, value, money_format)
-                    elif col_name == 'Cp Vs Galac' and pd.notna(value):
-                         ws1.write(current_row, col_idx, value, long_text_format)
-                    elif pd.notna(value):
-                        ws1.write(current_row, col_idx, value, center_text_format)
+                    if col_name == 'Fecha' and pd.notna(value): ws1.write_datetime(current_row, col_idx, value, date_format)
+                    elif col_name == 'Monto': ws1.write_number(current_row, col_idx, value, money_format)
+                    elif col_name in ['Cp Vs Galac', 'Validacion CG'] and pd.notna(value): ws1.write(current_row, col_idx, value, long_text_format)
+                    elif pd.notna(value): ws1.write(current_row, col_idx, value, center_text_format)
                 current_row += 1
 
-        # --- Bloque de autoajuste de ANCHO ---
+        # Bloque de autoajuste de ANCHO
         for i, col_name in enumerate(final_order_cp):
             column_data = df_reporte_cp[col_name].astype(str)
             max_data_len = column_data.map(len).max() if not column_data.empty else 0
             header_len = len(col_name)
             column_width = max(header_len, max_data_len) + 2
-            column_width = min(column_width, 255)
+            column_width = min(column_width, 50) # Límite para evitar columnas excesivamente anchas
             ws1.set_column(i, i, column_width)
-            
-        # --- HOJA 3: Análisis GALAC ---
+
+        # --- HOJA 3: Diario CG ---
         ws3 = workbook.add_worksheet('Diario CG')
         ws3.hide_gridlines(2)
         ws3.merge_range('A1:I1', 'Asientos con Errores de Conciliación', main_title_format)
-        
-        # Las columnas originales de CG no cambian
         cg_original_cols = [c for c in ['ASIENTO', 'FUENTE', 'CUENTACONTABLE', 'DESCRIPCIONDELACUENTACONTABLE', 'REFERENCIA', 'DEBITOVES', 'CREDITOVES', 'RIF', 'NIT'] if c in df_cg.columns]
         cg_headers_final = cg_original_cols + ['Observacion']
-        
-        # La forma de encontrar los asientos con error no cambia
         asientos_con_error = df_incidencias['Asiento'].unique()
         df_cg_errores = df_cg[df_cg['ASIENTO'].isin(asientos_con_error)].copy()
         
@@ -456,28 +417,11 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
         df_error_monto = pd.DataFrame(columns=cg_headers_final)
         
         if not df_incidencias.empty and not df_cg_errores.empty:
-            # --- 1. SE MODIFICA EL MERGE PARA USAR LA NUEVA COLUMNA ---
-            merged_errors = pd.merge(
-                df_cg_errores, 
-                df_incidencias[['Asiento', 'Validacion CG']], # Usamos 'Validacion CG'
-                on='Asiento', 
-                how='left'
-            )
-            
+            merged_errors = pd.merge(df_cg_errores, df_incidencias[['Asiento', 'Validacion CG']], on='Asiento', how='left')
             merged_errors.rename(columns={'Asiento': 'ASIENTO'}, inplace=True)
-
-            # --- 2. SE MODIFICA LA LÓGICA DE CLASIFICACIÓN DE ERRORES ---
-            # Ahora buscamos los textos de error específicos dentro de la columna 'Validacion CG'
-            conditions = [
-                merged_errors['Validacion CG'].str.contains('Cuenta Contable no coincide', na=False),
-                merged_errors['Validacion CG'].str.contains('Monto no coincide', na=False)
-            ]
-            choices = [
-                'Cuenta Contable no corresponde al Subtipo', 
-                'Monto en Diario no coincide con Relacion CP'
-            ]
+            conditions = [merged_errors['Validacion CG'].str.contains('Cuenta Contable no coincide', na=False), merged_errors['Validacion CG'].str.contains('Monto no coincide', na=False)]
+            choices = ['Cuenta Contable no corresponde al Subtipo', 'Monto en Diario no coincide con Relacion CP']
             merged_errors['Observacion'] = np.select(conditions, choices, default='Error de CG no clasificado')
-            
             df_cg_final = merged_errors[cg_headers_final].drop_duplicates()
             df_error_cuenta = df_cg_final[df_cg_final['Observacion'] == 'Cuenta Contable no corresponde al Subtipo']
             df_error_monto = df_cg_final[df_cg_final['Observacion'] == 'Monto en Diario no coincide con Relacion CP']
