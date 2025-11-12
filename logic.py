@@ -902,46 +902,59 @@ def preparar_df_islr(file_path):
 
 def _conciliar_iva(cp_row, df_iva):
     """
-    (Versión Corregida con Errores Claros) Lógica de conciliación de IVA que, en caso de fallo,
-    informa al usuario sobre los comprobantes disponibles en GALAC para el RIF correspondiente.
+    (Versión con Errores Inteligentes) Lógica de conciliación que, en caso de fallo,
+    intenta encontrar una coincidencia por RIF+Factura+Monto para sugerir el
+    comprobante correcto.
     """
     rif_cp = cp_row['RIF_norm']
     comprobante_cp_norm = cp_row['Comprobante_norm']
     
-    # 1. Buscar el match usando la clave principal: RIF + Comprobante (ambos normalizados)
+    # 1. Búsqueda principal por RIF + Comprobante (el método más preciso)
     match_encontrado = df_iva[
         (df_iva['RIF_norm'] == rif_cp) & 
         (df_iva['Comprobante_norm'] == comprobante_cp_norm)
     ]
     
-    # 2. Si no se encuentra una coincidencia exacta...
+    # 2. Si la búsqueda principal no encuentra una coincidencia exacta...
     if match_encontrado.empty:
         
-        # Primero, filtramos el DataFrame de GALAC para encontrar todas las filas de ese RIF
-        registros_del_rif_en_galac = df_iva[df_iva['RIF_norm'] == rif_cp]
+        # --- INICIO DE LA NUEVA LÓGICA DE ERROR INTELIGENTE ---
         
-        if registros_del_rif_en_galac.empty:
-            # Si no hay ningún registro para ese RIF, el problema es el RIF.
-            return 'No Conciliado', 'RIF no se encuentra en GALAC'
-        else:
-            # --- ¡LÓGICA DE ERROR CORREGIDA Y PRECISA! ---
-            # Si encontramos el RIF, recolectamos los números de comprobante REALES de GALAC.
-            # Usamos la columna 'Comprobante' original, sin normalizar, para que el usuario vea el dato tal como está en el archivo.
-            comprobantes_disponibles_en_galac = registros_del_rif_en_galac['Comprobante'].unique().tolist()
-            
-            # Convertimos la lista de comprobantes a un texto legible.
-            comprobantes_str = ", ".join(map(str, comprobantes_disponibles_en_galac))
-            
-            # Construimos el mensaje de error que muestra el valor buscado (de CP) y los valores encontrados (de GALAC).
-            mensaje_error = (f"El Comprobante de CP ({cp_row['Comprobante']}) no se encontró. "
-                             f"Para ese RIF, GALAC tiene estos: [{comprobantes_str}]")
-                             
+        # Búsqueda secundaria: intentamos encontrar una coincidencia por RIF, Factura y Monto.
+        # Es crucial usar np.isclose para comparar montos (floats) de forma segura.
+        probable_match = df_iva[
+            (df_iva['RIF_norm'] == rif_cp) &
+            (df_iva['Factura_norm'] == cp_row['Factura_norm']) &
+            (np.isclose(df_iva['Monto'], cp_row['Monto']))
+        ]
+        
+        # Si encontramos exactamente UNA coincidencia con este método, es muy probable que sea la correcta.
+        if not probable_match.empty and len(probable_match) == 1:
+            comprobante_sugerido = probable_match.iloc[0]['Comprobante']
+            mensaje_error = (f"Comprobante no coincide. "
+                             f"CP: {cp_row['Comprobante']}, "
+                             f"GALAC sugiere: {comprobante_sugerido}")
             return 'No Conciliado', mensaje_error
+        else:
+            # Plan B (Fallback): Si la búsqueda secundaria falla o es ambigua,
+            # volvemos al comportamiento anterior de mostrar todos los comprobantes para el RIF.
+            registros_del_rif_en_galac = df_iva[df_iva['RIF_norm'] == rif_cp]
+            if registros_del_rif_en_galac.empty:
+                return 'No Conciliado', 'RIF no se encuentra en GALAC'
+            else:
+                comprobantes_disponibles_en_galac = registros_del_rif_en_galac['Comprobante'].unique().tolist()
+                comprobantes_str = ", ".join(map(str, comprobantes_disponibles_en_galac))
+                mensaje_error = (f"El Comprobante de CP ({cp_row['Comprobante']}) no se encontró. "
+                                 f"Para ese RIF, GALAC tiene estos: [{comprobantes_str}]")
+                return 'No Conciliado', mensaje_error
 
-    # 3. Si se encontró la coincidencia, el proceso continúa como antes.
+    # 3. Si la búsqueda principal SÍ encontró coincidencia, el proceso continúa como siempre.
     match_row = match_encontrado.iloc[0]
     errores = []
     
+    # Nota: No necesitamos validar RIF, Factura y Monto aquí porque la búsqueda secundaria
+    # ya los habría usado si el comprobante fuera incorrecto. Solo validamos lo que no fue parte de la clave.
+    # En este caso, la clave primaria ya validó todo lo importante.
     if cp_row['Factura_norm'] != match_row['Factura_norm']:
         msg = f"Numero de factura no coincide. CP: {cp_row['Factura_norm']}, GALAC: {match_row['Factura_norm']}"
         errores.append(msg)
