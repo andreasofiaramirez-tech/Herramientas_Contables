@@ -456,12 +456,15 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
                     ws2.write_row(current_row, 0, row.values[:-1]); current_row += 1
         ws2.set_column('A:A', 12, date_format); ws2.set_column('B:D', 20); ws2.set_column('E:E', 35); ws2.set_column('F:F', 18, money_format)
 
-        # --- HOJA 3: Diario CG ---
         ws3 = workbook.add_worksheet('Diario CG')
         ws3.hide_gridlines(2)
         ws3.merge_range('A1:I1', 'Asientos con Errores de Conciliación', main_title_format)
+        
+        # Las columnas originales de CG no cambian
         cg_original_cols = [c for c in ['ASIENTO', 'FUENTE', 'CUENTACONTABLE', 'DESCRIPCIONDELACUENTACONTABLE', 'REFERENCIA', 'DEBITOVES', 'CREDITOVES', 'RIF', 'NIT'] if c in df_cg.columns]
         cg_headers_final = cg_original_cols + ['Observacion']
+        
+        # La forma de encontrar los asientos con error no cambia
         asientos_con_error = df_incidencias['Asiento'].unique()
         df_cg_errores = df_cg[df_cg['ASIENTO'].isin(asientos_con_error)].copy()
         
@@ -471,13 +474,28 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
         df_error_monto = pd.DataFrame(columns=cg_headers_final)
         
         if not df_incidencias.empty and not df_cg_errores.empty:
-            merged_errors = pd.merge(df_cg_errores, df_incidencias[['Asiento', 'Cp Vs Galac', 'Monto coincide CG', 'Subtipo']], on='Asiento', how='left')
+            # --- 1. SE MODIFICA EL MERGE PARA USAR LA NUEVA COLUMNA ---
+            merged_errors = pd.merge(
+                df_cg_errores, 
+                df_incidencias[['Asiento', 'Validacion CG']], # Usamos 'Validacion CG'
+                on='Asiento', 
+                how='left'
+            )
             
             merged_errors.rename(columns={'Asiento': 'ASIENTO'}, inplace=True)
 
-            conditions = [(merged_errors['CUENTACONTABLE'] != merged_errors['Subtipo'].map(cuentas_map)), (merged_errors['Monto coincide CG'] == 'No')]
-            choices = ['Cuenta Contable no corresponde al Subtipo', 'Monto en Diario no coincide con Relacion CP']
-            merged_errors['Observacion'] = np.select(conditions, choices, default='Error no clasificado')
+            # --- 2. SE MODIFICA LA LÓGICA DE CLASIFICACIÓN DE ERRORES ---
+            # Ahora buscamos los textos de error específicos dentro de la columna 'Validacion CG'
+            conditions = [
+                merged_errors['Validacion CG'].str.contains('Cuenta Contable no coincide', na=False),
+                merged_errors['Validacion CG'].str.contains('Monto no coincide', na=False)
+            ]
+            choices = [
+                'Cuenta Contable no corresponde al Subtipo', 
+                'Monto en Diario no coincide con Relacion CP'
+            ]
+            merged_errors['Observacion'] = np.select(conditions, choices, default='Error de CG no clasificado')
+            
             df_cg_final = merged_errors[cg_headers_final].drop_duplicates()
             df_error_cuenta = df_cg_final[df_cg_final['Observacion'] == 'Cuenta Contable no corresponde al Subtipo']
             df_error_monto = df_cg_final[df_cg_final['Observacion'] == 'Monto en Diario no coincide con Relacion CP']
