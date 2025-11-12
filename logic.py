@@ -854,8 +854,9 @@ def preparar_df_cp(file_cp):
 
 def preparar_df_iva(file_iva):
     df = pd.read_excel(file_iva, header=4, dtype=str).rename(columns={
-        'Rif Prov.': 'RIF', 'Nº Documento': 'Factura', 
-        'No. Comprobante': 'Comprobante', 'IVA Retenido': 'Monto'
+        'Rif Prov.': 'RIF', 'Nombre o Razón Social': 'Nombre_Proveedor', 
+        'Nº Documento': 'Factura', 'No. Comprobante': 'Comprobante', 
+        'IVA Retenido': 'Monto'
     })
     
     df['RIF_norm'] = df['RIF'].apply(_normalizar_rif)
@@ -867,7 +868,7 @@ def preparar_df_iva(file_iva):
 def preparar_df_municipal(file_path):
     """
     (Versión Final y Robusta) Carga y prepara el archivo de Retenciones Municipales,
-    buscando dinámicamente las columnas clave para evitar errores de nombrado.
+    buscando dinámicamente las columnas clave, incluyendo el Nombre del Proveedor.
     """
     df = pd.read_excel(file_path, header=8, dtype=str)
     
@@ -875,11 +876,15 @@ def preparar_df_municipal(file_path):
     column_map = {}
     for col in df.columns:
         # Normalizamos el nombre de la columna para la comparación
-        # (quitamos espacios, convertimos a minúsculas)
         col_normalized = col.strip().lower().replace(" ", "")
         
         if col_normalized == 'númerorif':
             column_map[col] = 'RIF'
+        
+        # --- ¡AQUÍ SE AÑADE LA LÓGICA DEL PROVEEDOR! ---
+        elif col_normalized == 'razonsocialdelsujetoretenido':
+            column_map[col] = 'Nombre_Proveedor'
+            
         elif col_normalized == 'númerodefactura':
             column_map[col] = 'Factura'
         elif col_normalized == 'valor':
@@ -888,23 +893,19 @@ def preparar_df_municipal(file_path):
     # Renombramos usando el mapa que creamos
     df.rename(columns=column_map, inplace=True)
 
-    # Verificamos que las columnas clave ahora existen
+    # Verificamos que las columnas clave ahora existen para evitar errores posteriores
     if 'RIF' not in df.columns: df['RIF'] = ''
+    if 'Nombre_Proveedor' not in df.columns: df['Nombre_Proveedor'] = '' # Aseguramos que la columna exista
     if 'Factura' not in df.columns: df['Factura'] = ''
     if 'Monto' not in df.columns: df['Monto'] = 0
     
-    # --- Normalización de Datos ---
+    # --- Normalización de Datos (sin cambios) ---
     df['RIF_norm'] = df['RIF'].apply(_normalizar_rif)
     df['Factura_norm'] = df['Factura'].apply(_normalizar_numerico)
     df['Monto'] = pd.to_numeric(df['Monto'], errors='coerce').fillna(0)
     
-    # Si existe una columna de comprobante (ej. 'Número de Comprobante'), la usamos.
-    # Si no, la columna no se crea, y Pandas la tratará como ausente (NaN).
-    if 'Número de Comprobante' in df.columns:
-        df['Comprobante_norm'] = df['Número de Comprobante'].apply(_normalizar_numerico)
-    else:
-        # No creamos una columna con '' vacíos. Dejamos que no exista.
-        pass
+    # Añadimos una columna de Comprobante vacía para consistencia
+    df['Comprobante_norm'] = ''
     
     return df
 
@@ -935,7 +936,9 @@ def preparar_df_islr(file_path):
         df['Factura'] = ''
 
     df.rename(columns={
+        'Razón Social del Sujeto Retenido': 'Nombre_Proveedor',
         'Nº Referencia': 'Comprobante',
+        'Nº Documento': 'Factura',
         'Monto Retenido': 'Monto'
     }, inplace=True)
 
@@ -1172,55 +1175,36 @@ def _traducir_resultados_para_reporte(row, asientos_en_cg_set, df_cg):
 def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun, log_messages):
     """
     Función principal que orquesta todo el proceso de conciliación de retenciones.
-    (Versión final con enriquecimiento de Nombre de Proveedor).
+    (Versión final con la creación del mapa de proveedores corregida).
     """
     try:
         log_messages.append("--- INICIANDO PROCESO DE CONCILIACIÓN DE RETENCIONES ---")
         
-        # --- 1. CARGA Y PREPARACIÓN DE ARCHIVOS DE DATOS (sin cambios) ---
+        # 1. Carga y preparación (ahora cada función ya incluye el Nombre_Proveedor)
         df_cp = preparar_df_cp(file_cp)
         df_iva = preparar_df_iva(file_iva)
         df_islr = preparar_df_islr(file_islr)
         df_municipal = preparar_df_municipal(file_mun)
         
-        # --- ¡NUEVO! CREACIÓN DEL MAPA DE PROVEEDORES ---
-        # Unificamos todos los archivos de GALAC para crear una lista maestra de proveedores
-        df_iva.rename(columns={'Nombre o Razón Social': 'Nombre_Proveedor'}, inplace=True)
-        df_islr.rename(columns={'Razón Social del Sujeto Retenido': 'Nombre_Proveedor'}, inplace=True)
-        df_municipal.rename(columns={'Razon Social Del Sujeto Retenido': 'Nombre_Proveedor'}, inplace=True)
-
-        provider_map_df = pd.concat([
-            df_iva[['RIF_norm', 'Nombre_Proveedor']],
-            df_islr[['RIF_norm', 'Nombre_Proveedor']],
-            df_municipal[['RIF_norm', 'Nombre_Proveedor']]
-        ]).dropna(subset=['RIF_norm']).drop_duplicates(subset=['RIF_norm'])
+        # --- 2. CREACIÓN DEL MAPA DE PROVEEDORES (CORREGIDO) ---
+        # Ya no necesitamos las líneas de 'rename' aquí.
         
-        # --- 2. PREPARACIÓN DE DATOS DE CONTABILIDAD GENERAL (CG) ---
-        if file_cg:
-            df_cg_dummy = pd.read_excel(file_cg, header=0, dtype=str)
-            df_cg_dummy.columns = [col.strip().upper().replace(' ', '') for col in df_cg_dummy.columns]
+        # Creamos una lista para almacenar los DataFrames de proveedores
+        provider_dfs = []
+        
+        # Añadimos cada DataFrame solo si tiene las columnas necesarias
+        if all(col in df_iva.columns for col in ['RIF_norm', 'Nombre_Proveedor']):
+            provider_dfs.append(df_iva[['RIF_norm', 'Nombre_Proveedor']])
+        if all(col in df_islr.columns for col in ['RIF_norm', 'Nombre_Proveedor']):
+            provider_dfs.append(df_islr[['RIF_norm', 'Nombre_Proveedor']])
+        if all(col in df_municipal.columns for col in ['RIF_norm', 'Nombre_Proveedor']):
+            provider_dfs.append(df_municipal[['RIF_norm', 'Nombre_Proveedor']])
 
-            debit_names = ['DEBITOVES', 'DÉBITOVES', 'DEBITO', 'DÉBITO', 'DEBEVESDÉBITO', 'MONEDALOCAL']
-            credit_names = ['CREDITOVES', 'CRÉDITOVES', 'CREDITO', 'CRÉDITO', 'CREDITOVESMCREDITOLOCAL']
-
-            for col_name in df_cg_dummy.columns:
-                if col_name in debit_names:
-                    df_cg_dummy.rename(columns={col_name: 'DEBITO_NORM'}, inplace=True); break
-            for col_name in df_cg_dummy.columns:
-                if col_name in credit_names:
-                    df_cg_dummy.rename(columns={col_name: 'CREDITO_NORM'}, inplace=True); break
-            
-            if 'ASIENTO' in df_cg_dummy.columns:
-                asientos_en_cg_set = set(df_cg_dummy['ASIENTO'].dropna().unique())
-            else:
-                log_messages.append("Advertencia: No se encontró la columna 'ASIENTO' en el archivo de CG.")
-                asientos_en_cg_set = set()
+        # Concatenamos solo si hay DataFrames para unir
+        if provider_dfs:
+            provider_map_df = pd.concat(provider_dfs).dropna(subset=['RIF_norm', 'Nombre_Proveedor']).drop_duplicates(subset=['RIF_norm'])
         else:
-            df_cg_dummy = pd.DataFrame()
-            asientos_en_cg_set = set()
-        
-        log_messages.append("Iniciando conciliación por tipo de impuesto...")
-        resultados = []
+            provider_map_df = pd.DataFrame(columns=['RIF_norm', 'Nombre_Proveedor'])
         
         # --- 3. BUCLE PRINCIPAL DE CONCILIACIÓN ---
         for index, row in df_cp.iterrows():
