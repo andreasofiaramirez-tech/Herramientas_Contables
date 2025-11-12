@@ -876,28 +876,46 @@ def preparar_df_municipal(file_path):
     return df
 
 def preparar_df_islr(file_path):
-    """Carga y prepara el archivo de Retenciones de ISLR (con manejo especial del RIF)."""
+    """
+    (Versión Definitiva y Robusta) Carga y prepara el archivo de ISLR,
+    extrayendo el RIF y la Factura por su posición relativa a la columna 'Nº Documento'.
+    """
     df = pd.read_excel(file_path, header=8, dtype=str)
-    # CASO ESPECIAL: El RIF está en una columna sin nombre, a la izquierda de 'Nº Documento'
+    
+    # Usamos un bloque try/except para manejar de forma segura el caso de que el archivo cambie
     try:
-        # Encontramos la posición de la columna 'Nº Documento'
-        col_factura_idx = df.columns.get_loc('Nº Documento')
-        # La columna del RIF es la anterior a esa
-        col_rif_pos = col_factura_idx - 1
-        # Extraemos esa columna y la nombramos 'RIF'
-        df['RIF'] = df.iloc[:, col_rif_pos]
-    except KeyError:
-        # Si 'Nº Documento' no existe, no podemos encontrar el RIF de esta forma
-        print("Advertencia: No se encontró la columna 'Nº Documento' en el archivo de ISLR para ubicar el RIF.")
-        df['RIF'] = ''
+        # 1. Encontrar la posición (índice) de nuestra columna de anclaje
+        col_anclaje_idx = df.columns.get_loc('Nº Documento')
+        
+        # 2. Calcular las posiciones de las columnas que nos interesan
+        col_rif_idx = col_anclaje_idx - 1      # La columna a la izquierda
+        col_factura_idx = col_anclaje_idx + 1  # La columna a la derecha
+        
+        # 3. Extraer los datos de esas columnas usando su posición numérica (.iloc)
+        #    y asignarlos a nuevas columnas con los nombres correctos.
+        df['RIF'] = df.iloc[:, col_rif_idx]
+        df['Factura'] = df.iloc[:, col_factura_idx]
 
-    df.rename(columns={'Nº Referencia': 'Comprobante', 'Monto Retenido': 'Monto'}, inplace=True)
+    except KeyError:
+        # Si la columna 'Nº Documento' no existe, no podemos hacer la extracción posicional.
+        print("Advertencia: No se encontró la columna 'Nº Documento' en el archivo de ISLR.")
+        df['RIF'] = ''
+        df['Factura'] = ''
+
+    # 4. Renombrar las columnas que sí tienen un encabezado fijo
+    df.rename(columns={
+        'Nº Referencia': 'Comprobante', 
+        'Monto Retenido': 'Monto'
+    }, inplace=True)
+    
+    # 5. Normalizar todos los datos como lo hemos hecho con los otros archivos
     df['RIF_norm'] = df['RIF'].apply(_normalizar_rif)
     df['Comprobante_norm'] = df['Comprobante'].apply(_normalizar_numerico)
+    df['Factura_norm'] = df['Factura'].apply(_normalizar_numerico)
     df['Monto'] = pd.to_numeric(df['Monto'], errors='coerce').fillna(0)
-    df['Factura_norm'] = '' # ISLR no cruza por factura según la lógica
+    
     return df
-
+    
 # --- NUEVAS FUNCIONES DE LÓGICA DE CONCILIACIÓN ---
 
 def _conciliar_iva(cp_row, df_iva):
@@ -971,26 +989,48 @@ def _conciliar_iva(cp_row, df_iva):
     return ('Conciliado', 'OK') if not errores else ('Parcialmente Conciliado', ' | '.join(errores))
 
 def _conciliar_islr(cp_row, df_islr):
-    """Aplica la lógica de conciliación de ISLR (clave: RIF + Comprobante)."""
+    """
+    (Versión Robusta) Lógica de conciliación de ISLR que maneja Notas de Crédito
+    y valida todos los campos secundarios.
+    """
     rif_cp = cp_row['RIF_norm']
-    comprobante_cp = cp_row['Comprobante_norm']
+    comprobante_cp_norm = cp_row['Comprobante_norm']
     
-    match_encontrado = df_islr[(df_islr['RIF_norm'] == rif_cp) & (df_islr['Comprobante_norm'] == comprobante_cp)]
+    # Búsqueda principal por RIF + Comprobante
+    match_encontrado = df_islr[
+        (df_islr['RIF_norm'] == rif_cp) & 
+        (df_islr['Comprobante_norm'] == comprobante_cp_norm)
+    ]
     
     if match_encontrado.empty:
+        # Si la búsqueda principal falla, no intentamos sugerir nada por ahora
+        # para ISLR, simplemente reportamos el fallo.
         return 'No Conciliado', 'No encontrado en ISLR'
 
     match_row = match_encontrado.iloc[0]
     errores = []
     
-    if not np.isclose(cp_row['Monto'], match_row['Monto']):
-        msg = f"Monto no coincide. CP: {cp_row['Monto']:.2f}, GALAC: {match_row['Monto']:.2f}"
+    # Validación de Factura (ahora es posible gracias a la corrección en preparar_df_islr)
+    if cp_row['Factura_norm'] != match_row['Factura_norm']:
+        msg = f"Numero de factura no coincide. CP: {cp_row['Factura_norm']}, GALAC: {match_row['Factura_norm']}"
         errores.append(msg)
-        
-    if not errores:
-        return 'Conciliado', 'OK'
+    
+    # Lógica para Notas de Crédito (NC)
+    aplicacion_text = str(cp_row.get('Aplicacion', '')).upper()
+    is_credit_note = 'NC' in aplicacion_text or 'NOTA CREDITO' in aplicacion_text
+
+    if is_credit_note:
+        # Si es NC, comparamos el valor absoluto del monto
+        if not np.isclose(abs(cp_row['Monto']), abs(match_row['Monto'])):
+            msg = f"Monto (NC) no coincide. CP: {cp_row['Monto']:.2f}, GALAC: {match_row['Monto']:.2f}"
+            errores.append(msg)
     else:
-        return 'Parcialmente Conciliado', ' | '.join(errores)
+        # Si no es NC, hacemos la comparación normal
+        if not np.isclose(cp_row['Monto'], match_row['Monto']):
+            msg = f"Monto no coincide. CP: {cp_row['Monto']:.2f}, GALAC: {match_row['Monto']:.2f}"
+            errores.append(msg)
+            
+    return ('Conciliado', 'OK') if not errores else ('Parcialmente Conciliado', ' | '.join(errores))
 
 def _conciliar_municipal(cp_row, df_municipal):
     """Aplica la lógica de conciliación Municipal para una sola fila de CP."""
