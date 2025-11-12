@@ -1172,7 +1172,7 @@ def _traducir_resultados_para_reporte(row, asientos_en_cg_set, df_cg):
 def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun, log_messages):
     """
     Función principal que orquesta todo el proceso de conciliación de retenciones.
-    (Versión final, sin pasar datos para la Hoja 2 de GALAC).
+    (Versión final, sin lógica para la Hoja 2 de GALAC).
     """
     try:
         log_messages.append("--- INICIANDO PROCESO DE CONCILIACIÓN DE RETENCIONES ---")
@@ -1210,9 +1210,41 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         log_messages.append("Iniciando conciliación por tipo de impuesto...")
         resultados = []
         
-        # --- 3. BUCLE PRINCIPAL DE CONCILIACIÓN (sin cambios) ---
+        # --- 3. BUCLE PRINCIPAL DE CONCILIACIÓN ---
         for index, row in df_cp.iterrows():
-            # ... (Toda la lógica del bucle de conciliación se mantiene exactamente igual) ...
+            if 'ANULADO' in str(row.get('Aplicacion', '')).upper():
+                resultados.append({'Estado_Conciliacion': 'Anulado', 'Detalle': 'Movimiento Anulado en CP'})
+                continue
+
+            subtipo = str(row.get('Subtipo', '')).upper()
+            
+            if 'IVA' in subtipo:
+                tipo_primario = 'IVA'
+                busqueda_primaria = lambda r: _conciliar_iva(r, df_iva)
+                busquedas_cruzadas = [('ISLR', lambda r: _conciliar_islr(r, df_islr)), ('Municipal', lambda r: _conciliar_municipal(r, df_municipal))]
+            elif 'ISLR' in subtipo:
+                tipo_primario = 'ISLR'
+                busqueda_primaria = lambda r: _conciliar_islr(r, df_islr)
+                busquedas_cruzadas = [('IVA', lambda r: _conciliar_iva(r, df_iva)), ('Municipal', lambda r: _conciliar_municipal(r, df_municipal))]
+            elif 'MUNICIPAL' in subtipo:
+                tipo_primario = 'Municipal'
+                busqueda_primaria = lambda r: _conciliar_municipal(r, df_municipal)
+                busquedas_cruzadas = [('IVA', lambda r: _conciliar_iva(r, df_iva)), ('ISLR', lambda r: _conciliar_islr(r, df_islr))]
+            else:
+                resultados.append({'Estado_Conciliacion': 'No Conciliado', 'Detalle': 'Subtipo no reconocido'})
+                continue
+
+            estado, mensaje = busqueda_primaria(row)
+
+            if estado == 'No Conciliado':
+                for nombre_otro_tipo, busqueda_otro_tipo in busquedas_cruzadas:
+                    estado_otro, _ = busqueda_otro_tipo(row)
+                    if estado_otro in ['Conciliado', 'Parcialmente Conciliado']:
+                        estado = 'Error de Subtipo'
+                        mensaje = f'Declarado como {tipo_primario}, pero encontrado en {nombre_otro_tipo}'
+                        break
+            
+            resultados.append({'Estado_Conciliacion': estado, 'Detalle': mensaje})
 
         # --- 4. POST-PROCESAMIENTO Y GENERACIÓN DEL REPORTE FINAL ---
         df_resultados = pd.DataFrame(resultados)
@@ -1223,13 +1255,11 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
             axis=1, 
             result_type='expand'
         )
-
         df_cp_final = df_cp_temp.copy()
         
         log_messages.append("¡Proceso de conciliación completado con éxito!")
         
-        # Se mantiene el DataFrame placeholder para df_galac_no_cp, ya que utils.py lo espera
-        df_galac_no_cp = pd.DataFrame(columns=['FECHA', 'COMPROBANTE', 'FACTURA', 'RIF', 'NOMBREPROVEEDOR', 'MONTO', 'TIPO'])
+        df_galac_no_cp = pd.DataFrame()
         cuentas_map_dummy = {}
 
         return generar_reporte_retenciones(df_cp_final, df_galac_no_cp, df_cg_dummy, cuentas_map_dummy)
