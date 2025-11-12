@@ -878,37 +878,39 @@ def preparar_df_municipal(file_path):
 def preparar_df_islr(file_path):
     """
     (Versión Definitiva y Robusta) Carga y prepara el archivo de ISLR,
-    extrayendo el RIF y la Factura por su posición relativa a la columna 'Nº Documento'.
+    buscando dinámicamente la columna del RIF y la Factura por sus nombres.
     """
     df = pd.read_excel(file_path, header=8, dtype=str)
     
-    # Usamos un bloque try/except para manejar de forma segura el caso de que el archivo cambie
-    try:
-        # 1. Encontrar la posición (índice) de nuestra columna de anclaje
-        col_anclaje_idx = df.columns.get_loc('Nº Documento')
-        
-        # 2. Calcular las posiciones de las columnas que nos interesan
-        col_rif_idx = col_anclaje_idx - 1      # La columna a la izquierda
-        col_factura_idx = col_anclaje_idx + 1  # La columna a la derecha
-        
-        # 3. Extraer los datos de esas columnas usando su posición numérica (.iloc)
-        #    y asignarlos a nuevas columnas con los nombres correctos.
-        df['RIF'] = df.iloc[:, col_rif_idx]
-        df['Factura'] = df.iloc[:, col_factura_idx]
+    # --- INICIO DE LA LÓGICA DE BÚSQUEDA DE COLUMNA MEJORADA ---
+    
+    # 1. Buscar la columna del RIF usando una lista de posibles nombres
+    nombres_posibles_rif = ['R.I.F Proveedor', 'Rif Prov.', 'RIF', 'R.I.F.']
+    columna_rif_encontrada = None
+    for col in df.columns:
+        if col.strip() in nombres_posibles_rif:
+            columna_rif_encontrada = col
+            break # Detenerse tan pronto como se encuentre una coincidencia
 
-    except KeyError:
-        # Si la columna 'Nº Documento' no existe, no podemos hacer la extracción posicional.
-        print("Advertencia: No se encontró la columna 'Nº Documento' en el archivo de ISLR.")
-        df['RIF'] = ''
-        df['Factura'] = ''
+    if columna_rif_encontrada:
+        df.rename(columns={columna_rif_encontrada: 'RIF'}, inplace=True)
+    else:
+        # Si no encontramos la columna, no podemos continuar.
+        # En el futuro se podría lanzar un error más explícito.
+        print("Advertencia: No se encontró una columna de RIF de proveedor en el archivo de ISLR.")
+        df['RIF'] = '' # Se crea una columna vacía para evitar que el script falle
 
-    # 4. Renombrar las columnas que sí tienen un encabezado fijo
+    # Se mantiene la lógica de renombrar las columnas que sí tienen un encabezado fijo
     df.rename(columns={
-        'Nº Referencia': 'Comprobante', 
+        'Nº Referencia': 'Comprobante',
+        'Nº Documento': 'Factura', # El número de factura parece ser 'Nº Documento'
         'Monto Retenido': 'Monto'
     }, inplace=True)
     
-    # 5. Normalizar todos los datos como lo hemos hecho con los otros archivos
+    # --- FIN DE LA LÓGICA MEJORADA ---
+    
+    # 2. Normalizar todos los datos como lo hemos hecho con los otros archivos
+    # Esta parte no cambia y funcionará correctamente una vez que los datos de 'RIF' sean los correctos.
     df['RIF_norm'] = df['RIF'].apply(_normalizar_rif)
     df['Comprobante_norm'] = df['Comprobante'].apply(_normalizar_numerico)
     df['Factura_norm'] = df['Factura'].apply(_normalizar_numerico)
