@@ -308,10 +308,10 @@ def generar_csv_saldos_abiertos(df_saldos_abiertos):
 # NUEVA FUNCIÓN DE REPORTE PARA LA HERRAMIENTA DE RETENCIONES
 # ==============================================================================
 
-def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_map):
+def generar_reporte_retenciones(df_cp_results, df_iva, df_islr, df_municipal, df_cg, cuentas_map):
     """
-    Genera el archivo Excel de reporte final, utilizando la nueva columna unificada
-    'Validacion CG' y la lógica de clasificación de incidencias/éxitos actualizada.
+    Genera el reporte Excel final, incluyendo la nueva Hoja 2 "Análisis GALAC"
+    con los tres grupos de clasificación solicitados.
     """
     output_buffer = BytesIO()
     with pd.ExcelWriter(output_buffer, engine='xlsxwriter') as writer:
@@ -437,46 +437,32 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
         ws2.hide_gridlines(2)
         ws2.merge_range('A1:H1', 'Análisis de Retenciones Oficiales (GALAC)', main_title_format)
 
-        # 1. Preparar DFs de GALAC
+        # Preparar DFs de GALAC
         df_iva['Tipo'] = 'IVA'
         df_islr['Tipo'] = 'ISLR'
         df_municipal['Tipo'] = 'Municipal'
 
         # --- Lógica de Merge Separada ---
         df_iva_islr = pd.concat([df_iva, df_islr], ignore_index=True)
-
-        # Merge para IVA e ISLR (usan las 3 claves)
+        
         merge_keys_iva_islr = ['RIF_norm', 'Comprobante_norm', 'Factura_norm']
-        df_merged_iva_islr = pd.merge(
-            df_iva_islr,
-            df_cp_results[['RIF_norm', 'Comprobante_norm', 'Factura_norm', 'Cp Vs Galac', 'Validacion CG']],
-            on=merge_keys_iva_islr,
-            how='left'
-        )
+        df_merged_iva_islr = pd.merge(df_iva_islr, df_cp_results[merge_keys_iva_islr + ['Cp Vs Galac', 'Validacion CG']], on=merge_keys_iva_islr, how='left')
 
-        # Merge para Municipal (usan solo 2 claves)
         merge_keys_municipal = ['RIF_norm', 'Factura_norm']
-        df_merged_municipal = pd.merge(
-            df_municipal,
-            df_cp_results[['RIF_norm', 'Factura_norm', 'Cp Vs Galac', 'Validacion CG']],
-            on=merge_keys_municipal,
-            how='left'
-        )
+        df_merged_municipal = pd.merge(df_municipal, df_cp_results[merge_keys_municipal + ['Cp Vs Galac', 'Validacion CG']], on=merge_keys_municipal, how='left')
 
-        # Volvemos a unir los resultados
         df_merged_galac = pd.concat([df_merged_iva_islr, df_merged_municipal], ignore_index=True)
 
-        # 3. Crear los tres grupos principales
         cond_exitosa_galac = (df_merged_galac['Cp Vs Galac'] == 'Sí') & (df_merged_galac['Validacion CG'] == 'Conciliado en CG')
         cond_no_encontrada_en_cp = df_merged_galac['Cp Vs Galac'].isna()
 
         df_exitosos_galac = df_merged_galac[cond_exitosa_galac].copy()
         df_no_encontrados_galac = df_merged_galac[cond_no_encontrada_en_cp].copy()
-        
+
         indices_a_excluir = df_exitosos_galac.index.union(df_no_encontrados_galac.index)
         df_incidencias_galac = df_merged_galac.drop(indices_a_excluir)
-        # Creamos la columna de error combinando los resultados
-        df_incidencias_galac['Detalle del Error'] = df_incidencias_galac['Cp Vs Galac'].fillna('') + " | " + df_incidencias_galac['Validacion CG'].fillna('')
+        if not df_incidencias_galac.empty:
+            df_incidencias_galac['Detalle del Error'] = df_incidencias_galac['Cp Vs Galac'].fillna('') + " | " + df_incidencias_galac['Validacion CG'].fillna('')
 
         # 4. Función Auxiliar para escribir los grupos en el Excel
         def escribir_grupo_galac(ws, title, df_grupo, headers, start_row):
