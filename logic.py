@@ -1144,13 +1144,8 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         # --- 2. PREPARACIÓN DE DATOS DE CONTABILIDAD GENERAL (CG) ---
         if file_cg:
             df_cg_dummy = pd.read_excel(file_cg, header=0, dtype=str)
-            df_cg_dummy.columns = [col.strip().upper() for col in df_cg_dummy.columns]
+            df_cg_dummy.columns = [col.strip().upper().replace(' ', '') for col in df_cg_dummy.columns]
 
-            # --- ¡AÑADIR ESTE BLOQUE DE DIAGNÓSTICO! ---
-            log_messages.append("--- DIAGNÓSTICO: Columnas en df_cg_dummy (después de estandarizar): ---")
-            for col_name in df_cg_dummy.columns:
-                log_messages.append(f"|{col_name}|")
-            log_messages.append("--------------------------------------------------------------------")
             
             # Verificamos si la columna 'Asiento' existe antes de procesarla
             if 'ASIENTO' in df_cg_dummy.columns:
