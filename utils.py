@@ -413,12 +413,21 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
                 current_row += 1
                 
         # Autoajuste de columnas
-        for i, col in enumerate(final_order_cp):
-            if col in df_reporte_cp.columns:
-                max_len = max(df_reporte_cp[col].astype(str).map(len).max(), len(col))
-                ws1.set_column(i, i, max_len + 2)
-            else:
-                ws1.set_column(i, i, len(col) + 2)
+        for i, col_name in enumerate(final_order_cp):
+            # Obtenemos todos los datos de la columna del dataframe original (antes de la división)
+            column_data = df_reporte_cp[col_name].astype(str)
+            
+            # Calculamos la longitud máxima de los datos, o 0 si la columna está vacía
+            max_data_len = column_data.map(len).max() if not column_data.empty else 0
+            
+            # Calculamos la longitud del título de la columna
+            header_len = len(col_name)
+            
+            # El ancho de la columna será el mayor entre el título y los datos, con un margen extra
+            column_width = max(header_len, max_data_len) + 2
+            
+            # Aplicamos el ancho a la columna en el archivo Excel
+            ws1.set_column(i, i, column_width)
 
         # --- HOJA 2: Análisis GALAC ---
         ws2 = workbook.add_worksheet('Análisis GALAC')
