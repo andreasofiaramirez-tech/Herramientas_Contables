@@ -494,7 +494,8 @@ def generar_reporte_retenciones(df_cp_results, df_iva, df_islr, df_municipal, df
                     ws.write_row(start_row, 0, headers, header_format)
                     start_row += 1
                     for index, row in df_subgrupo.iterrows():
-                        # Aseguramos que las columnas existan antes de intentar acceder a ellas
+                        # --- INICIO DE LA SECCIÓN DE SANITIZACIÓN (MÁS COMPLETA) ---
+                        # Extraemos los valores de la fila
                         fecha = row.get('Fecha', '')
                         comprobante = row.get('Comprobante', '')
                         factura = row.get('Factura', '')
@@ -502,10 +503,20 @@ def generar_reporte_retenciones(df_cp_results, df_iva, df_islr, df_municipal, df
                         proveedor = row.get('Nombre Proveedor', '')
                         monto = row.get('Monto', 0)
                         error = row.get('Detalle del Error', '')
-                        
+                
+                        # Reemplazamos CUALQUIER posible NaN por un valor seguro para Excel
+                        fecha = '' if pd.isna(fecha) else fecha
+                        comprobante = '' if pd.isna(comprobante) else comprobante # Maneja el NaN de Municipal
+                        factura = '' if pd.isna(factura) else factura
+                        rif = '' if pd.isna(rif) else rif
+                        proveedor = '' if pd.isna(proveedor) else proveedor
+                        monto = 0 if pd.isna(monto) else monto # Maneja NaN en montos
+                        error = '' if pd.isna(error) else error
+                        # --- FIN DE LA SECCIÓN DE SANITIZACIÓN ---
+                
                         data_to_write = [fecha, comprobante, factura, rif, proveedor, monto]
                         if 'Detalle del Error' in headers: data_to_write.append(error)
-                        
+                
                         ws.write_row(start_row, 0, data_to_write)
                         start_row += 1
                     start_row += 1
