@@ -990,13 +990,13 @@ def _conciliar_iva(cp_row, df_iva):
 
 def _conciliar_islr(cp_row, df_islr):
     """
-    (Versión Definitiva con Errores Inteligentes) Lógica de conciliación para ISLR que
-    sugiere comprobantes y maneja Notas de Crédito.
+    (Versión Mejorada con Errores Específicos) Lógica de conciliación para ISLR que
+    sugiere comprobantes, maneja Notas de Crédito y reporta errores detallados.
     """
     rif_cp = cp_row['RIF_norm']
     comprobante_cp_norm = cp_row['Comprobante_norm']
     
-    # 1. Búsqueda principal por RIF + Comprobante
+    # 1. Búsqueda principal por RIF + Comprobante (sin cambios)
     match_encontrado = df_islr[
         (df_islr['RIF_norm'] == rif_cp) & 
         (df_islr['Comprobante_norm'] == comprobante_cp_norm)
@@ -1005,8 +1005,7 @@ def _conciliar_islr(cp_row, df_islr):
     # 2. Si la búsqueda principal no encuentra una coincidencia exacta...
     if match_encontrado.empty:
         
-        # Búsqueda secundaria: intentamos encontrar una coincidencia por RIF, Factura y Monto.
-        # Usamos el valor absoluto del monto para que funcione con Notas de Crédito.
+        # Búsqueda secundaria: intentamos encontrar una coincidencia por RIF, Factura y Monto (sin cambios)
         probable_match = df_islr[
             (df_islr['RIF_norm'] == rif_cp) &
             (df_islr['Factura_norm'] == cp_row['Factura_norm']) &
@@ -1019,33 +1018,46 @@ def _conciliar_islr(cp_row, df_islr):
                              f"CP: {cp_row['Comprobante']}, "
                              f"ISLR sugiere: {comprobante_sugerido}")
             return 'No Conciliado', mensaje_error
+            
+        # --- INICIO DE LA LÓGICA DE ERROR MEJORADA ---
+        # Si la sugerencia también falla, investigamos más a fondo.
         else:
-            # Si no hay sugerencia posible, verificamos si el RIF existe
-            if rif_cp not in df_islr['RIF_norm'].values:
+            # Buscamos todos los registros que SÍ existen para ese RIF en el reporte de ISLR.
+            registros_del_rif_en_islr = df_islr[df_islr['RIF_norm'] == rif_cp]
+            
+            # Si no hay NINGÚN registro para ese RIF, entonces el RIF es el problema.
+            if registros_del_rif_en_islr.empty:
                 return 'No Conciliado', 'RIF no se encuentra en el reporte de ISLR'
+            
+            # Si hay registros, el RIF es correcto pero el Comprobante es incorrecto.
+            # Le damos al usuario una lista de los comprobantes válidos.
             else:
-                return 'No Conciliado', 'No encontrado en ISLR' # Mensaje genérico si no hay sugerencia
+                comprobantes_disponibles_en_islr = registros_del_rif_en_islr['Comprobante'].unique().tolist()
+                # Limpiamos posibles valores nulos o vacíos antes de mostrarlos
+                comprobantes_disponibles_en_islr = [str(c) for c in comprobantes_disponibles_en_islr if pd.notna(c) and str(c).strip()]
+                comprobantes_str = ", ".join(comprobantes_disponibles_en_islr)
+                
+                mensaje_error = (f"El Comprobante de CP ({cp_row['Comprobante']}) no se encontró. "
+                                 f"Para ese RIF, ISLR tiene estos: [{comprobantes_str}]")
+                return 'No Conciliado', mensaje_error
+        # --- FIN DE LA LÓGICA DE ERROR MEJORADA ---
 
-    # 3. Si se encontró la coincidencia, procedemos a las validaciones.
+    # 3. Si se encontró la coincidencia, procedemos a las validaciones (sin cambios)
     match_row = match_encontrado.iloc[0]
     errores = []
     
-    # Validación de Factura
     if cp_row['Factura_norm'] != match_row['Factura_norm']:
         msg = f"Numero de factura no coincide. CP: {cp_row['Factura_norm']}, ISLR: {match_row['Factura_norm']}"
         errores.append(msg)
     
-    # Lógica para Notas de Crédito (NC)
     aplicacion_text = str(cp_row.get('Aplicacion', '')).upper()
     is_credit_note = 'NC' in aplicacion_text or 'NOTA CREDITO' in aplicacion_text
 
     if is_credit_note:
-        # Si es NC, comparamos el valor absoluto del monto
         if not np.isclose(abs(cp_row['Monto']), abs(match_row['Monto'])):
             msg = f"Monto (NC) no coincide. CP: {cp_row['Monto']:.2f}, ISLR: {match_row['Monto']:.2f}"
             errores.append(msg)
     else:
-        # Si no es NC, hacemos la comparación normal
         if not np.isclose(cp_row['Monto'], match_row['Monto']):
             msg = f"Monto no coincide. CP: {cp_row['Monto']:.2f}, ISLR: {match_row['Monto']:.2f}"
             errores.append(msg)
