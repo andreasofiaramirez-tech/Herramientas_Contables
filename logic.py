@@ -989,8 +989,8 @@ def _conciliar_iva(cp_row, df_iva):
 
 def _conciliar_islr(cp_row, df_islr):
     """
-    (Versión Definitiva con Suma Inteligente) Maneja comprobantes con múltiples
-    facturas Y múltiples retenciones para una misma factura.
+    (Versión Definitiva con Suma Inteligente y Mensajes Corregidos) Maneja
+    comprobantes con múltiples facturas Y múltiples retenciones para una misma factura.
     """
     rif_cp = cp_row['RIF_norm']
     comprobante_cp_norm = cp_row['Comprobante_norm']
@@ -1011,13 +1011,14 @@ def _conciliar_islr(cp_row, df_islr):
     specific_invoice_matches = comprobante_group[comprobante_group['Factura_norm'] == factura_cp_norm]
     
     if specific_invoice_matches.empty:
-        # Error si la factura no está en el grupo
+        # --- LÍNEA CORREGIDA ---
+        # Se cambió cp_row['Factura'] por cp_row['Factura_norm'] para que coincida
+        # con el nombre de columna que sí existe en el DataFrame de CP.
         all_invoices_in_group = comprobante_group['Factura'].unique().tolist()
-        msg = (f"Factura de CP ({cp_row['Factura']}) no encontrada para el Comprobante {cp_row['Comprobante']}. "
+        msg = (f"Factura de CP ({cp_row['Factura_norm']}) no encontrada para el Comprobante {cp_row['Comprobante']}. "
                f"Este comprobante en GALAC contiene estas facturas: {all_invoices_in_group}")
         return 'No Conciliado', msg
 
-    # --- LÓGICA DE SUMA Y VALIDACIÓN ---
     # 3. Sumar los montos de TODAS las retenciones encontradas para ESA factura
     monto_islr_sumado = specific_invoice_matches['Monto'].sum()
     errores = []
