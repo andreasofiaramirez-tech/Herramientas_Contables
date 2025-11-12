@@ -1095,9 +1095,8 @@ def _conciliar_municipal(cp_row, df_municipal):
         
 def _traducir_resultados_para_reporte(row, asientos_en_cg_set):
     """
-    (Versión con Validación de CG) Convierte los resultados de la conciliación
-    al formato del reporte y, adicionalmente, verifica si el asiento de CP
-    existe en el archivo de Contabilidad General.
+    (Versión con Validación de CG - Indentación Corregida) Convierte los
+    resultados de la conciliación y verifica si el asiento de CP existe en CG.
     """
     estado = row['Estado_Conciliacion']
     detalle = row['Detalle']
@@ -1110,13 +1109,13 @@ def _traducir_resultados_para_reporte(row, asientos_en_cg_set):
     else:
         cp_vs_galac = detalle
     
-    # --- ¡NUEVA LÓGICA DE VALIDACIÓN DE ASIENTO EN CG! ---
+    # --- Lógica de Validación de Asiento en CG (con indentación correcta) ---
     asiento_cp = row.get('Asiento', None)
     
-    # Si la fila de CP no tiene un número de asiento, no aplica la verificación.
+    # Verificamos si la fila de CP tiene un número de asiento.
     if not asiento_cp:
         asiento_en_cg = 'No Aplica'
-    # Si el asiento de CP se encuentra en nuestro conjunto de asientos de CG.
+    # Verificamos si el asiento de CP se encuentra en nuestro conjunto de asientos de CG.
     elif asiento_cp in asientos_en_cg_set:
         asiento_en_cg = 'Asiento encontrado en CG'
     # Si no se encuentra.
@@ -1129,41 +1128,48 @@ def _traducir_resultados_para_reporte(row, asientos_en_cg_set):
     return cp_vs_galac, asiento_en_cg, monto_coincide_cg
 
 def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun, log_messages):
+    """
+    Función principal que orquesta todo el proceso de conciliación de retenciones.
+    Carga, prepara, concilia los datos y llama a la función de generación de reportes.
+    """
     try:
         log_messages.append("--- INICIANDO PROCESO DE CONCILIACIÓN DE RETENCIONES ---")
         
+        # --- 1. CARGA Y PREPARACIÓN DE ARCHIVOS DE DATOS ---
         df_cp = preparar_df_cp(file_cp)
         df_iva = preparar_df_iva(file_iva)
         df_islr = preparar_df_islr(file_islr)
         df_municipal = preparar_df_municipal(file_mun)
-
-       if file_cg:
+        
+        # --- 2. PREPARACIÓN DE DATOS DE CONTABILIDAD GENERAL (CG) ---
+        if file_cg:
             df_cg_dummy = pd.read_excel(file_cg, header=0, dtype=str)
-            # Aseguramos que la columna 'Asiento' exista y la normalizamos
+            # Verificamos si la columna 'Asiento' existe antes de procesarla
             if 'Asiento' in df_cg_dummy.columns:
-                # Creamos un conjunto con todos los asientos únicos para una búsqueda ultra-rápida
+                # Creamos un conjunto (set) con todos los asientos únicos para una búsqueda ultra-rápida
                 asientos_en_cg_set = set(df_cg_dummy['Asiento'].dropna().unique())
             else:
                 log_messages.append("Advertencia: No se encontró la columna 'Asiento' en el archivo de CG.")
-                asientos_en_cg_set = set() # Creamos un conjunto vacío
+                asientos_en_cg_set = set() # Creamos un conjunto vacío para evitar errores
         else:
+            # Si no se proporciona un archivo de CG, inicializamos objetos vacíos
             df_cg_dummy = pd.DataFrame()
-            asientos_en_cg_set = set() # Creamos un conjunto vacío si no hay archivo
-
+            asientos_en_cg_set = set()
+        
         log_messages.append("Iniciando conciliación por tipo de impuesto...")
         resultados = []
         
+        # --- 3. BUCLE PRINCIPAL DE CONCILIACIÓN (FILA POR FILA DE CP) ---
         for index, row in df_cp.iterrows():
             
+            # Manejo de casos especiales primero (ej. Anulaciones)
             if 'ANULADO' in str(row.get('Aplicacion', '')).upper():
                 resultados.append({'Estado_Conciliacion': 'Anulado', 'Detalle': 'Movimiento Anulado en CP'})
                 continue
 
             subtipo = str(row.get('Subtipo', '')).upper()
             
-            # --- ¡NUEVA LÓGICA DE DECISIÓN A PRUEBA DE ERRORES! ---
-            
-            # 1. Determinar el tipo primario y los tipos de respaldo
+            # Lógica de "Enrutamiento": decide qué función de conciliación usar
             if 'IVA' in subtipo:
                 tipo_primario = 'IVA'
                 busqueda_primaria = lambda r: _conciliar_iva(r, df_iva)
@@ -1189,10 +1195,10 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
                 resultados.append({'Estado_Conciliacion': 'No Conciliado', 'Detalle': 'Subtipo no reconocido'})
                 continue
 
-            # 2. Ejecutar la búsqueda primaria
+            # Ejecutar la búsqueda principal
             estado, mensaje = busqueda_primaria(row)
 
-            # 3. Si la búsqueda primaria falló COMPLETAMENTE, ejecutar la búsqueda cruzada
+            # Si la búsqueda principal falla, intentar búsqueda cruzada (para errores de subtipo)
             if estado == 'No Conciliado':
                 encontrado_en_otro = False
                 for nombre_otro_tipo, busqueda_otro_tipo in busquedas_cruzadas:
@@ -1201,17 +1207,19 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
                         estado = 'Error de Subtipo'
                         mensaje = f'Declarado como {tipo_primario}, pero encontrado en {nombre_otro_tipo}'
                         encontrado_en_otro = True
-                        break # Detener la búsqueda tan pronto como se encuentre una coincidencia
+                        break
                 
-                # Si después de todo no se encontró en ningún lado, mantenemos el mensaje de error original
                 if not encontrado_en_otro:
-                    pass # 'estado' y 'mensaje' ya tienen el error de la búsqueda primaria
+                    pass # Se mantiene el mensaje de error original de la búsqueda primaria
 
             resultados.append({'Estado_Conciliacion': estado, 'Detalle': mensaje})
 
-        # --- PREPARACIÓN FINAL Y LLAMADA AL REPORTE ---
+        # --- 4. POST-PROCESAMIENTO Y GENERACIÓN DEL REPORTE FINAL ---
         df_resultados = pd.DataFrame(resultados)
-         df_cp_temp[['CP_Vs_Galac', 'Asiento_en_CG', 'Monto_coincide_CG']] = df_cp_temp.apply(
+        df_cp_temp = pd.concat([df_cp.reset_index(drop=True), df_resultados], axis=1)
+
+        # Llamada a la función "traductora" usando una lambda para pasar el conjunto de asientos de CG
+        df_cp_temp[['CP_Vs_Galac', 'Asiento_en_CG', 'Monto_coincide_CG']] = df_cp_temp.apply(
             lambda row: _traducir_resultados_para_reporte(row, asientos_en_cg_set), 
             axis=1, 
             result_type='expand'
@@ -1221,12 +1229,15 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         
         log_messages.append("¡Proceso de conciliación completado con éxito!")
         
+        # Placeholders para futuras funcionalidades
         df_galac_no_cp = pd.DataFrame(columns=['FECHA', 'COMPROBANTE', 'FACTURA', 'RIF', 'NOMBREPROVEEDOR', 'MONTO', 'TIPO'])
         cuentas_map_dummy = {}
 
+        # Llamada final al generador de reportes de utils.py
         return generar_reporte_retenciones(df_cp_final, df_galac_no_cp, df_cg_dummy, cuentas_map_dummy)
 
     except Exception as e:
+        # Bloque de manejo de errores críticos
         log_messages.append(f"❌ ERROR CRÍTICO: {e}")
         import traceback
         log_messages.append(traceback.format_exc())
