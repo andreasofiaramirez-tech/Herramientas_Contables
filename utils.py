@@ -322,7 +322,8 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
         header_format = workbook.add_format({'bold': True, 'text_wrap': True, 'valign': 'top', 'fg_color': '#D9EAD3', 'border': 1, 'align': 'center', 'locked': False})
         money_format = workbook.add_format({'num_format': '#,##0.00', 'align': 'center', 'locked': False})
         date_format = workbook.add_format({'num_format': 'dd/mm/yyyy', 'align': 'center', 'locked': False})
-        center_text_format = workbook.add_format({'align': 'center', 'valign': 'top','locked': False,'text_wrap': True})
+        center_text_format = workbook.add_format({'align': 'center', 'valign': 'top', 'locked': False})
+        long_text_format = workbook.add_format({'align': 'left',    # Alinear a la izquierda es mejor para texto largo'valign': 'top','locked': False,'text_wrap': True})
 
         # --- HOJA 1: Relacion CP ---
         ws1 = workbook.add_worksheet('Relacion CP')
@@ -373,7 +374,11 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
                         ws1.write_datetime(current_row, col_idx, value, date_format)
                     elif col_name == 'Monto':
                         ws1.write_number(current_row, col_idx, value, money_format)
+                    elif col_name == 'Cp Vs Galac' and pd.notna(value):
+                        # Usamos el formato específico para esta columna
+                        ws1.write(current_row, col_idx, value, long_text_format)
                     elif pd.notna(value):
+                        # Las otras columnas de texto usan el formato centrado normal
                         ws1.write(current_row, col_idx, value, center_text_format)
                 current_row += 1
         
