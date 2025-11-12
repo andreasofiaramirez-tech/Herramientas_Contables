@@ -310,8 +310,8 @@ def generar_csv_saldos_abiertos(df_saldos_abiertos):
 
 def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_map):
     """
-    Genera el archivo Excel de reporte final, asegurando el ajuste de texto
-    y el ancho de columna mediante el formato de columna completa y ajuste de altura de fila.
+    Genera el archivo Excel de reporte final, asegurando la correcta alineación de datos,
+    el ancho de columnas y la altura de filas estándar.
     """
     output_buffer = BytesIO()
     with pd.ExcelWriter(output_buffer, engine='xlsxwriter') as writer:
@@ -336,17 +336,10 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
         
         df_reporte_cp = df_cp_results.copy()
         
-        df_reporte_cp.rename(columns={
-            'Comprobante': 'Numero', 'CP_Vs_Galac': 'Cp Vs Galac', 
-            'Asiento_en_CG': 'Asiento en CG', 'Monto_coincide_CG': 'Monto coincide CG'
-        }, inplace=True)
-        
-        if 'Fecha' in df_reporte_cp.columns:
-            df_reporte_cp['Fecha'] = pd.to_datetime(df_reporte_cp['Fecha'], errors='coerce')
-        
+        df_reporte_cp.rename(columns={'Comprobante': 'Numero', 'CP_Vs_Galac': 'Cp Vs Galac', 'Asiento_en_CG': 'Asiento en CG', 'Monto_coincide_CG': 'Monto coincide CG'}, inplace=True)
+        if 'Fecha' in df_reporte_cp.columns: df_reporte_cp['Fecha'] = pd.to_datetime(df_reporte_cp['Fecha'], errors='coerce')
         for col in final_order_cp:
-            if col not in df_reporte_cp.columns:
-                df_reporte_cp[col] = ''
+            if col not in df_reporte_cp.columns: df_reporte_cp[col] = ''
         
         df_exitosos = df_reporte_cp[df_reporte_cp['Cp Vs Galac'] == 'Sí']
         df_anulados = df_reporte_cp[df_reporte_cp['Cp Vs Galac'] == 'Anulado']
@@ -359,52 +352,64 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
         ws1.write(current_row, 0, 'Incidencias Encontradas', group_title_format); current_row += 1
         ws1.write_row(current_row, 0, final_order_cp, header_format); current_row += 1
         if not df_incidencias.empty:
-            for _, row in df_incidencias[final_order_cp].iterrows():
-                for col_idx, value in enumerate(row.values):
-                    col_name = final_order_cp[col_idx]
+            # Bucle externo: itera sobre cada REGISTRO
+            for index, row in df_incidencias.iterrows():
+                # Bucle interno: itera sobre cada COLUMNA DEFINIDA
+                for col_idx, col_name in enumerate(final_order_cp):
+                    value = row[col_name]
+                    # Aplicar formato según el nombre de la columna
                     if col_name == 'Fecha' and pd.notna(value):
                         ws1.write_datetime(current_row, col_idx, value, date_format)
                     elif col_name == 'Monto':
                         ws1.write_number(current_row, col_idx, value, money_format)
+                    elif col_name == 'Cp Vs Galac' and pd.notna(value):
+                        ws1.write(current_row, col_idx, value, long_text_format)
                     elif pd.notna(value):
                         ws1.write(current_row, col_idx, value, center_text_format)
+                # Incrementar la fila DESPUÉS de escribir todas las columnas del registro
                 current_row += 1
         
+        # (Se repite la misma lógica de bucle corregida para las otras secciones)
         current_row += 1
         
         # --- Escritura de Conciliaciones Exitosas ---
         ws1.write(current_row, 0, 'Conciliacion Exitosa', group_title_format); current_row += 1
         ws1.write_row(current_row, 0, final_order_cp, header_format); current_row += 1
         if not df_exitosos.empty:
-            for _, row in df_exitosos[final_order_cp].iterrows():
-                for col_idx, value in enumerate(row.values):
-                    col_name = final_order_cp[col_idx]
+            for index, row in df_exitosos.iterrows():
+                for col_idx, col_name in enumerate(final_order_cp):
+                    value = row[col_name]
                     if col_name == 'Fecha' and pd.notna(value):
                         ws1.write_datetime(current_row, col_idx, value, date_format)
                     elif col_name == 'Monto':
                         ws1.write_number(current_row, col_idx, value, money_format)
+                    elif col_name == 'Cp Vs Galac' and pd.notna(value):
+                         ws1.write(current_row, col_idx, value, long_text_format)
                     elif pd.notna(value):
                         ws1.write(current_row, col_idx, value, center_text_format)
                 current_row += 1
-        
+
         current_row += 1
 
         # --- Escritura de Anulados ---
+        # (La misma corrección aquí)
         ws1.write(current_row, 0, 'Registros Anulados', group_title_format); current_row += 1
         ws1.write_row(current_row, 0, final_order_cp, header_format); current_row += 1
         if not df_anulados.empty:
-            for _, row in df_anulados[final_order_cp].iterrows():
-                for col_idx, value in enumerate(row.values):
-                    col_name = final_order_cp[col_idx]
+            for index, row in df_anulados.iterrows():
+                for col_idx, col_name in enumerate(final_order_cp):
+                    value = row[col_name]
                     if col_name == 'Fecha' and pd.notna(value):
                         ws1.write_datetime(current_row, col_idx, value, date_format)
                     elif col_name == 'Monto':
                         ws1.write_number(current_row, col_idx, value, money_format)
+                    elif col_name == 'Cp Vs Galac' and pd.notna(value):
+                         ws1.write(current_row, col_idx, value, long_text_format)
                     elif pd.notna(value):
                         ws1.write(current_row, col_idx, value, center_text_format)
                 current_row += 1
-                
-        # --- Bloque de autoajuste de ANCHO de columnas ---
+
+        # --- Bloque de autoajuste de ANCHO ---
         for i, col_name in enumerate(final_order_cp):
             column_data = df_reporte_cp[col_name].astype(str)
             max_data_len = column_data.map(len).max() if not column_data.empty else 0
@@ -412,17 +417,6 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
             column_width = max(header_len, max_data_len) + 2
             column_width = min(column_width, 255)
             ws1.set_column(i, i, column_width)
-
-        # --- Lógica de FORMATO de columna y ALTURA de fila ---
-        try:
-            col_idx_galac = final_order_cp.index('Cp Vs Galac')
-            # El None en el ancho significa "no cambiar el ancho ya calculado"
-            ws1.set_column(col_idx_galac, col_idx_galac, None, long_text_format)
-        except ValueError:
-            pass # Si la columna no existe, no hacer nada
-
-        # Establecer una altura por defecto para que el texto ajustado sea visible
-        ws1.set_default_row(30)
             
         # --- HOJA 2: Análisis GALAC ---
         ws2 = workbook.add_worksheet('Análisis GALAC')
