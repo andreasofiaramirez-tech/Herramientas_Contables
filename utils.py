@@ -322,7 +322,7 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
         header_format = workbook.add_format({'bold': True, 'text_wrap': True, 'valign': 'top', 'fg_color': '#D9EAD3', 'border': 1, 'align': 'center', 'locked': False})
         money_format = workbook.add_format({'num_format': '#,##0.00', 'align': 'center', 'locked': False})
         date_format = workbook.add_format({'num_format': 'dd/mm/yyyy', 'align': 'center', 'locked': False})
-        center_text_format = workbook.add_format({'align': 'center', 'locked': False})
+        center_text_format = workbook.add_format({'align': 'center', 'valign': 'top','locked': False,'text_wrap': True})
 
         # --- HOJA 1: Relacion CP ---
         ws1 = workbook.add_worksheet('Relacion CP')
@@ -354,7 +354,6 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
             if col not in df_reporte_cp.columns:
                 df_reporte_cp[col] = ''
         
-        # --- ¡NUEVA LÓGICA DE SEPARACIÓN! ---
         # 4. Separamos el DataFrame en tres grupos: Incidencias, Exitosos y Anulados.
         df_exitosos = df_reporte_cp[df_reporte_cp['Cp Vs Galac'] == 'Sí']
         df_anulados = df_reporte_cp[df_reporte_cp['Cp Vs Galac'] == 'Anulado']
@@ -397,7 +396,7 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
         
         current_row += 1
 
-        # --- ¡NUEVO BLOQUE! Escritura de Anulados ---
+        # --- Escritura de Anulados ---
         ws1.write(current_row, 0, 'Registros Anulados', group_title_format); current_row += 1
         ws1.write_row(current_row, 0, final_order_cp, header_format); current_row += 1
         if not df_anulados.empty:
@@ -413,20 +412,19 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
                 current_row += 1
                 
         # Autoajuste de columnas
+        # Bloque de autoajuste con límite de ancho.
         for i, col_name in enumerate(final_order_cp):
-            # Obtenemos todos los datos de la columna del dataframe original (antes de la división)
             column_data = df_reporte_cp[col_name].astype(str)
-            
-            # Calculamos la longitud máxima de los datos, o 0 si la columna está vacía
             max_data_len = column_data.map(len).max() if not column_data.empty else 0
-            
-            # Calculamos la longitud del título de la columna
             header_len = len(col_name)
             
-            # El ancho de la columna será el mayor entre el título y los datos, con un margen extra
+            # Calculamos el ancho requerido
             column_width = max(header_len, max_data_len) + 2
             
-            # Aplicamos el ancho a la columna en el archivo Excel
+            # Aplicamos el límite de Excel
+            if column_width > 255:
+                column_width = 255
+            
             ws1.set_column(i, i, column_width)
             
         # --- HOJA 2: Análisis GALAC ---
