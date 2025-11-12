@@ -329,37 +329,39 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
         ws1 = workbook.add_worksheet('Relacion CP')
         ws1.hide_gridlines(2)
         
+        # --- NUEVO ORDEN DE COLUMNAS (UNIFICADO) ---
         final_order_cp = [
             'Asiento', 'Tipo', 'Fecha', 'Numero', 'Aplicacion', 'Subtipo', 'Monto', 
-            'Cp Vs Galac', 'Asiento en CG', 'Monto coincide CG', 'RIF', 'Nombre Proveedor'
+            'Cp Vs Galac', 'Validacion CG', 'RIF', 'Nombre Proveedor'
         ]
         
         df_reporte_cp = df_cp_results.copy()
         
-        df_reporte_cp.rename(columns={'Comprobante': 'Numero', 'CP_Vs_Galac': 'Cp Vs Galac', 'Asiento_en_CG': 'Asiento en CG', 'Monto_coincide_CG': 'Monto coincide CG'}, inplace=True)
+        # --- NUEVO RENOMBRADO DE COLUMNAS ---
+        df_reporte_cp.rename(columns={
+            'Comprobante': 'Numero', 
+            'CP_Vs_Galac': 'Cp Vs Galac', 
+            'Validacion_CG': 'Validacion CG' # Renombramos la nueva columna
+        }, inplace=True)
+        
         if 'Fecha' in df_reporte_cp.columns: df_reporte_cp['Fecha'] = pd.to_datetime(df_reporte_cp['Fecha'], errors='coerce')
         for col in final_order_cp:
             if col not in df_reporte_cp.columns: df_reporte_cp[col] = ''
         
+        # --- NUEVA LÓGICA DE FILTRADO CON CRITERIO DE ÉXITO UNIFICADO ---
         condicion_exitosa = (
             (df_reporte_cp['Cp Vs Galac'] == 'Sí') &
-            (df_reporte_cp['Asiento en CG'] == 'Asiento encontrado en CG') &
-            (df_reporte_cp['Monto coincide CG'] == 'Sí')
+            (df_reporte_cp['Validacion CG'] == 'Conciliado en CG')
         )
-        
-        # Definimos la condición para los registros "Anulados".
         condicion_anulado = (df_reporte_cp['Cp Vs Galac'] == 'Anulado')
         
-        # Creamos los DataFrames filtrados.
         df_exitosos = df_reporte_cp[condicion_exitosa].copy()
         df_anulados = df_reporte_cp[condicion_anulado].copy()
         
-        # Las incidencias son TODAS las filas que no son ni exitosas ni anuladas.
-        # Usamos los índices para asegurar que no haya solapamientos.
         indices_exitosos_y_anulados = df_exitosos.index.union(df_anulados.index)
         df_incidencias = df_reporte_cp.drop(indices_exitosos_y_anulados)
         
-        ws1.merge_range('A1:L1', 'Relacion de Retenciones CP', main_title_format)
+        ws1.merge_range('A1:K1', 'Relacion de Retenciones CP', main_title_format) # Ajustado a 11 columnas
         current_row = 2
         
         # --- Escritura de Incidencias ---
