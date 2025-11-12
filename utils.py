@@ -310,8 +310,10 @@ def generar_csv_saldos_abiertos(df_saldos_abiertos):
 
 def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_map):
     """
-    Genera el archivo Excel de reporte final, conteniendo únicamente las hojas
-    'Relacion CP' y 'Diario CG'. (Versión final, limpia y con la firma correcta).
+    Genera el archivo Excel de reporte final, con formato y lógica actualizados.
+    - Hoja 1: 'Relacion CP' con columna de validación de CG unificada.
+    - Hoja 2: Eliminada.
+    - Hoja 3: 'Diario CG' con título centrado y columnas autoajustadas.
     """
     output_buffer = BytesIO()
     with pd.ExcelWriter(output_buffer, engine='xlsxwriter') as writer:
@@ -393,19 +395,21 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
                     elif pd.notna(value): ws1.write(current_row, col_idx, value, center_text_format)
                 current_row += 1
 
-        # Bloque de autoajuste de ANCHO
+        # Bloque de autoajuste de ANCHO para Hoja 1
         for i, col_name in enumerate(final_order_cp):
             column_data = df_reporte_cp[col_name].astype(str)
             max_data_len = column_data.map(len).max() if not column_data.empty else 0
             header_len = len(col_name)
             column_width = max(header_len, max_data_len) + 2
-            column_width = min(column_width, 50) # Límite para evitar columnas excesivamente anchas
+            column_width = min(column_width, 50)
             ws1.set_column(i, i, column_width)
 
         # --- HOJA 3: Diario CG ---
         ws3 = workbook.add_worksheet('Diario CG')
         ws3.hide_gridlines(2)
+        # 1. Título Centrado
         ws3.merge_range('A1:I1', 'Asientos con Errores de Conciliación', main_title_format)
+        
         cg_original_cols = [c for c in ['ASIENTO', 'FUENTE', 'CUENTACONTABLE', 'DESCRIPCIONDELACUENTACONTABLE', 'REFERENCIA', 'DEBITOVES', 'CREDITOVES', 'RIF', 'NIT'] if c in df_cg.columns]
         cg_headers_final = cg_original_cols + ['Observacion']
         asientos_con_error = df_incidencias['Asiento'].unique()
@@ -438,6 +442,16 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
         if not df_error_monto.empty:
             for r_idx, row in df_error_monto[cg_headers_final].iterrows():
                 ws3.write_row(current_row, 0, row.fillna('').values); current_row += 1
-        ws3.set_column('A:E', 20); ws3.set_column('F:G', 15, money_format); ws3.set_column('H:H', 20); ws3.set_column('I:I', 40)
+        
+        # 2. Bloque de autoajuste de ANCHO para Hoja 3
+        df_cg_final_para_ancho = pd.concat([df_error_cuenta, df_error_monto])
+        for i, col_name in enumerate(cg_headers_final):
+            if col_name in df_cg_final_para_ancho.columns:
+                column_data = df_cg_final_para_ancho[col_name].astype(str)
+                max_data_len = column_data.map(len).max() if not column_data.empty else 0
+                header_len = len(col_name)
+                column_width = max(header_len, max_data_len) + 2
+                column_width = min(column_width, 60)
+                ws3.set_column(i, i, column_width)
 
     return output_buffer.getvalue()
