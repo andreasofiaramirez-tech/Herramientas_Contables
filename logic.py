@@ -902,42 +902,31 @@ def preparar_df_islr(file_path):
 
 def _conciliar_iva(cp_row, df_iva):
     """
-    (Versión con Errores Inteligentes) Lógica de conciliación que, en caso de fallo,
-    intenta encontrar una coincidencia por RIF+Factura+Monto para sugerir el
-    comprobante correcto.
+    (Versión con manejo de Notas de Crédito) Lógica de conciliación que compara
+    el valor absoluto de los montos si detecta una Nota de Crédito.
     """
     rif_cp = cp_row['RIF_norm']
     comprobante_cp_norm = cp_row['Comprobante_norm']
     
-    # 1. Búsqueda principal por RIF + Comprobante (el método más preciso)
+    # 1. Búsqueda principal (sin cambios)
     match_encontrado = df_iva[
         (df_iva['RIF_norm'] == rif_cp) & 
         (df_iva['Comprobante_norm'] == comprobante_cp_norm)
     ]
     
-    # 2. Si la búsqueda principal no encuentra una coincidencia exacta...
+    # 2. Lógica de error si no se encuentra (sin cambios)
     if match_encontrado.empty:
-        
-        # --- INICIO DE LA NUEVA LÓGICA DE ERROR INTELIGENTE ---
-        
-        # Búsqueda secundaria: intentamos encontrar una coincidencia por RIF, Factura y Monto.
-        # Es crucial usar np.isclose para comparar montos (floats) de forma segura.
+        # Tu lógica de error inteligente para sugerir comprobantes se mantiene aquí...
         probable_match = df_iva[
             (df_iva['RIF_norm'] == rif_cp) &
             (df_iva['Factura_norm'] == cp_row['Factura_norm']) &
-            (np.isclose(df_iva['Monto'], cp_row['Monto']))
+            (np.isclose(df_iva['Monto'].abs(), abs(cp_row['Monto']))) # Usamos abs aquí también por si acaso
         ]
-        
-        # Si encontramos exactamente UNA coincidencia con este método, es muy probable que sea la correcta.
         if not probable_match.empty and len(probable_match) == 1:
             comprobante_sugerido = probable_match.iloc[0]['Comprobante']
-            mensaje_error = (f"Comprobante no coincide. "
-                             f"CP: {cp_row['Comprobante']}, "
-                             f"GALAC sugiere: {comprobante_sugerido}")
+            mensaje_error = f"Comprobante no coincide. CP: {cp_row['Comprobante']}, GALAC sugiere: {comprobante_sugerido}"
             return 'No Conciliado', mensaje_error
         else:
-            # Plan B (Fallback): Si la búsqueda secundaria falla o es ambigua,
-            # volvemos al comportamiento anterior de mostrar todos los comprobantes para el RIF.
             registros_del_rif_en_galac = df_iva[df_iva['RIF_norm'] == rif_cp]
             if registros_del_rif_en_galac.empty:
                 return 'No Conciliado', 'RIF no se encuentra en GALAC'
@@ -948,20 +937,36 @@ def _conciliar_iva(cp_row, df_iva):
                                  f"Para ese RIF, GALAC tiene estos: [{comprobantes_str}]")
                 return 'No Conciliado', mensaje_error
 
-    # 3. Si la búsqueda principal SÍ encontró coincidencia, el proceso continúa como siempre.
+    # 3. Si se encuentra la coincidencia, procedemos a las validaciones.
     match_row = match_encontrado.iloc[0]
     errores = []
     
-    # Nota: No necesitamos validar RIF, Factura y Monto aquí porque la búsqueda secundaria
-    # ya los habría usado si el comprobante fuera incorrecto. Solo validamos lo que no fue parte de la clave.
-    # En este caso, la clave primaria ya validó todo lo importante.
+    # Validación de Factura (sin cambios)
     if cp_row['Factura_norm'] != match_row['Factura_norm']:
         msg = f"Numero de factura no coincide. CP: {cp_row['Factura_norm']}, GALAC: {match_row['Factura_norm']}"
         errores.append(msg)
-        
-    if not np.isclose(cp_row['Monto'], match_row['Monto']):
-        msg = f"Monto no coincide. CP: {cp_row['Monto']:.2f}, GALAC: {match_row['Monto']:.2f}"
-        errores.append(msg)
+    
+    # --- INICIO DE LA NUEVA LÓGICA PARA NOTAS DE CRÉDITO ---
+    
+    # Convertimos el texto de "Aplicacion" a mayúsculas para una comparación robusta.
+    aplicacion_text = str(cp_row.get('Aplicacion', '')).upper()
+    
+    # Verificamos si alguna de las palabras clave de Nota de Crédito está presente.
+    # "N/C" se convierte en "NC" al quitar caracteres no alfanuméricos, por eso solo buscar "NC" es suficiente.
+    is_credit_note = 'NC' in aplicacion_text or 'NOTA CREDITO' in aplicacion_text
+
+    if is_credit_note:
+        # Si es una Nota de Crédito, comparamos los valores absolutos.
+        if not np.isclose(abs(cp_row['Monto']), abs(match_row['Monto'])):
+            msg = f"Monto (NC) no coincide. CP: {cp_row['Monto']:.2f}, GALAC: {match_row['Monto']:.2f}"
+            errores.append(msg)
+    else:
+        # Si NO es una Nota de Crédito, usamos la comparación normal.
+        if not np.isclose(cp_row['Monto'], match_row['Monto']):
+            msg = f"Monto no coincide. CP: {cp_row['Monto']:.2f}, GALAC: {match_row['Monto']:.2f}"
+            errores.append(msg)
+            
+    # --- FIN DE LA NUEVA LÓGICA ---
         
     return ('Conciliado', 'OK') if not errores else ('Parcialmente Conciliado', ' | '.join(errores))
 
