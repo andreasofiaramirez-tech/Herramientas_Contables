@@ -1172,16 +1172,28 @@ def _traducir_resultados_para_reporte(row, asientos_en_cg_set, df_cg):
 def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun, log_messages):
     """
     Función principal que orquesta todo el proceso de conciliación de retenciones.
-    (Versión final, sin lógica para la Hoja 2 de GALAC).
+    (Versión final con enriquecimiento de Nombre de Proveedor).
     """
     try:
         log_messages.append("--- INICIANDO PROCESO DE CONCILIACIÓN DE RETENCIONES ---")
         
-        # --- 1. CARGA Y PREPARACIÓN DE ARCHIVOS DE DATOS ---
+        # --- 1. CARGA Y PREPARACIÓN DE ARCHIVOS DE DATOS (sin cambios) ---
         df_cp = preparar_df_cp(file_cp)
         df_iva = preparar_df_iva(file_iva)
         df_islr = preparar_df_islr(file_islr)
         df_municipal = preparar_df_municipal(file_mun)
+        
+        # --- ¡NUEVO! CREACIÓN DEL MAPA DE PROVEEDORES ---
+        # Unificamos todos los archivos de GALAC para crear una lista maestra de proveedores
+        df_iva.rename(columns={'Nombre o Razón Social': 'Nombre_Proveedor'}, inplace=True)
+        df_islr.rename(columns={'Razón Social del Sujeto Retenido': 'Nombre_Proveedor'}, inplace=True)
+        df_municipal.rename(columns={'Razon Social Del Sujeto Retenido': 'Nombre_Proveedor'}, inplace=True)
+
+        provider_map_df = pd.concat([
+            df_iva[['RIF_norm', 'Nombre_Proveedor']],
+            df_islr[['RIF_norm', 'Nombre_Proveedor']],
+            df_municipal[['RIF_norm', 'Nombre_Proveedor']]
+        ]).dropna(subset=['RIF_norm']).drop_duplicates(subset=['RIF_norm'])
         
         # --- 2. PREPARACIÓN DE DATOS DE CONTABILIDAD GENERAL (CG) ---
         if file_cg:
@@ -1255,7 +1267,16 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
             axis=1, 
             result_type='expand'
         )
-        df_cp_final = df_cp_temp.copy()
+        
+        # --- ¡NUEVO! ENRIQUECIMIENTO CON EL NOMBRE DEL PROVEEDOR ---
+        # Hacemos un 'left merge' para añadir el Nombre del Proveedor desde nuestro mapa
+        df_cp_final = pd.merge(
+            df_cp_temp,
+            provider_map_df,
+            on='RIF_norm',
+            how='left'
+        )
+        df_cp_final.rename(columns={'Nombre_Proveedor': 'Nombre Proveedor'}, inplace=True)
         
         log_messages.append("¡Proceso de conciliación completado con éxito!")
         
