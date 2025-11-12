@@ -898,8 +898,13 @@ def preparar_df_municipal(file_path):
     df['Factura_norm'] = df['Factura'].apply(_normalizar_numerico)
     df['Monto'] = pd.to_numeric(df['Monto'], errors='coerce').fillna(0)
     
-    # Añadimos una columna de Comprobante vacía para consistencia
-    df['Comprobante_norm'] = ''
+    # Si existe una columna de comprobante (ej. 'Número de Comprobante'), la usamos.
+    # Si no, la columna no se crea, y Pandas la tratará como ausente (NaN).
+    if 'Número de Comprobante' in df.columns:
+        df['Comprobante_norm'] = df['Número de Comprobante'].apply(_normalizar_numerico)
+    else:
+        # No creamos una columna con '' vacíos. Dejamos que no exista.
+        pass
     
     return df
 
