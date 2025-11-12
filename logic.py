@@ -990,29 +990,49 @@ def _conciliar_iva(cp_row, df_iva):
 
 def _conciliar_islr(cp_row, df_islr):
     """
-    (Versión Robusta) Lógica de conciliación de ISLR que maneja Notas de Crédito
-    y valida todos los campos secundarios.
+    (Versión Definitiva con Errores Inteligentes) Lógica de conciliación para ISLR que
+    sugiere comprobantes y maneja Notas de Crédito.
     """
     rif_cp = cp_row['RIF_norm']
     comprobante_cp_norm = cp_row['Comprobante_norm']
     
-    # Búsqueda principal por RIF + Comprobante
+    # 1. Búsqueda principal por RIF + Comprobante
     match_encontrado = df_islr[
         (df_islr['RIF_norm'] == rif_cp) & 
         (df_islr['Comprobante_norm'] == comprobante_cp_norm)
     ]
     
+    # 2. Si la búsqueda principal no encuentra una coincidencia exacta...
     if match_encontrado.empty:
-        # Si la búsqueda principal falla, no intentamos sugerir nada por ahora
-        # para ISLR, simplemente reportamos el fallo.
-        return 'No Conciliado', 'No encontrado en ISLR'
+        
+        # Búsqueda secundaria: intentamos encontrar una coincidencia por RIF, Factura y Monto.
+        # Usamos el valor absoluto del monto para que funcione con Notas de Crédito.
+        probable_match = df_islr[
+            (df_islr['RIF_norm'] == rif_cp) &
+            (df_islr['Factura_norm'] == cp_row['Factura_norm']) &
+            (np.isclose(df_islr['Monto'].abs(), abs(cp_row['Monto'])))
+        ]
+        
+        if not probable_match.empty and len(probable_match) == 1:
+            comprobante_sugerido = probable_match.iloc[0]['Comprobante']
+            mensaje_error = (f"Comprobante no coincide. "
+                             f"CP: {cp_row['Comprobante']}, "
+                             f"ISLR sugiere: {comprobante_sugerido}")
+            return 'No Conciliado', mensaje_error
+        else:
+            # Si no hay sugerencia posible, verificamos si el RIF existe
+            if rif_cp not in df_islr['RIF_norm'].values:
+                return 'No Conciliado', 'RIF no se encuentra en el reporte de ISLR'
+            else:
+                return 'No Conciliado', 'No encontrado en ISLR' # Mensaje genérico si no hay sugerencia
 
+    # 3. Si se encontró la coincidencia, procedemos a las validaciones.
     match_row = match_encontrado.iloc[0]
     errores = []
     
-    # Validación de Factura (ahora es posible gracias a la corrección en preparar_df_islr)
+    # Validación de Factura
     if cp_row['Factura_norm'] != match_row['Factura_norm']:
-        msg = f"Numero de factura no coincide. CP: {cp_row['Factura_norm']}, GALAC: {match_row['Factura_norm']}"
+        msg = f"Numero de factura no coincide. CP: {cp_row['Factura_norm']}, ISLR: {match_row['Factura_norm']}"
         errores.append(msg)
     
     # Lógica para Notas de Crédito (NC)
@@ -1022,12 +1042,12 @@ def _conciliar_islr(cp_row, df_islr):
     if is_credit_note:
         # Si es NC, comparamos el valor absoluto del monto
         if not np.isclose(abs(cp_row['Monto']), abs(match_row['Monto'])):
-            msg = f"Monto (NC) no coincide. CP: {cp_row['Monto']:.2f}, GALAC: {match_row['Monto']:.2f}"
+            msg = f"Monto (NC) no coincide. CP: {cp_row['Monto']:.2f}, ISLR: {match_row['Monto']:.2f}"
             errores.append(msg)
     else:
         # Si no es NC, hacemos la comparación normal
         if not np.isclose(cp_row['Monto'], match_row['Monto']):
-            msg = f"Monto no coincide. CP: {cp_row['Monto']:.2f}, GALAC: {match_row['Monto']:.2f}"
+            msg = f"Monto no coincide. CP: {cp_row['Monto']:.2f}, ISLR: {match_row['Monto']:.2f}"
             errores.append(msg)
             
     return ('Conciliado', 'OK') if not errores else ('Parcialmente Conciliado', ' | '.join(errores))
