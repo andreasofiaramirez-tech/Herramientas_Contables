@@ -1037,29 +1037,51 @@ def _conciliar_islr(cp_row, df_islr):
     return ('Conciliado', 'OK') if not errores else ('Parcialmente Conciliado', ' | '.join(errores))
     
 def _conciliar_municipal(cp_row, df_municipal):
-    """Aplica la lógica de conciliación Municipal para una sola fila de CP."""
+    """
+    (Versión Robusta y Multi-paso) Aplica la lógica de conciliación Municipal.
+    - Usa np.isclose para una comparación segura de montos.
+    - Busca la factura exacta dentro de un grupo de posibles candidatos.
+    """
     rif_cp = cp_row['RIF_norm']
     monto_cp = cp_row['Monto']
+    factura_cp_norm = cp_row['Factura_norm']
     
-    posibles_matches = df_municipal[(df_municipal['RIF_norm'] == rif_cp) & (df_municipal['Monto'] == monto_cp)]
+    # --- PASO 1: Búsqueda inicial por RIF y Monto (usando isclose) ---
     
-    if posibles_matches.empty:
-        if rif_cp not in df_municipal['RIF_norm'].values:
-            return 'No Conciliado', 'RIF no se encuentra en GALAC'
-        else:
-            return 'No Conciliado', f"Monto de retencion no encontrado en GALAC. Monto CP: {monto_cp:.2f}"
-            
-    match_encontrado = posibles_matches.iloc[0]
+    # Filtramos primero por RIF para optimizar
+    candidatos_por_rif = df_municipal[df_municipal['RIF_norm'] == rif_cp]
     
-    errores = []
-    if cp_row['Factura_norm'] != match_encontrado['Factura_norm']:
-        msg = f"Numero de factura no coincide. CP: {cp_row['Factura_norm']}, GALAC: {match_encontrado['Factura_norm']}"
-        errores.append(msg)
+    # Si no hay ningún registro para ese RIF, el error es claro.
+    if candidatos_por_rif.empty:
+        return 'No Conciliado', 'RIF no se encuentra en GALAC'
         
-    if not errores:
+    # Ahora, dentro de los candidatos por RIF, buscamos coincidencias de monto usando isclose
+    # Esto resuelve el CASO VERDE.
+    posibles_matches = candidatos_por_rif[np.isclose(candidatos_por_rif['Monto'], monto_cp)]
+    
+    # Si después de buscar por RIF y Monto no hay nada, el monto no se encontró.
+    if posibles_matches.empty:
+        return 'No Conciliado', f"Monto de retencion no encontrado en GALAC. Monto CP: {monto_cp:.2f}"
+
+    # --- PASO 2: Búsqueda de la Factura EXACTA dentro de los posibles matches ---
+    
+    # Dentro de las filas que coinciden en RIF y Monto, buscamos una que también coincida en Factura.
+    # Esto resuelve el CASO NARANJA.
+    match_perfecto = posibles_matches[posibles_matches['Factura_norm'] == factura_cp_norm]
+    
+    # --- PASO 3: Generar Resultados Basados en lo Encontrado ---
+    
+    # Si encontramos una fila que coincide en RIF, Monto Y Factura, está conciliado.
+    if not match_perfecto.empty:
         return 'Conciliado', 'OK'
+    
+    # Si no hubo un match perfecto, pero sí hubo candidatos por RIF y Monto,
+    # significa que la factura es lo que no coincide.
     else:
-        return 'Parcialmente Conciliado', ' | '.join(errores)
+        # Extraemos la factura del primer candidato para mostrarla en el error.
+        factura_sugerida_galac = posibles_matches.iloc[0]['Factura_norm']
+        msg = f"Numero de factura no coincide. CP: {factura_cp_norm}, GALAC sugiere: {factura_sugerida_galac}"
+        return 'Parcialmente Conciliado', msg
         
 def _traducir_resultados_para_reporte(row):
     """
