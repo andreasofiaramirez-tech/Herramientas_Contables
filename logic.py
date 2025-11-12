@@ -911,16 +911,28 @@ def _conciliar_iva(cp_row, df_iva):
     # 1. Buscar el match usando la clave principal y única: RIF + Comprobante
     match_encontrado = df_iva[(df_iva['RIF_norm'] == rif_cp) & (df_iva['Comprobante_norm'] == comprobante_cp)]
     
-    # 2. Validar si se encontró una única coincidencia
+    # 2. Validar si se encontró la coincidencia
     if match_encontrado.empty:
-        # Si no se encuentra, verificamos si al menos el RIF existía
-        if rif_cp not in df_iva['RIF_norm'].values:
+        
+        # Primero, verificamos si el RIF existe en el archivo GALAC
+        posibles_matches_por_rif = df_iva[df_iva['RIF_norm'] == rif_cp]
+        
+        if posibles_matches_por_rif.empty:
+            # Si ni siquiera el RIF existe, lo informamos como antes.
             return 'No Conciliado', 'RIF no se encuentra en GALAC'
         else:
-            return 'No Conciliado', f"Numero de Retencion no encontrado en GALAC. CP: {comprobante_cp}"
-
-    # Si encontramos el match, tomamos la primera (y única) fila
-    match_row = match_encontrado.iloc[0]
+            # Si el RIF sí existe, significa que el problema está en el comprobante.
+            # Recolectamos todos los números de comprobante disponibles en GALAC para ese RIF.
+            # Usamos la columna original 'Comprobante' para que sea más legible para el usuario.
+            comprobantes_disponibles = posibles_matches_por_rif['Comprobante'].unique().tolist()
+            
+            # Creamos el nuevo mensaje de error enriquecido
+            comprobantes_str = ", ".join(map(str, comprobantes_disponibles))
+            mensaje_error = (f"Comprobante no encontrado. "
+                             f"CP: {cp_row['Comprobante']}. "
+                             f"Disponibles en GALAC para ese RIF: [{comprobantes_str}]")
+                             
+            return 'No Conciliado', mensaje_error
     
     # 3. Ahora que tenemos la fila correcta, validamos los demás campos
     errores = []
