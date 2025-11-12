@@ -1174,38 +1174,58 @@ def _traducir_resultados_para_reporte(row, asientos_en_cg_set, df_cg):
 def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun, log_messages):
     """
     Función principal que orquesta todo el proceso de conciliación de retenciones.
-    (Versión final con la creación del mapa de proveedores corregida).
+    (Versión final y completa, con todas las correcciones).
     """
     try:
         log_messages.append("--- INICIANDO PROCESO DE CONCILIACIÓN DE RETENCIONES ---")
         
-        # 1. Carga y preparación (ahora cada función ya incluye el Nombre_Proveedor)
+        # --- 1. CARGA Y PREPARACIÓN DE ARCHIVOS DE DATOS ---
         df_cp = preparar_df_cp(file_cp)
         df_iva = preparar_df_iva(file_iva)
         df_islr = preparar_df_islr(file_islr)
         df_municipal = preparar_df_municipal(file_mun)
         
-        # --- 2. CREACIÓN DEL MAPA DE PROVEEDORES (CORREGIDO) ---
-        # Ya no necesitamos las líneas de 'rename' aquí.
-        
-        # Creamos una lista para almacenar los DataFrames de proveedores
+        # --- 2. CREACIÓN DEL MAPA DE PROVEEDORES ---
         provider_dfs = []
-        
-        # Añadimos cada DataFrame solo si tiene las columnas necesarias
         if all(col in df_iva.columns for col in ['RIF_norm', 'Nombre_Proveedor']):
             provider_dfs.append(df_iva[['RIF_norm', 'Nombre_Proveedor']])
         if all(col in df_islr.columns for col in ['RIF_norm', 'Nombre_Proveedor']):
             provider_dfs.append(df_islr[['RIF_norm', 'Nombre_Proveedor']])
         if all(col in df_municipal.columns for col in ['RIF_norm', 'Nombre_Proveedor']):
             provider_dfs.append(df_municipal[['RIF_norm', 'Nombre_Proveedor']])
-
-        # Concatenamos solo si hay DataFrames para unir
         if provider_dfs:
             provider_map_df = pd.concat(provider_dfs).dropna(subset=['RIF_norm', 'Nombre_Proveedor']).drop_duplicates(subset=['RIF_norm'])
         else:
             provider_map_df = pd.DataFrame(columns=['RIF_norm', 'Nombre_Proveedor'])
+
+        # --- 3. PREPARACIÓN DE DATOS DE CONTABILIDAD GENERAL (CG) ---
+        if file_cg:
+            df_cg_dummy = pd.read_excel(file_cg, header=0, dtype=str)
+            df_cg_dummy.columns = [col.strip().upper().replace(' ', '') for col in df_cg_dummy.columns]
+            debit_names = ['DEBITOVES', 'DÉBITOVES', 'DEBITO', 'DÉBITO', 'DEBEVESDÉBITO', 'MONEDALOCAL']
+            credit_names = ['CREDITOVES', 'CRÉDITOVES', 'CREDITO', 'CRÉDITO', 'CREDITOVESMCREDITOLOCAL']
+            for col_name in df_cg_dummy.columns:
+                if col_name in debit_names:
+                    df_cg_dummy.rename(columns={col_name: 'DEBITO_NORM'}, inplace=True); break
+            for col_name in df_cg_dummy.columns:
+                if col_name in credit_names:
+                    df_cg_dummy.rename(columns={col_name: 'CREDITO_NORM'}, inplace=True); break
+            if 'ASIENTO' in df_cg_dummy.columns:
+                asientos_en_cg_set = set(df_cg_dummy['ASIENTO'].dropna().unique())
+            else:
+                log_messages.append("Advertencia: No se encontró la columna 'ASIENTO' en el archivo de CG.")
+                asientos_en_cg_set = set()
+        else:
+            df_cg_dummy = pd.DataFrame()
+            asientos_en_cg_set = set()
         
-        # --- 3. BUCLE PRINCIPAL DE CONCILIACIÓN ---
+        log_messages.append("Iniciando conciliación por tipo de impuesto...")
+        
+        # --- ¡LÍNEA CORREGIDA! ---
+        # Aquí se inicializa la lista para guardar los resultados.
+        resultados = []
+        
+        # --- 4. BUCLE PRINCIPAL DE CONCILIACIÓN ---
         for index, row in df_cp.iterrows():
             if 'ANULADO' in str(row.get('Aplicacion', '')).upper():
                 resultados.append({'Estado_Conciliacion': 'Anulado', 'Detalle': 'Movimiento Anulado en CP'})
@@ -1214,16 +1234,13 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
             subtipo = str(row.get('Subtipo', '')).upper()
             
             if 'IVA' in subtipo:
-                tipo_primario = 'IVA'
-                busqueda_primaria = lambda r: _conciliar_iva(r, df_iva)
+                tipo_primario = 'IVA'; busqueda_primaria = lambda r: _conciliar_iva(r, df_iva)
                 busquedas_cruzadas = [('ISLR', lambda r: _conciliar_islr(r, df_islr)), ('Municipal', lambda r: _conciliar_municipal(r, df_municipal))]
             elif 'ISLR' in subtipo:
-                tipo_primario = 'ISLR'
-                busqueda_primaria = lambda r: _conciliar_islr(r, df_islr)
+                tipo_primario = 'ISLR'; busqueda_primaria = lambda r: _conciliar_islr(r, df_islr)
                 busquedas_cruzadas = [('IVA', lambda r: _conciliar_iva(r, df_iva)), ('Municipal', lambda r: _conciliar_municipal(r, df_municipal))]
             elif 'MUNICIPAL' in subtipo:
-                tipo_primario = 'Municipal'
-                busqueda_primaria = lambda r: _conciliar_municipal(r, df_municipal)
+                tipo_primario = 'Municipal'; busqueda_primaria = lambda r: _conciliar_municipal(r, df_municipal)
                 busquedas_cruzadas = [('IVA', lambda r: _conciliar_iva(r, df_iva)), ('ISLR', lambda r: _conciliar_islr(r, df_islr))]
             else:
                 resultados.append({'Estado_Conciliacion': 'No Conciliado', 'Detalle': 'Subtipo no reconocido'})
@@ -1235,13 +1252,11 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
                 for nombre_otro_tipo, busqueda_otro_tipo in busquedas_cruzadas:
                     estado_otro, _ = busqueda_otro_tipo(row)
                     if estado_otro in ['Conciliado', 'Parcialmente Conciliado']:
-                        estado = 'Error de Subtipo'
-                        mensaje = f'Declarado como {tipo_primario}, pero encontrado en {nombre_otro_tipo}'
-                        break
+                        estado = 'Error de Subtipo'; mensaje = f'Declarado como {tipo_primario}, pero encontrado en {nombre_otro_tipo}'; break
             
             resultados.append({'Estado_Conciliacion': estado, 'Detalle': mensaje})
 
-        # --- 4. POST-PROCESAMIENTO Y GENERACIÓN DEL REPORTE FINAL ---
+        # --- 5. POST-PROCESAMIENTO Y GENERACIÓN DEL REPORTE FINAL ---
         df_resultados = pd.DataFrame(resultados)
         df_cp_temp = pd.concat([df_cp.reset_index(drop=True), df_resultados], axis=1)
 
@@ -1251,20 +1266,12 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
             result_type='expand'
         )
         
-        # --- ¡NUEVO! ENRIQUECIMIENTO CON EL NOMBRE DEL PROVEEDOR ---
-        # Hacemos un 'left merge' para añadir el Nombre del Proveedor desde nuestro mapa
-        df_cp_final = pd.merge(
-            df_cp_temp,
-            provider_map_df,
-            on='RIF_norm',
-            how='left'
-        )
+        df_cp_final = pd.merge(df_cp_temp, provider_map_df, on='RIF_norm', how='left')
         df_cp_final.rename(columns={'Nombre_Proveedor': 'Nombre Proveedor'}, inplace=True)
         
         log_messages.append("¡Proceso de conciliación completado con éxito!")
         
-        df_galac_no_cp = pd.DataFrame()
-        cuentas_map_dummy = {}
+        df_galac_no_cp = pd.DataFrame(); cuentas_map_dummy = {}
 
         return generar_reporte_retenciones(df_cp_final, df_galac_no_cp, df_cg_dummy, cuentas_map_dummy)
 
