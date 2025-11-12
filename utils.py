@@ -437,24 +437,34 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
         ws2.hide_gridlines(2)
         ws2.merge_range('A1:H1', 'Análisis de Retenciones Oficiales (GALAC)', main_title_format)
 
-        # 1. Unificar todos los reportes de GALAC en un solo DataFrame
+        # 1. Preparar DFs de GALAC
         df_iva['Tipo'] = 'IVA'
         df_islr['Tipo'] = 'ISLR'
         df_municipal['Tipo'] = 'Municipal'
-        
-        df_galac_unificado = pd.concat([df_iva, df_islr, df_municipal], ignore_index=True)
-        # Aseguramos que todas las columnas necesarias para el merge existan
-        for col in ['RIF_norm', 'Comprobante_norm', 'Factura_norm']:
-            if col not in df_galac_unificado.columns: df_galac_unificado[col] = ''
-        
-        # 2. Hacer un "left merge" desde GALAC hacia los resultados de CP
-        # Esto nos permite ver qué filas de GALAC encontraron una correspondencia en CP
-        df_merged_galac = pd.merge(
-            df_galac_unificado,
+
+        # --- Lógica de Merge Separada ---
+        df_iva_islr = pd.concat([df_iva, df_islr], ignore_index=True)
+
+        # Merge para IVA e ISLR (usan las 3 claves)
+        merge_keys_iva_islr = ['RIF_norm', 'Comprobante_norm', 'Factura_norm']
+        df_merged_iva_islr = pd.merge(
+            df_iva_islr,
             df_cp_results[['RIF_norm', 'Comprobante_norm', 'Factura_norm', 'Cp Vs Galac', 'Validacion CG']],
-            on=['RIF_norm', 'Comprobante_norm', 'Factura_norm'],
+            on=merge_keys_iva_islr,
             how='left'
         )
+
+        # Merge para Municipal (usan solo 2 claves)
+        merge_keys_municipal = ['RIF_norm', 'Factura_norm']
+        df_merged_municipal = pd.merge(
+            df_municipal,
+            df_cp_results[['RIF_norm', 'Factura_norm', 'Cp Vs Galac', 'Validacion CG']],
+            on=merge_keys_municipal,
+            how='left'
+        )
+
+        # Volvemos a unir los resultados
+        df_merged_galac = pd.concat([df_merged_iva_islr, df_merged_municipal], ignore_index=True)
 
         # 3. Crear los tres grupos principales
         cond_exitosa_galac = (df_merged_galac['Cp Vs Galac'] == 'Sí') & (df_merged_galac['Validacion CG'] == 'Conciliado en CG')
