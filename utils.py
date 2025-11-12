@@ -438,7 +438,7 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
             if not df_tipo.empty:
                 df_tipo = df_tipo.fillna('')
                 current_row += 1
-                ws2.write(current_row, 0, f'Informe de Retenciones de {tipo}', subgroup_title_format); current_row += 1
+                ws2.write(current_row, 0, f'Informe de Retenciones de {tipo}', group_title_format); current_row += 1
                 ws2.write_row(current_row, 0, galac_headers, header_format); current_row += 1
                 for r_idx, row in df_tipo.iterrows():
                     ws2.write_row(current_row, 0, row.values[:-1]); current_row += 1
