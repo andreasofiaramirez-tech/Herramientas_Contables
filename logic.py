@@ -877,7 +877,7 @@ def preparar_df_municipal(file_path):
 
 def preparar_df_islr(file_path, log_messages):
     """
-    (Versión de Diagnóstico para UI) Este código inyecta los nombres de las
+    (Versión de Diagnóstico para UI - Corregida) Este código inyecta los nombres de las
     columnas del archivo ISLR directamente en el log de la interfaz de usuario.
     """
     log_messages.append("--- INICIANDO DIAGNÓSTICO DEL ARCHIVO ISLR ---")
@@ -896,7 +896,8 @@ def preparar_df_islr(file_path, log_messages):
         columna_rif_encontrada = None
         for col in df.columns:
             if col.strip() in nombres_posibles_rif:
-                columna_rif_en encontrada = col
+                # LA LÍNEA DEL ERROR HA SIDO CORREGIDA AQUÍ
+                columna_rif_encontrada = col
                 break
 
         if columna_rif_encontrada:
