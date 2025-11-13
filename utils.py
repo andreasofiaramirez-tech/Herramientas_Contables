@@ -28,6 +28,11 @@ def cargar_y_limpiar_datos(uploaded_actual, uploaded_anterior, log_messages):
 
         column_mapping, current_cols = {}, [col.strip() for col in df.columns]
 
+        for input_col in current_cols:
+            if 'descripción' in input_col.lower() and 'nit' in input_col.lower():
+                 if input_col not in column_mapping:
+                    column_mapping[input_col] = 'Descripción Nit'
+
         for req_col, (type_synonyms, curr_synonyms) in REQUIRED_COLUMNS.items():
             found = False
             for input_col in current_cols:
@@ -134,17 +139,47 @@ def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrate
         df_reporte_pendientes_prep = df_saldos_abiertos.copy()
         columnas_reporte = _estrategia_actual["columnas_reporte"]
         
-        if _estrategia_actual['id'] == 'devoluciones_proveedores':
+        if _estrategia_actual['id'] == 'deudores_empleados_me':
+            # Este reporte es un resumen, no una lista de transacciones.
+            # Agregamos los saldos pendientes por colaborador.
+            df_reporte_pendientes_prep['Colaborador'] = np.where(
+                df_reporte_pendientes_prep['Referencia'].str.upper().str.contains('DIF EN CAMBIO|DIFERENCIAL', na=False),
+                'DIF EN CAMBIO',
+                df_reporte_pendientes_prep['Descripción Nit'].astype(str).str.strip().str.upper()
+            )
+
+            summary_df = df_reporte_pendientes_prep.groupby('Colaborador').agg(
+                saldo_usd=('Monto_USD', 'sum'),
+                saldo_bs=('Monto_BS', 'sum')
+            ).reset_index()
+
+            summary_df = summary_df[abs(summary_df['saldo_usd']) > 0.01].copy()
+            summary_df['tasa'] = np.where(abs(summary_df['saldo_usd']) != 0, abs(summary_df['saldo_bs']) / abs(summary_df['saldo_usd']), 0)
+
+            dif_cambio_row = summary_df[summary_df['Colaborador'] == 'DIF EN CAMBIO']
+            empleados_rows = summary_df[summary_df['Colaborador'] != 'DIF EN CAMBIO'].sort_values(by='Colaborador')
+
+            df_reporte_pendientes_final = pd.concat([empleados_rows, dif_cambio_row], ignore_index=True)
+            
+            df_reporte_pendientes_final.rename(columns={
+                'Colaborador': 'COLABORADOR', 'saldo_usd': 'SALDO USD', 
+                'saldo_bs': 'SALDO BS', 'tasa': 'TASA'
+            }, inplace=True)
+            
+            df_reporte_pendientes_final = df_reporte_pendientes_final.reindex(columns=columnas_reporte)
+
+        elif _estrategia_actual['id'] == 'devoluciones_proveedores':
             df_reporte_pendientes_prep['Monto USD'] = pd.to_numeric(df_saldos_abiertos['Monto_USD'], errors='coerce').fillna(0)
             df_reporte_pendientes_prep['Monto Bs'] = pd.to_numeric(df_saldos_abiertos['Monto_BS'], errors='coerce').fillna(0)
+            df_reporte_pendientes_final = df_reporte_pendientes_prep.reindex(columns=columnas_reporte).sort_values(by='Fecha')
         else:
             df_reporte_pendientes_prep['Monto Dólar'] = pd.to_numeric(df_saldos_abiertos['Monto_USD'], errors='coerce').fillna(0)
             df_reporte_pendientes_prep['Bs.'] = pd.to_numeric(df_saldos_abiertos['Monto_BS'], errors='coerce').fillna(0)
             monto_dolar_abs = np.abs(df_reporte_pendientes_prep['Monto Dólar'])
             monto_bolivar_abs = np.abs(df_reporte_pendientes_prep['Bs.'])
             df_reporte_pendientes_prep['Tasa'] = np.where(monto_dolar_abs != 0, monto_bolivar_abs / monto_dolar_abs, 0)
+            df_reporte_pendientes_final = df_reporte_pendientes_prep.reindex(columns=columnas_reporte).sort_values(by='Fecha')
 
-        df_reporte_pendientes_final = df_reporte_pendientes_prep.reindex(columns=columnas_reporte).sort_values(by='Fecha')
         if 'Fecha' in df_reporte_pendientes_final.columns:
             df_reporte_pendientes_final['Fecha'] = pd.to_datetime(df_reporte_pendientes_final['Fecha'], errors='coerce').dt.strftime('%d/%m/%Y').fillna('')
         
@@ -154,20 +189,27 @@ def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrate
         num_cols = len(df_reporte_pendientes_final.columns)
         if num_cols > 0:
             worksheet_pendientes.merge_range(0, 0, 0, num_cols - 1, casa_seleccionada, formato_encabezado_empresa)
-            worksheet_pendientes.merge_range(1, 0, 1, num_cols - 1, f"ESPECIFICACION DE LA CUENTA {cuenta_seleccionada.split(' - ')[0]}", formato_encabezado_sub)
+            titulo_cuenta = cuenta_seleccionada if _estrategia_actual['id'] != 'deudores_empleados_me' else "114.02.6006 - DEUDORES EMPLEADOS EN MONEDA EXTRANJERA"
+            worksheet_pendientes.merge_range(1, 0, 1, num_cols - 1, f"ESPECIFICACION DE LA CUENTA {titulo_cuenta.split(' - ')[0]}", formato_encabezado_sub)
             worksheet_pendientes.merge_range(2, 0, 2, num_cols - 1, texto_fecha_encabezado, formato_encabezado_sub)
         
-        for col_num, value in enumerate(df_reporte_pendientes_final.columns.values):
-            worksheet_pendientes.write(4, col_num, value, formato_header_tabla)
+        start_row_headers = 4
+        # Añadir cabecera de grupo para Deudores Empleados
+        if _estrategia_actual['id'] == 'deudores_empleados_me' and num_cols > 0:
+            worksheet_pendientes.merge_range(start_row_headers, 0, start_row_headers, num_cols - 1, 'DEUDORES EMPLEADOS - OTROS EN ME', formato_proveedor_header)
+            start_row_headers += 1
 
-        start_row_data = 5
+        for col_num, value in enumerate(df_reporte_pendientes_final.columns.values):
+            worksheet_pendientes.write(start_row_headers, col_num, value, formato_header_tabla)
+
+        start_row_data = start_row_headers + 1
         
         def get_col_idx(df, potential_names):
             return next((df.columns.get_loc(name) for name in potential_names if name in df.columns), -1)
 
-        dolar_col_idx = get_col_idx(df_reporte_pendientes_final, ['Monto Dólar', 'Monto USD'])
-        bs_col_idx = get_col_idx(df_reporte_pendientes_final, ['Bs.', 'Monto Bs'])
-        tasa_col_idx = get_col_idx(df_reporte_pendientes_final, ['Tasa'])
+        dolar_col_idx = get_col_idx(df_reporte_pendientes_final, ['Monto Dólar', 'Monto USD', 'SALDO USD'])
+        bs_col_idx = get_col_idx(df_reporte_pendientes_final, ['Bs.', 'Monto Bs', 'SALDO BS'])
+        tasa_col_idx = get_col_idx(df_reporte_pendientes_final, ['Tasa', 'TASA'])
 
         for row_idx, row_data in enumerate(df_reporte_pendientes_final.itertuples(index=False), start=start_row_data):
             for col_idx, cell_value in enumerate(row_data):
@@ -177,16 +219,25 @@ def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrate
                 else:
                     worksheet_pendientes.write(row_idx, col_idx, cell_value)
         
-        worksheet_pendientes.set_column('A:A', 15); worksheet_pendientes.set_column('B:B', 50); worksheet_pendientes.set_column('C:C', 12)
-        worksheet_pendientes.set_column('D:D', 18); worksheet_pendientes.set_column('E:E', 15); worksheet_pendientes.set_column('F:F', 18)
+        worksheet_pendientes.set_column('A:A', 40); worksheet_pendientes.set_column('B:B', 18); worksheet_pendientes.set_column('C:C', 18)
+        worksheet_pendientes.set_column('D:D', 15); worksheet_pendientes.set_column('E:E', 15); worksheet_pendientes.set_column('F:F', 18)
         if _estrategia_actual['id'] == 'devoluciones_proveedores':
              worksheet_pendientes.set_column('D:D', 40);
 
-        worksheet_pendientes.freeze_panes(5, 0)
+        worksheet_pendientes.freeze_panes(start_row_data, 0)
 
         if not df_reporte_pendientes_final.empty:
             total_row_index = start_row_data + len(df_reporte_pendientes_final)
-            label_col_idx = dolar_col_idx - 1 if dolar_col_idx > 0 else bs_col_idx -1 if bs_col_idx > 0 else -1
+            label_col_idx = 0
+            
+            if _estrategia_actual['id'] == 'deudores_empleados_me':
+                 # Para deudores, el label "TOTAL" está en la primera columna
+                 label_col_idx = 0
+            else:
+                 # Lógica existente para otras cuentas
+                 if dolar_col_idx > 0: label_col_idx = dolar_col_idx -1
+                 elif bs_col_idx > 0: label_col_idx = bs_col_idx -1
+
             if label_col_idx >= 0:
                  worksheet_pendientes.write(total_row_index, label_col_idx, 'TOTAL', formato_total_label)
 
@@ -201,7 +252,7 @@ def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrate
         if not df_conciliados.empty:
             worksheet_conciliados = workbook.add_worksheet("Conciliacion")
             
-            if _estrategia_actual['id'] in ['fondos_transito', 'fondos_depositar', 'cuentas_viajes']:
+            if _estrategia_actual['id'] in ['fondos_transito', 'fondos_depositar', 'cuentas_viajes', 'deudores_empleados_me']:
                 df_reporte_conciliados_final = df_conciliados.copy()
                 df_reporte_conciliados_final['Débitos Dólares'] = df_reporte_conciliados_final['Monto_USD'].apply(lambda x: x if x > 0 else 0)
                 df_reporte_conciliados_final['Créditos Dólares'] = df_reporte_conciliados_final['Monto_USD'].apply(lambda x: x if x < 0 else 0)
@@ -292,7 +343,7 @@ def generar_csv_saldos_abiertos(df_saldos_abiertos):
     """
     Genera el archivo CSV con los saldos pendientes para el próximo ciclo de conciliación.
     """
-    columnas_csv = ['Asiento', 'Referencia', 'Fecha', 'Débito Bolivar', 'Crédito Bolivar', 'Débito Dolar', 'Crédito Dolar', 'Fuente', 'Nombre del Proveedor', 'NIT']
+    columnas_csv = ['Asiento', 'Referencia', 'Fecha', 'Débito Bolivar', 'Crédito Bolivar', 'Débito Dolar', 'Crédito Dolar', 'Fuente', 'Nombre del Proveedor', 'NIT', 'Descripción Nit']
     df_saldos_a_exportar = df_saldos_abiertos.reindex(columns=columnas_csv).copy()
     
     if 'Fecha' in df_saldos_a_exportar.columns:
