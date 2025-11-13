@@ -7,6 +7,7 @@ from itertools import combinations
 from io import BytesIO
 import unicodedata
 import xlsxwriter
+from utils import generar_reporte_retenciones
 
 # --- Constantes de Tolerancia ---
 TOLERANCIA_MAX_BS = 2.00
@@ -702,61 +703,6 @@ def conciliar_grupos_por_nit_viajes(df, log_messages):
         log_messages.append(f"✔️ Fase 2: {total_conciliados_fase} movimientos conciliados en grupos por NIT.")
     return total_conciliados_fase
 
-# --- (E) Módulo: Deudores Empleados (ME) ---
-def normalizar_datos_deudores_empleados(df, log_messages):
-    """
-    Normaliza los datos para la cuenta de Deudores Empleados.
-    - Extrae el nombre del colaborador desde 'Descripción Nit'.
-    - Identifica las filas de 'Diferencia en Cambio'.
-    - Crea una clave de agrupación unificada.
-    """
-    log_messages.append("✔️ Fase de Normalización: Identificando colaboradores y diferencias en cambio.")
-    df_copy = df.copy()
-
-    if 'Descripción Nit' not in df_copy.columns:
-        log_messages.append("❌ ERROR CRÍTICO: La columna 'Descripción Nit' es necesaria y no se encontró.")
-        df_copy['Colaborador'] = 'INDEFINIDO'
-    else:
-        df_copy['Colaborador'] = df_copy['Descripción Nit'].astype(str).str.strip().str.upper()
-
-    condicion_dif_cambio = df_copy['Referencia'].str.upper().str.contains('DIF EN CAMBIO|DIFERENCIAL', na=False)
-    df_copy.loc[condicion_dif_cambio, 'Colaborador'] = 'DIF EN CAMBIO'
-    
-    df_copy['Clave_Agrupacion'] = df_copy['Colaborador']
-    
-    return df_copy
-
-def conciliar_deudores_por_colaborador(df, log_messages):
-    """
-    Concilia movimientos por colaborador. Si el saldo neto en USD de un colaborador es cero,
-    todos sus movimientos se marcan como conciliados.
-    """
-    log_messages.append("\n--- FASE 1: Conciliación de saldos netos por colaborador ---")
-    
-    pendientes = df[~df['Conciliado']]
-    
-    if 'Clave_Agrupacion' not in pendientes.columns or pendientes.empty:
-        log_messages.append("ℹ️ No hay movimientos pendientes o clave de agrupación para procesar.")
-        return 0
-        
-    group_sums = pendientes.groupby('Clave_Agrupacion')['Monto_USD'].transform('sum')
-    
-    indices_a_conciliar = pendientes[abs(group_sums) <= TOLERANCIA_MAX_USD].index
-    
-    total_conciliados = len(indices_a_conciliar)
-    
-    if total_conciliados > 0:
-        df.loc[indices_a_conciliar, 'Conciliado'] = True
-        
-        grupos_conciliados = df.loc[indices_a_conciliar, 'Clave_Agrupacion']
-        df.loc[indices_a_conciliar, 'Grupo_Conciliado'] = 'SALDO_CERO_' + grupos_conciliados
-        
-        log_messages.append(f"✔️ Fase 1: {total_conciliados} movimientos conciliados correspondientes a colaboradores con saldo neto cero.")
-    else:
-        log_messages.append("ℹ️ No se encontraron colaboradores con saldo neto cero en esta fase.")
-        
-    return total_conciliados
-
 # ==============================================================================
 # FUNCIONES MAESTRAS DE ESTRATEGIA
 # ==============================================================================
@@ -832,21 +778,6 @@ def run_conciliation_viajes(df, log_messages, progress_bar=None):
     
     conciliar_grupos_por_nit_viajes(df, log_messages)
     if progress_bar: progress_bar.progress(0.9, text="Fase 2/2: Búsqueda de grupos complejos completada.")
-    
-    log_messages.append("\n--- PROCESO DE CONCILIACIÓN FINALIZADO ---")
-    return df
-
-def run_conciliation_deudores_empleados_me(df, log_messages, progress_bar=None):
-    """
-    Orquesta la conciliación de la cuenta 114.02.6006 - Deudores Empleados ME.
-    """
-    log_messages.append("\n--- INICIANDO LÓGICA DE DEUDORES EMPLEADOS (ME) ---")
-    
-    df = normalizar_datos_deudores_empleados(df, log_messages)
-    if progress_bar: progress_bar.progress(0.3, text="Fase de Normalización completada.")
-    
-    conciliar_deudores_por_colaborador(df, log_messages)
-    if progress_bar: progress_bar.progress(0.8, text="Fase de conciliación por saldos completada.")
     
     log_messages.append("\n--- PROCESO DE CONCILIACIÓN FINALIZADO ---")
     return df
@@ -1245,86 +1176,6 @@ def _traducir_resultados_para_reporte(row, asientos_en_cg_set, df_cg):
         
     return cp_vs_galac, resultado_final_cg
 
-def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_map):
-    output_buffer = BytesIO()
-    with pd.ExcelWriter(output_buffer, engine='xlsxwriter') as writer:
-        workbook = writer.book
-        main_title_format = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'font_size': 14})
-        group_title_format = workbook.add_format({'bold': True, 'italic': True, 'font_size': 12})
-        header_format = workbook.add_format({'bold': True, 'text_wrap': True, 'valign': 'top', 'fg_color': '#D9EAD3', 'border': 1, 'align': 'center'})
-        money_format = workbook.add_format({'num_format': '#,##0.00', 'align': 'center'})
-        date_format = workbook.add_format({'num_format': 'dd/mm/yyyy', 'align': 'center'})
-        center_text_format = workbook.add_format({'align': 'center', 'valign': 'top'})
-        long_text_format = workbook.add_format({'align': 'left', 'valign': 'top', 'text_wrap': True})
-
-        df_reporte_cp = df_cp_results.copy().rename(columns={'Comprobante': 'Numero', 'CP_Vs_Galac': 'Cp Vs Galac', 'Validacion_CG': 'Validacion CG'})
-        if 'Fecha' in df_reporte_cp.columns: df_reporte_cp['Fecha'] = pd.to_datetime(df_reporte_cp['Fecha'], errors='coerce')
-
-        ws1 = workbook.add_worksheet('Relacion CP')
-        ws1.hide_gridlines(2)
-        
-        final_order_cp = ['Asiento', 'Tipo', 'Fecha', 'Numero', 'Aplicacion', 'Subtipo', 'Monto', 'Cp Vs Galac', 'Validacion CG', 'RIF', 'Nombre Proveedor']
-        for col in final_order_cp:
-            if col not in df_reporte_cp.columns: df_reporte_cp[col] = ''
-        
-        cond_exitosa = (df_reporte_cp['Cp Vs Galac'] == 'Sí') & (df_reporte_cp['Validacion CG'] == 'Conciliado en CG')
-        cond_anulado = (df_reporte_cp['Cp Vs Galac'] == 'Anulado')
-        df_exitosos = df_reporte_cp[cond_exitosa].copy()
-        df_anulados = df_reporte_cp[cond_anulado].copy()
-        df_incidencias = df_reporte_cp.drop(df_exitosos.index.union(df_anulados.index))
-        
-        ws1.merge_range('A1:K1', 'Relacion de Retenciones CP', main_title_format)
-        current_row = 2
-        
-        for title, df_section in [('Incidencias Encontradas', df_incidencias), ('Conciliacion Exitosa', df_exitosos), ('Registros Anulados', df_anulados)]:
-            ws1.write(current_row, 0, title, group_title_format); current_row += 1
-            ws1.write_row(current_row, 0, final_order_cp, header_format); current_row += 1
-            if not df_section.empty:
-                for _, row in df_section.iterrows():
-                    for col_idx, col_name in enumerate(final_order_cp):
-                        value = row[col_name]
-                        fmt = date_format if col_name == 'Fecha' and pd.notna(value) else money_format if col_name == 'Monto' else long_text_format if col_name in ['Cp Vs Galac', 'Validacion CG'] else center_text_format
-                        ws1.write(current_row, col_idx, value, fmt)
-                    current_row += 1
-            current_row += 1
-        
-        for i, col_name in enumerate(final_order_cp):
-            max_len = max(df_reporte_cp[col_name].astype(str).map(len).max(), len(col_name))
-            ws1.set_column(i, i, min(max_len + 2, 50))
-
-        ws3 = workbook.add_worksheet('Diario CG')
-        ws3.hide_gridlines(2)
-        ws3.merge_range('A1:I1', 'Asientos con Errores de Conciliación', main_title_format)
-        
-        cg_headers = [c for c in ['ASIENTO', 'FUENTE', 'CUENTACONTABLE', 'DESCRIPCIONDELACUENTACONTABLE', 'REFERENCIA', 'DEBITOVES', 'CREDITOVES', 'RIF', 'NIT'] if c in df_cg.columns] + ['Observacion']
-        asientos_error = df_incidencias['Asiento'].unique()
-        df_cg_errores = df_cg[df_cg['ASIENTO'].isin(asientos_error)].copy()
-        
-        if not df_incidencias.empty and not df_cg_errores.empty:
-            merged = pd.merge(df_cg_errores.rename(columns={'ASIENTO': 'Asiento'}), df_incidencias[['Asiento', 'Validacion CG']], on='Asiento', how='left').rename(columns={'Asiento': 'ASIENTO'})
-            conds = [merged['Validacion CG'].str.contains('Cuenta Contable', na=False), merged['Validacion CG'].str.contains('Monto no coincide', na=False)]
-            merged['Observacion'] = np.select(conds, ['Cuenta Contable no corresponde', 'Monto no coincide'], default='Error no clasificado')
-            df_cg_final = merged[cg_headers].drop_duplicates()
-        else:
-            df_cg_final = pd.DataFrame(columns=cg_headers)
-        
-        current_row = 2
-        for title, obs in [('INCIDENCIA: Cuenta Contable Incorrecta', 'Cuenta Contable no corresponde'), ('INCIDENCIA: Monto del Diario vs. Relación CP', 'Monto no coincide')]:
-            ws3.write(current_row, 0, title, group_title_format); current_row += 1
-            ws3.write_row(current_row, 0, cg_headers, header_format); current_row += 1
-            df_section = df_cg_final[df_cg_final['Observacion'] == obs]
-            if not df_section.empty:
-                for _, row in df_section.iterrows():
-                    ws3.write_row(current_row, 0, row.fillna('').values); current_row += 1
-            current_row += 1
-
-        for i, col_name in enumerate(cg_headers):
-            max_len = max(df_cg_final[col_name].astype(str).map(len).max(), len(col_name)) if col_name in df_cg_final else len(col_name)
-            ws3.set_column(i, i, min(max_len + 2, 60))
-
-    return output_buffer.getvalue()
-
-# --- FUNCIÓN MAESTRA DE RETENCIONES ---
 def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun, log_messages):
     """
     Función principal que orquesta todo el proceso de conciliación de retenciones.
