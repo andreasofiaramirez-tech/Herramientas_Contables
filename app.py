@@ -14,7 +14,9 @@ from logic import (
     run_conciliation_devoluciones_proveedores,
     run_conciliation_viajes,
     run_conciliation_retenciones
+    run_conciliation_deudores_empleados_me
 )
+
 from utils import (
     cargar_y_limpiar_datos,
     generar_reporte_excel,
@@ -138,6 +140,15 @@ ESTRATEGIAS = {
         "columnas_reporte": ['Asiento', 'NIT', 'Nombre del Proveedor', 'Referencia', 'Fecha', 'Monto_BS', 'Monto_USD', 'Tipo'],
         "nombre_hoja_excel": "114.03.1002",
         "columnas_requeridas": ['Fecha', 'Asiento', 'Referencia', 'Nombre del Proveedor', 'NIT', 'Débito Bolivar', 'Crédito Bolivar']
+    },
+    "114.02.6006 - Deudores Empleados - Otros (ME)": {
+        "id": "deudores_empleados_me",
+        "funcion_principal": run_conciliation_deudores_empleados_me,
+        "label_actual": "Movimientos del mes actual (Deudores Empleados)",
+        "label_anterior": "Saldos anteriores (Deudores Empleados)",
+        "columnas_reporte": ['COLABORADOR', 'SALDO USD', 'SALDO BS', 'TASA'],
+        "nombre_hoja_excel": "114.02.6006",
+        "columnas_requeridas": ['Fecha', 'Asiento', 'Referencia', 'Descripción Nit', 'Débito Dolar', 'Crédito Dolar', 'Débitos Local', 'Créditos Local']
     }
 }
 
@@ -300,7 +311,7 @@ def render_especificaciones():
         st.subheader("Previsualización de Saldos Pendientes", anchor=False)
         df_vista_previa = st.session_state.df_saldos_abiertos.copy()
         
-        if estrategia_actual['id'] in ['fondos_transito', 'fondos_depositar', 'devoluciones_proveedores', 'cuentas_viajes']:
+        if estrategia_actual['id'] in ['fondos_transito', 'fondos_depositar', 'devoluciones_proveedores', 'cuentas_viajes', 'deudores_empleados_me']:
             columnas_numericas = ['Débito Bolivar', 'Crédito Bolivar', 'Débito Dolar', 'Crédito Dolar', 'Monto_BS', 'Monto_USD']
             for col in columnas_numericas:
                 if col in df_vista_previa.columns:
@@ -312,7 +323,7 @@ def render_especificaciones():
         st.subheader("Previsualización de Movimientos Conciliados", anchor=False)
         df_conciliados_vista = st.session_state.df_conciliados.copy()
         
-        if estrategia_actual['id'] in ['fondos_transito', 'fondos_depositar', 'devoluciones_proveedores', 'cuentas_viajes']:
+        if estrategia_actual['id'] in ['fondos_transito', 'fondos_depositar', 'devoluciones_proveedores', 'cuentas_viajes', 'deudores_empleados_me']:
             columnas_numericas_conc = ['Monto_BS', 'Monto_USD']
             for col in columnas_numericas_conc:
                  if col in df_conciliados_vista.columns:
