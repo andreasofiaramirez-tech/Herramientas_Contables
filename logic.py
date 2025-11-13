@@ -703,6 +703,65 @@ def conciliar_grupos_por_nit_viajes(df, log_messages):
         log_messages.append(f"✔️ Fase 2: {total_conciliados_fase} movimientos conciliados en grupos por NIT.")
     return total_conciliados_fase
 
+# --- (E) Módulo: Deudores Empleados - Otros (ME) ---
+def normalizar_datos_deudores_empleados(df, log_messages):
+    """Normaliza el NIT del empleado para usarlo como clave de agrupación."""
+    df_copy = df.copy()
+    
+    # Busca la columna NIT/RIF dinámicamente
+    nit_col_name = next((col for col in df_copy.columns if str(col).strip().upper() in ['NIT', 'RIF']), None)
+            
+    if nit_col_name:
+        log_messages.append(f"✔️ Normalización: Usando columna '{nit_col_name}' como identificador del empleado.")
+        # Limpia el NIT: quita caracteres no alfanuméricos y convierte a mayúsculas
+        df_copy['Clave_Empleado'] = df_copy[nit_col_name].astype(str).str.upper().str.replace(r'[^A-Z0-9]', '', regex=True)
+    else:
+        log_messages.append("⚠️ ADVERTENCIA: No se encontró columna 'NIT' o 'RIF'. La conciliación puede ser imprecisa.")
+        df_copy['Clave_Empleado'] = 'SIN_NIT'
+        
+    return df_copy
+
+def conciliar_grupos_por_empleado(df, log_messages):
+    """Concilia movimientos por empleado si la suma total en USD es cero."""
+    log_messages.append("\n--- FASE 1: Conciliación de saldos totales por empleado (USD) ---")
+    
+    total_conciliados = 0
+    
+    # Agrupa por la clave de empleado normalizada, excluyendo los ya conciliados
+    df_pendientes = df.loc[~df['Conciliado']]
+    grupos_por_empleado = df_pendientes.groupby('Clave_Empleado')
+    
+    log_messages.append(f"ℹ️ Se analizarán los saldos de {len(grupos_por_empleado)} empleados.")
+    
+    for clave_empleado, grupo in grupos_por_empleado:
+        # Omitir si la clave no es válida
+        if clave_empleado == 'SIN_NIT' or pd.isna(clave_empleado) or not clave_empleado:
+            continue
+            
+        # Suma de los movimientos en Dólares para el empleado
+        suma_usd = grupo['Monto_USD'].sum()
+        
+        # Comprueba si la suma está dentro de la tolerancia permitida
+        if abs(suma_usd) <= TOLERANCIA_MAX_USD:
+            indices_a_conciliar = grupo.index
+            
+            # Marcar como conciliado y asignar un grupo
+            df.loc[indices_a_conciliar, 'Conciliado'] = True
+            df.loc[indices_a_conciliar, 'Grupo_Conciliado'] = f"SALDO_CERO_EMP_{clave_empleado}"
+            
+            num_movs = len(indices_a_conciliar)
+            total_conciliados += num_movs
+            
+            nombre_empleado = grupo['Descripción Nit'].iloc[0] if not grupo.empty else clave_empleado
+            log_messages.append(f"✔️ Empleado '{nombre_empleado}' ({clave_empleado}) conciliado. Suma: ${suma_usd:.2f} ({num_movs} movimientos).")
+
+    if total_conciliados > 0:
+        log_messages.append(f"✔️ Fase 1: {total_conciliados} movimientos conciliados por saldo cero por empleado.")
+    else:
+        log_messages.append("ℹ️ Fase 1: No se encontraron empleados con saldo cero para conciliar automáticamente.")
+        
+    return total_conciliados
+
 # ==============================================================================
 # FUNCIONES MAESTRAS DE ESTRATEGIA
 # ==============================================================================
@@ -778,6 +837,24 @@ def run_conciliation_viajes(df, log_messages, progress_bar=None):
     
     conciliar_grupos_por_nit_viajes(df, log_messages)
     if progress_bar: progress_bar.progress(0.9, text="Fase 2/2: Búsqueda de grupos complejos completada.")
+    
+    log_messages.append("\n--- PROCESO DE CONCILIACIÓN FINALIZADO ---")
+    return df
+
+def run_conciliation_deudores_empleados_me(df, log_messages, progress_bar=None):
+    """
+    Orquesta el proceso de conciliación para la cuenta Deudores Empleados en ME.
+    La lógica principal es conciliar por empleado si su saldo total en USD es cero.
+    """
+    log_messages.append("\n--- INICIANDO LÓGICA DE DEUDORES EMPLEADOS (ME) ---")
+    
+    # Paso 1: Normalizar los datos para obtener una clave de empleado fiable
+    df = normalizar_datos_deudores_empleados(df, log_messages)
+    if progress_bar: progress_bar.progress(0.3, text="Fase de Normalización completada.")
+    
+    # Paso 2: Ejecutar la lógica de conciliación principal
+    conciliar_grupos_por_empleado(df, log_messages)
+    if progress_bar: progress_bar.progress(0.8, text="Fase de Conciliación por Empleado completada.")
     
     log_messages.append("\n--- PROCESO DE CONCILIACIÓN FINALIZADO ---")
     return df
