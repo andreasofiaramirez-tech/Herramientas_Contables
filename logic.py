@@ -703,6 +703,61 @@ def conciliar_grupos_por_nit_viajes(df, log_messages):
         log_messages.append(f"✔️ Fase 2: {total_conciliados_fase} movimientos conciliados en grupos por NIT.")
     return total_conciliados_fase
 
+# --- (E) Módulo: Deudores Empleados (ME) ---
+def normalizar_datos_deudores_empleados(df, log_messages):
+    """
+    Normaliza los datos para la cuenta de Deudores Empleados.
+    - Extrae el nombre del colaborador desde 'Descripción Nit'.
+    - Identifica las filas de 'Diferencia en Cambio'.
+    - Crea una clave de agrupación unificada.
+    """
+    log_messages.append("✔️ Fase de Normalización: Identificando colaboradores y diferencias en cambio.")
+    df_copy = df.copy()
+
+    if 'Descripción Nit' not in df_copy.columns:
+        log_messages.append("❌ ERROR CRÍTICO: La columna 'Descripción Nit' es necesaria y no se encontró.")
+        df_copy['Colaborador'] = 'INDEFINIDO'
+    else:
+        df_copy['Colaborador'] = df_copy['Descripción Nit'].astype(str).str.strip().str.upper()
+
+    condicion_dif_cambio = df_copy['Referencia'].str.upper().str.contains('DIF EN CAMBIO|DIFERENCIAL', na=False)
+    df_copy.loc[condicion_dif_cambio, 'Colaborador'] = 'DIF EN CAMBIO'
+    
+    df_copy['Clave_Agrupacion'] = df_copy['Colaborador']
+    
+    return df_copy
+
+def conciliar_deudores_por_colaborador(df, log_messages):
+    """
+    Concilia movimientos por colaborador. Si el saldo neto en USD de un colaborador es cero,
+    todos sus movimientos se marcan como conciliados.
+    """
+    log_messages.append("\n--- FASE 1: Conciliación de saldos netos por colaborador ---")
+    
+    pendientes = df[~df['Conciliado']]
+    
+    if 'Clave_Agrupacion' not in pendientes.columns or pendientes.empty:
+        log_messages.append("ℹ️ No hay movimientos pendientes o clave de agrupación para procesar.")
+        return 0
+        
+    group_sums = pendientes.groupby('Clave_Agrupacion')['Monto_USD'].transform('sum')
+    
+    indices_a_conciliar = pendientes[abs(group_sums) <= TOLERANCIA_MAX_USD].index
+    
+    total_conciliados = len(indices_a_conciliar)
+    
+    if total_conciliados > 0:
+        df.loc[indices_a_conciliar, 'Conciliado'] = True
+        
+        grupos_conciliados = df.loc[indices_a_conciliar, 'Clave_Agrupacion']
+        df.loc[indices_a_conciliar, 'Grupo_Conciliado'] = 'SALDO_CERO_' + grupos_conciliados
+        
+        log_messages.append(f"✔️ Fase 1: {total_conciliados} movimientos conciliados correspondientes a colaboradores con saldo neto cero.")
+    else:
+        log_messages.append("ℹ️ No se encontraron colaboradores con saldo neto cero en esta fase.")
+        
+    return total_conciliados
+
 # ==============================================================================
 # FUNCIONES MAESTRAS DE ESTRATEGIA
 # ==============================================================================
@@ -778,6 +833,21 @@ def run_conciliation_viajes(df, log_messages, progress_bar=None):
     
     conciliar_grupos_por_nit_viajes(df, log_messages)
     if progress_bar: progress_bar.progress(0.9, text="Fase 2/2: Búsqueda de grupos complejos completada.")
+    
+    log_messages.append("\n--- PROCESO DE CONCILIACIÓN FINALIZADO ---")
+    return df
+
+def run_conciliation_deudores_empleados_me(df, log_messages, progress_bar=None):
+    """
+    Orquesta la conciliación de la cuenta 114.02.6006 - Deudores Empleados ME.
+    """
+    log_messages.append("\n--- INICIANDO LÓGICA DE DEUDORES EMPLEADOS (ME) ---")
+    
+    df = normalizar_datos_deudores_empleados(df, log_messages)
+    if progress_bar: progress_bar.progress(0.3, text="Fase de Normalización completada.")
+    
+    conciliar_deudores_por_colaborador(df, log_messages)
+    if progress_bar: progress_bar.progress(0.8, text="Fase de conciliación por saldos completada.")
     
     log_messages.append("\n--- PROCESO DE CONCILIACIÓN FINALIZADO ---")
     return df
