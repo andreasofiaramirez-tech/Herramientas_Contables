@@ -7,7 +7,6 @@ from itertools import combinations
 from io import BytesIO
 import unicodedata
 import xlsxwriter
-from utils import generar_reporte_retenciones
 
 # --- Constantes de Tolerancia ---
 TOLERANCIA_MAX_BS = 2.00
@@ -1246,6 +1245,86 @@ def _traducir_resultados_para_reporte(row, asientos_en_cg_set, df_cg):
         
     return cp_vs_galac, resultado_final_cg
 
+def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_map):
+    output_buffer = BytesIO()
+    with pd.ExcelWriter(output_buffer, engine='xlsxwriter') as writer:
+        workbook = writer.book
+        main_title_format = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'font_size': 14})
+        group_title_format = workbook.add_format({'bold': True, 'italic': True, 'font_size': 12})
+        header_format = workbook.add_format({'bold': True, 'text_wrap': True, 'valign': 'top', 'fg_color': '#D9EAD3', 'border': 1, 'align': 'center'})
+        money_format = workbook.add_format({'num_format': '#,##0.00', 'align': 'center'})
+        date_format = workbook.add_format({'num_format': 'dd/mm/yyyy', 'align': 'center'})
+        center_text_format = workbook.add_format({'align': 'center', 'valign': 'top'})
+        long_text_format = workbook.add_format({'align': 'left', 'valign': 'top', 'text_wrap': True})
+
+        df_reporte_cp = df_cp_results.copy().rename(columns={'Comprobante': 'Numero', 'CP_Vs_Galac': 'Cp Vs Galac', 'Validacion_CG': 'Validacion CG'})
+        if 'Fecha' in df_reporte_cp.columns: df_reporte_cp['Fecha'] = pd.to_datetime(df_reporte_cp['Fecha'], errors='coerce')
+
+        ws1 = workbook.add_worksheet('Relacion CP')
+        ws1.hide_gridlines(2)
+        
+        final_order_cp = ['Asiento', 'Tipo', 'Fecha', 'Numero', 'Aplicacion', 'Subtipo', 'Monto', 'Cp Vs Galac', 'Validacion CG', 'RIF', 'Nombre Proveedor']
+        for col in final_order_cp:
+            if col not in df_reporte_cp.columns: df_reporte_cp[col] = ''
+        
+        cond_exitosa = (df_reporte_cp['Cp Vs Galac'] == 'Sí') & (df_reporte_cp['Validacion CG'] == 'Conciliado en CG')
+        cond_anulado = (df_reporte_cp['Cp Vs Galac'] == 'Anulado')
+        df_exitosos = df_reporte_cp[cond_exitosa].copy()
+        df_anulados = df_reporte_cp[cond_anulado].copy()
+        df_incidencias = df_reporte_cp.drop(df_exitosos.index.union(df_anulados.index))
+        
+        ws1.merge_range('A1:K1', 'Relacion de Retenciones CP', main_title_format)
+        current_row = 2
+        
+        for title, df_section in [('Incidencias Encontradas', df_incidencias), ('Conciliacion Exitosa', df_exitosos), ('Registros Anulados', df_anulados)]:
+            ws1.write(current_row, 0, title, group_title_format); current_row += 1
+            ws1.write_row(current_row, 0, final_order_cp, header_format); current_row += 1
+            if not df_section.empty:
+                for _, row in df_section.iterrows():
+                    for col_idx, col_name in enumerate(final_order_cp):
+                        value = row[col_name]
+                        fmt = date_format if col_name == 'Fecha' and pd.notna(value) else money_format if col_name == 'Monto' else long_text_format if col_name in ['Cp Vs Galac', 'Validacion CG'] else center_text_format
+                        ws1.write(current_row, col_idx, value, fmt)
+                    current_row += 1
+            current_row += 1
+        
+        for i, col_name in enumerate(final_order_cp):
+            max_len = max(df_reporte_cp[col_name].astype(str).map(len).max(), len(col_name))
+            ws1.set_column(i, i, min(max_len + 2, 50))
+
+        ws3 = workbook.add_worksheet('Diario CG')
+        ws3.hide_gridlines(2)
+        ws3.merge_range('A1:I1', 'Asientos con Errores de Conciliación', main_title_format)
+        
+        cg_headers = [c for c in ['ASIENTO', 'FUENTE', 'CUENTACONTABLE', 'DESCRIPCIONDELACUENTACONTABLE', 'REFERENCIA', 'DEBITOVES', 'CREDITOVES', 'RIF', 'NIT'] if c in df_cg.columns] + ['Observacion']
+        asientos_error = df_incidencias['Asiento'].unique()
+        df_cg_errores = df_cg[df_cg['ASIENTO'].isin(asientos_error)].copy()
+        
+        if not df_incidencias.empty and not df_cg_errores.empty:
+            merged = pd.merge(df_cg_errores.rename(columns={'ASIENTO': 'Asiento'}), df_incidencias[['Asiento', 'Validacion CG']], on='Asiento', how='left').rename(columns={'Asiento': 'ASIENTO'})
+            conds = [merged['Validacion CG'].str.contains('Cuenta Contable', na=False), merged['Validacion CG'].str.contains('Monto no coincide', na=False)]
+            merged['Observacion'] = np.select(conds, ['Cuenta Contable no corresponde', 'Monto no coincide'], default='Error no clasificado')
+            df_cg_final = merged[cg_headers].drop_duplicates()
+        else:
+            df_cg_final = pd.DataFrame(columns=cg_headers)
+        
+        current_row = 2
+        for title, obs in [('INCIDENCIA: Cuenta Contable Incorrecta', 'Cuenta Contable no corresponde'), ('INCIDENCIA: Monto del Diario vs. Relación CP', 'Monto no coincide')]:
+            ws3.write(current_row, 0, title, group_title_format); current_row += 1
+            ws3.write_row(current_row, 0, cg_headers, header_format); current_row += 1
+            df_section = df_cg_final[df_cg_final['Observacion'] == obs]
+            if not df_section.empty:
+                for _, row in df_section.iterrows():
+                    ws3.write_row(current_row, 0, row.fillna('').values); current_row += 1
+            current_row += 1
+
+        for i, col_name in enumerate(cg_headers):
+            max_len = max(df_cg_final[col_name].astype(str).map(len).max(), len(col_name)) if col_name in df_cg_final else len(col_name)
+            ws3.set_column(i, i, min(max_len + 2, 60))
+
+    return output_buffer.getvalue()
+
+# --- FUNCIÓN MAESTRA DE RETENCIONES ---
 def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun, log_messages):
     """
     Función principal que orquesta todo el proceso de conciliación de retenciones.
