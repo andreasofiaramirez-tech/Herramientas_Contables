@@ -14,7 +14,8 @@ from logic import (
     run_conciliation_fondos_por_depositar,
     run_conciliation_devoluciones_proveedores,
     run_conciliation_viajes,
-    run_conciliation_retenciones
+    run_conciliation_retenciones,
+    run_conciliation_deudores_empleados_me
 )
 from utils import (
     cargar_y_limpiar_datos,
@@ -139,6 +140,15 @@ ESTRATEGIAS = {
         "columnas_reporte": ['Asiento', 'NIT', 'Nombre del Proveedor', 'Referencia', 'Fecha', 'Monto_BS', 'Monto_USD', 'Tipo'],
         "nombre_hoja_excel": "114.03.1002",
         "columnas_requeridas": ['Fecha', 'Asiento', 'Referencia', 'Nombre del Proveedor', 'NIT', 'Débito Bolivar', 'Crédito Bolivar']
+    },
+    "114.02.6006 - Deudores Empleados - Otros (ME)": {
+        "id": "deudores_empleados_me",
+        "funcion_principal": run_conciliation_deudores_empleados_me,
+        "label_actual": "Movimientos del mes (Deudores Empleados ME)",
+        "label_anterior": "Saldos anteriores (Deudores Empleados ME)",
+        "columnas_reporte": ['NIT', 'Descripción Nit', 'Fecha', 'Referencia', 'Monto Dólar', 'Bs.', 'Tasa'],
+        "nombre_hoja_excel": "114.02.6006",
+        "columnas_requeridas": ['Fecha', 'Asiento', 'Referencia', 'Nit', 'Descripción Nit', 'Débito Bolivar', 'Crédito Bolivar', 'Débito Dolar', 'Crédito Dolar']
     }
 }
 
