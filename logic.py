@@ -1284,8 +1284,8 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         if file_cg:
             df_cg_dummy = pd.read_excel(file_cg, header=0, dtype=str)
             df_cg_dummy.columns = [col.strip().upper().replace(' ', '') for col in df_cg_dummy.columns]
-            debit_names = ['DEBITOVES', 'DÉBITOVES', 'DEBITO', 'DÉBITO', 'DEBEVESDÉBITO', 'MONEDALOCAL']
-            credit_names = ['CREDITOVES', 'CRÉDITOVES', 'CREDITO', 'CRÉDITO', 'CREDITOVESMCREDITOLOCAL']
+            debit_names = ['DEBITOVES', 'DÉBITOVES', 'DEBITO', 'DÉBITO', 'DEBEVESDÉBITO', 'MONEDALOCAL', 'DÉBITOBOLIVAR']
+            credit_names = ['CREDITOVES', 'CRÉDITOVES', 'CREDITO', 'CRÉDITO', 'CREDITOVESMCREDITOLOCAL', 'CRÉDITOBOLIVAR']
             for col_name in df_cg_dummy.columns:
                 if col_name in debit_names:
                     df_cg_dummy.rename(columns={col_name: 'DEBITO_NORM'}, inplace=True); break
