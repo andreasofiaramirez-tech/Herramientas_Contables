@@ -187,6 +187,91 @@ def render_retenciones():
     la **Fuente Oficial (GALAC)** y el **Diario Contable (CG)** para identificar discrepancias.
     """)
 
+    # ==============================================================================
+    # --- INICIO DEL BLOQUE A AÑADIR ---
+    # ==============================================================================
+    with st.expander("📖 Ver Guía Detallada: ¿Cómo Funciona la Auditoría?"):
+        st.markdown("""
+            ### Guía Detallada: ¿Cómo Funciona la Auditoría de Retenciones?
+
+            Esta herramienta realiza una auditoría automática en dos fases cruciales para garantizar la integridad de sus registros de retenciones. A continuación, se detalla la lógica que sigue el sistema para cada paso.
+            
+            ---
+            
+            ### **Paso 1: Validación Cruzada (CP vs. GALAC)**
+            
+            El primer y más importante paso es asegurar que lo que se preparó en la **Contabilidad Preparada (CP)** coincide con la fuente oficial de verdad: los reportes fiscales generados por **GALAC**. El objetivo es encontrar una contraparte para cada registro de CP en los archivos de GALAC.
+
+            La lógica de búsqueda y validación varía según el tipo de retención:
+
+            #### **A. Retenciones de IVA**
+
+            La herramienta busca una coincidencia **exacta** utilizando dos llaves maestras:
+            *   🔑 **Llave 1:** RIF del Proveedor (normalizado, sin guiones ni puntos).
+            *   🔑 **Llave 2:** Número de Comprobante (normalizado, sin ceros a la izquierda ni caracteres no numéricos).
+
+            Una vez que encuentra una coincidencia con estas dos llaves, procede a validar dos campos adicionales:
+            1.  **Número de Factura:** Compara que el número de factura en CP (extraído de la columna `Aplicación`) coincida con el de GALAC.
+            2.  **Monto Retenido:** Verifica que los montos sean prácticamente idénticos (usando una tolerancia mínima para decimales).
+
+            💡 **Manejo Inteligente de Notas de Crédito (NC):**
+            Si la descripción de la `Aplicacion` en su archivo CP contiene "NC" o "Nota de Credito", la herramienta entiende que el monto en CP será negativo. En este caso, compara los montos en **valor absoluto**. Por ejemplo, `-100.00 Bs` en CP hará match con `100.00 Bs` en GALAC.
+
+            #### **B. Retenciones de ISLR**
+
+            El ISLR es más complejo, ya que un solo comprobante puede agrupar múltiples facturas. La lógica es la siguiente:
+            1.  **Búsqueda del Grupo:** Primero, busca todas las transacciones en el reporte de ISLR que coincidan con el **RIF del Proveedor** y el **Número de Comprobante** del archivo CP.
+            2.  **Búsqueda de la Factura:** Dentro de ese grupo de transacciones, busca la fila que corresponda al **Número de Factura** específico que se está auditando.
+            3.  **Validación de Monto (con Suma Inteligente):**
+                *   Si para una misma factura existen varias retenciones de ISLR (casos poco comunes), la herramienta **sumará todos los montos** asociados a esa factura dentro del comprobante y los comparará con el monto único registrado en CP.
+                *   Si el comprobante en GALAC contiene otras facturas que no están en su registro de CP, se marcará como una "INFO" en los detalles para su conocimiento.
+
+            #### **C. Retenciones Municipales**
+
+            La conciliación municipal no siempre tiene un número de comprobante, por lo que la búsqueda se realiza en cascada para encontrar la coincidencia más probable:
+            1.  **Filtro por RIF:** Primero, aísla todas las retenciones del proveedor usando su **RIF**.
+            2.  **Filtro por Monto:** De ese grupo, busca las que tengan un **Monto** idéntico al del archivo CP.
+            3.  **Validación Final por Factura:** Si encuentra una o más coincidencias de monto, intenta hacer el "match" final buscando el **Número de Factura** exacto.
+
+            ---
+
+            ### **Paso 2: Verificación Contable Final (CP vs. CG)**
+
+            Una vez que un registro de CP ha sido validado contra GALAC, la herramienta realiza una segunda verificación para asegurar que fue correctamente asentado en la **Contabilidad General (CG)** o Diario Contable.
+
+            La llave para esta búsqueda es siempre el **Número de Asiento**. La validación se enfoca en tres puntos críticos:
+
+            #### **1. Existencia del Asiento**
+
+            *   ✔️ **Verificación:** Lo primero y más básico es confirmar si el número de asiento del archivo CP fue encontrado en el archivo de CG. Si no se encuentra, el proceso de validación para ese registro se detiene ahí.
+
+            #### **2. Cuenta Contable Correcta**
+
+            *   ✔️ **Verificación:** La herramienta verifica que el tipo de retención se haya registrado en la cuenta contable que corresponde según las normativas internas. El mapeo es el siguiente:
+                *   **Retención de IVA** debe estar en la cuenta `2.1.3.05.1.001`.
+                *   **Retención de ISLR** debe estar en la cuenta `2.1.3.02.1.002`.
+                *   **Retención Municipal** debe estar en la cuenta `2.1.3.02.4.002`.
+            *   ⚠️ Si un asiento de IVA se registra en la cuenta de ISLR, por ejemplo, la herramienta lo marcará como un error.
+
+            #### **3. Monto del Asiento**
+
+            *   ✔️ **Verificación:** Finalmente, se compara el monto. Si es un movimiento estándar, el **Monto** de CP debe coincidir con la suma de la columna **Débito** en CG para ese asiento. Si es una Nota de Crédito, se comparará contra la columna **Crédito**.
+
+            💡 **Lógica Jerárquica de Errores: CG respeta a GALAC**
+            El sistema es inteligente. Si en el **Paso 1 (CP vs GALAC)** ya se detectó un error de `Monto no coincide`, la validación de CG no reportará un nuevo error de monto. En su lugar, heredará la discrepancia encontrada con GALAC. **¿Por qué?** Porque si el monto ya está incorrecto frente a la fuente oficial, no tiene sentido validarlo de nuevo en el diario.
+
+            ### **Resultado Final: "Conciliado"**
+
+            Un registro solo alcanza el estado final de **"Conciliado"** si y solo si:
+            1.  Pasa exitosamente la validación **CP vs. GALAC** (`Cp Vs Galac` = 'Sí').
+            2.  Y además, pasa exitosamente la validación **CP vs. CG** (`Validacion CG` = 'Conciliado en CG').
+
+            Cualquier otra combinación resultará en un estado de incidencia que le indicará exactamente en qué paso del proceso se encontró la discrepancia.
+        """)
+    # ==============================================================================
+    # --- FIN DEL BLOQUE AÑADIDO ---
+    # ==============================================================================
+
     st.subheader("1. Cargue los Archivos de Excel (.xlsx):", anchor=False)
     
     col1, col2 = st.columns(2)
