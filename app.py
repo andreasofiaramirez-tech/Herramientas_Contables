@@ -6,6 +6,7 @@
 # ==============================================================================
 import streamlit as st
 import pandas as pd
+from guides import GUIA_GENERAL_ESPECIFICACIONES, LOGICA_POR_CUENTA
 from functools import partial
 
 # --- Importaciones desde nuestros módulos (CORREGIDO Y CONSOLIDADO) ---
@@ -336,6 +337,15 @@ def render_especificaciones():
     st.subheader("2. Seleccione la Cuenta Contable:", anchor=False)
     cuenta_seleccionada = st.selectbox("2. Seleccione la Cuenta Contable:", CUENTA_OPTIONS, label_visibility="collapsed")
     estrategia_actual = ESTRATEGIAS[cuenta_seleccionada]
+
+    # --- INICIO DEL BLOQUE DE GUÍA DINÁMICA ---
+    with st.expander("📖 Guía Completa: Cómo Usar y Entender la Conciliación", expanded=False):
+        st.markdown(GUIA_GENERAL_ESPECIFICACIONES)
+        st.divider()
+        # Muestra la lógica específica de la cuenta seleccionada
+        logica_especifica = LOGICA_POR_CUENTA.get(cuenta_seleccionada, "No hay una guía detallada para esta cuenta.")
+        st.markdown(logica_especifica)
+    # --- FIN DEL BLOQUE DE GUÍA DINÁMICA ---
 
     st.subheader("3. Cargue los Archivos de Excel (.xlsx):", anchor=False)
     st.markdown("*Asegúrese de que los datos estén en la **primera hoja** y los **encabezados en la primera fila**.*")
