@@ -147,6 +147,7 @@ def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrate
         df_reporte_pendientes_final = df_reporte_pendientes_prep.reindex(columns=columnas_reporte).sort_values(by='Fecha')
         if 'Fecha' in df_reporte_pendientes_final.columns:
             df_reporte_pendientes_final['Fecha'] = pd.to_datetime(df_reporte_pendientes_final['Fecha'], errors='coerce').dt.strftime('%d/%m/%Y').fillna('')
+            df_reporte_pendientes_final = df_reporte_pendientes_final.fillna('')
         
         nombre_hoja_pendientes = _estrategia_actual.get("nombre_hoja_excel", "Pendientes")
         worksheet_pendientes = workbook.add_worksheet(nombre_hoja_pendientes)
