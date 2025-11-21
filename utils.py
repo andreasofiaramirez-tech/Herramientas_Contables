@@ -463,8 +463,10 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
 
 def generar_reporte_paquete_cc(df_analizado):
     """
-    Genera el archivo Excel del reporte de Análisis de Paquete CC, creando una
-    hoja por cada grupo, con sus respectivas filas de totales.
+    Genera el archivo Excel del reporte de Análisis de Paquete CC.
+    - Crea una hoja por cada grupo principal.
+    - Agrupa todos los subgrupos de Notas de Crédito en una sola hoja.
+    - Añade una fila de totales al final de cada grupo/subgrupo.
     """
     output_buffer = BytesIO()
     with pd.ExcelWriter(output_buffer, engine='xlsxwriter') as writer:
@@ -472,11 +474,12 @@ def generar_reporte_paquete_cc(df_analizado):
         
         # --- Formatos ---
         main_title_format = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'font_size': 16})
+        group_title_format = workbook.add_format({'bold': True, 'font_size': 14})
+        subgroup_title_format = workbook.add_format({'bold': True, 'font_size': 11, 'fg_color': '#E0E0E0', 'border': 1})
         header_format = workbook.add_format({'bold': True, 'text_wrap': True, 'valign': 'top', 'fg_color': '#D9EAD3', 'border': 1, 'align': 'center'})
         money_format = workbook.add_format({'num_format': '#,##0.00', 'border': 1})
         date_format = workbook.add_format({'num_format': 'dd/mm/yyyy', 'border': 1})
         text_format = workbook.add_format({'border': 1})
-        # --- Nuevos formatos para la fila de totales ---
         total_label_format = workbook.add_format({'bold': True, 'align': 'right', 'top': 2, 'font_color': '#003366'})
         total_money_format = workbook.add_format({'bold': True, 'num_format': '#,##0.00', 'top': 2, 'bottom': 1})
         
@@ -485,61 +488,66 @@ def generar_reporte_paquete_cc(df_analizado):
             'Referencia', 'Débito Dolar', 'Crédito Dolar', 'Débito VES', 'Crédito VES'
         ]
         
-        # --- Lógica principal: Iterar por cada grupo y crear una hoja para él ---
-        grupos_ordenados = sorted(df_analizado['Grupo'].unique())
-        
-        for grupo_nombre in grupos_ordenados:
-            # Sanitizar el nombre del grupo para que sea un nombre de hoja válido en Excel
-            sheet_name = re.sub(r'[\\/*?:"\[\]]', '', grupo_nombre)[:31]
-            
-            # Crear una nueva hoja para el grupo
+        # --- Lógica para obtener y ordenar los grupos principales ---
+        grupos_principales = sorted(
+            list(set([g.split(':')[0].strip() for g in df_analizado['Grupo'].unique() if ':' in g] + 
+                     [g for g in df_analizado['Grupo'].unique() if ':' not in g]))
+        )
+
+        for grupo_principal_nombre in grupos_principales:
+            # Sanitizar nombre para la hoja de Excel
+            sheet_name = re.sub(r'[\\/*?:"\[\]]', '', grupo_principal_nombre)[:31]
             ws = workbook.add_worksheet(sheet_name)
             ws.hide_gridlines(2)
             
-            # Filtrar los datos correspondientes a este grupo
-            df_grupo = df_analizado[df_analizado['Grupo'] == grupo_nombre]
-            
-            # --- Escribir Título y Encabezados en la nueva hoja ---
+            # --- Escribir Título y Encabezados ---
             ws.merge_range('A1:J1', 'Análisis de Asientos de Cuentas por Cobrar', main_title_format)
-            ws.merge_range('A3:J3', grupo_nombre, workbook.add_format({'bold': True, 'font_size': 14}))
-            ws.write_row('A4', columnas_reporte, header_format)
+            ws.merge_range('A3:J3', grupo_principal_nombre, group_title_format)
             
-            current_row = 4 # Empezamos a escribir datos desde la fila 5 (índice 4)
+            current_row = 4
             
-            # --- Escribir las filas de datos para el grupo ---
-            for _, row_data in df_grupo.iterrows():
-                ws.write(current_row, 0, row_data.get('Asiento', ''), text_format)
-                ws.write_datetime(current_row, 1, row_data.get('Fecha', None), date_format)
-                ws.write(current_row, 2, row_data.get('Fuente', ''), text_format)
-                ws.write(current_row, 3, row_data.get('Cuenta Contable', ''), text_format)
-                ws.write(current_row, 4, row_data.get('Descripción de Cuenta', ''), text_format)
-                ws.write(current_row, 5, row_data.get('Referencia', ''), text_format)
-                ws.write_number(current_row, 6, row_data.get('Débito Dolar', 0), money_format)
-                ws.write_number(current_row, 7, row_data.get('Crédito Dolar', 0), money_format)
-                ws.write_number(current_row, 8, row_data.get('Débito VES', 0), money_format)
-                ws.write_number(current_row, 9, row_data.get('Crédito VES', 0), money_format)
-                current_row += 1
-            
-            # --- Calcular y Escribir la Fila de Totales ---
-            if not df_grupo.empty:
-                total_deb_usd = df_grupo['Débito Dolar'].sum()
-                total_cre_usd = df_grupo['Crédito Dolar'].sum()
-                total_deb_ves = df_grupo['Débito VES'].sum()
-                total_cre_ves = df_grupo['Crédito VES'].sum()
-                
-                ws.write(current_row, 5, 'TOTALES', total_label_format)
-                ws.write_number(current_row, 6, total_deb_usd, total_money_format)
-                ws.write_number(current_row, 7, total_cre_usd, total_money_format)
-                ws.write_number(current_row, 8, total_deb_ves, total_money_format)
-                ws.write_number(current_row, 9, total_cre_ves, total_money_format)
+            # --- Filtrar datos y manejar subgrupos ---
+            df_grupo_completo = df_analizado[df_analizado['Grupo'].str.startswith(grupo_principal_nombre)]
+            subgrupos = sorted(df_grupo_completo['Grupo'].unique())
 
-            # --- Ajustar anchos de columnas para la hoja actual ---
-            ws.set_column('A:A', 12)
-            ws.set_column('B:B', 12)
-            ws.set_column('C:C', 15)
-            ws.set_column('D:D', 18)
-            ws.set_column('E:E', 40)
-            ws.set_column('F:F', 50)
+            for subgrupo_nombre in subgrupos:
+                df_subgrupo = df_grupo_completo[df_grupo_completo['Grupo'] == subgrupo_nombre]
+                
+                # Escribir el título del subgrupo (si hay más de uno)
+                if len(subgrupos) > 1:
+                    ws.merge_range(current_row, 0, current_row, len(columnas_reporte) - 1, subgrupo_nombre, subgroup_title_format)
+                    current_row += 1
+
+                # Escribir encabezados de la tabla
+                ws.write_row(current_row, 0, columnas_reporte, header_format)
+                current_row += 1
+                
+                # Escribir filas de datos
+                for _, row_data in df_subgrupo.iterrows():
+                    ws.write(current_row, 0, row_data.get('Asiento', ''), text_format)
+                    ws.write_datetime(current_row, 1, row_data.get('Fecha', None), date_format)
+                    ws.write(current_row, 2, row_data.get('Fuente', ''), text_format)
+                    ws.write(current_row, 3, row_data.get('Cuenta Contable', ''), text_format)
+                    ws.write(current_row, 4, row_data.get('Descripción de Cuenta', ''), text_format)
+                    ws.write(current_row, 5, row_data.get('Referencia', ''), text_format)
+                    ws.write_number(current_row, 6, row_data.get('Débito Dolar', 0), money_format)
+                    ws.write_number(current_row, 7, row_data.get('Crédito Dolar', 0), money_format)
+                    ws.write_number(current_row, 8, row_data.get('Débito VES', 0), money_format)
+                    ws.write_number(current_row, 9, row_data.get('Crédito VES', 0), money_format)
+                    current_row += 1
+                
+                # Escribir fila de totales para el subgrupo/grupo
+                if not df_subgrupo.empty:
+                    ws.write(current_row, 5, f'TOTALES {subgrupo_nombre}', total_label_format)
+                    ws.write_formula(current_row, 6, f'=SUM(G{current_row - len(df_subgrupo)}:G{current_row})', total_money_format)
+                    ws.write_formula(current_row, 7, f'=SUM(H{current_row - len(df_subgrupo)}:H{current_row})', total_money_format)
+                    ws.write_formula(current_row, 8, f'=SUM(I{current_row - len(df_subgrupo)}:I{current_row})', total_money_format)
+                    ws.write_formula(current_row, 9, f'=SUM(J{current_row - len(df_subgrupo)}:J{current_row})', total_money_format)
+                    current_row += 2 # Espacio extra
+
+            # --- Ajustar anchos de columnas ---
+            ws.set_column('A:A', 12); ws.set_column('B:B', 12); ws.set_column('C:C', 15)
+            ws.set_column('D:D', 18); ws.set_column('E:E', 40); ws.set_column('F:F', 50)
             ws.set_column('G:J', 15)
 
     return output_buffer.getvalue()
