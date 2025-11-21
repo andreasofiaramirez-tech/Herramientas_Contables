@@ -16,12 +16,14 @@ from logic import (
     run_conciliation_devoluciones_proveedores,
     run_conciliation_viajes,
     run_conciliation_retenciones,
+    run_analysis_paquete_cc,
     run_conciliation_deudores_empleados_me
 )
 from utils import (
     cargar_y_limpiar_datos,
     generar_reporte_excel,
-    generar_csv_saldos_abiertos
+    generar_csv_saldos_abiertos,
+    generar_reporte_paquete_cc
 )
 
 # --- Configuración de la página de Streamlit ---
@@ -165,7 +167,8 @@ def render_inicio():
     col1, col2 = st.columns(2)
     with col1:
         st.button("📄 Especificaciones", on_click=set_page, args=['especificaciones'], use_container_width=True)
-        st.button("📦 Reservas y Apartados", on_click=set_page, args=['reservas'], use_container_width=True, disabled=True)
+        st.button("💵 Reservas y Apartados", on_click=set_page, args=['reservas'], use_container_width=True, disabled=True)
+        st.button("📦 Análisis de Paquete CC", on_click=set_page, args=['paquete_cc'], use_container_width=True)
     with col2:
         st.button("🧾 Relación de Retenciones", on_click=set_page, args=['retenciones'], use_container_width=True)
         st.button("🔜 Próximamente", on_click=set_page, args=['proximamente'], use_container_width=True, disabled=True)
@@ -346,6 +349,64 @@ def render_especificaciones():
                 df_conciliados_vista['Fecha'] = pd.to_datetime(df_conciliados_vista['Fecha']).dt.strftime('%d/%m/%Y')
             st.dataframe(df_conciliados_vista, use_container_width=True)
 
+def render_paquete_cc():
+    st.title('📦 Herramienta de Análisis de Paquete CC', anchor=False)
+    if st.button("⬅️ Volver al Inicio", key="back_from_paquete"):
+        set_page('inicio')
+        if 'processing_paquete_complete' in st.session_state:
+            del st.session_state['processing_paquete_complete']
+        st.rerun()
+    
+    st.markdown("Esta herramienta analiza el diario contable para clasificar y agrupar los asientos relacionados con las Cuentas por Cobrar según reglas de negocio predefinidas.")
+    
+    st.subheader("1. Cargue el Archivo de Movimientos del Diario (.xlsx):", anchor=False)
+    
+    columnas_requeridas = ['Asiento', 'Fecha', 'Fuente', 'Cuenta Contable', 'Descripción de Cuenta', 'Referencia', 'Débito Dolar', 'Crédito Dolar', 'Débito VES', 'Crédito VES']
+    texto_columnas = "**Columnas Esenciales Requeridas:**\n" + "\n".join([f"- `{col}`" for col in columnas_requeridas])
+    st.info(texto_columnas, icon="ℹ️")
+    
+    uploaded_diario = st.file_uploader("Movimientos del Diario Contable", type="xlsx", label_visibility="collapsed")
+    
+    if uploaded_diario:
+        if st.button("▶️ Iniciar Análisis", type="primary", use_container_width=True):
+            with st.spinner('Ejecutando análisis de asientos... Este proceso puede tardar unos momentos.'):
+                log_messages = []
+                try:
+                    df_diario = pd.read_excel(uploaded_diario)
+                    
+                    # Normalización de columnas para que coincidan con la lógica
+                    column_map = {
+                        'Débito Dolar': ['Débito Dolar', 'Debito Dolar', 'Débitos Dolar'],
+                        'Crédito Dólar': ['Crédito Dolar', 'Credito Dolar', 'Créditos Dolar'],
+                    }
+                    # Esta lógica simple de renombrado se puede expandir si los nombres de columna varían mucho
+                    df_diario.rename(columns={'Crédito Dolar': 'Crédito Dolar'}, inplace=True)
+
+                    df_resultado = run_analysis_paquete_cc(df_diario, log_messages)
+                    
+                    st.session_state.reporte_paquete_output = generar_reporte_paquete_cc(df_resultado)
+                    st.session_state.log_messages_paquete = log_messages
+                    st.session_state.processing_paquete_complete = True
+                    st.rerun()
+
+                except Exception as e:
+                    st.error(f"❌ Ocurrió un error crítico durante el procesamiento: {e}")
+                    import traceback
+                    st.code(traceback.format_exc())
+                    st.session_state.processing_paquete_complete = False
+
+    if st.session_state.get('processing_paquete_complete', False):
+        st.success("✅ ¡Análisis de Paquete CC completado con éxito!")
+        st.download_button(
+            "⬇️ Descargar Reporte de Análisis (Excel)",
+            st.session_state.reporte_paquete_output,
+            "Reporte_Analisis_Paquete_CC.xlsx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
+        with st.expander("Ver registro detallado del proceso de análisis"):
+            st.text_area("Log de Análisis", '\n'.join(st.session_state.log_messages_paquete), height=400)
+
 # ==============================================================================
 # FLUJO PRINCIPAL DE LA APLICACIÓN (ROUTER)
 # ==============================================================================
@@ -354,6 +415,7 @@ def main():
         'inicio': render_inicio,
         'especificaciones': render_especificaciones,
         'retenciones': render_retenciones,
+        'paquete_cc': render_paquete_cc, # <--- AÑADIR ESTA LÍNEA
         'reservas': lambda: render_proximamente("Reservas y Apartados"),
         'proximamente': lambda: render_proximamente("Próximamente")
     }
