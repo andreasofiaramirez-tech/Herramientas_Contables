@@ -766,10 +766,11 @@ def conciliar_grupos_por_empleado(df, log_messages):
 
 def normalizar_datos_cobros_viajeros(df, log_messages):
     """
-    Función de normalización simplificada para la nueva lógica de dos fases.
-    Prepara las columnas necesarias para ambas fases de conciliación.
+    Función de normalización que ahora asegura que la columna 'Asiento'
+    sea tratada siempre como texto para evitar errores de tipo.
     """
     df_copy = df.copy()
+    df_copy['Asiento'] = df_copy['Asiento'].astype(str, errors='ignore').fillna('')
     
     # Normalizar NIT
     nit_col_name = next((col for col in df_copy.columns if str(col).strip().upper() in ['NIT', 'RIF']), None)
