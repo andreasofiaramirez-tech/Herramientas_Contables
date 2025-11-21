@@ -1389,16 +1389,16 @@ CUENTAS_CONOCIDAS = {
 
 def _clasificar_asiento_paquete_cc(asiento_group):
     """
-    Versión final con lógica de clasificación por PRIORIDAD y palabras clave más robustas.
+    Versión final y corregida con una única lógica de prioridad estricta
+    para evitar conflictos de clasificación.
     """
     cuentas_del_asiento = set(asiento_group['Cuenta Contable'].astype(str))
     referencia_completa = ' '.join(asiento_group['Referencia'].astype(str).unique()).upper()
     fuente_completa = ' '.join(asiento_group['Fuente'].astype(str).unique()).upper()
     
-    # Preparamos una versión limpia de la referencia para búsquedas de palabras clave exactas
     referencia_limpia_palabras = set(re.sub(r'[^\w\s]', '', referencia_completa).split())
 
-    # --- La clasificación sigue un orden estricto de prioridad ---
+    # --- La clasificación sigue un orden estricto de prioridad de arriba hacia abajo ---
 
     # PRIORIDAD 1: Notas de Crédito
     cuentas_nc = {'4.1.1.22.4.001', '2.1.3.04.1.001'}
@@ -1406,77 +1406,62 @@ def _clasificar_asiento_paquete_cc(asiento_group):
         if 'AVISOS DE CREDITO' in referencia_completa: return "Grupo 3: N/C - Avisos de Crédito"
         if referencia_limpia_palabras.intersection({'ESTRATEGIA', 'ESTRATEGIAS'}): return "Grupo 3: N/C - Estrategias"
         if referencia_limpia_palabras.intersection({'INCENTIVO', 'INCENTIVOS'}): return "Grupo 3: N/C - Incentivos"
-        # CORRECCIÓN: Se añaden nuevas palabras clave
         if referencia_limpia_palabras.intersection({'BONIFICACION', 'BONIFICACIONES', 'BONIF', 'BONF'}): return "Grupo 3: N/C - Bonificaciones"
         if referencia_limpia_palabras.intersection({'DESCUENTO', 'DESCUENTOS', 'DSCTO', 'DESC', 'DESTO'}): return "Grupo 3: N/C - Descuentos"
         return "Grupo 3: N/C - Otros"
 
-    # PRIORIDAD 2: Retenciones (por cuentas específicas)
+    # PRIORIDAD 2: Retenciones
     if '2.1.3.04.1.006' in cuentas_del_asiento: return "Grupo 9: Retenciones - IVA"
     if '2.1.3.01.1.012' in cuentas_del_asiento: return "Grupo 9: Retenciones - ISLR"
     if '7.1.3.04.1.004' in cuentas_del_asiento: return "Grupo 9: Retenciones - Municipal"
-
-    # PRIORIDAD 8: Ingresos Varios
+    
+    # PRIORIDAD 3: Ingresos Varios (Grupo 6 con sub-clasificación)
     if '6.1.1.19.1.001' in cuentas_del_asiento:
-        keywords_limpieza = {'LIMPIEZA', 'LIMPIEZAS'}
-        # Comprueba si alguna palabra de la referencia coincide con las keywords de limpieza
-        if not keywords_limpieza.isdisjoint(referencia_limpia_palabras) or 'LIMPIEZA DE SALDO' in referencia_completa or 'LIMPIEZA HISTORICO' in referencia_completa:
-            # Si es limpieza, ahora separamos por monto
+        keywords_limpieza = {'LIMPIEZA', 'LIMPIEZAS', 'SALDO', 'SALDOS', 'HISTORICO'}
+        if not keywords_limpieza.isdisjoint(referencia_limpia_palabras):
             if (asiento_group['Monto_USD'].abs() <= 5).all():
                 return "Grupo 6: Ingresos Varios - Limpieza (<= $5)"
             else:
                 return "Grupo 6: Ingresos Varios - Limpieza (> $5)"
         else:
-            # Si no es limpieza, es "Otros"
             return "Grupo 6: Ingresos Varios - Otros"
 
-    # PRIORIDAD 10: Devoluciones y Rebajas (misma cuenta que traspaso, pero condición diferente)
+    # PRIORIDAD 4: Traspasos vs. Devoluciones (ambos usan la misma cuenta)
     if '4.1.1.21.4.001' in cuentas_del_asiento:
         if 'TRASPASO' in referencia_completa and abs(asiento_group['Monto_USD'].sum()) <= TOLERANCIA_MAX_USD:
             return "Grupo 10: Traspasos"
         
-        keywords_limpieza_dev = {'LIMPIEZA', 'LIMPIEZAS'}
-        if not keywords_limpieza_dev.isdisjoint(referencia_limpia_palabras) or 'LIMPIEZA DE SALDO' in referencia_completa or 'LIMPIEZA HISTORICO' in referencia_completa:
+        # Si no es Traspaso, evaluamos si es Devolución/Limpieza (Grupo 7 con sub-clasificación)
+        keywords_limpieza_dev = {'LIMPIEZA', 'LIMPIEZAS', 'SALDO', 'SALDOS', 'HISTORICO', 'AJUSTE'}
+        if not keywords_limpieza_dev.isdisjoint(referencia_limpia_palabras):
             if (asiento_group['Monto_USD'].abs() <= 5).all():
                 return "Grupo 7: Devoluciones y Rebajas - Limpieza (<= $5)"
             else:
                 return "Grupo 7: Devoluciones y Rebajas - Limpieza (> $5)"
         else:
-            # Si no es limpieza pero puede ser otro tipo de ajuste
             return "Grupo 7: Devoluciones y Rebajas - Otros Ajustes"
             
-    # PRIORIDAD 3: Perdida p/Venta o Retiro Activo ND
-    if '7.1.3.06.1.998' in cuentas_del_asiento:
-        return "Grupo 12: Perdida p/Venta o Retiro Activo ND"
-
-    # PRIORIDAD 4: Acarreos y Fletes
-    if '7.1.3.45.1.997' in cuentas_del_asiento:
-        return "Grupo 1: Acarreos y Fletes Recuperados"
+    # PRIORIDAD 5: Perdida p/Venta
+    if '7.1.3.06.1.998' in cuentas_del_asiento: return "Grupo 12: Perdida p/Venta o Retiro Activo ND"
     
-    # PRIORIDAD 5: Diferencial Cambiario
-    if '6.1.1.12.1.001' in cuentas_del_asiento:
-        return "Grupo 2: Diferencial Cambiario"
-        
-    # PRIORIDAD 6: Gastos de Ventas
-    if '7.1.3.19.1.012' in cuentas_del_asiento:
-        return "Grupo 4: Gastos de Ventas"
-        
-    # PRIORIDAD 7: Haberes de Clientes
-    if '2.1.2.05.1.108' in cuentas_del_asiento:
-        return "Grupo 5: Haberes de Clientes"
-        
-    # PRIORIDAD 9: Traspasos (por cuenta y palabra clave)
-    if '4.1.1.21.4.001' in cuentas_del_asiento and 'TRASPASO' in referencia_completa:
-        if abs(asiento_group['Monto_USD'].sum()) <= TOLERANCIA_MAX_USD:
-            return "Grupo 10: Traspasos"
-            
-    # PRIORIDAD 11: Recibos de Cobranza (general, va al final)
-    if 'RECIBOS DE COBRANZA' in referencia_completa or 'TEF' in fuente_completa:
-        return "Grupo 8: Recibos de Cobranza"
-        
+    # PRIORIDAD 6: Acarreos y Fletes
+    if '7.1.3.45.1.997' in cuentas_del_asiento: return "Grupo 1: Acarreos y Fletes Recuperados"
+    
+    # PRIORIDAD 7: Diferencial Cambiario
+    if '6.1.1.12.1.001' in cuentas_del_asiento: return "Grupo 2: Diferencial Cambiario"
+    
+    # PRIORIDAD 8: Gastos de Ventas
+    if '7.1.3.19.1.012' in cuentas_del_asiento: return "Grupo 4: Gastos de Ventas"
+    
+    # PRIORIDAD 9: Haberes de Clientes
+    if '2.1.2.05.1.108' in cuentas_del_asiento: return "Grupo 5: Haberes de Clientes"
+    
+    # PRIORIDAD 10: Recibos de Cobranza
+    if 'RECIBOS DE COBRANZA' in referencia_completa or 'TEF' in fuente_completa: return "Grupo 8: Recibos de Cobranza"
+
     # Si no coincide con NINGUNA regla anterior, se marca como No Clasificado
     return "No Clasificado"
-
+    
 def run_analysis_paquete_cc(df_diario, log_messages):
     """
     Función principal que orquesta el análisis y clasificación de los asientos
