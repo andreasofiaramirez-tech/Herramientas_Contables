@@ -1545,8 +1545,8 @@ def _clasificar_asiento_paquete_cc(asiento_group):
     if normalize_account('6.1.1.19.1.001') in cuentas_del_asiento:
         keywords_limpieza = {'LIMPIEZA', 'LIMPIEZAS', 'SALDO', 'SALDOS', 'HISTORICO'}
         if not keywords_limpieza.isdisjoint(referencia_limpia_palabras):
-            if (asiento_group['Monto_USD'].abs() <= 5).all(): return "Grupo 6: Ingresos Varios - Limpieza (<= $5)"
-            else: return "Grupo 6: Ingresos Varios - Limpieza (> $5)"
+            if (asiento_group['Monto_USD'].abs() <= 25).all(): return "Grupo 6: Ingresos Varios - Limpieza (<= $25)"
+            else: return "Grupo 6: Ingresos Varios - Limpieza (> $25)"
         else: return "Grupo 6: Ingresos Varios - Otros"
 
     # PRIORIDAD 5: Traspasos vs. Devoluciones (Grupo 10 y 7)
