@@ -765,10 +765,13 @@ def conciliar_grupos_por_empleado(df, log_messages):
 # --- (F) Módulo: Fondos por Depositar – Cobros Viajeros – ME ---
 
 def normalizar_datos_cobros_viajeros(df, log_messages):
-    """Prepara el DataFrame para la conciliación de cobros viajeros."""
+    """
+    Versión final que extrae solo los dígitos de Referencia y Fuente
+    para una conciliación numérica robusta.
+    """
     df_copy = df.copy()
     
-    # Normalizar NIT para usarlo como clave de agrupación fiable
+    # Normalizar NIT para usarlo como clave de agrupación
     nit_col_name = next((col for col in df_copy.columns if str(col).strip().upper() in ['NIT', 'RIF']), None)
     if nit_col_name:
         df_copy['NIT_Normalizado'] = df_copy[nit_col_name].astype(str).str.upper().str.replace(r'[^A-Z0-9]', '', regex=True)
@@ -776,9 +779,16 @@ def normalizar_datos_cobros_viajeros(df, log_messages):
         log_messages.append("⚠️ ADVERTENCIA: No se encontró columna 'NIT' o 'RIF'.")
         df_copy['NIT_Normalizado'] = 'SIN_NIT'
 
-    # Normalizar columnas de cruce para evitar errores por espacios o mayúsculas
-    df_copy['Referencia_Norm'] = df_copy['Referencia'].astype(str).str.strip().str.upper()
-    df_copy['Fuente_Norm'] = df_copy['Fuente'].astype(str).str.strip().str.upper()
+    # --- LÓGICA DE NORMALIZACIÓN NUMÉRICA ---
+    # Se crea una función auxiliar para limpiar el texto y dejar solo los números
+    def extraer_solo_numeros(texto):
+        if pd.isna(texto):
+            return ''
+        return re.sub(r'\D', '', str(texto))
+
+    # Aplicar la limpieza a las columnas de cruce
+    df_copy['Referencia_Norm'] = df_copy['Referencia'].apply(extraer_solo_numeros)
+    df_copy['Fuente_Norm'] = df_copy['Fuente'].apply(extraer_solo_numeros)
     
     return df_copy
 
