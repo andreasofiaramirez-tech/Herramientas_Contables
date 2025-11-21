@@ -1364,13 +1364,34 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         return None
 
 # ==============================================================================
-# LÓGICA PARA LA HERRAMIENTA DE ANÁLISIS DE PAQUETE CC
+# LÓGICA PARA LA HERRAMIENTA DE ANÁLISIS DE PAQUETE CC (VERSIÓN ACTUALIZADA)
 # ==============================================================================
+
+# Directorio central de todas las cuentas que la lógica conoce y sabe cómo manejar.
+# Incluye las cuentas base de CC, ya que son parte del ecosistema conocido.
+CUENTAS_CONOCIDAS = {
+    '1.1.3.01.1.001', # Deudores por Ventas de Mercancías
+    '1.1.3.01.1.901', # Deudores Vtas.Mercanc. - Cias.Comerciales
+    '7.1.3.45.1.997', # Acarreos y Fletes - Recuperados
+    '6.1.1.12.1.001', # Cuenta Cambio (Diferencial)
+    '4.1.1.22.4.001', # Descuentos Sobre Ventas Crédito (Mayor)
+    '2.1.3.04.1.001', # I.V.A. - Débitos Fiscales (Haber)
+    '7.1.3.19.1.012', # Gastos de Ventas - Mercadeo
+    '2.1.2.05.1.108', # Haberes de Clientes
+    '6.1.1.19.1.001', # Ingresos Varios
+    '4.1.1.21.4.001', # Dev. y Rebaj. Ventas Crédito - Mayor
+    '2.1.3.04.1.006', # I.V.A. - Retenido de Terceros
+    '2.1.3.01.1.012', # IR de Terceros - Constancias Recibidas
+    '7.1.3.04.1.004', # Otros Imptos Municipales y Nacionales
+    # Se pueden añadir más cuentas conocidas aquí en el futuro
+}
+
 
 def _clasificar_asiento_paquete_cc(asiento_group):
     """
-    Recibe un DataFrame con todas las líneas de un asiento y aplica las reglas
-    de negocio para clasificarlo en un grupo.
+    (Esta función no cambia)
+    Recibe un DataFrame con todas las líneas de un asiento (con cuentas ya validadas como conocidas)
+    y aplica las reglas de negocio para clasificarlo en un grupo.
     """
     cuentas_del_asiento = set(asiento_group['Cuenta Contable'].astype(str))
     referencia_completa = ' '.join(asiento_group['Referencia'].astype(str).unique()).upper()
@@ -1398,7 +1419,6 @@ def _clasificar_asiento_paquete_cc(asiento_group):
             
     # Grupo 5: Haberes de Clientes
     if '2.1.2.05.1.108' in cuentas_del_asiento:
-        # Verifica si algún movimiento en este asiento es mayor a 25
         if (asiento_group['Monto_USD'].abs() > 25).any():
             return "Grupo 5: Haberes de Clientes"
 
@@ -1421,48 +1441,53 @@ def _clasificar_asiento_paquete_cc(asiento_group):
     if 'RECIBOS DE COBRANZA' in referencia_completa or 'TEF' in fuente_completa:
         return "Grupo 8: Recibos de Cobranza"
         
-    # Grupo 9: Retenciones (Corregido de Grupo 7 a 9)
+    # Grupo 9: Retenciones
     cuentas_retencion = {'2.1.3.04.1.006', '2.1.3.01.1.012', '7.1.3.04.1.004'}
-    if not cuentas_retencion.isdisjoint(cuentas_del_asiento): # Si alguna cuenta de retención está presente
+    if not cuentas_retencion.isdisjoint(cuentas_del_asiento):
         return "Grupo 9: Retenciones"
         
     return "No Clasificado"
 
-
 def run_analysis_paquete_cc(df_diario, log_messages):
     """
     Función principal que orquesta el análisis y clasificación de los asientos
-    del paquete de Cuentas por Cobrar.
+    del paquete de Cuentas por Cobrar, ahora analizando todos los asientos de entrada.
     """
     log_messages.append("--- INICIANDO ANÁLISIS DE PAQUETE CC ---")
     
-    # 1. Preparación de datos
+    # 1. Preparación de datos (ya no se filtra)
     df = df_diario.copy()
     df['Cuenta Contable'] = df['Cuenta Contable'].astype(str).str.strip()
     df['Monto_USD'] = (df['Débito Dolar'] - df['Crédito Dolar']).round(2)
-    log_messages.append(f"✔️ Se cargaron {df['Asiento'].nunique()} asientos únicos para analizar.")
+    log_messages.append(f"✔️ Se analizarán los {df['Asiento'].nunique()} asientos del archivo de entrada.")
     
-    # 2. Filtrar solo asientos que contengan las cuentas base de CC
-    cuentas_base_cc = {'4.1.1.21.1.001', '4.1.1.21.1.002'} # Deudores por Ventas / Cias. Comerciales
-    
-    asientos_relevantes = df[df['Cuenta Contable'].isin(cuentas_base_cc)]['Asiento'].unique()
-    df_filtrado = df[df['Asiento'].isin(asientos_relevantes)].copy()
-    log_messages.append(f"✔️ Se filtraron {len(asientos_relevantes)} asientos que contienen las cuentas base de CC.")
-
-    # 3. Clasificación de asientos
+    # 2. Clasificación de asientos con lógica de prioridad
     resultados_clasificacion = {}
-    grupos_de_asientos = df_filtrado.groupby('Asiento')
+    grupos_de_asientos = df.groupby('Asiento')
     
+    asientos_con_cuentas_nuevas = 0
     for asiento_id, asiento_group in grupos_de_asientos:
-        grupo_asignado = _clasificar_asiento_paquete_cc(asiento_group)
+        cuentas_del_asiento = set(asiento_group['Cuenta Contable'])
+        
+        # PRIORIDAD 1: Verificar si hay cuentas no conocidas en el asiento
+        if not cuentas_del_asiento.issubset(CUENTAS_CONOCIDAS):
+            # Si al menos una cuenta no es conocida, se clasifica en el grupo especial
+            grupo_asignado = "Grupo 11: Cuentas No Identificadas"
+            asientos_con_cuentas_nuevas += 1
+        else:
+            # PRIORIDAD 2: Si todas son conocidas, aplicar las reglas de negocio detalladas
+            grupo_asignado = _clasificar_asiento_paquete_cc(asiento_group)
+            
         resultados_clasificacion[asiento_id] = grupo_asignado
         
-    # 4. Mapear resultados al DataFrame
-    df_filtrado['Grupo'] = df_filtrado['Asiento'].map(resultados_clasificacion)
+    # 3. Mapear resultados al DataFrame
+    df['Grupo'] = df['Asiento'].map(resultados_clasificacion)
     log_messages.append("✔️ Clasificación de todos los asientos completada.")
-    
-    # 5. Ordenar para el reporte
-    df_final = df_filtrado.sort_values(by=['Grupo', 'Asiento', 'Monto_USD'], ascending=[True, True, False])
+    if asientos_con_cuentas_nuevas > 0:
+        log_messages.append(f"⚠️ Se encontraron {asientos_con_cuentas_nuevas} asientos con cuentas no registradas en la lógica. Fueron asignados al Grupo 11.")
+
+    # 4. Ordenar para el reporte
+    df_final = df.sort_values(by=['Grupo', 'Asiento', 'Monto_USD'], ascending=[True, True, False])
     
     log_messages.append("--- ANÁLISIS FINALIZADO CON ÉXITO ---")
     return df_final
