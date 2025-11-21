@@ -1405,57 +1405,55 @@ def _clasificar_asiento_paquete_cc(asiento_group):
     if '6.1.1.12.1.001' in cuentas_del_asiento:
         if any(keyword in referencia_completa for keyword in ['DIFERENCIAL', 'DIFERENCIA EN CAMBIO', 'DIF CAMBIARIO']):
             return "Grupo 2: Diferencial Cambiario"
-    
+            
     # Grupo 3: Notas de Credito
     cuentas_nc = {'4.1.1.22.4.001', '2.1.3.04.1.001'}
     if 'N/C' in fuente_completa and cuentas_nc.issubset(cuentas_del_asiento):
-        # El nombre del grupo principal es "Grupo 3:", seguido del subgrupo.
         if 'AVISOS DE CREDITO' in referencia_completa:
             return "Grupo 3: N/C - Avisos de Crédito"
-        elif any(keyword in referencia_completa for keyword in ['ESTRATEGIA', 'PROMOCION']):
+        elif any(keyword in referencia_completa.split() for keyword in ['ESTRATEGIA', 'ESTRATEGIAS']):
             return "Grupo 3: N/C - Estrategias"
-        elif 'INCENTIVO' in referencia_completa:
+        elif any(keyword in referencia_completa.split() for keyword in ['INCENTIVO', 'INCENTIVOS']):
             return "Grupo 3: N/C - Incentivos"
-        elif any(keyword in referencia_completa for keyword in ['BONIFICACION', 'BONIF', 'DESCUENTO', 'DSCTO']):
+        elif any(keyword in referencia_completa.split() for keyword in ['BONIFICACION', 'BONIFICACIONES', 'BONIF']):
             return "Grupo 3: N/C - Bonificaciones"
+        elif any(keyword in referencia_completa.split() for keyword in ['DESCUENTO', 'DESCUENTOS', 'DSCTO', 'DESC']):
+            return "Grupo 3: N/C - Descuentos"
         else:
             return "Grupo 3: N/C - Otros"
-            
+
+    # Grupo 9: Retenciones
+    if '2.1.3.04.1.006' in cuentas_del_asiento:
+        return "Grupo 9: Retenciones - IVA"
+    elif '2.1.3.01.1.012' in cuentas_del_asiento:
+        return "Grupo 9: Retenciones - ISLR"
+    elif '7.1.3.04.1.004' in cuentas_del_asiento:
+        return "Grupo 9: Retenciones - Municipal"
+
     # Grupo 4: Gastos de Ventas
     if '7.1.3.19.1.012' in cuentas_del_asiento:
         if any(keyword in referencia_completa for keyword in ['EXHIBIDORES', 'OBSEQUIO', 'ESTRATEGIA']):
             return "Grupo 4: Gastos de Ventas"
-            
     # Grupo 5: Haberes de Clientes
     if '2.1.2.05.1.108' in cuentas_del_asiento:
         if (asiento_group['Monto_USD'].abs() > 25).any():
             return "Grupo 5: Haberes de Clientes"
-
     # Grupo 6: Ingresos Varios
     if '6.1.1.19.1.001' in cuentas_del_asiento:
         if 'LIMPIEZA DE SALDOS' in referencia_completa and (asiento_group['Monto_USD'].abs() < 5).all():
             return "Grupo 6: Ingresos Varios"
-            
     # Grupo 10: Traspasos
     if '4.1.1.21.4.001' in cuentas_del_asiento and 'TRASPASO' in referencia_completa:
         if abs(asiento_group['Monto_USD'].sum()) <= TOLERANCIA_MAX_USD:
             return "Grupo 10: Traspasos"
-            
     # Grupo 7: Devoluciones y Rebajas
     if '4.1.1.21.4.001' in cuentas_del_asiento:
         if any(keyword in referencia_completa for keyword in ['AJUSTE', 'LIMPIEZA', 'SALDO']) and (asiento_group['Monto_USD'].abs() < 5).all():
             return "Grupo 7: Devoluciones y Rebajas"
-            
     # Grupo 8: Recibos de Cobranza
     if 'RECIBOS DE COBRANZA' in referencia_completa or 'TEF' in fuente_completa:
         return "Grupo 8: Recibos de Cobranza"
-        
-    # Grupo 9: Retenciones
-    cuentas_retencion = {'2.1.3.04.1.006', '2.1.3.01.1.012', '7.1.3.04.1.004'}
-    if not cuentas_retencion.isdisjoint(cuentas_del_asiento):
-        return "Grupo 9: Retenciones"
-
-    # Grupo 12: Perdida por Venta o Retiro
+    # Grupo 12: Perdida p/Venta o Retiro Activo ND
     if '7.1.3.06.1.998' in cuentas_del_asiento:
         return "Grupo 12: Perdida p/Venta o Retiro Activo ND"
         
