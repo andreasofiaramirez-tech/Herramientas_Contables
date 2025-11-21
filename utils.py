@@ -221,14 +221,14 @@ def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrate
                 pass
                 
             for i, col in enumerate(columnas_reporte):
-            # Encontrar el ancho máximo requerido para la columna
-            # Se considera el ancho del título de la columna y el ancho del dato más largo
-            column_len = df_saldos_abiertos[col].astype(str).map(len).max()
-            header_len = len(col)
-            # Se toma el valor más grande entre el dato y el encabezado, y se añade un pequeño margen
-            width = max(column_len, header_len) + 2
-            # Limitar el ancho máximo para evitar columnas excesivamente anchas
-            worksheet_pendientes.set_column(i, i, min(width, 50))
+                # Encontrar el ancho máximo requerido para la columna
+                # Se considera el ancho del título de la columna y el ancho del dato más largo
+                column_len = df_saldos_abiertos[col].astype(str).map(len).max()
+                header_len = len(col)
+                # Se toma el valor más grande entre el dato y el encabezado, y se añade un pequeño margen
+                width = max(column_len, header_len) + 2
+                # Limitar el ancho máximo para evitar columnas excesivamente anchas
+                worksheet_pendientes.set_column(i, i, min(width, 50))
                 
         # --- HOJA 2: MOVIMIENTOS CONCILIADOS ---
         if not df_conciliados.empty:
