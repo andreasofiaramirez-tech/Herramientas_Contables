@@ -202,7 +202,7 @@ def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrate
         if not df_conciliados.empty:
             worksheet_conciliados = workbook.add_worksheet("Conciliacion")
             
-            if _estrategia_actual['id'] in ['fondos_transito', 'fondos_depositar', 'cuentas_viajes']:
+            if _estrategia_actual['id'] in ['fondos_transito', 'fondos_depositar', 'cuentas_viajes', 'deudores_empleados_me']:
                 df_reporte_conciliados_final = df_conciliados.copy()
                 df_reporte_conciliados_final['Débitos Dólares'] = df_reporte_conciliados_final['Monto_USD'].apply(lambda x: x if x > 0 else 0)
                 df_reporte_conciliados_final['Créditos Dólares'] = df_reporte_conciliados_final['Monto_USD'].apply(lambda x: x if x < 0 else 0)
@@ -252,6 +252,50 @@ def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrate
                 worksheet_conciliados.set_column('A:A', 12); worksheet_conciliados.set_column('B:B', 15); worksheet_conciliados.set_column('C:C', 30)
                 worksheet_conciliados.set_column('D:D', 40); worksheet_conciliados.set_column('E:G', 18)
                 worksheet_conciliados.freeze_panes(2, 0)
+
+            elif _estrategia_actual['id'] == 'cobros_viajeros':
+                worksheet_conciliados.merge_range('A1:H1', 'Detalle de Movimientos Conciliados por Viajero (NIT)', formato_encabezado_sub)
+                
+                df_conciliados_prep = df_conciliados.copy()
+                df_conciliados_prep['Débitos Dólares'] = df_conciliados_prep['Monto_USD'].apply(lambda x: x if x > 0 else 0)
+                df_conciliados_prep['Créditos Dólares'] = df_conciliados_prep['Monto_USD'].apply(lambda x: abs(x) if x < 0 else 0)
+                
+                df_conciliados_final = df_conciliados_prep.sort_values(by=['NIT', 'Grupo_Conciliado', 'Fecha'])
+                
+                columnas_detalle_viajeros = ['Fecha', 'Asiento', 'Referencia', 'Fuente', 'Débitos Dólares', 'Créditos Dólares']
+                current_row = 2
+
+                for nit, grupo_viajero in df_conciliados_final.groupby('NIT'):
+                    nombre_viajero = grupo_viajero['Descripcion NIT'].iloc[0] if not grupo_viajero.empty else ''
+                    
+                    # Escribir encabezado del viajero/NIT
+                    worksheet_conciliados.merge_range(current_row, 0, current_row, len(columnas_detalle_viajeros) - 1, f"NIT: {nit} - {nombre_viajero}", formato_proveedor_header)
+                    current_row += 1
+                    
+                    # Escribir encabezados de la tabla
+                    worksheet_conciliados.write_row(current_row, 0, columnas_detalle_viajeros, formato_header_tabla)
+                    current_row += 1
+                    
+                    # Escribir filas de datos
+                    for _, movimiento in grupo_viajero.iterrows():
+                        worksheet_conciliados.write_datetime(current_row, 0, movimiento['Fecha'], date_format)
+                        worksheet_conciliados.write(current_row, 1, movimiento['Asiento'])
+                        worksheet_conciliados.write(current_row, 2, movimiento['Referencia'])
+                        worksheet_conciliados.write(current_row, 3, movimiento['Fuente'])
+                        worksheet_conciliados.write_number(current_row, 4, movimiento['Débitos Dólares'], formato_usd)
+                        worksheet_conciliados.write_number(current_row, 5, movimiento['Créditos Dólares'], formato_usd)
+                        current_row += 1
+                    
+                    # Escribir fila de subtotal
+                    subtotal_deb = grupo_viajero['Débitos Dólares'].sum()
+                    subtotal_cre = grupo_viajero['Créditos Dólares'].sum()
+                    worksheet_conciliados.write(current_row, 3, "Subtotal NIT", formato_subtotal_label)
+                    worksheet_conciliados.write_number(current_row, 4, subtotal_deb, formato_subtotal_usd)
+                    worksheet_conciliados.write_number(current_row, 5, subtotal_cre, formato_subtotal_usd)
+                    current_row += 2 # Espacio entre grupos
+
+                worksheet_conciliados.set_column('A:A', 12); worksheet_conciliados.set_column('B:B', 15)
+                worksheet_conciliados.set_column('C:D', 30); worksheet_conciliados.set_column('E:F', 18)
 
         if _estrategia_actual['id'] == 'devoluciones_proveedores' and not df_saldos_abiertos.empty:
             worksheet_prov = workbook.add_worksheet("Resumen por Proveedor")
