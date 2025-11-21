@@ -1591,23 +1591,67 @@ def _clasificar_asiento_paquete_cc(asiento_group):
     return _get_base_classification(asiento_group, cuentas_del_asiento, referencia_completa, fuente_completa, referencia_limpia_palabras, is_reverso_check=False)
 
 
+def _validar_asiento(asiento_group):
+    """
+    Recibe un asiento completo (ya clasificado) y aplica las reglas de negocio
+    para determinar si está Conciliado o tiene una Incidencia.
+    """
+    grupo = asiento_group['Grupo'].iloc[0]
+    
+    if grupo.startswith("Grupo 1:"): # Acarreos y Fletes
+        # Incidencia: Si alguna línea de la cuenta de fletes NO contiene "FLETE"
+        fletes_lines = asiento_group[asiento_group['Cuenta Contable Norm'] == normalize_account('7.1.3.45.1.997')]
+        if not fletes_lines['Referencia'].str.contains('FLETE', case=False, na=False).all():
+            return "Incidencia: Referencia sin 'FLETE' encontrada."
+            
+    elif grupo.startswith("Grupo 2:"): # Diferencial Cambiario
+        # Incidencia: Si la referencia NO contiene las palabras clave
+        diff_lines = asiento_group[asiento_group['Cuenta Contable Norm'] == normalize_account('6.1.1.12.1.001')]
+        keywords = ['DIFERENCIAL', 'DIFERENCIA EN CAMBIO', 'DIF CAMBIARIO']
+        if not diff_lines['Referencia'].str.contains('|'.join(keywords), case=False, na=False).all():
+            return "Incidencia: Referencia sin palabra clave de diferencial."
+            
+    elif grupo.startswith("Grupo 6:"): # Ingresos Varios
+        # Incidencia: Si algún movimiento supera los $25
+        if (asiento_group['Monto_USD'].abs() > 25).any():
+            return "Incidencia: Movimiento mayor a $25 encontrado."
+            
+    elif grupo.startswith("Grupo 7:"): # Devoluciones y Rebajas
+        # Incidencia: Si algún movimiento supera los $5
+        if (asiento_group['Monto_USD'].abs() > 5).any():
+            return "Incidencia: Movimiento mayor a $5 encontrado."
+
+    elif grupo.startswith("Grupo 9:"): # Retenciones
+        # Incidencia: Si la referencia NO es puramente numérica (asumiendo que el comprobante es un número)
+        referencia_str = asiento_group['Referencia'].iloc[0]
+        if not re.fullmatch(r'\d+', str(referencia_str).strip()):
+            return "Incidencia: Referencia no parece ser un número de comprobante válido."
+
+    elif grupo.startswith("Grupo 10:"): # Traspasos
+        # Incidencia: Si la suma total del asiento no es cero
+        if not np.isclose(asiento_group['Monto_USD'].sum(), 0, atol=TOLERANCIA_MAX_USD):
+            return "Incidencia: El traspaso no suma cero."
+    
+    # Si no se encontró ninguna incidencia para las reglas definidas, se considera Conciliado.
+    # Los grupos sin reglas de incidencia (ej: Grupo 3, 4, 5, etc.) siempre estarán 'Conciliados'.
+    return "Conciliado"
+
+
 def run_analysis_paquete_cc(df_diario, log_messages):
     """
-    Función principal que orquesta el análisis con normalización y manejo global de reversos.
+    Función principal que orquesta la clasificación Y la validación de asientos.
     """
-    # (Esta función no necesita cambios, está correcta)
-    log_messages.append("--- INICIANDO ANÁLISIS DE PAQUETE CC (CON MANEJO GLOBAL DE REVERSOS) ---")
+    log_messages.append("--- INICIANDO ANÁLISIS Y VALIDACIÓN DE PAQUETE CC ---")
     df = df_diario.copy()
     df['Cuenta Contable Norm'] = df['Cuenta Contable'].apply(normalize_account)
-    log_messages.append("✔️ Cuentas contables normalizadas para una comparación robusta.")
     df['Monto_USD'] = (df['Débito Dolar'] - df['Crédito Dolar']).round(2)
-    log_messages.append(f"✔️ Se analizarán los {df['Asiento'].nunique()} asientos del archivo de entrada.")
     
+    # --- PASO 1: Clasificación (como antes) ---
     resultados_clasificacion = {}
     grupos_de_asientos = df.groupby('Asiento')
-    
     asientos_con_cuentas_nuevas = 0
     for asiento_id, asiento_group in grupos_de_asientos:
+        # ... (la lógica de clasificación no cambia)
         cuentas_del_asiento_norm = set(asiento_group['Cuenta Contable Norm'])
         if not cuentas_del_asiento_norm.issubset(CUENTAS_CONOCIDAS):
             grupo_asignado = "Grupo 11: Cuentas No Identificadas"
@@ -1617,9 +1661,22 @@ def run_analysis_paquete_cc(df_diario, log_messages):
         resultados_clasificacion[asiento_id] = grupo_asignado
         
     df['Grupo'] = df['Asiento'].map(resultados_clasificacion)
-    log_messages.append("✔️ Clasificación de todos los asientos completada.")
+    log_messages.append("✔️ Clasificación de asientos completada.")
+    
+    # --- PASO 2: Validación (NUEVO) ---
+    resultados_validacion = {}
+    # Volvemos a agrupar, pero ahora sobre el DataFrame ya clasificado
+    grupos_de_asientos_clasificados = df.groupby('Asiento')
+    for asiento_id, asiento_group in grupos_de_asientos_clasificados:
+        estado_validacion = _validar_asiento(asiento_group)
+        resultados_validacion[asiento_id] = estado_validacion
+        
+    df['Estado'] = df['Asiento'].map(resultados_validacion)
+    log_messages.append("✔️ Validación de reglas de negocio completada.")
+
+    # --- PASO 3: Preparación final ---
     if asientos_con_cuentas_nuevas > 0:
-        log_messages.append(f"⚠️ Se encontraron {asientos_con_cuentas_nuevas} asientos con cuentas no registradas. Asignados al Grupo 11.")
+        log_messages.append(f"⚠️ Se encontraron {asientos_con_cuentas_nuevas} asientos con cuentas no registradas.")
     
     df_final = df.drop(columns=['Cuenta Contable Norm']).sort_values(by=['Grupo', 'Asiento', 'Monto_USD'], ascending=[True, True, False])
     log_messages.append("--- ANÁLISIS FINALIZADO CON ÉXITO ---")
