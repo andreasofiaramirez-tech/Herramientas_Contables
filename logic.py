@@ -1387,26 +1387,35 @@ CUENTAS_CONOCIDAS = {
 }
 
 
+# logic.py
+import re # Asegúrate de que re esté importado
+
+# ... (CUENTAS_CONOCIDAS permanece igual)
+
 def _clasificar_asiento_paquete_cc(asiento_group):
     """
-    Versión final con lógica de clasificación por PRIORIDAD para garantizar
-    que cada asiento se clasifique en una única categoría.
+    Versión final con lógica de clasificación por PRIORIDAD y palabras clave más robustas.
     """
     cuentas_del_asiento = set(asiento_group['Cuenta Contable'].astype(str))
     referencia_completa = ' '.join(asiento_group['Referencia'].astype(str).unique()).upper()
     fuente_completa = ' '.join(asiento_group['Fuente'].astype(str).unique()).upper()
     
-    # --- La clasificación ahora sigue un orden estricto de prioridad de arriba hacia abajo ---
+    # Preparamos una versión limpia de la referencia para búsquedas de palabras clave exactas
+    referencia_limpia_palabras = set(re.sub(r'[^\w\s]', '', referencia_completa).split())
 
-    # PRIORIDAD 1: Notas de Crédito (muy específico)
+    # --- La clasificación sigue un orden estricto de prioridad ---
+
+    # PRIORIDAD 1: Notas de Crédito
     cuentas_nc = {'4.1.1.22.4.001', '2.1.3.04.1.001'}
     if 'N/C' in fuente_completa and cuentas_nc.issubset(cuentas_del_asiento):
         if 'AVISOS DE CREDITO' in referencia_completa: return "Grupo 3: N/C - Avisos de Crédito"
-        if any(keyword in referencia_completa.split() for keyword in ['ESTRATEGIA', 'ESTRATEGIAS']): return "Grupo 3: N/C - Estrategias"
-        if any(keyword in referencia_completa.split() for keyword in ['INCENTIVO', 'INCENTIVOS']): return "Grupo 3: N/C - Incentivos"
-        if any(keyword in referencia_completa.split() for keyword in ['BONIFICACION', 'BONIFICACIONES', 'BONIF']): return "Grupo 3: N/C - Bonificaciones"
-        if any(keyword in referencia_completa.split() for keyword in ['DESCUENTO', 'DESCUENTOS', 'DSCTO', 'DESC']): return "Grupo 3: N/C - Descuentos"
+        if referencia_limpia_palabras.intersection({'ESTRATEGIA', 'ESTRATEGIAS'}): return "Grupo 3: N/C - Estrategias"
+        if referencia_limpia_palabras.intersection({'INCENTIVO', 'INCENTIVOS'}): return "Grupo 3: N/C - Incentivos"
+        # CORRECCIÓN: Se añaden nuevas palabras clave
+        if referencia_limpia_palabras.intersection({'BONIFICACION', 'BONIFICACIONES', 'BONIF', 'BONF'}): return "Grupo 3: N/C - Bonificaciones"
+        if referencia_limpia_palabras.intersection({'DESCUENTO', 'DESCUENTOS', 'DSCTO', 'DESC', 'DESTO'}): return "Grupo 3: N/C - Descuentos"
         return "Grupo 3: N/C - Otros"
+
 
     # PRIORIDAD 2: Retenciones (por cuentas específicas)
     if '2.1.3.04.1.006' in cuentas_del_asiento: return "Grupo 9: Retenciones - IVA"
