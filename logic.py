@@ -766,12 +766,11 @@ def conciliar_grupos_por_empleado(df, log_messages):
 
 def normalizar_datos_cobros_viajeros(df, log_messages):
     """
-    Versión final que extrae solo los dígitos de Referencia y Fuente
-    para una conciliación numérica robusta.
+    Versión robustecida que crea una "Clave de Vínculo" unificada para la agrupación N-a-N.
     """
     df_copy = df.copy()
     
-    # Normalizar NIT para usarlo como clave de agrupación
+    # Normalizar NIT
     nit_col_name = next((col for col in df_copy.columns if str(col).strip().upper() in ['NIT', 'RIF']), None)
     if nit_col_name:
         df_copy['NIT_Normalizado'] = df_copy[nit_col_name].astype(str).str.upper().str.replace(r'[^A-Z0-9]', '', regex=True)
@@ -779,97 +778,67 @@ def normalizar_datos_cobros_viajeros(df, log_messages):
         log_messages.append("⚠️ ADVERTENCIA: No se encontró columna 'NIT' o 'RIF'.")
         df_copy['NIT_Normalizado'] = 'SIN_NIT'
 
-    # --- LÓGICA DE NORMALIZACIÓN NUMÉRICA ---
-    # Se crea una función auxiliar para limpiar el texto y dejar solo los números
+    # Función para extraer solo números
     def extraer_solo_numeros(texto):
         if pd.isna(texto):
             return ''
         return re.sub(r'\D', '', str(texto))
 
-    # Aplicar la limpieza a las columnas de cruce
-    df_copy['Referencia_Norm'] = df_copy['Referencia'].apply(extraer_solo_numeros)
-    df_copy['Fuente_Norm'] = df_copy['Fuente'].apply(extraer_solo_numeros)
+    # --- LÓGICA DE CLAVE DE VÍNCULO ---
+    # Crear columnas normalizadas temporales
+    ref_norm = df_copy['Referencia'].apply(extraer_solo_numeros)
+    fuente_norm = df_copy['Fuente'].apply(extraer_solo_numeros)
+    
+    # Crear la clave de vínculo unificada:
+    # Si es un Cierre (CC), la clave es su Fuente.
+    # Si es un Cobro (CB), la clave es su Referencia.
+    conditions = [
+        df_copy['Asiento'].str.startswith('CC', na=False),
+        df_copy['Asiento'].str.startswith('CB', na=False)
+    ]
+    choices = [fuente_norm, ref_norm]
+    df_copy['Clave_Vinculo'] = np.select(conditions, choices, default='')
     
     return df_copy
 
 def run_conciliation_cobros_viajeros(df, log_messages, progress_bar=None):
     """
-    Versión final y corregida que implementa la dirección de cruce correcta:
-    Fuente(CC) se busca en Referencia(CB).
+    Versión final y robusta que implementa la lógica de conciliación N-a-N
+    agrupando por la "Clave de Vínculo".
     """
-    log_messages.append("\n--- INICIANDO LÓGICA DE COBROS VIAJEROS (V3 - DIRECCIÓN CORREGIDA) ---")
+    log_messages.append("\n--- INICIANDO LÓGICA DE COBROS VIAJEROS (N-a-N) ---")
     
     df = normalizar_datos_cobros_viajeros(df, log_messages)
     if progress_bar: progress_bar.progress(0.2, text="Fase de Normalización completada.")
 
     total_conciliados = 0
-    indices_usados = set()
     
-    grupos_por_nit = df[~df['Conciliado']].groupby('NIT_Normalizado')
-    log_messages.append(f"ℹ️ Se analizarán {len(grupos_por_nit)} viajeros/NITs.")
+    # Filtrar solo las filas que tienen una clave de vínculo válida
+    df_procesable = df[(~df['Conciliado']) & (df['Clave_Vinculo'] != '')]
+    
+    # Agrupar primero por NIT y luego por la Clave de Vínculo
+    grupos = df_procesable.groupby(['NIT_Normalizado', 'Clave_Vinculo'])
+    log_messages.append(f"ℹ️ Se encontraron {len(grupos)} posibles grupos de conciliación para analizar.")
 
-    for nit, grupo in grupos_por_nit:
-        if nit == 'SIN_NIT' or len(grupo) < 2:
+    for (nit, clave), grupo in grupos:
+        # Se necesita al menos un movimiento positivo y uno negativo
+        if len(grupo) < 2 or not ((grupo['Monto_USD'] > 0).any() and (grupo['Monto_USD'] < 0).any()):
             continue
 
-        # Débitos (Cobros) - Asientos que comienzan con 'CB'
-        debitos_cb = grupo[(grupo['Monto_USD'] > 0) & (grupo['Asiento'].str.startswith('CB', na=False))].copy()
-        
-        # Créditos (Cierres) - Asientos que comienzan con 'CC'
-        # ¡OJO! Ahora los créditos son los que tienen monto POSITIVO en el reporte de saldos abiertos.
-        # Y los débitos son los que tienen monto NEGATIVO.
-        # Ajustamos la lógica para que sea más general.
-        
-        movimientos_positivos = grupo[grupo['Monto_USD'] > 0].copy()
-        movimientos_negativos = grupo[grupo['Monto_USD'] < 0].copy()
-        
-        # Asignamos correctamente: El asiento CC es el CIERRE (positivo en tu reporte)
-        cierres_cc = movimientos_positivos[movimientos_positivos['Asiento'].str.startswith('CC', na=False)]
-        
-        # El asiento CB es el COBRO (negativo en tu reporte)
-        cobros_cb = movimientos_negativos[movimientos_negativos['Asiento'].str.startswith('CB', na=False)]
-
-        if cierres_cc.empty or cobros_cb.empty:
-            continue
+        # Validar si la suma del grupo completo es cero
+        if np.isclose(grupo['Monto_USD'].sum(), 0, atol=TOLERANCIA_MAX_USD):
+            indices_a_conciliar = grupo.index
             
-        # --- LÓGICA DE CRUCE CON DIRECCIÓN CORREGIDA ---
-        # Iteramos sobre los CIERRES (CC)
-        for idx_c, cierre_row in cierres_cc.iterrows():
-            if idx_c in indices_usados:
-                continue
-
-            # La clave a buscar es la parte numérica de la FUENTE del CIERRE (CC)
-            fuente_a_buscar = cierre_row['Fuente_Norm']
+            df.loc[indices_a_conciliar, 'Conciliado'] = True
+            df.loc[indices_a_conciliar, 'Grupo_Conciliado'] = f"VIAJERO_{nit}_{clave}"
             
-            # Encontrar el mejor COBRO (CB) que coincida en Referencia y Monto
-            mejor_match_idx = None
-            mejor_match_diff = TOLERANCIA_MAX_USD + 1
-
-            # Buscamos en los cobros (CB) una REFERENCIA que coincida con la FUENTE del cierre (CC)
-            posibles_matches = cobros_cb[cobros_cb['Referencia_Norm'] == fuente_a_buscar]
-            
-            for idx_d, cobro_row in posibles_matches.iterrows():
-                if idx_d in indices_usados:
-                    continue
-                
-                diferencia = abs(cierre_row['Monto_USD'] + cobro_row['Monto_USD'])
-                if diferencia < mejor_match_diff:
-                    mejor_match_diff = diferencia
-                    mejor_match_idx = idx_d
-            
-            if mejor_match_idx is not None and mejor_match_diff <= TOLERANCIA_MAX_USD:
-                indices_a_conciliar = [idx_c, mejor_match_idx]
-                
-                df.loc[indices_a_conciliar, 'Conciliado'] = True
-                df.loc[indices_a_conciliar, 'Grupo_Conciliado'] = f"VIAJERO_{nit}_{fuente_a_buscar}"
-                
-                indices_usados.update(indices_a_conciliar)
-                total_conciliados += 2
+            total_conciliados += len(indices_a_conciliar)
+            log_messages.append(f"✔️ Grupo conciliado para NIT {nit} con clave {clave} ({len(indices_a_conciliar)} movimientos).")
 
     if total_conciliados > 0:
-        log_messages.append(f"✔️ Conciliación finalizada: Se conciliaron {total_conciliados} movimientos.")
+        log_messages.append(f"✔️ Conciliación finalizada: Se conciliaron un total de {total_conciliados} movimientos.")
     else:
-        log_messages.append("ℹ️ No se encontraron pares de cobro (CB) / cierre (CC) para conciliar.")
+        log_messages.append("ℹ️ No se encontraron grupos de cobro/cierre que sumen cero.")
         
     log_messages.append("\n--- PROCESO DE CONCILIACIÓN FINALIZADO ---")
     return df
