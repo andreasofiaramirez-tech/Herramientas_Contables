@@ -766,44 +766,8 @@ def conciliar_grupos_por_empleado(df, log_messages):
 
 def normalizar_datos_cobros_viajeros(df, log_messages):
     """
-    Versión robustecida que crea una "Clave de Vínculo" unificada para la agrupación N-a-N.
-    """
-    df_copy = df.copy()
-    
-    # Normalizar NIT
-    nit_col_name = next((col for col in df_copy.columns if str(col).strip().upper() in ['NIT', 'RIF']), None)
-    if nit_col_name:
-        df_copy['NIT_Normalizado'] = df_copy[nit_col_name].astype(str).str.upper().str.replace(r'[^A-Z0-9]', '', regex=True)
-    else:
-        log_messages.append("⚠️ ADVERTENCIA: No se encontró columna 'NIT' o 'RIF'.")
-        df_copy['NIT_Normalizado'] = 'SIN_NIT'
-
-    # Función para extraer solo números
-    def extraer_solo_numeros(texto):
-        if pd.isna(texto):
-            return ''
-        return re.sub(r'\D', '', str(texto))
-
-    # --- LÓGICA DE CLAVE DE VÍNCULO ---
-    # Crear columnas normalizadas temporales
-    ref_norm = df_copy['Referencia'].apply(extraer_solo_numeros)
-    fuente_norm = df_copy['Fuente'].apply(extraer_solo_numeros)
-    
-    # Crear la clave de vínculo unificada:
-    # Si es un Cierre (CC), la clave es su Fuente.
-    # Si es un Cobro (CB), la clave es su Referencia.
-    conditions = [
-        df_copy['Asiento'].str.startswith('CC', na=False),
-        df_copy['Asiento'].str.startswith('CB', na=False)
-    ]
-    choices = [fuente_norm, ref_norm]
-    df_copy['Clave_Vinculo'] = np.select(conditions, choices, default='')
-    
-    return df_copy
-
-def normalizar_datos_cobros_viajeros(df, log_messages):
-    """
-    Versión final que maneja el caso especial de Reversos CC-a-CC.
+    Función de normalización simplificada para la nueva lógica de dos fases.
+    Prepara las columnas necesarias para ambas fases de conciliación.
     """
     df_copy = df.copy()
     
@@ -820,31 +784,100 @@ def normalizar_datos_cobros_viajeros(df, log_messages):
             return ''
         return re.sub(r'\D', '', str(texto))
 
-    # --- LÓGICA DE CLAVE DE VÍNCULO MEJORADA ---
-    ref_norm = df_copy['Referencia'].apply(extraer_solo_numeros)
-    fuente_norm = df_copy['Fuente'].apply(extraer_solo_numeros)
+    # Columnas normalizadas para las claves de cruce
+    df_copy['Referencia_Norm_Num'] = df_copy['Referencia'].apply(extraer_solo_numeros)
+    df_copy['Fuente_Norm_Num'] = df_copy['Fuente'].apply(extraer_solo_numeros)
     
-    # Crear la clave de vínculo unificada:
-    conditions = [
-        # CASO 1 (MÁS ESPECÍFICO): Reverso CC-a-CC
-        # Si el asiento es CC y la referencia contiene "REVERSO", la clave es la REFERENCIA.
-        (df_copy['Asiento'].str.startswith('CC', na=False)) & (df_copy['Referencia'].str.contains('REVERSO', case=False, na=False)),
-        
-        # CASO 2: Cierre (CC) estándar
-        # Si el asiento es CC (y no es un reverso), la clave es la FUENTE.
-        df_copy['Asiento'].str.startswith('CC', na=False),
-        
-        # CASO 3: Cobro (CB) estándar
-        # Si el asiento es CB, la clave es la REFERENCIA.
-        df_copy['Asiento'].str.startswith('CB', na=False)
-    ]
-    
-    # El valor a asignar para cada caso
-    choices = [ref_norm, fuente_norm, ref_norm]
-    
-    df_copy['Clave_Vinculo'] = np.select(conditions, choices, default='')
+    # Columna para identificar reversos
+    df_copy['Es_Reverso'] = df_copy['Referencia'].str.contains('REVERSO', case=False, na=False)
     
     return df_copy
+
+
+def run_conciliation_cobros_viajeros(df, log_messages, progress_bar=None):
+    """
+    Versión final con lógica de dos fases:
+    1. Concilia reversos CC-a-CC.
+    2. Concilia el resto con la lógica N-a-N estándar.
+    """
+    log_messages.append("\n--- INICIANDO LÓGICA DE COBROS VIAJEROS (V4 - DOS FASES) ---")
+    
+    df = normalizar_datos_cobros_viajeros(df, log_messages)
+    if progress_bar: progress_bar.progress(0.1, text="Fase de Normalización completada.")
+
+    total_conciliados = 0
+    indices_usados = set()
+
+    # --- FASE 1: CONCILIACIÓN DE REVERSOS CC-a-CC ---
+    log_messages.append("--- Fase 1: Buscando reversos CC-a-CC ---")
+    df_reversos = df[(df['Asiento'].str.startswith('CC', na=False)) & (df['Es_Reverso'])]
+    df_originales_cc = df[(df['Asiento'].str.startswith('CC', na=False)) & (~df['Es_Reverso'])]
+
+    for _, reverso_row in df_reversos.iterrows():
+        if reverso_row.name in indices_usados:
+            continue
+        
+        clave_reverso = reverso_row['Referencia_Norm_Num']
+        nit_reverso = reverso_row['NIT_Normalizado']
+        
+        # Buscar la contrapartida original
+        contrapartida = df_originales_cc[
+            (df_originales_cc['NIT_Normalizado'] == nit_reverso) &
+            (df_originales_cc['Referencia_Norm_Num'] == clave_reverso) &
+            (~df_originales_cc.index.isin(indices_usados))
+        ]
+        
+        if not contrapartida.empty:
+            # Si encontramos una o más, buscar la que anule el monto
+            for _, original_row in contrapartida.iterrows():
+                if np.isclose(reverso_row['Monto_USD'] + original_row['Monto_USD'], 0, atol=TOLERANCIA_MAX_USD):
+                    indices_a_conciliar = [reverso_row.name, original_row.name]
+                    df.loc[indices_a_conciliar, 'Conciliado'] = True
+                    df.loc[indices_a_conciliar, 'Grupo_Conciliado'] = f"REVERSO_{nit_reverso}_{clave_reverso}"
+                    indices_usados.update(indices_a_conciliar)
+                    total_conciliados += 2
+                    log_messages.append(f"✔️ Reverso CC-a-CC conciliado para NIT {nit_reverso} con clave {clave_reverso}.")
+                    break # Pasar al siguiente reverso
+
+    if progress_bar: progress_bar.progress(0.5, text="Fase de Reversos completada.")
+
+    # --- FASE 2: CONCILIACIÓN ESTÁNDAR N-a-N (CB-a-CC) ---
+    log_messages.append("--- Fase 2: Buscando grupos de conciliación estándar N-a-N ---")
+    
+    # Crear la Clave de Vínculo solo para los movimientos restantes
+    df['Clave_Vinculo'] = ''
+    df_restante = df[~df.index.isin(indices_usados)]
+    
+    for index, row in df_restante.iterrows():
+        if row['Asiento'].startswith('CC'):
+            df.loc[index, 'Clave_Vinculo'] = row['Fuente_Norm_Num']
+        elif row['Asiento'].startswith('CB'):
+            df.loc[index, 'Clave_Vinculo'] = row['Referencia_Norm_Num']
+
+    df_procesable = df[(~df['Conciliado']) & (df['Clave_Vinculo'] != '')]
+    grupos = df_procesable.groupby(['NIT_Normalizado', 'Clave_Vinculo'])
+    log_messages.append(f"ℹ️ Se encontraron {len(grupos)} posibles grupos estándar para analizar.")
+
+    for (nit, clave), grupo in grupos:
+        if len(grupo) < 2 or not ((grupo['Monto_USD'] > 0).any() and (grupo['Monto_USD'] < 0).any()):
+            continue
+        if np.isclose(grupo['Monto_USD'].sum(), 0, atol=TOLERANCIA_MAX_USD):
+            indices_a_conciliar = grupo.index
+            df.loc[indices_a_conciliar, 'Conciliado'] = True
+            df.loc[indices_a_conciliar, 'Grupo_Conciliado'] = f"VIAJERO_{nit}_{clave}"
+            indices_usados.update(indices_a_conciliar)
+            total_conciliados += len(indices_a_conciliar)
+            log_messages.append(f"✔️ Grupo estándar conciliado para NIT {nit} con clave {clave} ({len(indices_a_conciliar)} movimientos).")
+            
+    if progress_bar: progress_bar.progress(1.0, text="Conciliación completada.")
+
+    if total_conciliados > 0:
+        log_messages.append(f"✔️ Conciliación finalizada: Se conciliaron un total de {total_conciliados} movimientos en ambas fases.")
+    else:
+        log_messages.append("ℹ️ No se encontraron movimientos para conciliar en ninguna de las fases.")
+        
+    log_messages.append("\n--- PROCESO DE CONCILIACIÓN FINALIZADO ---")
+    return df
 
 # --- (G) Módulo: Otras Cuentas por Pagar (VES) ---
 
