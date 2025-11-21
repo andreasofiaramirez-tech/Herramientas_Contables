@@ -306,7 +306,7 @@ def generar_csv_saldos_abiertos(df_saldos_abiertos):
     return df_saldos_a_exportar.to_csv(index=False, sep=';', encoding='utf-8-sig').encode('utf-8-sig')
 
 # ==============================================================================
-# NUEVA FUNCIÓN DE REPORTE PARA LA HERRAMIENTA DE RETENCIONES
+# REPORTE PARA LA HERRAMIENTA DE RETENCIONES
 # ==============================================================================
 
 def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_map):
@@ -454,5 +454,82 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
                 column_width = max(header_len, max_data_len) + 2
                 column_width = min(column_width, 60)
                 ws3.set_column(i, i, column_width)
+
+    return output_buffer.getvalue()
+
+# ==============================================================================
+# FUNCIÓN DE REPORTE PARA ANÁLISIS DE PAQUETE CC
+# ==============================================================================
+
+def generar_reporte_paquete_cc(df_analizado):
+    """
+    Genera el archivo Excel del reporte de Análisis de Paquete CC, agrupando
+    los asientos por la clasificación obtenida en la lógica.
+    """
+    output_buffer = BytesIO()
+    with pd.ExcelWriter(output_buffer, engine='xlsxwriter') as writer:
+        workbook = writer.book
+        
+        # --- Formatos ---
+        main_title_format = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'font_size': 16, 'bottom': 2})
+        group_title_format = workbook.add_format({'bold': True, 'font_size': 12, 'fg_color': '#E0E0E0', 'border': 1})
+        header_format = workbook.add_format({'bold': True, 'text_wrap': True, 'valign': 'top', 'fg_color': '#D9EAD3', 'border': 1, 'align': 'center'})
+        money_format = workbook.add_format({'num_format': '#,##0.00', 'border': 1})
+        date_format = workbook.add_format({'num_format': 'dd/mm/yyyy', 'border': 1})
+        text_format = workbook.add_format({'border': 1})
+        
+        ws = workbook.add_worksheet('Análisis Paquete CC')
+        ws.hide_gridlines(2)
+        
+        # --- Título Principal ---
+        ws.merge_range('A1:J1', 'Análisis de Asientos de Cuentas por Cobrar', main_title_format)
+        
+        columnas_reporte = [
+            'Asiento', 'Fecha', 'Fuente', 'Cuenta Contable', 'Descripción de Cuenta', 
+            'Referencia', 'Débito Dolar', 'Crédito Dolar', 'Débito VES', 'Crédito VES'
+        ]
+        
+        current_row = 2
+        
+        # --- Iterar por cada grupo clasificado ---
+        # Asegura un orden específico de los grupos en el reporte
+        grupos_ordenados = sorted(df_analizado['Grupo'].unique())
+        
+        for grupo_nombre in grupos_ordenados:
+            df_grupo = df_analizado[df_analizado['Grupo'] == grupo_nombre]
+            
+            # Escribir el título del grupo
+            ws.merge_range(current_row, 0, current_row, len(columnas_reporte) - 1, grupo_nombre, group_title_format)
+            current_row += 1
+            
+            # Escribir los encabezados de la tabla
+            ws.write_row(current_row, 0, columnas_reporte, header_format)
+            current_row += 1
+            
+            # Escribir las filas de datos para el grupo
+            for _, row_data in df_grupo.iterrows():
+                ws.write(current_row, 0, row_data.get('Asiento', ''), text_format)
+                ws.write_datetime(current_row, 1, row_data.get('Fecha', None), date_format)
+                ws.write(current_row, 2, row_data.get('Fuente', ''), text_format)
+                ws.write(current_row, 3, row_data.get('Cuenta Contable', ''), text_format)
+                ws.write(current_row, 4, row_data.get('Descripción de Cuenta', ''), text_format)
+                ws.write(current_row, 5, row_data.get('Referencia', ''), text_format)
+                ws.write_number(current_row, 6, row_data.get('Débito Dolar', 0), money_format)
+                ws.write_number(current_row, 7, row_data.get('Crédito Dolar', 0), money_format)
+                ws.write_number(current_row, 8, row_data.get('Débito VES', 0), money_format)
+                ws.write_number(current_row, 9, row_data.get('Crédito VES', 0), money_format)
+                current_row += 1
+                
+            # Añadir un espacio entre grupos
+            current_row += 1 
+
+        # --- Ajustar anchos de columnas ---
+        ws.set_column('A:A', 12)  # Asiento
+        ws.set_column('B:B', 12)  # Fecha
+        ws.set_column('C:C', 15)  # Fuente
+        ws.set_column('D:D', 18)  # Cuenta Contable
+        ws.set_column('E:E', 40)  # Descripción de Cuenta
+        ws.set_column('F:F', 50)  # Referencia
+        ws.set_column('G:J', 15)  # Columnas monetarias
 
     return output_buffer.getvalue()
