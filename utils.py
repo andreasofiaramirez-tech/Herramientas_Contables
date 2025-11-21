@@ -230,6 +230,17 @@ def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrate
                 # Limitar el ancho máximo para evitar columnas excesivamente anchas
                 worksheet_pendientes.set_column(i, i, min(width, 50))
                 
+        # --- CÓDIGO PARA AJUSTAR ANCHOS DE COLUMNA (MÉTODO SIMPLE Y DIRECTO) ---
+        worksheet_pendientes.set_column('A:A', 15)  # NIT
+        worksheet_pendientes.set_column('B:B', 45)  # Descripcion NIT
+        worksheet_pendientes.set_column('C:C', 12)  # Fecha
+        worksheet_pendientes.set_column('D:D', 15)  # Asiento
+        worksheet_pendientes.set_column('E:E', 40)  # Referencia
+        worksheet_pendientes.set_column('F:F', 30)  # Fuente
+        worksheet_pendientes.set_column('G:G', 18)  # Monto Dólar
+        worksheet_pendientes.set_column('H:H', 18)  # Bs.
+        worksheet_pendientes.set_column('I:I', 15)  # Tasa
+                
         # --- HOJA 2: MOVIMIENTOS CONCILIADOS ---
         if not df_conciliados.empty:
             worksheet_conciliados = workbook.add_worksheet("Conciliacion")
