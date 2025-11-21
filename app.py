@@ -18,6 +18,7 @@ from logic import (
     run_conciliation_retenciones,
     run_analysis_paquete_cc,
     run_conciliation_cobros_viajeros,
+    run_conciliation_otras_cxp,
     run_conciliation_deudores_empleados_me
 )
 from utils import (
@@ -163,6 +164,16 @@ ESTRATEGIAS = {
         "nombre_hoja_excel": "111.04.6003",
         "columnas_requeridas": ['Asiento', 'Fuente', 'Fecha', 'Referencia', 'Nit', 'Descripcion NIT', 'Débito Dolar', 'Crédito Dolar']
     }
+    "212.05.1019 - Otras Cuentas por Pagar": {
+        "id": "otras_cuentas_por_pagar",
+        "funcion_principal": run_conciliation_otras_cxp,
+        "label_actual": "Movimientos del mes (Otras CxP)",
+        "label_anterior": "Saldos anteriores (Otras CxP)",
+        "columnas_reporte": ['NIT', 'Descripcion NIT', 'Fecha', 'Referencia', 'Monto Bolivar'],
+        "nombre_hoja_excel": "212.05.1019",
+        "columnas_requeridas": ['Asiento', 'Fuente', 'Fecha', 'Referencia', 'Nit', 'Descripcion NIT', 'Debito Bolivar', 'Credito Bolivar']
+    }
+    
 }
 
 # ==============================================================================
