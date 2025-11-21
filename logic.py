@@ -1387,11 +1387,6 @@ CUENTAS_CONOCIDAS = {
 }
 
 
-# logic.py
-import re # Asegúrate de que re esté importado
-
-# ... (CUENTAS_CONOCIDAS permanece igual)
-
 def _clasificar_asiento_paquete_cc(asiento_group):
     """
     Versión final con lógica de clasificación por PRIORIDAD y palabras clave más robustas.
@@ -1416,12 +1411,40 @@ def _clasificar_asiento_paquete_cc(asiento_group):
         if referencia_limpia_palabras.intersection({'DESCUENTO', 'DESCUENTOS', 'DSCTO', 'DESC', 'DESTO'}): return "Grupo 3: N/C - Descuentos"
         return "Grupo 3: N/C - Otros"
 
-
     # PRIORIDAD 2: Retenciones (por cuentas específicas)
     if '2.1.3.04.1.006' in cuentas_del_asiento: return "Grupo 9: Retenciones - IVA"
     if '2.1.3.01.1.012' in cuentas_del_asiento: return "Grupo 9: Retenciones - ISLR"
     if '7.1.3.04.1.004' in cuentas_del_asiento: return "Grupo 9: Retenciones - Municipal"
 
+    # PRIORIDAD 8: Ingresos Varios
+    if '6.1.1.19.1.001' in cuentas_del_asiento:
+        keywords_limpieza = {'LIMPIEZA', 'LIMPIEZAS'}
+        # Comprueba si alguna palabra de la referencia coincide con las keywords de limpieza
+        if not keywords_limpieza.isdisjoint(referencia_limpia_palabras) or 'LIMPIEZA DE SALDO' in referencia_completa or 'LIMPIEZA HISTORICO' in referencia_completa:
+            # Si es limpieza, ahora separamos por monto
+            if (asiento_group['Monto_USD'].abs() <= 5).all():
+                return "Grupo 6: Ingresos Varios - Limpieza (<= $5)"
+            else:
+                return "Grupo 6: Ingresos Varios - Limpieza (> $5)"
+        else:
+            # Si no es limpieza, es "Otros"
+            return "Grupo 6: Ingresos Varios - Otros"
+
+    # PRIORIDAD 10: Devoluciones y Rebajas (misma cuenta que traspaso, pero condición diferente)
+    if '4.1.1.21.4.001' in cuentas_del_asiento:
+        if 'TRASPASO' in referencia_completa and abs(asiento_group['Monto_USD'].sum()) <= TOLERANCIA_MAX_USD:
+            return "Grupo 10: Traspasos"
+        
+        keywords_limpieza_dev = {'LIMPIEZA', 'LIMPIEZAS'}
+        if not keywords_limpieza_dev.isdisjoint(referencia_limpia_palabras) or 'LIMPIEZA DE SALDO' in referencia_completa or 'LIMPIEZA HISTORICO' in referencia_completa:
+            if (asiento_group['Monto_USD'].abs() <= 5).all():
+                return "Grupo 7: Devoluciones y Rebajas - Limpieza (<= $5)"
+            else:
+                return "Grupo 7: Devoluciones y Rebajas - Limpieza (> $5)"
+        else:
+            # Si no es limpieza pero puede ser otro tipo de ajuste
+            return "Grupo 7: Devoluciones y Rebajas - Otros Ajustes"
+            
     # PRIORIDAD 3: Perdida p/Venta o Retiro Activo ND
     if '7.1.3.06.1.998' in cuentas_del_asiento:
         return "Grupo 12: Perdida p/Venta o Retiro Activo ND"
@@ -1442,19 +1465,10 @@ def _clasificar_asiento_paquete_cc(asiento_group):
     if '2.1.2.05.1.108' in cuentas_del_asiento:
         return "Grupo 5: Haberes de Clientes"
         
-    # PRIORIDAD 8: Ingresos Varios
-    if '6.1.1.19.1.001' in cuentas_del_asiento:
-        return "Grupo 6: Ingresos Varios"
-        
     # PRIORIDAD 9: Traspasos (por cuenta y palabra clave)
     if '4.1.1.21.4.001' in cuentas_del_asiento and 'TRASPASO' in referencia_completa:
         if abs(asiento_group['Monto_USD'].sum()) <= TOLERANCIA_MAX_USD:
             return "Grupo 10: Traspasos"
-            
-    # PRIORIDAD 10: Devoluciones y Rebajas (misma cuenta que traspaso, pero condición diferente)
-    if '4.1.1.21.4.001' in cuentas_del_asiento:
-        if any(keyword in referencia_completa for keyword in ['AJUSTE', 'LIMPIEZA', 'SALDO']):
-            return "Grupo 7: Devoluciones y Rebajas"
             
     # PRIORIDAD 11: Recibos de Cobranza (general, va al final)
     if 'RECIBOS DE COBRANZA' in referencia_completa or 'TEF' in fuente_completa:
