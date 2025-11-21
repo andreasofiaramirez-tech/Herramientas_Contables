@@ -1484,7 +1484,6 @@ def normalize_account(acc):
     return re.sub(r'\D', '', str(acc))
 
 # --- Directorio de Cuentas (Versión Normalizada) ---
-# Todas las cuentas se normalizan al ser añadidas para una comparación 100% robusta.
 CUENTAS_CONOCIDAS = {normalize_account(acc) for acc in [
     '1.1.3.01.1.001', '1.1.3.01.1.901', '7.1.3.45.1.997', '6.1.1.12.1.001',
     '4.1.1.22.4.001', '2.1.3.04.1.001', '7.1.3.19.1.012', '2.1.2.05.1.108',
@@ -1504,19 +1503,10 @@ CUENTAS_BANCO = {normalize_account(acc) for acc in [
     '1.1.1.03.6.031',
 ]}
 
-
-def _clasificar_asiento_paquete_cc(asiento_group):
+def _get_base_classification(asiento_group, cuentas_del_asiento, referencia_completa, fuente_completa, referencia_limpia_palabras):
     """
-    Función de clasificación final con lógica de prioridad estricta y comparaciones normalizadas.
+    Función auxiliar que contiene la lógica de clasificación para transacciones estándar (no reversos).
     """
-    # Usa la columna normalizada para todas las comparaciones de cuentas
-    cuentas_del_asiento = set(asiento_group['Cuenta Contable Norm'])
-    referencia_completa = ' '.join(asiento_group['Referencia'].astype(str).unique()).upper()
-    fuente_completa = ' '.join(asiento_group['Fuente'].astype(str).unique()).upper()
-    referencia_limpia_palabras = set(re.sub(r'[^\w\s]', '', referencia_completa).split())
-
-    # --- La clasificación sigue un orden estricto de prioridad de arriba hacia abajo ---
-
     # PRIORIDAD 1: Notas de Crédito
     if 'N/C' in fuente_completa and {normalize_account('4.1.1.22.4.001'), normalize_account('2.1.3.04.1.001')}.issubset(cuentas_del_asiento):
         if 'AVISOS DE CREDITO' in referencia_completa: return "Grupo 3: N/C - Avisos de Crédito"
@@ -1530,8 +1520,8 @@ def _clasificar_asiento_paquete_cc(asiento_group):
     if normalize_account('2.1.3.04.1.006') in cuentas_del_asiento: return "Grupo 9: Retenciones - IVA"
     if normalize_account('2.1.3.01.1.012') in cuentas_del_asiento: return "Grupo 9: Retenciones - ISLR"
     if normalize_account('7.1.3.04.1.004') in cuentas_del_asiento: return "Grupo 9: Retenciones - Municipal"
-    
-    # PRIORIDAD 3: Lógica de Cobranzas Unificada
+
+    # PRIORIDAD 3: Cobranzas
     is_cobranza = 'RECIBO DE COBRANZA' in referencia_completa or 'TEF' in fuente_completa
     if is_cobranza:
         if normalize_account('6.1.1.12.1.001') in cuentas_del_asiento: return "Grupo 8: Cobranzas - Con Diferencial Cambiario"
@@ -1545,8 +1535,8 @@ def _clasificar_asiento_paquete_cc(asiento_group):
     if normalize_account('6.1.1.19.1.001') in cuentas_del_asiento:
         keywords_limpieza = {'LIMPIEZA', 'LIMPIEZAS', 'SALDO', 'SALDOS', 'HISTORICO'}
         if not keywords_limpieza.isdisjoint(referencia_limpia_palabras):
-            if (asiento_group['Monto_USD'].abs() <= 25).all(): return "Grupo 6: Ingresos Varios - Limpieza (<= $25)"
-            else: return "Grupo 6: Ingresos Varios - Limpieza (> $25)"
+            if (asiento_group['Monto_USD'].abs() <= 5).all(): return "Grupo 6: Ingresos Varios - Limpieza (<= $5)"
+            else: return "Grupo 6: Ingresos Varios - Limpieza (> $5)"
         else: return "Grupo 6: Ingresos Varios - Otros"
 
     # PRIORIDAD 5: Traspasos vs. Devoluciones (Grupo 10 y 7)
@@ -1557,38 +1547,53 @@ def _clasificar_asiento_paquete_cc(asiento_group):
             if (asiento_group['Monto_USD'].abs() <= 5).all(): return "Grupo 7: Devoluciones y Rebajas - Limpieza (<= $5)"
             else: return "Grupo 7: Devoluciones y Rebajas - Limpieza (> $5)"
         else: return "Grupo 7: Devoluciones y Rebajas - Otros Ajustes"
-            
-    # PRIORIDAD 6: Perdida p/Venta
+
+    # Resto de prioridades
     if normalize_account('7.1.3.06.1.998') in cuentas_del_asiento: return "Grupo 12: Perdida p/Venta o Retiro Activo ND"
-    
-    # PRIORIDAD 7: Acarreos y Fletes
     if normalize_account('7.1.3.45.1.997') in cuentas_del_asiento: return "Grupo 1: Acarreos y Fletes Recuperados"
-    
-    # PRIORIDAD 8: Diferencial Cambiario (si no fue capturado en Cobranzas)
     if normalize_account('6.1.1.12.1.001') in cuentas_del_asiento: return "Grupo 2: Diferencial Cambiario"
-    
-    # PRIORIDAD 9: Gastos de Ventas
     if normalize_account('7.1.3.19.1.012') in cuentas_del_asiento: return "Grupo 4: Gastos de Ventas"
-    
-    # PRIORIDAD 10: Haberes de Clientes
     if normalize_account('2.1.2.05.1.108') in cuentas_del_asiento: return "Grupo 5: Haberes de Clientes"
 
-    # Si no coincide con NINGUNA regla anterior, se marca como No Clasificado
     return "No Clasificado"
+
+def _clasificar_asiento_paquete_cc(asiento_group):
+    """
+    Función principal de clasificación que implementa una capa global para manejar Reversos.
+    """
+    cuentas_del_asiento = set(asiento_group['Cuenta Contable Norm'])
+    referencia_completa = ' '.join(asiento_group['Referencia'].astype(str).unique()).upper()
+    fuente_completa = ' '.join(asiento_group['Fuente'].astype(str).unique()).upper()
+    referencia_limpia_palabras = set(re.sub(r'[^\w\s]', '', referencia_completa).split())
+
+    # CAPA 1: Detección de Reversos
+    if 'REVERSO' in referencia_completa or 'REV' in referencia_limpia_palabras:
+        # Si es un reverso, llamamos a la lógica base para saber de qué tipo es
+        base_group = _get_base_classification(asiento_group, cuentas_del_asiento, referencia_completa, fuente_completa, referencia_limpia_palabras)
+        
+        if base_group != "No Clasificado":
+            # Formateamos el resultado como un subgrupo de Reverso
+            parts = base_group.split(':', 1)
+            group_number = parts[0].strip()
+            description = parts[1].strip()
+            return f"{group_number}: Reversos - {description}"
+        else:
+            # Si no se puede identificar el tipo de reverso, va a un grupo especial
+            return "Grupo 11: Reversos No Identificados"
+            
+    # CAPA 2: Si no es un reverso, aplicar la lógica de clasificación estándar
+    return _get_base_classification(asiento_group, cuentas_del_asiento, referencia_completa, fuente_completa, referencia_limpia_palabras)
 
 
 def run_analysis_paquete_cc(df_diario, log_messages):
     """
-    Función principal que orquesta el análisis con normalización de cuentas.
+    Función principal que orquesta el análisis con normalización y manejo global de reversos.
     """
-    log_messages.append("--- INICIANDO ANÁLISIS DE PAQUETE CC (VERSIÓN BLINDADA) ---")
-    
+    # (Esta función no necesita cambios, la lógica principal está ahora en _clasificar_asiento_paquete_cc)
+    log_messages.append("--- INICIANDO ANÁLISIS DE PAQUETE CC (CON MANEJO GLOBAL DE REVERSOS) ---")
     df = df_diario.copy()
-    
-    # --- PASO DE NORMALIZACIÓN ---
     df['Cuenta Contable Norm'] = df['Cuenta Contable'].apply(normalize_account)
     log_messages.append("✔️ Cuentas contables normalizadas para una comparación robusta.")
-    
     df['Monto_USD'] = (df['Débito Dolar'] - df['Crédito Dolar']).round(2)
     log_messages.append(f"✔️ Se analizarán los {df['Asiento'].nunique()} asientos del archivo de entrada.")
     
@@ -1598,23 +1603,18 @@ def run_analysis_paquete_cc(df_diario, log_messages):
     asientos_con_cuentas_nuevas = 0
     for asiento_id, asiento_group in grupos_de_asientos:
         cuentas_del_asiento_norm = set(asiento_group['Cuenta Contable Norm'])
-        
         if not cuentas_del_asiento_norm.issubset(CUENTAS_CONOCIDAS):
             grupo_asignado = "Grupo 11: Cuentas No Identificadas"
             asientos_con_cuentas_nuevas += 1
         else:
             grupo_asignado = _clasificar_asiento_paquete_cc(asiento_group)
-            
         resultados_clasificacion[asiento_id] = grupo_asignado
         
     df['Grupo'] = df['Asiento'].map(resultados_clasificacion)
-    
     log_messages.append("✔️ Clasificación de todos los asientos completada.")
     if asientos_con_cuentas_nuevas > 0:
         log_messages.append(f"⚠️ Se encontraron {asientos_con_cuentas_nuevas} asientos con cuentas no registradas. Asignados al Grupo 11.")
     
-    # Eliminar la columna auxiliar antes de generar el reporte
     df_final = df.drop(columns=['Cuenta Contable Norm']).sort_values(by=['Grupo', 'Asiento', 'Monto_USD'], ascending=[True, True, False])
-    
     log_messages.append("--- ANÁLISIS FINALIZADO CON ÉXITO ---")
     return df_final
