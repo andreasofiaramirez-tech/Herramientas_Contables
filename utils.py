@@ -120,7 +120,7 @@ def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrate
     with pd.ExcelWriter(output_excel, engine='xlsxwriter') as writer:
         workbook = writer.book
 
-        # --- Formatos (sin cambios) ---
+        # --- Formatos ---
         formato_encabezado_empresa = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'font_size': 14})
         formato_encabezado_sub = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'font_size': 11})
         formato_header_tabla = workbook.add_format({'bold': True, 'text_wrap': True, 'valign': 'top', 'fg_color': '#D9EAD3', 'border': 1, 'align': 'center'})
@@ -136,7 +136,7 @@ def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrate
         formato_subtotal_bs = workbook.add_format({'bold': True, 'num_format': '#,##0.00', 'top': 1})
         date_format = workbook.add_format({'num_format': 'dd/mm/yyyy'})
 
-        # --- HOJA 1: SALDOS ABIERTOS (PENDIENTES) - VERSIÓN AGRUPADA CORREGIDA ---
+        # --- HOJA 1: SALDOS ABIERTOS (PENDIENTES) ---
         fecha_maxima = _df_full['Fecha'].dropna().max()
         if pd.notna(fecha_maxima):
             ultimo_dia_mes = fecha_maxima + pd.offsets.MonthEnd(0)
@@ -151,9 +151,10 @@ def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrate
         columnas_reporte = _estrategia_actual["columnas_reporte"]
         num_cols = len(columnas_reporte)
 
-        worksheet_pendientes.merge_range(0, 0, 0, num_cols - 1, casa_seleccionada, formato_encabezado_empresa)
-        worksheet_pendientes.merge_range(1, 0, 1, num_cols - 1, f"ESPECIFICACION DE LA CUENTA {_estrategia_actual['nombre_hoja_excel']}", formato_encabezado_sub)
-        worksheet_pendientes.merge_range(2, 0, 2, num_cols - 1, texto_fecha_encabezado, formato_encabezado_sub)
+        if num_cols > 0:
+            worksheet_pendientes.merge_range(0, 0, 0, num_cols - 1, casa_seleccionada, formato_encabezado_empresa)
+            worksheet_pendientes.merge_range(1, 0, 1, num_cols - 1, f"ESPECIFICACION DE LA CUENTA {_estrategia_actual['nombre_hoja_excel']}", formato_encabezado_sub)
+            worksheet_pendientes.merge_range(2, 0, 2, num_cols - 1, texto_fecha_encabezado, formato_encabezado_sub)
         
         worksheet_pendientes.write_row(4, 0, columnas_reporte, formato_header_tabla)
         
@@ -172,7 +173,6 @@ def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrate
                 for _, movimiento in grupo_cliente.iterrows():
                     for col_idx, col_name in enumerate(columnas_reporte):
                         cell_value = movimiento.get(col_name)
-                        
                         if col_name == 'Fecha' and pd.notna(cell_value):
                             worksheet_pendientes.write_datetime(current_row, col_idx, cell_value, date_format)
                         elif col_name in ['Monto Dólar', 'Bs.', 'Tasa', 'Monto Bolivar']:
@@ -180,10 +180,8 @@ def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrate
                             worksheet_pendientes.write_number(current_row, col_idx, cell_value if pd.notna(cell_value) else 0, fmt)
                         else:
                             worksheet_pendientes.write(current_row, col_idx, cell_value if pd.notna(cell_value) else '')
-                    
                     current_row += 1
                 
-                # Escribir fila de subtotal para el cliente
                 subtotal_usd = grupo_cliente['Monto Dólar'].sum()
                 subtotal_bs = grupo_cliente['Bs.'].sum()
                 
@@ -195,23 +193,19 @@ def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrate
                     
                     if label_col_idx >= 0:
                         worksheet_pendientes.write(current_row, label_col_idx, f"Subtotal {nombre_cliente}", formato_subtotal_label)
-                    
                     if usd_col_idx != -1:
                         worksheet_pendientes.write_number(current_row, usd_col_idx, subtotal_usd, formato_subtotal_usd)
                     worksheet_pendientes.write_number(current_row, bs_col_idx, subtotal_bs, formato_subtotal_bs)
                 except (ValueError, IndexError):
                     pass
-                
                 current_row += 2
 
-            # --- Fila de Gran Total al final ---
             total_usd = df_pendientes_prep['Monto Dólar'].sum()
             total_bs = df_pendientes_prep['Bs.'].sum()
             try:
                 usd_col_idx = columnas_reporte.index('Monto Dólar') if 'Monto Dólar' in columnas_reporte else -1
                 bs_col_idx = columnas_reporte.index('Bs.') if 'Bs.' in columnas_reporte else columnas_reporte.index('Monto Bolivar')
                 label_col_idx = (usd_col_idx if usd_col_idx != -1 else bs_col_idx) - 1
-
                 if label_col_idx >= 0:
                     worksheet_pendientes.write(current_row, label_col_idx, "GRAN TOTAL", formato_total_label)
                 if usd_col_idx != -1:
@@ -219,27 +213,17 @@ def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrate
                 worksheet_pendientes.write_number(current_row, bs_col_idx, total_bs, formato_total_bs)
             except (ValueError, IndexError):
                 pass
-                
-            for i, col in enumerate(columnas_reporte):
-                # Encontrar el ancho máximo requerido para la columna
-                # Se considera el ancho del título de la columna y el ancho del dato más largo
-                column_len = df_saldos_abiertos[col].astype(str).map(len).max()
-                header_len = len(col)
-                # Se toma el valor más grande entre el dato y el encabezado, y se añade un pequeño margen
-                width = max(column_len, header_len) + 2
-                # Limitar el ancho máximo para evitar columnas excesivamente anchas
-                worksheet_pendientes.set_column(i, i, min(width, 50))
-                
-        # --- CÓDIGO PARA AJUSTAR ANCHOS DE COLUMNA (MÉTODO SIMPLE Y DIRECTO) ---
-            worksheet_pendientes.set_column('A:A', 15)  # NIT
-            worksheet_pendientes.set_column('B:B', 45)  # Descripcion NIT
-            worksheet_pendientes.set_column('C:C', 12)  # Fecha
-            worksheet_pendientes.set_column('D:D', 15)  # Asiento
-            worksheet_pendientes.set_column('E:E', 40)  # Referencia
-            worksheet_pendientes.set_column('F:F', 30)  # Fuente
-            worksheet_pendientes.set_column('G:G', 18)  # Monto Dólar
-            worksheet_pendientes.set_column('H:H', 18)  # Bs.
-            worksheet_pendientes.set_column('I:I', 15)  # Tasa
+        
+        # --- CÓDIGO FINAL PARA AJUSTAR ANCHOS DE COLUMNA ---
+        worksheet_pendientes.set_column('A:A', 15)
+        worksheet_pendientes.set_column('B:B', 45)
+        worksheet_pendientes.set_column('C:C', 12)
+        worksheet_pendientes.set_column('D:D', 15)
+        worksheet_pendientes.set_column('E:E', 40)
+        worksheet_pendientes.set_column('F:F', 30)
+        worksheet_pendientes.set_column('G:G', 18)
+        worksheet_pendientes.set_column('H:H', 18)
+        worksheet_pendientes.set_column('I:I', 15)
                 
         # --- HOJA 2: MOVIMIENTOS CONCILIADOS ---
         if not df_conciliados.empty:
