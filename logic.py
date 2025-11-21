@@ -1383,9 +1383,20 @@ CUENTAS_CONOCIDAS = {
     '7.1.3.19.1.012', # Gastos de Ventas - Mercadeo
     '7.1.3.04.1.004', # Otros Imptos Municipales y Nacionales
     '7.1.3.06.1.998', # Perdida p/Venta o Retiro Activo ND
-    '7.1.3.45.1.997' # Acarreos y Fletes - Recuperados
+    '7.1.3.45.1.997', # Acarreos y Fletes - Recuperados
+    '1.1.1.04.6.003', # Fondos por Depositar -Cobros Viajeros-ME
+    '1.1.1.02.1.004', '1.1.1.02.1.007', '1.1.1.02.1.009', '1.1.1.02.1.016',
+    '1.1.1.02.1.112', '1.1.1.02.1.124', '1.1.1.02.1.132', '1.1.1.02.6.002',
+    '1.1.1.02.6.003', '1.1.1.02.6.005', '1.1.1.02.6.010', '1.1.1.03.6.012',
+    '1.1.1.03.6.024', '1.1.1.03.6.026', '1.1.1.03.6.031'
 }
 
+CUENTAS_BANCO = {
+    '1.1.1.02.1.004', '1.1.1.02.1.007', '1.1.1.02.1.009', '1.1.1.02.1.016',
+    '1.1.1.02.1.112', '1.1.1.02.1.124', '1.1.1.02.1.132', '1.1.1.02.6.002',
+    '1.1.1.02.6.003', '1.1.1.02.6.005', '1.1.1.02.6.010', '1.1.1.03.6.012',
+    '1.1.1.03.6.024', '1.1.1.03.6.026', '1.1.1.03.6.031',
+}
 
 def _clasificar_asiento_paquete_cc(asiento_group):
     """
@@ -1456,8 +1467,24 @@ def _clasificar_asiento_paquete_cc(asiento_group):
     # PRIORIDAD 9: Haberes de Clientes
     if '2.1.2.05.1.108' in cuentas_del_asiento: return "Grupo 5: Haberes de Clientes"
     
-    # PRIORIDAD 10: Recibos de Cobranza
-    if 'RECIBOS DE COBRANZA' in referencia_completa or 'TEF' in fuente_completa: return "Grupo 8: Recibos de Cobranza"
+     # --- NUEVA LÓGICA DE COBRANZAS (GRUPOS 13, 14, 15, 16) ---
+    # Se evalúa con alta prioridad para capturar estos asientos primero.
+    is_cobranza = 'RECIBO DE COBRANZA' in referencia_completa or 'TEF' in fuente_completa
+    if is_cobranza:
+        # CASO MÁS ESPECÍFICO PRIMERO: Cobranza con Diferencial
+        if '6.1.1.12.1.001' in cuentas_del_asiento:
+            return "Grupo 13: Cobranza con Diferencial Cambiario"
+        
+        # CASO 2: Cobranza a Fondos por Depositar
+        if '1.1.1.04.6.003' in cuentas_del_asiento:
+            return "Grupo 14: Cobranza - Fondos por Depositar"
+            
+        # CASO 3: Cobranza que involucra una cuenta de banco
+        if not CUENTAS_BANCO.isdisjoint(cuentas_del_asiento):
+            if 'TEF' in fuente_completa:
+                return "Grupo 15: Cobranza - TEF (Bancos)"
+            else:
+                return "Grupo 16: Recibos de Cobranza (Bancos)"
 
     # Si no coincide con NINGUNA regla anterior, se marca como No Clasificado
     return "No Clasificado"
