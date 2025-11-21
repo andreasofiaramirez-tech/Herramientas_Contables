@@ -1389,8 +1389,8 @@ CUENTAS_CONOCIDAS = {
 
 def _clasificar_asiento_paquete_cc(asiento_group):
     """
-    Recibe un DataFrame con todas las líneas de un asiento (con cuentas ya validadas como conocidas)
-    y aplica las reglas de negocio para clasificarlo en un grupo.
+    Recibe un DataFrame con todas las líneas de un asiento y aplica las reglas
+    de negocio para clasificarlo en un grupo.
     """
     cuentas_del_asiento = set(asiento_group['Cuenta Contable'].astype(str))
     referencia_completa = ' '.join(asiento_group['Referencia'].astype(str).unique()).upper()
@@ -1405,22 +1405,22 @@ def _clasificar_asiento_paquete_cc(asiento_group):
     if '6.1.1.12.1.001' in cuentas_del_asiento:
         if any(keyword in referencia_completa for keyword in ['DIFERENCIAL', 'DIFERENCIA EN CAMBIO', 'DIF CAMBIARIO']):
             return "Grupo 2: Diferencial Cambiario"
-            
-    # --- INICIO DE LA LÓGICA DE SUBGRUPOS PARA NOTAS DE CRÉDITO ---
+    
+    # Grupo 3: Notas de Credito
     cuentas_nc = {'4.1.1.22.4.001', '2.1.3.04.1.001'}
     if 'N/C' in fuente_completa and cuentas_nc.issubset(cuentas_del_asiento):
-        # Una vez identificado como N/C, se clasifica en un subgrupo
+        # El nombre del grupo principal es "Grupo 3:", seguido del subgrupo.
         if 'AVISOS DE CREDITO' in referencia_completa:
-            return "Grupo 3.1: N/C - Avisos de Crédito"
+            return "Grupo 3: N/C - Avisos de Crédito"
         elif any(keyword in referencia_completa for keyword in ['ESTRATEGIA', 'PROMOCION']):
-            return "Grupo 3.2: N/C - Estrategias"
+            return "Grupo 3: N/C - Estrategias"
         elif 'INCENTIVO' in referencia_completa:
-            return "Grupo 3.3: N/C - Incentivos"
+            return "Grupo 3: N/C - Incentivos"
         elif any(keyword in referencia_completa for keyword in ['BONIFICACION', 'BONIF', 'DESCUENTO', 'DSCTO']):
-            return "Grupo 3.4: N/C - Bonificaciones"
+            return "Grupo 3: N/C - Bonificaciones"
         else:
-            return "Grupo 3.5: N/C - Otros" # Fallback para N/C no clasificadas
-
+            return "Grupo 3: N/C - Otros"
+            
     # Grupo 4: Gastos de Ventas
     if '7.1.3.19.1.012' in cuentas_del_asiento:
         if any(keyword in referencia_completa for keyword in ['EXHIBIDORES', 'OBSEQUIO', 'ESTRATEGIA']):
