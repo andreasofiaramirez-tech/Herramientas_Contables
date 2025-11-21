@@ -68,6 +68,28 @@ def cargar_y_limpiar_datos(uploaded_actual, uploaded_anterior, log_messages):
             log_messages.append(f"❌ Error al leer el archivo Excel: {e}")
             return None
 
+         COLUMN_STANDARDIZATION_MAP = {
+            'Asiento': ['ASIENTO', 'Asiento'],
+            'Fuente': ['FUENTE', 'Fuente'],
+            'Fecha': ['FECHA', 'Fecha'],
+            'Referencia': ['REFERENCIA', 'Referencia'],
+            'NIT': ['Nit', 'NIT', 'Rif', 'RIF'],
+            'Descripcion NIT': ['Descripción Nit', 'Descripcion Nit', 'DESCRIPCION NIT', 'Descripción NIT'],
+            'Nombre del Proveedor': ['Nombre del Proveedor', 'NOMBRE DEL PROVEEDOR', 'Nombre Proveedor']
+        }
+
+        rename_map = {}
+        for standard_name, variations in COLUMN_STANDARDIZATION_MAP.items():
+            for var in variations:
+                if var in df.columns:
+                    # Renombrar la variación encontrada al nombre estándar
+                    rename_map[var] = standard_name
+                    break # Pasar al siguiente nombre estándar
+
+        if rename_map:
+            df.rename(columns=rename_map, inplace=True)
+            log_messages.append(f"✔️ Nombres de columna estandarizados. Mapeo aplicado: {rename_map}")
+            
         for col in ['Fuente', 'Nombre del Proveedor']:
             if col not in df.columns:
                 df[col] = ''
