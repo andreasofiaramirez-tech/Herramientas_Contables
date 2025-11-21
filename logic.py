@@ -797,11 +797,10 @@ def normalizar_datos_cobros_viajeros(df, log_messages):
 
 def run_conciliation_cobros_viajeros(df, log_messages, progress_bar=None):
     """
-    Versión final con lógica de dos fases:
-    1. Concilia reversos CC-a-CC.
-    2. Concilia el resto con la lógica N-a-N estándar.
+    Versión final con lógica de dos fases corregida para que los Reversos
+    crucen su Referencia contra la Fuente de la transacción original.
     """
-    log_messages.append("\n--- INICIANDO LÓGICA DE COBROS VIAJEROS (V4 - DOS FASES) ---")
+    log_messages.append("\n--- INICIANDO LÓGICA DE COBROS VIAJEROS (V5 - CRUCE REVERSO MEJORADO) ---")
     
     df = normalizar_datos_cobros_viajeros(df, log_messages)
     if progress_bar: progress_bar.progress(0.1, text="Fase de Normalización completada.")
@@ -809,39 +808,44 @@ def run_conciliation_cobros_viajeros(df, log_messages, progress_bar=None):
     total_conciliados = 0
     indices_usados = set()
 
-    # --- FASE 1: CONCILIACIÓN DE REVERSOS CC-a-CC ---
-    log_messages.append("--- Fase 1: Buscando reversos CC-a-CC ---")
-    df_reversos = df[(df['Asiento'].str.startswith('CC', na=False)) & (df['Es_Reverso'])]
-    df_originales_cc = df[(df['Asiento'].str.startswith('CC', na=False)) & (~df['Es_Reverso'])]
+    # --- FASE 1: CONCILIACIÓN DE REVERSOS (CC o CB) CON CRUCE DE CLAVE ---
+    log_messages.append("--- Fase 1: Buscando reversos con cruce de Referencia -> Fuente ---")
+    df_reversos = df[df['Es_Reverso']].copy()
+    df_originales = df[~df['Es_Reverso']].copy()
 
     for _, reverso_row in df_reversos.iterrows():
         if reverso_row.name in indices_usados:
             continue
         
+        # La clave del reverso es el número en su REFERENCIA
         clave_reverso = reverso_row['Referencia_Norm_Num']
+        if not clave_reverso: # Si no hay número en la referencia, no podemos cruzar
+            continue
+
         nit_reverso = reverso_row['NIT_Normalizado']
         
-        # Buscar la contrapartida original
-        contrapartida = df_originales_cc[
-            (df_originales_cc['NIT_Normalizado'] == nit_reverso) &
-            (df_originales_cc['Referencia_Norm_Num'] == clave_reverso) &
-            (~df_originales_cc.index.isin(indices_usados))
+        # Buscar la contrapartida original cuya FUENTE coincida con la REFERENCIA del reverso
+        contrapartidas = df_originales[
+            (df_originales['NIT_Normalizado'] == nit_reverso) &
+            (df_originales['Fuente_Norm_Num'] == clave_reverso) &
+            (~df_originales.index.isin(indices_usados))
         ]
         
-        if not contrapartida.empty:
-            # Si encontramos una o más, buscar la que anule el monto
-            for _, original_row in contrapartida.iterrows():
+        if not contrapartidas.empty:
+            # Si encontramos posibles contrapartidas, buscar la que anule el monto
+            for _, original_row in contrapartidas.iterrows():
                 if np.isclose(reverso_row['Monto_USD'] + original_row['Monto_USD'], 0, atol=TOLERANCIA_MAX_USD):
                     indices_a_conciliar = [reverso_row.name, original_row.name]
                     df.loc[indices_a_conciliar, 'Conciliado'] = True
                     df.loc[indices_a_conciliar, 'Grupo_Conciliado'] = f"REVERSO_{nit_reverso}_{clave_reverso}"
                     indices_usados.update(indices_a_conciliar)
                     total_conciliados += 2
-                    log_messages.append(f"✔️ Reverso CC-a-CC conciliado para NIT {nit_reverso} con clave {clave_reverso}.")
-                    break # Pasar al siguiente reverso
+                    log_messages.append(f"✔️ Reverso conciliado para NIT {nit_reverso} con clave {clave_reverso}.")
+                    # Una vez que un reverso encuentra su par, pasamos al siguiente reverso
+                    break 
 
     if progress_bar: progress_bar.progress(0.5, text="Fase de Reversos completada.")
-
+        
     # --- FASE 2: CONCILIACIÓN ESTÁNDAR N-a-N (CB-a-CC) ---
     log_messages.append("--- Fase 2: Buscando grupos de conciliación estándar N-a-N ---")
     
