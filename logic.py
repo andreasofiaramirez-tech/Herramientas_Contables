@@ -794,10 +794,10 @@ def normalizar_datos_cobros_viajeros(df, log_messages):
 
 def run_conciliation_cobros_viajeros(df, log_messages, progress_bar=None):
     """
-    Versión corregida que implementa la lógica estricta de cruce entre asientos
-    'CB' (cobros) y 'CC' (cierres) basada en Referencia vs. Fuente.
+    Versión final y corregida que implementa la dirección de cruce correcta:
+    Fuente(CC) se busca en Referencia(CB).
     """
-    log_messages.append("\n--- INICIANDO LÓGICA DE COBROS VIAJEROS (USD) - V2 ---")
+    log_messages.append("\n--- INICIANDO LÓGICA DE COBROS VIAJEROS (V3 - DIRECCIÓN CORREGIDA) ---")
     
     df = normalizar_datos_cobros_viajeros(df, log_messages)
     if progress_bar: progress_bar.progress(0.2, text="Fase de Normalización completada.")
@@ -805,7 +805,6 @@ def run_conciliation_cobros_viajeros(df, log_messages, progress_bar=None):
     total_conciliados = 0
     indices_usados = set()
     
-    # Agrupar por el NIT normalizado
     grupos_por_nit = df[~df['Conciliado']].groupby('NIT_Normalizado')
     log_messages.append(f"ℹ️ Se analizarán {len(grupos_por_nit)} viajeros/NITs.")
 
@@ -813,46 +812,56 @@ def run_conciliation_cobros_viajeros(df, log_messages, progress_bar=None):
         if nit == 'SIN_NIT' or len(grupo) < 2:
             continue
 
-        # --- LÓGICA CORREGIDA: Separar por tipo de asiento (CB vs CC) ---
         # Débitos (Cobros) - Asientos que comienzan con 'CB'
         debitos_cb = grupo[(grupo['Monto_USD'] > 0) & (grupo['Asiento'].str.startswith('CB', na=False))].copy()
         
         # Créditos (Cierres) - Asientos que comienzan con 'CC'
-        creditos_cc = grupo[(grupo['Monto_USD'] < 0) & (grupo['Asiento'].str.startswith('CC', na=False))].copy()
+        # ¡OJO! Ahora los créditos son los que tienen monto POSITIVO en el reporte de saldos abiertos.
+        # Y los débitos son los que tienen monto NEGATIVO.
+        # Ajustamos la lógica para que sea más general.
+        
+        movimientos_positivos = grupo[grupo['Monto_USD'] > 0].copy()
+        movimientos_negativos = grupo[grupo['Monto_USD'] < 0].copy()
+        
+        # Asignamos correctamente: El asiento CC es el CIERRE (positivo en tu reporte)
+        cierres_cc = movimientos_positivos[movimientos_positivos['Asiento'].str.startswith('CC', na=False)]
+        
+        # El asiento CB es el COBRO (negativo en tu reporte)
+        cobros_cb = movimientos_negativos[movimientos_negativos['Asiento'].str.startswith('CB', na=False)]
 
-        if debitos_cb.empty or creditos_cc.empty:
+        if cierres_cc.empty or cobros_cb.empty:
             continue
             
-        # --- LÓGICA CORREGIDA: Cruce de Referencia (CB) con Fuente (CC) ---
-        for idx_d, debito_row in debitos_cb.iterrows():
-            if idx_d in indices_usados:
+        # --- LÓGICA DE CRUCE CON DIRECCIÓN CORREGIDA ---
+        # Iteramos sobre los CIERRES (CC)
+        for idx_c, cierre_row in cierres_cc.iterrows():
+            if idx_c in indices_usados:
                 continue
 
-            # La Referencia del cobro (CB) es la clave a buscar
-            ref_a_buscar = debito_row['Referencia_Norm']
+            # La clave a buscar es la parte numérica de la FUENTE del CIERRE (CC)
+            fuente_a_buscar = cierre_row['Fuente_Norm']
             
-            # Encontrar el mejor cierre (CC) que coincida en Fuente y Monto
+            # Encontrar el mejor COBRO (CB) que coincida en Referencia y Monto
             mejor_match_idx = None
             mejor_match_diff = TOLERANCIA_MAX_USD + 1
 
-            # Buscamos en los créditos (CC) una Fuente que coincida con la Referencia del débito (CB)
-            posibles_matches = creditos_cc[creditos_cc['Fuente_Norm'] == ref_a_buscar]
+            # Buscamos en los cobros (CB) una REFERENCIA que coincida con la FUENTE del cierre (CC)
+            posibles_matches = cobros_cb[cobros_cb['Referencia_Norm'] == fuente_a_buscar]
             
-            for idx_c, credito_row in posibles_matches.iterrows():
-                if idx_c in indices_usados:
+            for idx_d, cobro_row in posibles_matches.iterrows():
+                if idx_d in indices_usados:
                     continue
                 
-                diferencia = abs(debito_row['Monto_USD'] + credito_row['Monto_USD'])
+                diferencia = abs(cierre_row['Monto_USD'] + cobro_row['Monto_USD'])
                 if diferencia < mejor_match_diff:
                     mejor_match_diff = diferencia
-                    mejor_match_idx = idx_c
+                    mejor_match_idx = idx_d
             
-            # Si se encontró un par válido, marcarlo como conciliado
             if mejor_match_idx is not None and mejor_match_diff <= TOLERANCIA_MAX_USD:
-                indices_a_conciliar = [idx_d, mejor_match_idx]
+                indices_a_conciliar = [idx_c, mejor_match_idx]
                 
                 df.loc[indices_a_conciliar, 'Conciliado'] = True
-                df.loc[indices_a_conciliar, 'Grupo_Conciliado'] = f"VIAJERO_{nit}_{ref_a_buscar}"
+                df.loc[indices_a_conciliar, 'Grupo_Conciliado'] = f"VIAJERO_{nit}_{fuente_a_buscar}"
                 
                 indices_usados.update(indices_a_conciliar)
                 total_conciliados += 2
