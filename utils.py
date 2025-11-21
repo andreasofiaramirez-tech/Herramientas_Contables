@@ -120,23 +120,23 @@ def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrate
     with pd.ExcelWriter(output_excel, engine='xlsxwriter') as writer:
         workbook = writer.book
 
-        # --- Formatos ---        
+        # --- Formatos ---
         formato_encabezado_empresa = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'font_size': 14})
         formato_encabezado_sub = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'font_size': 11})
         formato_header_tabla = workbook.add_format({'bold': True, 'text_wrap': True, 'valign': 'top', 'fg_color': '#D9EAD3', 'border': 1, 'align': 'center'})
         formato_bs = workbook.add_format({'num_format': '#,##0.00'})
         formato_usd = workbook.add_format({'num_format': '$#,##0.00'})
         formato_tasa = workbook.add_format({'num_format': '#,##0.0000'})
-        formato_total_label = workbook.add_format({'bold': True, 'align': 'right'})
-        formato_total_usd = workbook.add_format({'bold': True, 'num_format': '$#,##0.00'})
-        formato_total_bs = workbook.add_format({'bold': True, 'num_format': '#,##0.00'})
+        formato_total_label = workbook.add_format({'bold': True, 'align': 'right', 'top': 2})
+        formato_total_usd = workbook.add_format({'bold': True, 'num_format': '$#,##0.00', 'top': 2, 'bottom': 1})
+        formato_total_bs = workbook.add_format({'bold': True, 'num_format': '#,##0.00', 'top': 2, 'bottom': 1})
         formato_proveedor_header = workbook.add_format({'bold': True, 'fg_color': '#F2F2F2', 'border': 1})
         formato_subtotal_label = workbook.add_format({'bold': True, 'align': 'right', 'top': 1})
         formato_subtotal_usd = workbook.add_format({'bold': True, 'num_format': '$#,##0.00', 'top': 1})
         formato_subtotal_bs = workbook.add_format({'bold': True, 'num_format': '#,##0.00', 'top': 1})
         date_format = workbook.add_format({'num_format': 'dd/mm/yyyy'})
 
-        # --- HOJA 1: SALDOS ABIERTOS (PENDIENTES) ---
+        # --- HOJA 1: SALDOS ABIERTOS (PENDIENTES) - VERSIÓN AGRUPADA ---
         fecha_maxima = _df_full['Fecha'].dropna().max()
         if pd.notna(fecha_maxima):
             ultimo_dia_mes = fecha_maxima + pd.offsets.MonthEnd(0)
@@ -145,73 +145,92 @@ def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrate
         else:
             texto_fecha_encabezado = "FECHA NO DISPONIBLE"
 
-        df_reporte_pendientes_prep = df_saldos_abiertos.copy()
-        columnas_reporte = _estrategia_actual["columnas_reporte"]
-        
-        if _estrategia_actual['id'] == 'devoluciones_proveedores':
-            df_reporte_pendientes_prep['Monto USD'] = pd.to_numeric(df_saldos_abiertos['Monto_USD'], errors='coerce').fillna(0)
-            df_reporte_pendientes_prep['Monto Bs'] = pd.to_numeric(df_saldos_abiertos['Monto_BS'], errors='coerce').fillna(0)
-        else:
-            df_reporte_pendientes_prep['Monto Dólar'] = pd.to_numeric(df_saldos_abiertos['Monto_USD'], errors='coerce').fillna(0)
-            df_reporte_pendientes_prep['Bs.'] = pd.to_numeric(df_saldos_abiertos['Monto_BS'], errors='coerce').fillna(0)
-            monto_dolar_abs = np.abs(df_reporte_pendientes_prep['Monto Dólar'])
-            monto_bolivar_abs = np.abs(df_reporte_pendientes_prep['Bs.'])
-            df_reporte_pendientes_prep['Tasa'] = np.where(monto_dolar_abs != 0, monto_bolivar_abs / monto_dolar_abs, 0)
-
-        df_reporte_pendientes_final = df_reporte_pendientes_prep.reindex(columns=columnas_reporte).sort_values(by='Fecha')
-        if 'Fecha' in df_reporte_pendientes_final.columns:
-            df_reporte_pendientes_final['Fecha'] = pd.to_datetime(df_reporte_pendientes_final['Fecha'], errors='coerce').dt.strftime('%d/%m/%Y').fillna('')
-            df_reporte_pendientes_final = df_reporte_pendientes_final.fillna('')
-        
         nombre_hoja_pendientes = _estrategia_actual.get("nombre_hoja_excel", "Pendientes")
         worksheet_pendientes = workbook.add_worksheet(nombre_hoja_pendientes)
-
-        num_cols = len(df_reporte_pendientes_final.columns)
-        if num_cols > 0:
-            worksheet_pendientes.merge_range(0, 0, 0, num_cols - 1, casa_seleccionada, formato_encabezado_empresa)
-            worksheet_pendientes.merge_range(1, 0, 1, num_cols - 1, f"ESPECIFICACION DE LA CUENTA {cuenta_seleccionada.split(' - ')[0]}", formato_encabezado_sub)
-            worksheet_pendientes.merge_range(2, 0, 2, num_cols - 1, texto_fecha_encabezado, formato_encabezado_sub)
         
-        for col_num, value in enumerate(df_reporte_pendientes_final.columns.values):
-            worksheet_pendientes.write(4, col_num, value, formato_header_tabla)
+        columnas_reporte = _estrategia_actual["columnas_reporte"]
+        num_cols = len(columnas_reporte)
 
-        start_row_data = 5
+        worksheet_pendientes.merge_range(0, 0, 0, num_cols - 1, casa_seleccionada, formato_encabezado_empresa)
+        worksheet_pendientes.merge_range(1, 0, 1, num_cols - 1, f"ESPECIFICACION DE LA CUENTA {_estrategia_actual['nombre_hoja_excel']}", formato_encabezado_sub)
+        worksheet_pendientes.merge_range(2, 0, 2, num_cols - 1, texto_fecha_encabezado, formato_encabezado_sub)
         
-        def get_col_idx(df, potential_names):
-            return next((df.columns.get_loc(name) for name in potential_names if name in df.columns), -1)
-
-        dolar_col_idx = get_col_idx(df_reporte_pendientes_final, ['Monto Dólar', 'Monto USD'])
-        bs_col_idx = get_col_idx(df_reporte_pendientes_final, ['Bs.', 'Monto Bs'])
-        tasa_col_idx = get_col_idx(df_reporte_pendientes_final, ['Tasa'])
-
-        for row_idx, row_data in enumerate(df_reporte_pendientes_final.itertuples(index=False), start=start_row_data):
-            for col_idx, cell_value in enumerate(row_data):
-                fmt = formato_usd if col_idx == dolar_col_idx else formato_bs if col_idx == bs_col_idx else formato_tasa if col_idx == tasa_col_idx else None
-                if fmt:
-                    worksheet_pendientes.write_number(row_idx, col_idx, cell_value, fmt)
-                else:
-                    worksheet_pendientes.write(row_idx, col_idx, cell_value)
+        worksheet_pendientes.write_row(4, 0, columnas_reporte, formato_header_tabla)
         
-        worksheet_pendientes.set_column('A:A', 15); worksheet_pendientes.set_column('B:B', 50); worksheet_pendientes.set_column('C:C', 12)
-        worksheet_pendientes.set_column('D:D', 18); worksheet_pendientes.set_column('E:E', 15); worksheet_pendientes.set_column('F:F', 18)
-        if _estrategia_actual['id'] == 'devoluciones_proveedores':
-             worksheet_pendientes.set_column('D:D', 40);
-
-        worksheet_pendientes.freeze_panes(5, 0)
-
-        if not df_reporte_pendientes_final.empty:
-            total_row_index = start_row_data + len(df_reporte_pendientes_final)
-            label_col_idx = dolar_col_idx - 1 if dolar_col_idx > 0 else bs_col_idx -1 if bs_col_idx > 0 else -1
-            if label_col_idx >= 0:
-                 worksheet_pendientes.write(total_row_index, label_col_idx, 'TOTAL', formato_total_label)
-
-            if dolar_col_idx != -1:
-                formula_usd = f'=SUM({xlsxwriter.utility.xl_col_to_name(dolar_col_idx)}{start_row_data + 1}:{xlsxwriter.utility.xl_col_to_name(dolar_col_idx)}{total_row_index})'
-                worksheet_pendientes.write_formula(total_row_index, dolar_col_idx, formula_usd, formato_total_usd)
+        current_row = 5
+        
+        if not df_saldos_abiertos.empty:
+            df_pendientes_prep = df_saldos_abiertos.copy()
+            df_pendientes_prep['Monto Dólar'] = pd.to_numeric(df_pendientes_prep.get('Monto_USD'), errors='coerce').fillna(0)
+            df_pendientes_prep['Bs.'] = pd.to_numeric(df_pendientes_prep.get('Monto_BS'), errors='coerce').fillna(0)
+            df_pendientes_prep['Monto Bolivar'] = df_pendientes_prep['Bs.']
             
-            if bs_col_idx != -1:
-                formula_bs = f'=SUM({xlsxwriter.utility.xl_col_to_name(bs_col_idx)}{start_row_data + 1}:{xlsxwriter.utility.xl_col_to_name(bs_col_idx)}{total_row_index})'
-                worksheet_pendientes.write_formula(total_row_index, bs_col_idx, formula_bs, formato_total_bs)
+            df_pendientes_prep = df_pendientes_prep.sort_values(by=['NIT', 'Fecha'])
+            
+            for nit, grupo_cliente in df_pendientes_prep.groupby('NIT'):
+                for _, movimiento in grupo_cliente.iterrows():
+                    # Mapear los datos de la fila al orden de las columnas del reporte
+                    row_data_map = {
+                        'NIT': movimiento.get('NIT', ''),
+                        'Descripcion NIT': movimiento.get('Descripcion NIT', ''),
+                        'Fecha': movimiento.get('Fecha', None),
+                        'Asiento': movimiento.get('Asiento', ''),
+                        'Referencia': movimiento.get('Referencia', ''),
+                        'Fuente': movimiento.get('Fuente', ''),
+                        'Monto Dólar': movimiento.get('Monto Dólar', 0),
+                        'Bs.': movimiento.get('Bs.', 0),
+                        'Tasa': movimiento.get('Tasa', 0),
+                        'Monto Bolivar': movimiento.get('Monto Bolivar', 0)
+                    }
+                    
+                    # Escribir cada celda con el formato adecuado
+                    for col_idx, col_name in enumerate(columnas_reporte):
+                        cell_value = row_data_map.get(col_name)
+                        
+                        if col_name == 'Fecha' and pd.notna(cell_value):
+                            worksheet_pendientes.write_datetime(current_row, col_idx, cell_value, date_format)
+                        elif col_name in ['Monto Dólar', 'Bs.', 'Tasa', 'Monto Bolivar']:
+                            fmt = formato_usd if col_name == 'Monto Dólar' else formato_bs if col_name in ['Bs.', 'Monto Bolivar'] else formato_tasa
+                            worksheet_pendientes.write_number(current_row, col_idx, cell_value, fmt)
+                        else:
+                            worksheet_pendientes.write(current_row, col_idx, cell_value)
+                    current_row += 1
+                
+                # Escribir fila de subtotal para el cliente
+                subtotal_usd = grupo_cliente['Monto Dólar'].sum()
+                subtotal_bs = grupo_cliente['Bs.'].sum()
+                
+                try:
+                    usd_col_idx = columnas_reporte.index('Monto Dólar') if 'Monto Dólar' in columnas_reporte else -1
+                    bs_col_idx = columnas_reporte.index('Bs.') if 'Bs.' in columnas_reporte else columnas_reporte.index('Monto Bolivar')
+                    
+                    label_col_idx = (usd_col_idx if usd_col_idx != -1 else bs_col_idx) - 1
+                    
+                    nombre_cliente = grupo_cliente['Descripcion NIT'].iloc[0] if not grupo_cliente.empty else ''
+                    worksheet_pendientes.write(current_row, label_col_idx, f"Subtotal {nombre_cliente}", formato_subtotal_label)
+                    
+                    if usd_col_idx != -1:
+                        worksheet_pendientes.write_number(current_row, usd_col_idx, subtotal_usd, formato_subtotal_usd)
+                    worksheet_pendientes.write_number(current_row, bs_col_idx, subtotal_bs, formato_subtotal_bs)
+                except (ValueError, IndexError):
+                    pass
+                
+                current_row += 2
+
+            # --- Fila de Gran Total al final ---
+            total_usd = df_pendientes_prep['Monto Dólar'].sum()
+            total_bs = df_pendientes_prep['Bs.'].sum()
+            try:
+                usd_col_idx = columnas_reporte.index('Monto Dólar') if 'Monto Dólar' in columnas_reporte else -1
+                bs_col_idx = columnas_reporte.index('Bs.') if 'Bs.' in columnas_reporte else columnas_reporte.index('Monto Bolivar')
+                label_col_idx = (usd_col_idx if usd_col_idx != -1 else bs_col_idx) - 1
+
+                worksheet_pendientes.write(current_row, label_col_idx, "GRAN TOTAL", formato_total_label)
+                if usd_col_idx != -1:
+                    worksheet_pendientes.write_number(current_row, usd_col_idx, total_usd, formato_total_usd)
+                worksheet_pendientes.write_number(current_row, bs_col_idx, total_bs, formato_total_bs)
+            except (ValueError, IndexError):
+                pass
 
         # --- HOJA 2: MOVIMIENTOS CONCILIADOS ---
         if not df_conciliados.empty:
