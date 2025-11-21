@@ -1362,3 +1362,107 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         import traceback
         log_messages.append(traceback.format_exc())
         return None
+
+# ==============================================================================
+# LÓGICA PARA LA HERRAMIENTA DE ANÁLISIS DE PAQUETE CC
+# ==============================================================================
+
+def _clasificar_asiento_paquete_cc(asiento_group):
+    """
+    Recibe un DataFrame con todas las líneas de un asiento y aplica las reglas
+    de negocio para clasificarlo en un grupo.
+    """
+    cuentas_del_asiento = set(asiento_group['Cuenta Contable'].astype(str))
+    referencia_completa = ' '.join(asiento_group['Referencia'].astype(str).unique()).upper()
+    fuente_completa = ' '.join(asiento_group['Fuente'].astype(str).unique()).upper()
+    
+    # Grupo 1: Acarreos y Fletes Recuperados
+    if '7.1.3.45.1.997' in cuentas_del_asiento:
+        if any(keyword in referencia_completa for keyword in ['FLETE', 'BONIFICACION']) or '%' in referencia_completa:
+            return "Grupo 1: Acarreos y Fletes Recuperados"
+    
+    # Grupo 2: Diferencial Cambiario
+    if '6.1.1.12.1.001' in cuentas_del_asiento:
+        if any(keyword in referencia_completa for keyword in ['DIFERENCIAL', 'DIFERENCIA EN CAMBIO', 'DIF CAMBIARIO']):
+            return "Grupo 2: Diferencial Cambiario"
+            
+    # Grupo 3: Notas de Crédito (N/C)
+    cuentas_nc = {'4.1.1.22.4.001', '2.1.3.04.1.001'}
+    if 'N/C' in fuente_completa and cuentas_nc.issubset(cuentas_del_asiento):
+         return "Grupo 3: Notas de Crédito (N/C)"
+
+    # Grupo 4: Gastos de Ventas
+    if '7.1.3.19.1.012' in cuentas_del_asiento:
+        if any(keyword in referencia_completa for keyword in ['EXHIBIDORES', 'OBSEQUIO', 'ESTRATEGIA']):
+            return "Grupo 4: Gastos de Ventas"
+            
+    # Grupo 5: Haberes de Clientes
+    if '2.1.2.05.1.108' in cuentas_del_asiento:
+        # Verifica si algún movimiento en este asiento es mayor a 25
+        if (asiento_group['Monto_USD'].abs() > 25).any():
+            return "Grupo 5: Haberes de Clientes"
+
+    # Grupo 6: Ingresos Varios
+    if '6.1.1.19.1.001' in cuentas_del_asiento:
+        if 'LIMPIEZA DE SALDOS' in referencia_completa and (asiento_group['Monto_USD'].abs() < 5).all():
+            return "Grupo 6: Ingresos Varios"
+            
+    # Grupo 10: Traspasos (se verifica antes que Devoluciones por usar la misma cuenta)
+    if '4.1.1.21.4.001' in cuentas_del_asiento and 'TRASPASO' in referencia_completa:
+        if abs(asiento_group['Monto_USD'].sum()) <= TOLERANCIA_MAX_USD:
+            return "Grupo 10: Traspasos"
+            
+    # Grupo 7: Devoluciones y Rebajas
+    if '4.1.1.21.4.001' in cuentas_del_asiento:
+        if any(keyword in referencia_completa for keyword in ['AJUSTE', 'LIMPIEZA', 'SALDO']) and (asiento_group['Monto_USD'].abs() < 5).all():
+            return "Grupo 7: Devoluciones y Rebajas"
+            
+    # Grupo 8: Recibos de Cobranza
+    if 'RECIBOS DE COBRANZA' in referencia_completa or 'TEF' in fuente_completa:
+        return "Grupo 8: Recibos de Cobranza"
+        
+    # Grupo 9: Retenciones (Corregido de Grupo 7 a 9)
+    cuentas_retencion = {'2.1.3.04.1.006', '2.1.3.01.1.012', '7.1.3.04.1.004'}
+    if not cuentas_retencion.isdisjoint(cuentas_del_asiento): # Si alguna cuenta de retención está presente
+        return "Grupo 9: Retenciones"
+        
+    return "No Clasificado"
+
+
+def run_analysis_paquete_cc(df_diario, log_messages):
+    """
+    Función principal que orquesta el análisis y clasificación de los asientos
+    del paquete de Cuentas por Cobrar.
+    """
+    log_messages.append("--- INICIANDO ANÁLISIS DE PAQUETE CC ---")
+    
+    # 1. Preparación de datos
+    df = df_diario.copy()
+    df['Cuenta Contable'] = df['Cuenta Contable'].astype(str).str.strip()
+    df['Monto_USD'] = (df['Débito Dolar'] - df['Crédito Dolar']).round(2)
+    log_messages.append(f"✔️ Se cargaron {df['Asiento'].nunique()} asientos únicos para analizar.")
+    
+    # 2. Filtrar solo asientos que contengan las cuentas base de CC
+    cuentas_base_cc = {'4.1.1.21.1.001', '4.1.1.21.1.002'} # Deudores por Ventas / Cias. Comerciales
+    
+    asientos_relevantes = df[df['Cuenta Contable'].isin(cuentas_base_cc)]['Asiento'].unique()
+    df_filtrado = df[df['Asiento'].isin(asientos_relevantes)].copy()
+    log_messages.append(f"✔️ Se filtraron {len(asientos_relevantes)} asientos que contienen las cuentas base de CC.")
+
+    # 3. Clasificación de asientos
+    resultados_clasificacion = {}
+    grupos_de_asientos = df_filtrado.groupby('Asiento')
+    
+    for asiento_id, asiento_group in grupos_de_asientos:
+        grupo_asignado = _clasificar_asiento_paquete_cc(asiento_group)
+        resultados_clasificacion[asiento_id] = grupo_asignado
+        
+    # 4. Mapear resultados al DataFrame
+    df_filtrado['Grupo'] = df_filtrado['Asiento'].map(resultados_clasificacion)
+    log_messages.append("✔️ Clasificación de todos los asientos completada.")
+    
+    # 5. Ordenar para el reporte
+    df_final = df_filtrado.sort_values(by=['Grupo', 'Asiento', 'Monto_USD'], ascending=[True, True, False])
+    
+    log_messages.append("--- ANÁLISIS FINALIZADO CON ÉXITO ---")
+    return df_final
