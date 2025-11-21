@@ -463,17 +463,17 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
 
 def generar_reporte_paquete_cc(df_analizado):
     """
-    Genera el archivo Excel del reporte de Análisis de Paquete CC.
-    - Crea una hoja "Directorio" al principio como índice.
-    - Crea una hoja por cada grupo principal, con el nombre completo del grupo en el título.
-    - Agrupa todos los subgrupos de Notas de Crédito en una sola hoja.
-    - Añade una fila de totales al final de cada grupo/subgrupo.
+    Versión final del reporte de Análisis de Paquete CC.
+    - Corrige la duplicación de asientos en los grupos.
+    - Limpia la descripción en la hoja "Directorio".
+    - Agrupa correctamente los subgrupos de N/C y Retenciones.
     """
     output_buffer = BytesIO()
     with pd.ExcelWriter(output_buffer, engine='xlsxwriter') as writer:
         workbook = writer.book
         
         # --- Formatos ---
+        # (Los formatos permanecen iguales)
         main_title_format = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'font_size': 16})
         group_title_format = workbook.add_format({'bold': True, 'font_size': 14})
         subgroup_title_format = workbook.add_format({'bold': True, 'font_size': 11, 'fg_color': '#E0E0E0', 'border': 1})
@@ -483,67 +483,72 @@ def generar_reporte_paquete_cc(df_analizado):
         text_format = workbook.add_format({'border': 1})
         total_label_format = workbook.add_format({'bold': True, 'align': 'right', 'top': 2, 'font_color': '#003366'})
         total_money_format = workbook.add_format({'bold': True, 'num_format': '#,##0.00', 'top': 2, 'bottom': 1})
-        
+
         columnas_reporte = [
             'Asiento', 'Fecha', 'Fuente', 'Cuenta Contable', 'Descripción de Cuenta', 
             'Referencia', 'Débito Dolar', 'Crédito Dolar', 'Débito VES', 'Crédito VES'
         ]
         
-        # --- PASO 1: Crear la hoja "Directorio" ---
+        # --- Lógica para obtener grupos y subgrupos ---
+        df_analizado['Grupo Principal'] = df_analizado['Grupo'].apply(lambda x: x.split(':')[0].strip())
+        grupos_principales_ordenados = sorted(df_analizado['Grupo Principal'].unique())
+        
+        # --- PASO 1: Crear la hoja "Directorio" (CON CORRECCIÓN) ---
         ws_dir = workbook.add_worksheet("Directorio")
         ws_dir.merge_range('A1:B1', 'Directorio de Grupos', main_title_format)
         ws_dir.write('A2', 'Nombre de la Hoja', header_format)
         ws_dir.write('B2', 'Descripción del Contenido', header_format)
         
-        grupos_principales_map = {}
-        for g in sorted(df_analizado['Grupo'].unique()):
-            main_group_name = g.split(':')[0].strip()
-            if main_group_name not in grupos_principales_map:
-                grupos_principales_map[main_group_name] = g # Almacena el primer nombre completo que encuentra
-
         dir_row = 2
-        for main_group, full_name_example in sorted(grupos_principales_map.items()):
-            sheet_name = re.sub(r'[\\/*?:"\[\]]', '', main_group)[:31]
-            description = "Grupo 3: Notas de Credito (Varios Subgrupos)" if main_group == "Grupo 3" else full_name_example
+        for grupo_principal in grupos_principales_ordenados:
+            sheet_name = re.sub(r'[\\/*?:"\[\]]', '', grupo_principal)[:31]
+            
+            # Obtener el primer nombre completo para la descripción
+            full_name_example = df_analizado[df_analizado['Grupo Principal'] == grupo_principal]['Grupo'].iloc[0]
+            
+            # CORRECCIÓN: Limpiar la descripción
+            description = full_name_example.split(':', 1)[-1].strip() if ':' in full_name_example else full_name_example
+            if grupo_principal in ["Grupo 3", "Grupo 9"]:
+                description += " (Varios Subgrupos)"
+            
             ws_dir.write(dir_row, 0, sheet_name, text_format)
             ws_dir.write(dir_row, 1, description, text_format)
             dir_row += 1
             
-        ws_dir.set_column('A:A', 25)
-        ws_dir.set_column('B:B', 60)
+        ws_dir.set_column('A:A', 25); ws_dir.set_column('B:B', 60)
         
-        # --- PASO 2: Crear una hoja por cada grupo principal ---
-        grupos_principales_lista = sorted(grupos_principales_map.keys())
-
-        for grupo_principal_nombre in grupos_principales_lista:
+        # --- PASO 2: Crear una hoja por cada grupo principal (CON CORRECCIÓN DE FILTRADO) ---
+        for grupo_principal_nombre in grupos_principales_ordenados:
             sheet_name = re.sub(r'[\\/*?:"\[\]]', '', grupo_principal_nombre)[:31]
             ws = workbook.add_worksheet(sheet_name)
             ws.hide_gridlines(2)
             
             ws.merge_range('A1:J1', 'Análisis de Asientos de Cuentas por Cobrar', main_title_format)
             
-            df_grupo_completo = df_analizado[df_analizado['Grupo'].str.startswith(grupo_principal_nombre)]
+            # CORRECCIÓN CRÍTICA: Filtrar por el grupo principal exacto
+            df_grupo_completo = df_analizado[df_analizado['Grupo Principal'] == grupo_principal_nombre]
             subgrupos = sorted(df_grupo_completo['Grupo'].unique())
             
-            # --- CORRECCIÓN: Usar un título descriptivo ---
-            descriptive_title = "Grupo 3: Notas de Credito" if grupo_principal_nombre == "Grupo 3" else subgrupos[0]
+            descriptive_title = subgrupos[0].split(':')[0].strip() # Ej: "Grupo 3" o "Grupo 10"
+            if len(subgrupos) > 1:
+                descriptive_title += ": " + subgrupos[0].split(':')[1].split('-')[0].strip() # Ej: "Grupo 3: N/C"
+
             ws.merge_range('A3:J3', descriptive_title, group_title_format)
-            
             current_row = 4
             
             for subgrupo_nombre in subgrupos:
                 df_subgrupo = df_grupo_completo[df_grupo_completo['Grupo'] == subgrupo_nombre]
                 
-                # Escribir título del subgrupo solo si es una hoja con varios (como N/C)
                 if len(subgrupos) > 1:
-                    ws.merge_range(current_row, 0, current_row, len(columnas_reporte) - 1, subgrupo_nombre, subgroup_title_format)
+                    ws.merge_range(current_row, 0, len(columnas_reporte) - 1, subgrupo_nombre, subgroup_title_format)
                     current_row += 1
-
+                
                 ws.write_row(current_row, 0, columnas_reporte, header_format)
                 current_row += 1
                 
                 start_data_row = current_row
                 for _, row_data in df_subgrupo.iterrows():
+                    # (El código para escribir las filas no cambia)
                     ws.write(current_row, 0, row_data.get('Asiento', ''), text_format)
                     ws.write_datetime(current_row, 1, row_data.get('Fecha', None), date_format)
                     ws.write(current_row, 2, row_data.get('Fuente', ''), text_format)
@@ -557,7 +562,8 @@ def generar_reporte_paquete_cc(df_analizado):
                     current_row += 1
                 
                 if not df_subgrupo.empty:
-                    ws.write(current_row, 5, f'TOTALES {subgrupo_nombre.split(":")[1].strip() if ":" in subgrupo_nombre else ""}', total_label_format)
+                    # (El código para los totales no cambia)
+                    ws.write(current_row, 5, f'TOTALES {subgrupo_nombre.split(":")[-1].strip()}', total_label_format)
                     ws.write_formula(current_row, 6, f'=SUM(G{start_data_row + 1}:G{current_row})', total_money_format)
                     ws.write_formula(current_row, 7, f'=SUM(H{start_data_row + 1}:H{current_row})', total_money_format)
                     ws.write_formula(current_row, 8, f'=SUM(I{start_data_row + 1}:I{current_row})', total_money_format)
