@@ -1506,18 +1506,19 @@ CUENTAS_BANCO = {normalize_account(acc) for acc in [
 def _get_base_classification(asiento_group, cuentas_del_asiento, referencia_completa, fuente_completa, referencia_limpia_palabras, is_reverso_check=False):
     """
     Función auxiliar que contiene la lógica de clasificación base, ordenada por prioridad.
-    El parámetro 'is_reverso_check' relaja ciertas reglas (como chequear 'N/C' en Fuente).
+    El parámetro 'is_reverso_check' relaja ciertas reglas para identificar el tipo de un reverso.
     """
     # PRIORIDAD 1: Notas de Crédito
-    # Si estamos chequeando un reverso, no exigimos que la Fuente contenga 'N/C'.
-    if (not is_reverso_check or 'N/C' in fuente_completa) and {normalize_account('4.1.1.22.4.001'), normalize_account('2.1.3.04.1.001')}.issubset(cuentas_del_asiento):
-        if is_reverso_check: return "Grupo 3: N/C" # Para reversos, solo identificamos el tipo base
-        if 'AVISOS DE CREDITO' in referencia_completa: return "Grupo 3: N/C - Avisos de Crédito"
-        if referencia_limpia_palabras.intersection({'ESTRATEGIA', 'ESTRATEGIAS'}): return "Grupo 3: N/C - Estrategias"
-        if referencia_limpia_palabras.intersection({'INCENTIVO', 'INCENTIVOS'}): return "Grupo 3: N/C - Incentivos"
-        if referencia_limpia_palabras.intersection({'BONIFICACION', 'BONIFICACIONES', 'BONIF', 'BONF'}): return "Grupo 3: N/C - Bonificaciones"
-        if referencia_limpia_palabras.intersection({'DESCUENTO', 'DESCUENTOS', 'DSCTO', 'DESC', 'DESTO'}): return "Grupo 3: N/C - Descuentos"
-        return "Grupo 3: N/C - Otros"
+    # Si estamos chequeando un reverso, no exigimos que la Fuente contenga 'N/C', solo las cuentas.
+    if (not is_reverso_check and 'N/C' in fuente_completa) or (is_reverso_check):
+        if {normalize_account('4.1.1.22.4.001'), normalize_account('2.1.3.04.1.001')}.issubset(cuentas_del_asiento):
+            if is_reverso_check: return "Grupo 3: N/C" # Para reversos, solo identificamos el tipo base
+            if 'AVISOS DE CREDITO' in referencia_completa: return "Grupo 3: N/C - Avisos de Crédito"
+            if referencia_limpia_palabras.intersection({'ESTRATEGIA', 'ESTRATEGIAS'}): return "Grupo 3: N/C - Estrategias"
+            if referencia_limpia_palabras.intersection({'INCENTIVO', 'INCENTIVOS'}): return "Grupo 3: N/C - Incentivos"
+            if referencia_limpia_palabras.intersection({'BONIFICACION', 'BONIFICACIONES', 'BONIF', 'BONF'}): return "Grupo 3: N/C - Bonificaciones"
+            if referencia_limpia_palabras.intersection({'DESCUENTO', 'DESCUENTOS', 'DSCTO', 'DESC', 'DESTO'}): return "Grupo 3: N/C - Descuentos"
+            return "Grupo 3: N/C - Otros"
 
     # PRIORIDAD 2: Retenciones
     if normalize_account('2.1.3.04.1.006') in cuentas_del_asiento: return "Grupo 9: Retenciones - IVA"
@@ -1547,7 +1548,7 @@ def _get_base_classification(asiento_group, cuentas_del_asiento, referencia_comp
     # PRIORIDAD 5: Traspasos vs. Devoluciones (Grupo 10 y 7)
     if normalize_account('4.1.1.21.4.001') in cuentas_del_asiento:
         if 'TRASPASO' in referencia_completa and abs(asiento_group['Monto_USD'].sum()) <= TOLERANCIA_MAX_USD: return "Grupo 10: Traspasos"
-        if is_reverso_check: return "Grupo 7: Devoluciones y Rebajas" # Identificación base para reverso
+        if is_reverso_check: return "Grupo 7: Devoluciones y Rebajas"
         keywords_limpieza_dev = {'LIMPIEZA', 'LIMPIEZAS', 'SALDO', 'SALDOS', 'HISTORICO', 'AJUSTE'}
         if not keywords_limpieza_dev.isdisjoint(referencia_limpia_palabras):
             if (asiento_group['Monto_USD'].abs() <= 5).all(): return "Grupo 7: Devoluciones y Rebajas - Limpieza (<= $5)"
@@ -1581,7 +1582,7 @@ def _clasificar_asiento_paquete_cc(asiento_group):
             # Formateamos el resultado como un subgrupo de Reverso
             parts = base_group.split(':', 1)
             group_number = parts[0].strip()
-            description = parts[1].split('-')[0].strip() # Tomamos la descripción principal
+            description = parts[1].split('-')[0].strip() # Tomamos la descripción principal (ej: "N/C", "Acarreos y Fletes")
             return f"{group_number}: Reversos - {description}"
         else:
             return "Grupo 11: Reversos No Identificados"
