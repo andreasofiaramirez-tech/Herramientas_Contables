@@ -17,6 +17,7 @@ from logic import (
     run_conciliation_viajes,
     run_conciliation_retenciones,
     run_analysis_paquete_cc,
+    run_conciliation_cobros_viajeros,
     run_conciliation_deudores_empleados_me
 )
 from utils import (
@@ -152,6 +153,15 @@ ESTRATEGIAS = {
         "columnas_reporte": ['NIT', 'Descripción Nit', 'Fecha', 'Referencia', 'Monto Dólar', 'Bs.', 'Tasa'],
         "nombre_hoja_excel": "114.02.6006",
         "columnas_requeridas": ['Fecha', 'Asiento', 'Referencia', 'Nit', 'Descripción Nit', 'Débito Bolivar', 'Crédito Bolivar', 'Débito Dolar', 'Crédito Dolar']
+    },
+    "111.04.6003 - Fondos por Depositar - Cobros Viajeros - ME": {
+        "id": "cobros_viajeros",
+        "funcion_principal": run_conciliation_cobros_viajeros,
+        "label_actual": "Movimientos del mes (Cobros Viajeros)",
+        "label_anterior": "Saldos anteriores (Cobros Viajeros)",
+        "columnas_reporte": ['NIT', 'Descripcion NIT', 'Fecha', 'Asiento', 'Referencia', 'Fuente', 'Monto Dólar', 'Bs.', 'Tasa'],
+        "nombre_hoja_excel": "111.04.6003",
+        "columnas_requeridas": ['Asiento', 'Fuente', 'Fecha', 'Referencia', 'Nit', 'Descripcion NIT', 'Débito Dolar', 'Crédito Dolar']
     }
 }
 
