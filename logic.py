@@ -784,10 +784,10 @@ def normalizar_datos_cobros_viajeros(df, log_messages):
 
 def run_conciliation_cobros_viajeros(df, log_messages, progress_bar=None):
     """
-    Orquesta la conciliación para Cobros Viajeros, cruzando Referencia (cobro)
-    con Fuente (cierre) dentro de cada grupo de NIT.
+    Versión corregida que implementa la lógica estricta de cruce entre asientos
+    'CB' (cobros) y 'CC' (cierres) basada en Referencia vs. Fuente.
     """
-    log_messages.append("\n--- INICIANDO LÓGICA DE COBROS VIAJEROS (USD) ---")
+    log_messages.append("\n--- INICIANDO LÓGICA DE COBROS VIAJEROS (USD) - V2 ---")
     
     df = normalizar_datos_cobros_viajeros(df, log_messages)
     if progress_bar: progress_bar.progress(0.2, text="Fase de Normalización completada.")
@@ -803,33 +803,39 @@ def run_conciliation_cobros_viajeros(df, log_messages, progress_bar=None):
         if nit == 'SIN_NIT' or len(grupo) < 2:
             continue
 
-        # Separar débitos (Cobros, CB) y créditos (Cierres, CC)
-        debitos = grupo[grupo['Monto_USD'] > 0].copy()
-        creditos = grupo[grupo['Monto_USD'] < 0].copy()
+        # --- LÓGICA CORREGIDA: Separar por tipo de asiento (CB vs CC) ---
+        # Débitos (Cobros) - Asientos que comienzan con 'CB'
+        debitos_cb = grupo[(grupo['Monto_USD'] > 0) & (grupo['Asiento'].str.startswith('CB', na=False))].copy()
+        
+        # Créditos (Cierres) - Asientos que comienzan con 'CC'
+        creditos_cc = grupo[(grupo['Monto_USD'] < 0) & (grupo['Asiento'].str.startswith('CC', na=False))].copy()
 
-        if debitos.empty or creditos.empty:
+        if debitos_cb.empty or creditos_cc.empty:
             continue
             
-        # Buscar pares donde la Referencia del débito coincida con la Fuente del crédito
-        for idx_d, debito_row in debitos.iterrows():
+        # --- LÓGICA CORREGIDA: Cruce de Referencia (CB) con Fuente (CC) ---
+        for idx_d, debito_row in debitos_cb.iterrows():
             if idx_d in indices_usados:
                 continue
 
+            # La Referencia del cobro (CB) es la clave a buscar
             ref_a_buscar = debito_row['Referencia_Norm']
             
-            # Encontrar el mejor crédito que coincida con la referencia y el monto
+            # Encontrar el mejor cierre (CC) que coincida en Fuente y Monto
             mejor_match_idx = None
             mejor_match_diff = TOLERANCIA_MAX_USD + 1
 
-            for idx_c, credito_row in creditos.iterrows():
+            # Buscamos en los créditos (CC) una Fuente que coincida con la Referencia del débito (CB)
+            posibles_matches = creditos_cc[creditos_cc['Fuente_Norm'] == ref_a_buscar]
+            
+            for idx_c, credito_row in posibles_matches.iterrows():
                 if idx_c in indices_usados:
                     continue
                 
-                if credito_row['Fuente_Norm'] == ref_a_buscar:
-                    diferencia = abs(debito_row['Monto_USD'] + credito_row['Monto_USD'])
-                    if diferencia < mejor_match_diff:
-                        mejor_match_diff = diferencia
-                        mejor_match_idx = idx_c
+                diferencia = abs(debito_row['Monto_USD'] + credito_row['Monto_USD'])
+                if diferencia < mejor_match_diff:
+                    mejor_match_diff = diferencia
+                    mejor_match_idx = idx_c
             
             # Si se encontró un par válido, marcarlo como conciliado
             if mejor_match_idx is not None and mejor_match_diff <= TOLERANCIA_MAX_USD:
@@ -844,7 +850,7 @@ def run_conciliation_cobros_viajeros(df, log_messages, progress_bar=None):
     if total_conciliados > 0:
         log_messages.append(f"✔️ Conciliación finalizada: Se conciliaron {total_conciliados} movimientos.")
     else:
-        log_messages.append("ℹ️ No se encontraron pares de cobro/cierre para conciliar.")
+        log_messages.append("ℹ️ No se encontraron pares de cobro (CB) / cierre (CC) para conciliar.")
         
     log_messages.append("\n--- PROCESO DE CONCILIACIÓN FINALIZADO ---")
     return df
