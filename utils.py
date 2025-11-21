@@ -463,17 +463,16 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
 
 def generar_reporte_paquete_cc(df_analizado):
     """
-    Versión final del reporte de Análisis de Paquete CC.
-    - Corrige la duplicación de asientos en los grupos.
+    Versión final y corregida del reporte de Análisis de Paquete CC.
+    - Garantiza que no haya duplicación de asientos.
     - Limpia la descripción en la hoja "Directorio".
-    - Agrupa correctamente los subgrupos de N/C y Retenciones.
+    - Agrupa correctamente los subgrupos.
     """
     output_buffer = BytesIO()
     with pd.ExcelWriter(output_buffer, engine='xlsxwriter') as writer:
         workbook = writer.book
         
         # --- Formatos ---
-        # (Los formatos permanecen iguales)
         main_title_format = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'font_size': 16})
         group_title_format = workbook.add_format({'bold': True, 'font_size': 14})
         subgroup_title_format = workbook.add_format({'bold': True, 'font_size': 11, 'fg_color': '#E0E0E0', 'border': 1})
@@ -483,17 +482,18 @@ def generar_reporte_paquete_cc(df_analizado):
         text_format = workbook.add_format({'border': 1})
         total_label_format = workbook.add_format({'bold': True, 'align': 'right', 'top': 2, 'font_color': '#003366'})
         total_money_format = workbook.add_format({'bold': True, 'num_format': '#,##0.00', 'top': 2, 'bottom': 1})
-
+        
         columnas_reporte = [
             'Asiento', 'Fecha', 'Fuente', 'Cuenta Contable', 'Descripción de Cuenta', 
             'Referencia', 'Débito Dolar', 'Crédito Dolar', 'Débito VES', 'Crédito VES'
         ]
         
         # --- Lógica para obtener grupos y subgrupos ---
+        # CREACIÓN DE COLUMNA AUXILIAR PARA FILTRADO EXACTO
         df_analizado['Grupo Principal'] = df_analizado['Grupo'].apply(lambda x: x.split(':')[0].strip())
         grupos_principales_ordenados = sorted(df_analizado['Grupo Principal'].unique())
         
-        # --- PASO 1: Crear la hoja "Directorio" (CON CORRECCIÓN) ---
+        # --- PASO 1: Crear la hoja "Directorio" ---
         ws_dir = workbook.add_worksheet("Directorio")
         ws_dir.merge_range('A1:B1', 'Directorio de Grupos', main_title_format)
         ws_dir.write('A2', 'Nombre de la Hoja', header_format)
@@ -502,14 +502,10 @@ def generar_reporte_paquete_cc(df_analizado):
         dir_row = 2
         for grupo_principal in grupos_principales_ordenados:
             sheet_name = re.sub(r'[\\/*?:"\[\]]', '', grupo_principal)[:31]
-            
-            # Obtener el primer nombre completo para la descripción
             full_name_example = df_analizado[df_analizado['Grupo Principal'] == grupo_principal]['Grupo'].iloc[0]
-            
-            # CORRECCIÓN: Limpiar la descripción
             description = full_name_example.split(':', 1)[-1].strip() if ':' in full_name_example else full_name_example
             if grupo_principal in ["Grupo 3", "Grupo 9"]:
-                description += " (Varios Subgrupos)"
+                description = f"{description.split('-')[0].strip()} (Varios Subgrupos)"
             
             ws_dir.write(dir_row, 0, sheet_name, text_format)
             ws_dir.write(dir_row, 1, description, text_format)
@@ -517,7 +513,7 @@ def generar_reporte_paquete_cc(df_analizado):
             
         ws_dir.set_column('A:A', 25); ws_dir.set_column('B:B', 60)
         
-        # --- PASO 2: Crear una hoja por cada grupo principal (CON CORRECCIÓN DE FILTRADO) ---
+        # --- PASO 2: Crear una hoja por cada grupo principal (CON FILTRADO CORREGIDO) ---
         for grupo_principal_nombre in grupos_principales_ordenados:
             sheet_name = re.sub(r'[\\/*?:"\[\]]', '', grupo_principal_nombre)[:31]
             ws = workbook.add_worksheet(sheet_name)
@@ -525,13 +521,13 @@ def generar_reporte_paquete_cc(df_analizado):
             
             ws.merge_range('A1:J1', 'Análisis de Asientos de Cuentas por Cobrar', main_title_format)
             
-            # CORRECCIÓN CRÍTICA: Filtrar por el grupo principal exacto
+            # CORRECCIÓN DEFINITIVA: Se filtra por la columna auxiliar "Grupo Principal"
             df_grupo_completo = df_analizado[df_analizado['Grupo Principal'] == grupo_principal_nombre]
             subgrupos = sorted(df_grupo_completo['Grupo'].unique())
             
-            descriptive_title = subgrupos[0].split(':')[0].strip() # Ej: "Grupo 3" o "Grupo 10"
+            descriptive_title = subgrupos[0].split(':')[0].strip()
             if len(subgrupos) > 1:
-                descriptive_title += ": " + subgrupos[0].split(':')[1].split('-')[0].strip() # Ej: "Grupo 3: N/C"
+                descriptive_title += ": " + subgrupos[0].split(':')[1].split('-')[0].strip()
 
             ws.merge_range('A3:J3', descriptive_title, group_title_format)
             current_row = 4
@@ -540,7 +536,7 @@ def generar_reporte_paquete_cc(df_analizado):
                 df_subgrupo = df_grupo_completo[df_grupo_completo['Grupo'] == subgrupo_nombre]
                 
                 if len(subgrupos) > 1:
-                    ws.merge_range(current_row, 0, len(columnas_reporte) - 1, subgrupo_nombre, subgroup_title_format)
+                    ws.merge_range(current_row, 0, current_row, len(columnas_reporte) - 1, subgrupo_nombre, subgroup_title_format)
                     current_row += 1
                 
                 ws.write_row(current_row, 0, columnas_reporte, header_format)
