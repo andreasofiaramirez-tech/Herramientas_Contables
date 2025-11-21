@@ -797,10 +797,10 @@ def normalizar_datos_cobros_viajeros(df, log_messages):
 
 def run_conciliation_cobros_viajeros(df, log_messages, progress_bar=None):
     """
-    Versión final y definitiva con una lógica de Reversos unificada y robusta.
-    Busca la clave del reverso en AMBAS columnas (Referencia y Fuente) del original.
+    Versión final y definitiva que maneja coincidencias parciales de claves ('endswith')
+    para conciliar correctamente todos los tipos de reversos y transacciones.
     """
-    log_messages.append("\n--- INICIANDO LÓGICA DE COBROS VIAJEROS (V7 - LÓGICA UNIFICADA) ---")
+    log_messages.append("\n--- INICIANDO LÓGICA DE COBROS VIAJEROS (V9 - COINCIDENCIA PARCIAL) ---")
     
     df = normalizar_datos_cobros_viajeros(df, log_messages)
     if progress_bar: progress_bar.progress(0.1, text="Fase de Normalización completada.")
@@ -808,13 +808,13 @@ def run_conciliation_cobros_viajeros(df, log_messages, progress_bar=None):
     total_conciliados = 0
     indices_usados = set()
 
-    # --- FASE 1: CONCILIACIÓN DE REVERSOS (Lógica Unificada) ---
-    log_messages.append("--- Fase 1: Buscando reversos con cruce unificado ---")
+    # --- FASE 1: CONCILIACIÓN DE REVERSOS (CON LÓGICA 'ENDSWITH') ---
+    log_messages.append("--- Fase 1: Buscando reversos con coincidencia parcial ---")
     df_reversos = df[df['Es_Reverso']].copy()
     df_originales = df[~df['Es_Reverso']].copy()
 
-    for _, reverso_row in df_reversos.iterrows():
-        if reverso_row.name in indices_usados:
+    for idx_r, reverso_row in df_reversos.iterrows():
+        if idx_r in indices_usados:
             continue
         
         clave_reverso = reverso_row['Referencia_Norm_Num']
@@ -823,35 +823,37 @@ def run_conciliation_cobros_viajeros(df, log_messages, progress_bar=None):
 
         nit_reverso = reverso_row['NIT_Normalizado']
         
-        # --- CORRECCIÓN DEFINITIVA: Buscar en AMBAS columnas (Referencia O Fuente) ---
-        contrapartidas = df_originales[
-            (df_originales['NIT_Normalizado'] == nit_reverso) &
-            (
-                (df_originales['Referencia_Norm_Num'] == clave_reverso) | 
-                (df_originales['Fuente_Norm_Num'] == clave_reverso)
-            ) &
-            (~df_originales.index.isin(indices_usados))
-        ]
-        
-        if not contrapartidas.empty:
-            for _, original_row in contrapartidas.iterrows():
-                if np.isclose(reverso_row['Monto_USD'] + original_row['Monto_USD'], 0, atol=TOLERANCIA_MAX_USD):
-                    indices_a_conciliar = [reverso_row.name, original_row.name]
-                    df.loc[indices_a_conciliar, 'Conciliado'] = True
-                    df.loc[indices_a_conciliar, 'Grupo_Conciliado'] = f"REVERSO_{nit_reverso}_{clave_reverso}"
-                    indices_usados.update(indices_a_conciliar)
-                    total_conciliados += 2
-                    log_messages.append(f"✔️ Reverso conciliado para NIT {nit_reverso} con clave {clave_reverso}.")
-                    break 
+        # Iterar sobre los originales para encontrar la contrapartida
+        for idx_o, original_row in df_originales.iterrows():
+            if idx_o in indices_usados or original_row['NIT_Normalizado'] != nit_reverso:
+                continue
+
+            clave_orig_ref = original_row['Referencia_Norm_Num']
+            clave_orig_fuente = original_row['Fuente_Norm_Num']
+            
+            # --- LA LÓGICA DE CRUCE CLAVE ---
+            # Comprobar si una clave termina con la otra, en ambas direcciones
+            match_en_referencia = (clave_reverso and clave_orig_ref and (clave_reverso.endswith(clave_orig_ref) or clave_orig_ref.endswith(clave_reverso)))
+            match_en_fuente = (clave_reverso and clave_orig_fuente and (clave_reverso.endswith(clave_orig_fuente) or clave_orig_fuente.endswith(clave_reverso)))
+
+            # Si hay un match de clave Y los montos se anulan
+            if (match_en_referencia or match_en_fuente) and np.isclose(reverso_row['Monto_USD'] + original_row['Monto_USD'], 0, atol=TOLERANCIA_MAX_USD):
+                indices_a_conciliar = [idx_r, idx_o]
+                df.loc[indices_a_conciliar, 'Conciliado'] = True
+                df.loc[indices_a_conciliar, 'Grupo_Conciliado'] = f"REVERSO_{nit_reverso}_{clave_reverso}"
+                indices_usados.update(indices_a_conciliar)
+                total_conciliados += 2
+                log_messages.append(f"✔️ Reverso (parcial) conciliado para NIT {nit_reverso} con clave {clave_reverso}.")
+                break # Salir del bucle de originales y pasar al siguiente reverso
 
     if progress_bar: progress_bar.progress(0.5, text="Fase de Reversos completada.")
-        
-    # --- FASE 2: CONCILIACIÓN ESTÁNDAR N-a-N (CB-a-CC) ---
+
+    # --- FASE 2: CONCILIACIÓN ESTÁNDAR N-a-N (Movimientos Restantes) ---
+    # (Esta fase no necesita cambios)
     log_messages.append("--- Fase 2: Buscando grupos de conciliación estándar N-a-N ---")
     
-    # Crear la Clave de Vínculo solo para los movimientos restantes
     df['Clave_Vinculo'] = ''
-    df_restante = df[~df.index.isin(indices_usados)]
+    df_restante = df[~df.index.isin(indices_usados) & ~df['Conciliado']]
     
     for index, row in df_restante.iterrows():
         if row['Asiento'].startswith('CC'):
@@ -861,8 +863,7 @@ def run_conciliation_cobros_viajeros(df, log_messages, progress_bar=None):
 
     df_procesable = df[(~df['Conciliado']) & (df['Clave_Vinculo'] != '')]
     grupos = df_procesable.groupby(['NIT_Normalizado', 'Clave_Vinculo'])
-    log_messages.append(f"ℹ️ Se encontraron {len(grupos)} posibles grupos estándar para analizar.")
-
+    
     for (nit, clave), grupo in grupos:
         if len(grupo) < 2 or not ((grupo['Monto_USD'] > 0).any() and (grupo['Monto_USD'] < 0).any()):
             continue
