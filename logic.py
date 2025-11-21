@@ -1383,7 +1383,7 @@ CUENTAS_CONOCIDAS = {
     '7.1.3.19.1.012', # Gastos de Ventas - Mercadeo
     '7.1.3.04.1.004', # Otros Imptos Municipales y Nacionales
     '7.1.3.06.1.998', # Perdida p/Venta o Retiro Activo ND
-    '7.1.3.45.1.997', # Acarreos y Fletes - Recuperados
+    '7.1.3.45.1.997' # Acarreos y Fletes - Recuperados
 }
 
 
