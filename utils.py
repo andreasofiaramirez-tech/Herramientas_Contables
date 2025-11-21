@@ -464,9 +464,6 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
 def generar_reporte_paquete_cc(df_analizado):
     """
     Versión final y corregida del reporte de Análisis de Paquete CC.
-    - Garantiza que no haya duplicación de asientos.
-    - Limpia la descripción en la hoja "Directorio".
-    - Agrupa correctamente los subgrupos.
     """
     output_buffer = BytesIO()
     with pd.ExcelWriter(output_buffer, engine='xlsxwriter') as writer:
@@ -489,7 +486,6 @@ def generar_reporte_paquete_cc(df_analizado):
         ]
         
         # --- Lógica para obtener grupos y subgrupos ---
-        # CREACIÓN DE COLUMNA AUXILIAR PARA FILTRADO EXACTO
         df_analizado['Grupo Principal'] = df_analizado['Grupo'].apply(lambda x: x.split(':')[0].strip())
         grupos_principales_ordenados = sorted(df_analizado['Grupo Principal'].unique())
         
@@ -513,7 +509,7 @@ def generar_reporte_paquete_cc(df_analizado):
             
         ws_dir.set_column('A:A', 25); ws_dir.set_column('B:B', 60)
         
-        # --- PASO 2: Crear una hoja por cada grupo principal (CON FILTRADO CORREGIDO) ---
+        # --- PASO 2: Crear una hoja por cada grupo principal ---
         for grupo_principal_nombre in grupos_principales_ordenados:
             sheet_name = re.sub(r'[\\/*?:"\[\]]', '', grupo_principal_nombre)[:31]
             ws = workbook.add_worksheet(sheet_name)
@@ -521,7 +517,6 @@ def generar_reporte_paquete_cc(df_analizado):
             
             ws.merge_range('A1:J1', 'Análisis de Asientos de Cuentas por Cobrar', main_title_format)
             
-            # CORRECCIÓN DEFINITIVA: Se filtra por la columna auxiliar "Grupo Principal"
             df_grupo_completo = df_analizado[df_analizado['Grupo Principal'] == grupo_principal_nombre]
             subgrupos = sorted(df_grupo_completo['Grupo'].unique())
             
@@ -536,7 +531,12 @@ def generar_reporte_paquete_cc(df_analizado):
                 df_subgrupo = df_grupo_completo[df_grupo_completo['Grupo'] == subgrupo_nombre]
                 
                 if len(subgrupos) > 1:
+                    # ==============================================================================
+                    # --- LÍNEA CORREGIDA ---
+                    # Faltaba el argumento "last_row" (current_row)
+                    # ==============================================================================
                     ws.merge_range(current_row, 0, current_row, len(columnas_reporte) - 1, subgrupo_nombre, subgroup_title_format)
+                    # ==============================================================================
                     current_row += 1
                 
                 ws.write_row(current_row, 0, columnas_reporte, header_format)
@@ -544,7 +544,6 @@ def generar_reporte_paquete_cc(df_analizado):
                 
                 start_data_row = current_row
                 for _, row_data in df_subgrupo.iterrows():
-                    # (El código para escribir las filas no cambia)
                     ws.write(current_row, 0, row_data.get('Asiento', ''), text_format)
                     ws.write_datetime(current_row, 1, row_data.get('Fecha', None), date_format)
                     ws.write(current_row, 2, row_data.get('Fuente', ''), text_format)
@@ -558,7 +557,6 @@ def generar_reporte_paquete_cc(df_analizado):
                     current_row += 1
                 
                 if not df_subgrupo.empty:
-                    # (El código para los totales no cambia)
                     ws.write(current_row, 5, f'TOTALES {subgrupo_nombre.split(":")[-1].strip()}', total_label_format)
                     ws.write_formula(current_row, 6, f'=SUM(G{start_data_row + 1}:G{current_row})', total_money_format)
                     ws.write_formula(current_row, 7, f'=SUM(H{start_data_row + 1}:H{current_row})', total_money_format)
