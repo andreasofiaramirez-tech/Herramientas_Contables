@@ -181,10 +181,7 @@ def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrate
                         else:
                             worksheet_pendientes.write(current_row, col_idx, cell_value if pd.notna(cell_value) else '')
                     
-                    # --- CORRECCIÓN CRÍTICA ---
-                    # Incrementar la fila DESPUÉS de escribir cada movimiento
                     current_row += 1
-                    # --- FIN DE LA CORRECCIÓN ---
                 
                 # Escribir fila de subtotal para el cliente
                 subtotal_usd = grupo_cliente['Monto Dólar'].sum()
@@ -222,6 +219,16 @@ def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrate
                 worksheet_pendientes.write_number(current_row, bs_col_idx, total_bs, formato_total_bs)
             except (ValueError, IndexError):
                 pass
+                
+            for i, col in enumerate(columnas_reporte):
+            # Encontrar el ancho máximo requerido para la columna
+            # Se considera el ancho del título de la columna y el ancho del dato más largo
+            column_len = df_saldos_abiertos[col].astype(str).map(len).max()
+            header_len = len(col)
+            # Se toma el valor más grande entre el dato y el encabezado, y se añade un pequeño margen
+            width = max(column_len, header_len) + 2
+            # Limitar el ancho máximo para evitar columnas excesivamente anchas
+            worksheet_pendientes.set_column(i, i, min(width, 50))
                 
         # --- HOJA 2: MOVIMIENTOS CONCILIADOS ---
         if not df_conciliados.empty:
