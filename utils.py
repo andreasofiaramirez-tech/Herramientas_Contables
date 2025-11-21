@@ -10,10 +10,10 @@ import streamlit as st
 @st.cache_data
 def cargar_y_limpiar_datos(uploaded_actual, uploaded_anterior, log_messages):
     """
-    Carga los archivos Excel, los limpia, estandariza columnas, calcula montos netos
-    y prepara el DataFrame unificado para la conciliación.
+    Versión final que estandariza los nombres de las columnas principales
+    para ser insensible a mayúsculas/minúsculas y variaciones comunes.
     """
-    def mapear_columnas(df, log_messages):
+    def mapear_columnas_financieras(df, log_messages):
         DEBITO_SYNONYMS = ['debito', 'debitos', 'débito', 'débitos', 'debe']
         CREDITO_SYNONYMS = ['credito', 'creditos', 'crédito', 'créditos', 'haber']
         BS_SYNONYMS = ['ves', 'bolivar', 'bolívar', 'local', 'bs']
@@ -25,16 +25,13 @@ def cargar_y_limpiar_datos(uploaded_actual, uploaded_anterior, log_messages):
             'Débito Dolar': (DEBITO_SYNONYMS, USD_SYNONYMS),
             'Crédito Dolar': (CREDITO_SYNONYMS, USD_SYNONYMS)
         }
-
         column_mapping, current_cols = {}, [col.strip() for col in df.columns]
-
         for req_col, (type_synonyms, curr_synonyms) in REQUIRED_COLUMNS.items():
             found = False
             for input_col in current_cols:
                 normalized_input = re.sub(r'[^\w]', '', input_col.lower())
                 is_type_match = any(syn in normalized_input for syn in type_synonyms)
                 is_curr_match = any(syn in normalized_input for syn in curr_synonyms)
-
                 if is_type_match and is_curr_match and input_col not in column_mapping.values():
                     column_mapping[input_col] = req_col
                     found = True
@@ -42,7 +39,6 @@ def cargar_y_limpiar_datos(uploaded_actual, uploaded_anterior, log_messages):
             if not found and req_col not in df.columns:
                 log_messages.append(f"⚠️ ADVERTENCIA: No se encontró columna para '{req_col}'. Se creará vacía.")
                 df[req_col] = 0.0
-
         df.rename(columns=column_mapping, inplace=True)
         return df
 
@@ -50,9 +46,7 @@ def cargar_y_limpiar_datos(uploaded_actual, uploaded_anterior, log_messages):
         if texto is None or str(texto).strip().lower() == 'nan': return '0.0'
         texto_limpio = re.sub(r'[^\d.,-]', '', str(texto).strip())
         if not texto_limpio: return '0.0'
-
         num_puntos, num_comas = texto_limpio.count('.'), texto_limpio.count(',')
-
         if num_comas == 1 and num_puntos > 0:
             return texto_limpio.replace('.', '').replace(',', '.')
         elif num_puntos == 1 and num_comas > 0:
@@ -63,43 +57,38 @@ def cargar_y_limpiar_datos(uploaded_actual, uploaded_anterior, log_messages):
     def procesar_excel(archivo_buffer):
         try:
             archivo_buffer.seek(0)
-            df = pd.read_excel(archivo_buffer, engine='openpyxl', dtype={'Asiento': str})
+            df = pd.read_excel(archivo_buffer, engine='openpyxl')
         except Exception as e:
             log_messages.append(f"❌ Error al leer el archivo Excel: {e}")
             return None
 
-         COLUMN_STANDARDIZATION_MAP = {
+        COLUMN_STANDARDIZATION_MAP = {
             'Asiento': ['ASIENTO', 'Asiento'],
             'Fuente': ['FUENTE', 'Fuente'],
             'Fecha': ['FECHA', 'Fecha'],
             'Referencia': ['REFERENCIA', 'Referencia'],
             'NIT': ['Nit', 'NIT', 'Rif', 'RIF'],
-            'Descripcion NIT': ['Descripción Nit', 'Descripcion Nit', 'DESCRIPCION NIT', 'Descripción NIT'],
+            'Descripcion NIT': ['Descripción Nit', 'Descripcion Nit', 'DESCRIPCION NIT', 'Descripción NIT', 'Descripcion NIT'],
             'Nombre del Proveedor': ['Nombre del Proveedor', 'NOMBRE DEL PROVEEDOR', 'Nombre Proveedor']
         }
-
         rename_map = {}
         for standard_name, variations in COLUMN_STANDARDIZATION_MAP.items():
             for var in variations:
                 if var in df.columns:
-                    # Renombrar la variación encontrada al nombre estándar
                     rename_map[var] = standard_name
-                    break # Pasar al siguiente nombre estándar
-
+                    break
         if rename_map:
             df.rename(columns=rename_map, inplace=True)
             log_messages.append(f"✔️ Nombres de columna estandarizados. Mapeo aplicado: {rename_map}")
-            
+
         for col in ['Fuente', 'Nombre del Proveedor']:
             if col not in df.columns:
                 df[col] = ''
-
-        df.columns = [col.strip() for col in df.columns]
-        df = mapear_columnas(df, log_messages).copy()
-
-        df['Asiento'] = df['Asiento'].astype(str).str.strip()
-        df['Referencia'] = df['Referencia'].astype(str).str.strip()
-        df['Fecha'] = pd.to_datetime(df['Fecha'], errors='coerce')
+        df = mapear_columnas_financieras(df, log_messages).copy()
+        
+        df['Asiento'] = df.get('Asiento', pd.Series(dtype='str')).astype(str).str.strip()
+        df['Referencia'] = df.get('Referencia', pd.Series(dtype='str')).astype(str).str.strip()
+        df['Fecha'] = pd.to_datetime(df.get('Fecha'), errors='coerce')
 
         for col in ['Débito Bolivar', 'Crédito Bolivar', 'Débito Dolar', 'Crédito Dolar']:
             if col in df.columns:
@@ -118,13 +107,13 @@ def cargar_y_limpiar_datos(uploaded_actual, uploaded_anterior, log_messages):
     key_cols = ['Asiento', 'Referencia', 'Fecha', 'Débito Bolivar', 'Crédito Bolivar', 'Débito Dolar', 'Crédito Dolar']
     df_full.drop_duplicates(subset=[col for col in key_cols if col in df_full.columns], keep='first', inplace=True)
 
-    df_full['Monto_BS'] = (df_full['Débito Bolivar'] - df_full['Crédito Bolivar']).round(2)
-    df_full['Monto_USD'] = (df_full['Débito Dolar'] - df_full['Crédito Dolar']).round(2)
+    df_full['Monto_BS'] = (df_full.get('Débito Bolivar', 0) - df_full.get('Crédito Bolivar', 0)).round(2)
+    df_full['Monto_USD'] = (df_full.get('Débito Dolar', 0) - df_full.get('Crédito Dolar', 0)).round(2)
     df_full[['Conciliado', 'Grupo_Conciliado', 'Referencia_Normalizada_Literal']] = [False, np.nan, np.nan]
 
     log_messages.append(f"✅ Datos de Excel cargados. Total movimientos: {len(df_full)}")
     return df_full
-
+    
 @st.cache_data
 def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrategia_actual, casa_seleccionada, cuenta_seleccionada):
     output_excel = BytesIO()
