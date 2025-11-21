@@ -874,6 +874,69 @@ def run_conciliation_cobros_viajeros(df, log_messages, progress_bar=None):
     log_messages.append("\n--- PROCESO DE CONCILIACIÓN FINALIZADO ---")
     return df
 
+# --- (G) Módulo: Otras Cuentas por Pagar (VES) ---
+
+def normalizar_datos_otras_cxp(df, log_messages):
+    """
+    Prepara el DataFrame extrayendo el número de envío de la Referencia.
+    """
+    df_copy = df.copy()
+    
+    # Normalizar NIT para usarlo como clave de agrupación
+    nit_col_name = next((col for col in df_copy.columns if str(col).strip().upper() in ['NIT', 'RIF']), None)
+    if nit_col_name:
+        df_copy['NIT_Normalizado'] = df_copy[nit_col_name].astype(str).str.upper().str.replace(r'[^A-Z0-9]', '', regex=True)
+    else:
+        log_messages.append("⚠️ ADVERTENCIA: No se encontró columna 'NIT' o 'RIF'.")
+        df_copy['NIT_Normalizado'] = 'SIN_NIT'
+
+    # Extraer el número de envío usando una expresión regular
+    # Busca el patrón "ENV:" seguido de uno o más dígitos (\d+)
+    df_copy['Numero_Envio'] = df_copy['Referencia'].str.extract(r"ENV:(\d+)", expand=False, flags=re.IGNORECASE)
+    
+    return df_copy
+
+
+def run_conciliation_otras_cxp(df, log_messages, progress_bar=None):
+    """
+    Orquesta la conciliación para Otras Cuentas por Pagar, agrupando por NIT
+    y cruzando por el número de envío extraído. La conciliación es en VES.
+    """
+    log_messages.append("\n--- INICIANDO LÓGICA DE OTRAS CUENTAS POR PAGAR (VES) ---")
+    
+    df = normalizar_datos_otras_cxp(df, log_messages)
+    if progress_bar: progress_bar.progress(0.2, text="Fase de Normalización completada.")
+
+    total_conciliados = 0
+    
+    # Filtrar solo las filas donde se pudo extraer un número de envío
+    df_procesable = df[(~df['Conciliado']) & (df['Numero_Envio'].notna())]
+    
+    # Agrupar por NIT y luego por Número de Envío
+    grupos = df_procesable.groupby(['NIT_Normalizado', 'Numero_Envio'])
+    log_messages.append(f"ℹ️ Se encontraron {len(grupos)} combinaciones de NIT/Envío para analizar.")
+
+    for (nit, envio), grupo in grupos:
+        if len(grupo) < 2: # Se necesita al menos un débito y un crédito
+            continue
+
+        # Verificar si la suma de los movimientos en Bolívares es cero
+        if np.isclose(grupo['Monto_BS'].sum(), 0, atol=TOLERANCIA_MAX_BS):
+            indices_a_conciliar = grupo.index
+            
+            df.loc[indices_a_conciliar, 'Conciliado'] = True
+            df.loc[indices_a_conciliar, 'Grupo_Conciliado'] = f"OTRAS_CXP_{nit}_{envio}"
+            
+            total_conciliados += len(indices_a_conciliar)
+
+    if total_conciliados > 0:
+        log_messages.append(f"✔️ Conciliación finalizada: Se conciliaron {total_conciliados} movimientos.")
+    else:
+        log_messages.append("ℹ️ No se encontraron grupos por NIT/Envío que sumen cero.")
+        
+    log_messages.append("\n--- PROCESO DE CONCILIACIÓN FINALIZADO ---")
+    return df
+
 # ==============================================================================
 # FUNCIONES MAESTRAS DE ESTRATEGIA
 # ==============================================================================
