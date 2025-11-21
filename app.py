@@ -163,7 +163,7 @@ ESTRATEGIAS = {
         "columnas_reporte": ['NIT', 'Descripcion NIT', 'Fecha', 'Asiento', 'Referencia', 'Fuente', 'Monto Dólar', 'Bs.', 'Tasa'],
         "nombre_hoja_excel": "111.04.6003",
         "columnas_requeridas": ['Asiento', 'Fuente', 'Fecha', 'Referencia', 'Nit', 'Descripcion NIT', 'Débito Dolar', 'Crédito Dolar']
-    }
+    },
     "212.05.1019 - Otras Cuentas por Pagar": {
         "id": "otras_cuentas_por_pagar",
         "funcion_principal": run_conciliation_otras_cxp,
