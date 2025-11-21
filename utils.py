@@ -519,23 +519,31 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
 
 def generar_reporte_paquete_cc(df_analizado):
     """
-    Versión final del reporte que incluye una columna de Observaciones en el Directorio
-    y colorea las filas con incidencias.
+    Versión final del reporte compatible con versiones antiguas de XlsxWriter.
     """
     output_buffer = BytesIO()
     with pd.ExcelWriter(output_buffer, engine='xlsxwriter') as writer:
         workbook = writer.book
         
+        # --- Formatos ---
         main_title_format = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'font_size': 16})
         descriptive_title_format = workbook.add_format({'bold': True, 'font_size': 14, 'fg_color': '#FFFF00', 'border': 1, 'align': 'center'})
         subgroup_title_format = workbook.add_format({'bold': True, 'font_size': 11, 'fg_color': '#E0E0E0', 'border': 1})
         header_format = workbook.add_format({'bold': True, 'text_wrap': True, 'valign': 'top', 'fg_color': '#D9EAD3', 'border': 1, 'align': 'center'})
+        
+        # Formatos estándar
         money_format = workbook.add_format({'num_format': '#,##0.00', 'border': 1})
         date_format = workbook.add_format({'num_format': 'dd/mm/yyyy', 'border': 1})
         text_format = workbook.add_format({'border': 1})
+        
+        # Formatos para filas con incidencia (rojo)
+        incidencia_text_format = workbook.add_format({'bg_color': '#FFC7CE', 'font_color': '#9C0006', 'border': 1})
+        incidencia_money_format = workbook.add_format({'bg_color': '#FFC7CE', 'font_color': '#9C0006', 'num_format': '#,##0.00', 'border': 1})
+        incidencia_date_format = workbook.add_format({'bg_color': '#FFC7CE', 'font_color': '#9C0006', 'num_format': 'dd/mm/yyyy', 'border': 1})
+
+        # Formatos para totales
         total_label_format = workbook.add_format({'bold': True, 'align': 'right', 'top': 2, 'font_color': '#003366'})
         total_money_format = workbook.add_format({'bold': True, 'num_format': '#,##0.00', 'top': 2, 'bottom': 1})
-        incidencia_format_rojo = workbook.add_format({'bg_color': '#FFC7CE', 'font_color': '#9C0006'})
 
         columnas_reporte = [
             'Asiento', 'Fecha', 'Fuente', 'Cuenta Contable', 'Descripción de Cuenta', 
@@ -604,11 +612,16 @@ def generar_reporte_paquete_cc(df_analizado):
                     formato_fila_texto = text_format
                     formato_fila_numero = money_format
                     formato_fila_fecha = date_format
-                    if row_data['Estado'] != 'Conciliado':
-                        formato_fila_texto = incidencia_format_rojo
-                        formato_fila_numero = workbook.add_format({**incidencia_format_rojo.properties, **money_format.properties})
-                        formato_fila_fecha = workbook.add_format({**incidencia_format_rojo.properties, **date_format.properties})
+                    if row_data.get('Estado', 'Conciliado') != 'Conciliado':
+                        formato_fila_texto = incidencia_text_format
+                        formato_fila_numero = incidencia_money_format
+                        formato_fila_fecha = incidencia_date_format
+                    else:
+                        formato_fila_texto = text_format
+                        formato_fila_numero = money_format
+                        formato_fila_fecha = date_format
                     
+                    # Escribir filas usando los formatos predefinidos
                     ws.write(current_row, 0, row_data.get('Asiento', ''), formato_fila_texto)
                     ws.write_datetime(current_row, 1, row_data.get('Fecha', None), formato_fila_fecha)
                     ws.write(current_row, 2, row_data.get('Fuente', ''), formato_fila_texto)
