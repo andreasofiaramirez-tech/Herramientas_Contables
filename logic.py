@@ -1372,24 +1372,23 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
 CUENTAS_CONOCIDAS = {
     '1.1.3.01.1.001', # Deudores por Ventas de Mercancías
     '1.1.3.01.1.901', # Deudores Vtas.Mercanc. - Cias.Comerciales
-    '7.1.3.45.1.997', # Acarreos y Fletes - Recuperados
-    '6.1.1.12.1.001', # Cuenta Cambio (Diferencial)
-    '4.1.1.22.4.001', # Descuentos Sobre Ventas Crédito (Mayor)
     '2.1.3.04.1.001', # I.V.A. - Débitos Fiscales (Haber)
-    '7.1.3.19.1.012', # Gastos de Ventas - Mercadeo
-    '2.1.2.05.1.108', # Haberes de Clientes
-    '6.1.1.19.1.001', # Ingresos Varios
-    '4.1.1.21.4.001', # Dev. y Rebaj. Ventas Crédito - Mayor
     '2.1.3.04.1.006', # I.V.A. - Retenido de Terceros
     '2.1.3.01.1.012', # IR de Terceros - Constancias Recibidas
+    '2.1.2.05.1.108', # Haberes de Clientes
+    '4.1.1.21.4.001', # Dev. y Rebaj. Ventas Crédito - Mayor
+    '4.1.1.22.4.001', # Descuentos Sobre Ventas Crédito (Mayor)
+    '6.1.1.12.1.001', # Cuenta Cambio (Diferencial)
+    '6.1.1.19.1.001', # Ingresos Varios
+    '7.1.3.19.1.012', # Gastos de Ventas - Mercadeo
     '7.1.3.04.1.004', # Otros Imptos Municipales y Nacionales
-    # Se pueden añadir más cuentas conocidas aquí en el futuro
+    '7.1.3.06.1.998', # Perdida p/Venta o Retiro Activo ND
+    '7.1.3.45.1.997', # Acarreos y Fletes - Recuperados
 }
 
 
 def _clasificar_asiento_paquete_cc(asiento_group):
     """
-    (Esta función no cambia)
     Recibe un DataFrame con todas las líneas de un asiento (con cuentas ya validadas como conocidas)
     y aplica las reglas de negocio para clasificarlo en un grupo.
     """
@@ -1407,10 +1406,20 @@ def _clasificar_asiento_paquete_cc(asiento_group):
         if any(keyword in referencia_completa for keyword in ['DIFERENCIAL', 'DIFERENCIA EN CAMBIO', 'DIF CAMBIARIO']):
             return "Grupo 2: Diferencial Cambiario"
             
-    # Grupo 3: Notas de Crédito (N/C)
+    # --- INICIO DE LA LÓGICA DE SUBGRUPOS PARA NOTAS DE CRÉDITO ---
     cuentas_nc = {'4.1.1.22.4.001', '2.1.3.04.1.001'}
     if 'N/C' in fuente_completa and cuentas_nc.issubset(cuentas_del_asiento):
-         return "Grupo 3: Notas de Crédito (N/C)"
+        # Una vez identificado como N/C, se clasifica en un subgrupo
+        if 'AVISOS DE CREDITO' in referencia_completa:
+            return "Grupo 3.1: N/C - Avisos de Crédito"
+        elif any(keyword in referencia_completa for keyword in ['ESTRATEGIA', 'PROMOCION']):
+            return "Grupo 3.2: N/C - Estrategias"
+        elif 'INCENTIVO' in referencia_completa:
+            return "Grupo 3.3: N/C - Incentivos"
+        elif any(keyword in referencia_completa for keyword in ['BONIFICACION', 'BONIF', 'DESCUENTO', 'DSCTO']):
+            return "Grupo 3.4: N/C - Bonificaciones"
+        else:
+            return "Grupo 3.5: N/C - Otros" # Fallback para N/C no clasificadas
 
     # Grupo 4: Gastos de Ventas
     if '7.1.3.19.1.012' in cuentas_del_asiento:
@@ -1427,7 +1436,7 @@ def _clasificar_asiento_paquete_cc(asiento_group):
         if 'LIMPIEZA DE SALDOS' in referencia_completa and (asiento_group['Monto_USD'].abs() < 5).all():
             return "Grupo 6: Ingresos Varios"
             
-    # Grupo 10: Traspasos (se verifica antes que Devoluciones por usar la misma cuenta)
+    # Grupo 10: Traspasos
     if '4.1.1.21.4.001' in cuentas_del_asiento and 'TRASPASO' in referencia_completa:
         if abs(asiento_group['Monto_USD'].sum()) <= TOLERANCIA_MAX_USD:
             return "Grupo 10: Traspasos"
@@ -1445,6 +1454,10 @@ def _clasificar_asiento_paquete_cc(asiento_group):
     cuentas_retencion = {'2.1.3.04.1.006', '2.1.3.01.1.012', '7.1.3.04.1.004'}
     if not cuentas_retencion.isdisjoint(cuentas_del_asiento):
         return "Grupo 9: Retenciones"
+
+    # Grupo 12: Perdida por Venta o Retiro
+    if '7.1.3.06.1.998' in cuentas_del_asiento:
+        return "Grupo 12: Perdida p/Venta o Retiro Activo ND"
         
     return "No Clasificado"
 
