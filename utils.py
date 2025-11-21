@@ -120,6 +120,7 @@ def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrate
     with pd.ExcelWriter(output_excel, engine='xlsxwriter') as writer:
         workbook = writer.book
 
+        # --- Formatos ---        
         formato_encabezado_empresa = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'font_size': 14})
         formato_encabezado_sub = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'font_size': 11})
         formato_header_tabla = workbook.add_format({'bold': True, 'text_wrap': True, 'valign': 'top', 'fg_color': '#D9EAD3', 'border': 1, 'align': 'center'})
@@ -135,6 +136,7 @@ def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrate
         formato_subtotal_bs = workbook.add_format({'bold': True, 'num_format': '#,##0.00', 'top': 1})
         date_format = workbook.add_format({'num_format': 'dd/mm/yyyy'})
 
+        # --- HOJA 1: SALDOS ABIERTOS (PENDIENTES) ---
         fecha_maxima = _df_full['Fecha'].dropna().max()
         if pd.notna(fecha_maxima):
             ultimo_dia_mes = fecha_maxima + pd.offsets.MonthEnd(0)
@@ -211,6 +213,7 @@ def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrate
                 formula_bs = f'=SUM({xlsxwriter.utility.xl_col_to_name(bs_col_idx)}{start_row_data + 1}:{xlsxwriter.utility.xl_col_to_name(bs_col_idx)}{total_row_index})'
                 worksheet_pendientes.write_formula(total_row_index, bs_col_idx, formula_bs, formato_total_bs)
 
+        # --- HOJA 2: MOVIMIENTOS CONCILIADOS ---
         if not df_conciliados.empty:
             worksheet_conciliados = workbook.add_worksheet("Conciliacion")
             
@@ -308,6 +311,44 @@ def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrate
 
                 worksheet_conciliados.set_column('A:A', 12); worksheet_conciliados.set_column('B:B', 15)
                 worksheet_conciliados.set_column('C:D', 30); worksheet_conciliados.set_column('E:F', 18)
+
+            elif _estrategia_actual['id'] == 'otras_cuentas_por_pagar':
+                worksheet_conciliados.merge_range('A1:D1', 'Detalle de Movimientos Conciliados por Proveedor y Envío', formato_encabezado_sub)
+                
+                df_conciliados_prep = df_conciliados.copy()
+                df_conciliados_prep['Monto Bs.'] = df_conciliados_prep['Monto_BS']
+                
+                df_conciliados_final = df_conciliados_prep.sort_values(by=['NIT', 'Numero_Envio', 'Fecha'])
+                
+                columnas_detalle_cxp = ['Fecha', 'Descripcion NIT', 'Numero_Envio', 'Monto Bs.']
+                current_row = 2
+
+                for nit, grupo_proveedor in df_conciliados_final.groupby('NIT'):
+                    nombre_proveedor = grupo_proveedor['Descripcion NIT'].iloc[0] if not grupo_proveedor.empty else ''
+                    
+                    worksheet_conciliados.merge_range(current_row, 0, current_row, len(columnas_detalle_cxp) - 1, f"Proveedor: {nombre_proveedor} (NIT: {nit})", formato_proveedor_header)
+                    current_row += 1
+                    
+                    worksheet_conciliados.write_row(current_row, 0, columnas_detalle_cxp, formato_header_tabla)
+                    current_row += 1
+                    
+                    for _, movimiento in grupo_proveedor.iterrows():
+                        ws_date = pd.to_datetime(movimiento.get('Fecha'), errors='coerce')
+                        worksheet_conciliados.write_datetime(current_row, 0, ws_date, date_format)
+                        worksheet_conciliados.write(current_row, 1, movimiento.get('Descripcion NIT', ''))
+                        worksheet_conciliados.write(current_row, 2, movimiento.get('Numero_Envio', ''))
+                        worksheet_conciliados.write_number(current_row, 3, movimiento.get('Monto Bs.', 0), formato_bs)
+                        current_row += 1
+                    
+                    subtotal_bs = grupo_proveedor['Monto Bs.'].sum()
+                    worksheet_conciliados.write(current_row, 2, "Subtotal Proveedor", formato_subtotal_label)
+                    worksheet_conciliados.write_number(current_row, 3, subtotal_bs, formato_subtotal_bs)
+                    current_row += 2
+
+                worksheet_conciliados.set_column('A:A', 12)
+                worksheet_conciliados.set_column('B:B', 40)
+                worksheet_conciliados.set_column('C:C', 18)
+                worksheet_conciliados.set_column('D:D', 18)
 
         if _estrategia_actual['id'] == 'devoluciones_proveedores' and not df_saldos_abiertos.empty:
             worksheet_prov = workbook.add_worksheet("Resumen por Proveedor")
