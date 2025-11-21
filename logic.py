@@ -762,6 +762,93 @@ def conciliar_grupos_por_empleado(df, log_messages):
         
     return total_conciliados
 
+# --- (F) Módulo: Fondos por Depositar – Cobros Viajeros – ME ---
+
+def normalizar_datos_cobros_viajeros(df, log_messages):
+    """Prepara el DataFrame para la conciliación de cobros viajeros."""
+    df_copy = df.copy()
+    
+    # Normalizar NIT para usarlo como clave de agrupación fiable
+    nit_col_name = next((col for col in df_copy.columns if str(col).strip().upper() in ['NIT', 'RIF']), None)
+    if nit_col_name:
+        df_copy['NIT_Normalizado'] = df_copy[nit_col_name].astype(str).str.upper().str.replace(r'[^A-Z0-9]', '', regex=True)
+    else:
+        log_messages.append("⚠️ ADVERTENCIA: No se encontró columna 'NIT' o 'RIF'.")
+        df_copy['NIT_Normalizado'] = 'SIN_NIT'
+
+    # Normalizar columnas de cruce para evitar errores por espacios o mayúsculas
+    df_copy['Referencia_Norm'] = df_copy['Referencia'].astype(str).str.strip().str.upper()
+    df_copy['Fuente_Norm'] = df_copy['Fuente'].astype(str).str.strip().str.upper()
+    
+    return df_copy
+
+def run_conciliation_cobros_viajeros(df, log_messages, progress_bar=None):
+    """
+    Orquesta la conciliación para Cobros Viajeros, cruzando Referencia (cobro)
+    con Fuente (cierre) dentro de cada grupo de NIT.
+    """
+    log_messages.append("\n--- INICIANDO LÓGICA DE COBROS VIAJEROS (USD) ---")
+    
+    df = normalizar_datos_cobros_viajeros(df, log_messages)
+    if progress_bar: progress_bar.progress(0.2, text="Fase de Normalización completada.")
+
+    total_conciliados = 0
+    indices_usados = set()
+    
+    # Agrupar por el NIT normalizado
+    grupos_por_nit = df[~df['Conciliado']].groupby('NIT_Normalizado')
+    log_messages.append(f"ℹ️ Se analizarán {len(grupos_por_nit)} viajeros/NITs.")
+
+    for nit, grupo in grupos_por_nit:
+        if nit == 'SIN_NIT' or len(grupo) < 2:
+            continue
+
+        # Separar débitos (Cobros, CB) y créditos (Cierres, CC)
+        debitos = grupo[grupo['Monto_USD'] > 0].copy()
+        creditos = grupo[grupo['Monto_USD'] < 0].copy()
+
+        if debitos.empty or creditos.empty:
+            continue
+            
+        # Buscar pares donde la Referencia del débito coincida con la Fuente del crédito
+        for idx_d, debito_row in debitos.iterrows():
+            if idx_d in indices_usados:
+                continue
+
+            ref_a_buscar = debito_row['Referencia_Norm']
+            
+            # Encontrar el mejor crédito que coincida con la referencia y el monto
+            mejor_match_idx = None
+            mejor_match_diff = TOLERANCIA_MAX_USD + 1
+
+            for idx_c, credito_row in creditos.iterrows():
+                if idx_c in indices_usados:
+                    continue
+                
+                if credito_row['Fuente_Norm'] == ref_a_buscar:
+                    diferencia = abs(debito_row['Monto_USD'] + credito_row['Monto_USD'])
+                    if diferencia < mejor_match_diff:
+                        mejor_match_diff = diferencia
+                        mejor_match_idx = idx_c
+            
+            # Si se encontró un par válido, marcarlo como conciliado
+            if mejor_match_idx is not None and mejor_match_diff <= TOLERANCIA_MAX_USD:
+                indices_a_conciliar = [idx_d, mejor_match_idx]
+                
+                df.loc[indices_a_conciliar, 'Conciliado'] = True
+                df.loc[indices_a_conciliar, 'Grupo_Conciliado'] = f"VIAJERO_{nit}_{ref_a_buscar}"
+                
+                indices_usados.update(indices_a_conciliar)
+                total_conciliados += 2
+
+    if total_conciliados > 0:
+        log_messages.append(f"✔️ Conciliación finalizada: Se conciliaron {total_conciliados} movimientos.")
+    else:
+        log_messages.append("ℹ️ No se encontraron pares de cobro/cierre para conciliar.")
+        
+    log_messages.append("\n--- PROCESO DE CONCILIACIÓN FINALIZADO ---")
+    return df
+
 # ==============================================================================
 # FUNCIONES MAESTRAS DE ESTRATEGIA
 # ==============================================================================
