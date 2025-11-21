@@ -374,13 +374,37 @@ def render_paquete_cc():
                 try:
                     df_diario = pd.read_excel(uploaded_diario)
                     
-                    # Normalización de columnas para que coincidan con la lógica
-                    column_map = {
-                        'Débito Dolar': ['Débito Dolar', 'Debito Dolar', 'Débitos Dolar'],
-                        'Crédito Dólar': ['Crédito Dolar', 'Credito Dolar', 'Créditos Dolar'],
+                    # ==============================================================================
+                    # --- INICIO DEL BLOQUE DE CORRECCIÓN ---
+                    # Mapeo robusto para estandarizar nombres de columnas
+                    # ==============================================================================
+                    
+                    # Nombres estándar que la lógica espera
+                    standard_names = {
+                        'Débito Dolar': ['Debito Dolar', 'Débitos Dolar', 'Débito Dólar', 'Debito Dólar'],
+                        'Crédito Dolar': ['Credito Dolar', 'Créditos Dolar', 'Crédito Dólar', 'Credito Dólar'],
+                        'Débito VES': ['Debito VES', 'Débitos VES', 'Débito Bolivar', 'Debito Bolivar', 'Débito Bs', 'Debito Bs'],
+                        'Crédito VES': ['Credito VES', 'Créditos VES', 'Crédito Bolivar', 'Credito Bolivar', 'Crédito Bs', 'Credito Bs'],
+                        'Descripción de Cuenta': ['Descripcion de Cuenta', 'Descripción de la Cuenta', 'Descripcion de la Cuenta']
                     }
-                    # Esta lógica simple de renombrado se puede expandir si los nombres de columna varían mucho
-                    df_diario.rename(columns={'Crédito Dolar': 'Crédito Dolar'}, inplace=True)
+
+                    # Crear un diccionario para el renombrado final
+                    rename_map = {}
+                    # Normalizar las columnas del DataFrame para una comparación más fácil
+                    df_columns_normalized = {col.strip(): col for col in df_diario.columns}
+
+                    for standard, variations in standard_names.items():
+                        # Añadir el nombre estándar a su propia lista de variaciones
+                        all_variations = [standard] + variations
+                        for var_name in all_variations:
+                            if var_name in df_columns_normalized:
+                                # Si encontramos una variación, la mapeamos al nombre estándar
+                                rename_map[df_columns_normalized[var_name]] = standard
+                                break # Pasamos al siguiente nombre estándar
+
+                    # Aplicar el renombrado
+                    df_diario.rename(columns=rename_map, inplace=True)
+                    log_messages.append(f"✔️ Columnas estandarizadas. Mapeo aplicado: {rename_map}")
 
                     df_resultado = run_analysis_paquete_cc(df_diario, log_messages)
                     
