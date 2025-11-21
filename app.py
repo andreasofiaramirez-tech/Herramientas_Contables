@@ -374,18 +374,14 @@ def render_paquete_cc():
                 try:
                     df_diario = pd.read_excel(uploaded_diario)
                     
-                    # ==============================================================================
-                    # --- INICIO DEL BLOQUE DE CORRECCIÓN ---
                     # Mapeo robusto para estandarizar nombres de columnas
-                    # ==============================================================================
-                    
                     # Nombres estándar que la lógica espera
                     standard_names = {
                         'Débito Dolar': ['Debito Dolar', 'Débitos Dolar', 'Débito Dólar', 'Debito Dólar'],
                         'Crédito Dolar': ['Credito Dolar', 'Créditos Dolar', 'Crédito Dólar', 'Credito Dólar'],
                         'Débito VES': ['Debito VES', 'Débitos VES', 'Débito Bolivar', 'Debito Bolivar', 'Débito Bs', 'Debito Bs'],
                         'Crédito VES': ['Credito VES', 'Créditos VES', 'Crédito Bolivar', 'Credito Bolivar', 'Crédito Bs', 'Credito Bs'],
-                        'Descripción de Cuenta': ['Descripcion de Cuenta', 'Descripción de la Cuenta', 'Descripcion de la Cuenta']
+                        'Descripción de Cuenta': ['Descripcion de Cuenta', 'Descripción de la Cuenta', 'Descripcion de la Cuenta', 'Descripción de la Cuenta Contable', 'Descripcion de la Cuenta Contable']
                     }
 
                     # Crear un diccionario para el renombrado final
