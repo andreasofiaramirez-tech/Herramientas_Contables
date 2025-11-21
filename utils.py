@@ -133,6 +133,7 @@ def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrate
         formato_subtotal_label = workbook.add_format({'bold': True, 'align': 'right', 'top': 1})
         formato_subtotal_usd = workbook.add_format({'bold': True, 'num_format': '$#,##0.00', 'top': 1})
         formato_subtotal_bs = workbook.add_format({'bold': True, 'num_format': '#,##0.00', 'top': 1})
+        date_format = workbook.add_format({'num_format': 'dd/mm/yyyy'})
 
         fecha_maxima = _df_full['Fecha'].dropna().max()
         if pd.notna(fecha_maxima):
