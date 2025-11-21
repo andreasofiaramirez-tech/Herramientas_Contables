@@ -1369,26 +1369,27 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
 
 # Directorio central de todas las cuentas que la lógica conoce y sabe cómo manejar.
 # Incluye las cuentas base de CC, ya que son parte del ecosistema conocido.
+# --- CUENTAS CONOCIDAS (INCLUYE BANCOS Y FONDOS) ---
 CUENTAS_CONOCIDAS = {
     '1.1.3.01.1.001', # Deudores por Ventas de Mercancías
     '1.1.3.01.1.901', # Deudores Vtas.Mercanc. - Cias.Comerciales
+    '7.1.3.45.1.997', # Acarreos y Fletes - Recuperados
+    '6.1.1.12.1.001', # Cuenta Cambio (Diferencial)
+    '4.1.1.22.4.001', # Descuentos Sobre Ventas Crédito (Mayor)
     '2.1.3.04.1.001', # I.V.A. - Débitos Fiscales (Haber)
+    '7.1.3.19.1.012', # Gastos de Ventas - Mercadeo
+    '2.1.2.05.1.108', # Haberes de Clientes
+    '6.1.1.19.1.001', # Ingresos Varios
+    '4.1.1.21.4.001', # Dev. y Rebaj. Ventas Crédito - Mayor
     '2.1.3.04.1.006', # I.V.A. - Retenido de Terceros
     '2.1.3.01.1.012', # IR de Terceros - Constancias Recibidas
-    '2.1.2.05.1.108', # Haberes de Clientes
-    '4.1.1.21.4.001', # Dev. y Rebaj. Ventas Crédito - Mayor
-    '4.1.1.22.4.001', # Descuentos Sobre Ventas Crédito (Mayor)
-    '6.1.1.12.1.001', # Cuenta Cambio (Diferencial)
-    '6.1.1.19.1.001', # Ingresos Varios
-    '7.1.3.19.1.012', # Gastos de Ventas - Mercadeo
     '7.1.3.04.1.004', # Otros Imptos Municipales y Nacionales
     '7.1.3.06.1.998', # Perdida p/Venta o Retiro Activo ND
-    '7.1.3.45.1.997', # Acarreos y Fletes - Recuperados
     '1.1.1.04.6.003', # Fondos por Depositar -Cobros Viajeros-ME
     '1.1.1.02.1.004', '1.1.1.02.1.007', '1.1.1.02.1.009', '1.1.1.02.1.016',
     '1.1.1.02.1.112', '1.1.1.02.1.124', '1.1.1.02.1.132', '1.1.1.02.6.002',
     '1.1.1.02.6.003', '1.1.1.02.6.005', '1.1.1.02.6.010', '1.1.1.03.6.012',
-    '1.1.1.03.6.024', '1.1.1.03.6.026', '1.1.1.03.6.031'
+    '1.1.1.03.6.024', '1.1.1.03.6.026', '1.1.1.03.6.031',
 }
 
 CUENTAS_BANCO = {
@@ -1398,10 +1399,10 @@ CUENTAS_BANCO = {
     '1.1.1.03.6.024', '1.1.1.03.6.026', '1.1.1.03.6.031',
 }
 
+
 def _clasificar_asiento_paquete_cc(asiento_group):
     """
-    Versión final y corregida con una única lógica de prioridad estricta
-    para evitar conflictos de clasificación.
+    Versión final con lógica de Cobranzas unificada bajo el "Grupo 8".
     """
     cuentas_del_asiento = set(asiento_group['Cuenta Contable'].astype(str))
     referencia_completa = ' '.join(asiento_group['Referencia'].astype(str).unique()).upper()
@@ -1409,7 +1410,7 @@ def _clasificar_asiento_paquete_cc(asiento_group):
     
     referencia_limpia_palabras = set(re.sub(r'[^\w\s]', '', referencia_completa).split())
 
-    # --- La clasificación sigue un orden estricto de prioridad de arriba hacia abajo ---
+    # --- La clasificación sigue un orden estricto de prioridad ---
 
     # PRIORIDAD 1: Notas de Crédito
     cuentas_nc = {'4.1.1.22.4.001', '2.1.3.04.1.001'}
@@ -1426,7 +1427,22 @@ def _clasificar_asiento_paquete_cc(asiento_group):
     if '2.1.3.01.1.012' in cuentas_del_asiento: return "Grupo 9: Retenciones - ISLR"
     if '7.1.3.04.1.004' in cuentas_del_asiento: return "Grupo 9: Retenciones - Municipal"
     
-    # PRIORIDAD 3: Ingresos Varios (Grupo 6 con sub-clasificación)
+    # --- CORRECCIÓN: LÓGICA DE COBRANZAS UNIFICADA BAJO "GRUPO 8" ---
+    is_cobranza = 'RECIBO DE COBRANZA' in referencia_completa or 'TEF' in fuente_completa
+    if is_cobranza:
+        if '6.1.1.12.1.001' in cuentas_del_asiento:
+            return "Grupo 8: Cobranzas - Con Diferencial Cambiario"
+        if '1.1.1.04.6.003' in cuentas_del_asiento:
+            return "Grupo 8: Cobranzas - Fondos por Depositar"
+        if not CUENTAS_BANCO.isdisjoint(cuentas_del_asiento):
+            if 'TEF' in fuente_completa:
+                return "Grupo 8: Cobranzas - TEF (Bancos)"
+            else:
+                return "Grupo 8: Cobranzas - Recibos (Bancos)"
+        # Fallback si es cobranza pero no encaja en las sub-reglas anteriores
+        return "Grupo 8: Cobranzas - Otros"
+
+    # PRIORIDAD 4: Ingresos Varios (Grupo 6)
     if '6.1.1.19.1.001' in cuentas_del_asiento:
         keywords_limpieza = {'LIMPIEZA', 'LIMPIEZAS', 'SALDO', 'SALDOS', 'HISTORICO'}
         if not keywords_limpieza.isdisjoint(referencia_limpia_palabras):
@@ -1437,12 +1453,10 @@ def _clasificar_asiento_paquete_cc(asiento_group):
         else:
             return "Grupo 6: Ingresos Varios - Otros"
 
-    # PRIORIDAD 4: Traspasos vs. Devoluciones (ambos usan la misma cuenta)
+    # PRIORIDAD 5: Traspasos vs. Devoluciones (Grupo 10 y 7)
     if '4.1.1.21.4.001' in cuentas_del_asiento:
         if 'TRASPASO' in referencia_completa and abs(asiento_group['Monto_USD'].sum()) <= TOLERANCIA_MAX_USD:
             return "Grupo 10: Traspasos"
-        
-        # Si no es Traspaso, evaluamos si es Devolución/Limpieza (Grupo 7 con sub-clasificación)
         keywords_limpieza_dev = {'LIMPIEZA', 'LIMPIEZAS', 'SALDO', 'SALDOS', 'HISTORICO', 'AJUSTE'}
         if not keywords_limpieza_dev.isdisjoint(referencia_limpia_palabras):
             if (asiento_group['Monto_USD'].abs() <= 5).all():
@@ -1452,41 +1466,13 @@ def _clasificar_asiento_paquete_cc(asiento_group):
         else:
             return "Grupo 7: Devoluciones y Rebajas - Otros Ajustes"
             
-    # PRIORIDAD 5: Perdida p/Venta
+    # El resto de la lógica de prioridad
     if '7.1.3.06.1.998' in cuentas_del_asiento: return "Grupo 12: Perdida p/Venta o Retiro Activo ND"
-    
-    # PRIORIDAD 6: Acarreos y Fletes
     if '7.1.3.45.1.997' in cuentas_del_asiento: return "Grupo 1: Acarreos y Fletes Recuperados"
-    
-    # PRIORIDAD 7: Diferencial Cambiario
     if '6.1.1.12.1.001' in cuentas_del_asiento: return "Grupo 2: Diferencial Cambiario"
-    
-    # PRIORIDAD 8: Gastos de Ventas
     if '7.1.3.19.1.012' in cuentas_del_asiento: return "Grupo 4: Gastos de Ventas"
-    
-    # PRIORIDAD 9: Haberes de Clientes
     if '2.1.2.05.1.108' in cuentas_del_asiento: return "Grupo 5: Haberes de Clientes"
-    
-     # --- NUEVA LÓGICA DE COBRANZAS (GRUPOS 13, 14, 15, 16) ---
-    # Se evalúa con alta prioridad para capturar estos asientos primero.
-    is_cobranza = 'RECIBO DE COBRANZA' in referencia_completa or 'TEF' in fuente_completa
-    if is_cobranza:
-        # CASO MÁS ESPECÍFICO PRIMERO: Cobranza con Diferencial
-        if '6.1.1.12.1.001' in cuentas_del_asiento:
-            return "Grupo 13: Cobranza con Diferencial Cambiario"
-        
-        # CASO 2: Cobranza a Fondos por Depositar
-        if '1.1.1.04.6.003' in cuentas_del_asiento:
-            return "Grupo 14: Cobranza - Fondos por Depositar"
-            
-        # CASO 3: Cobranza que involucra una cuenta de banco
-        if not CUENTAS_BANCO.isdisjoint(cuentas_del_asiento):
-            if 'TEF' in fuente_completa:
-                return "Grupo 15: Cobranza - TEF (Bancos)"
-            else:
-                return "Grupo 16: Recibos de Cobranza (Bancos)"
 
-    # Si no coincide con NINGUNA regla anterior, se marca como No Clasificado
     return "No Clasificado"
     
 def run_analysis_paquete_cc(df_diario, log_messages):
