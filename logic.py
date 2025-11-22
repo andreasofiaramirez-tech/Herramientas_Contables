@@ -1735,9 +1735,23 @@ def _validar_asiento(asiento_group):
             
     elif grupo.startswith("Grupo 2:"):
         diff_lines = asiento_group[asiento_group['Cuenta Contable Norm'] == normalize_account('6.1.1.12.1.001')]
-        keywords = ['DIFERENCIAL', 'DIFERENCIA EN CAMBIO', 'DIF CAMBIARIO']
-        if not diff_lines['Referencia'].str.contains('|'.join(keywords), case=False, na=False).all():
-            return "Incidencia: Referencia sin palabra clave de diferencial."
+        
+        # --- CAMBIO AQUÍ: Lista de palabras clave ampliada ---
+        # Ahora acepta variaciones con punto, sin punto, y la palabra 'TASA'
+        keywords = [
+            'DIFERENCIAL',          # Cubre "Diferencial Cambiario", "Ajuste Diferencial"
+            'DIFERENCIA',           # Cubre "Diferencia en Cambio"
+            'DIF CAMBIARIO',        # Cubre "Dif Cambiario"
+            'DIF. CAMBIARIO',       # Cubre "Dif. Cambiario" (con punto)
+            'DIF.',                 # Cubre abreviaciones generales con punto
+            'TASA'                  # Cubre "Diferencia Tasa"
+        ]
+        
+        # Construimos un patrón Regex seguro (escapando el punto para que funcione bien)
+        patron_regex = '|'.join([re.escape(k) if '.' in k else k for k in keywords])
+        
+        if not diff_lines['Referencia'].str.contains(patron_regex, case=False, na=False, regex=True).all():
+            return "Incidencia: Referencia sin palabra clave de diferencial (DIF, TASA, ETC)."
             
     elif grupo.startswith("Grupo 6:"):
         if (asiento_group['Monto_USD'].abs() > 25).any():
