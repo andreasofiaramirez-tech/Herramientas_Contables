@@ -938,7 +938,8 @@ def normalizar_datos_otras_cxp(df, log_messages):
 def run_conciliation_otras_cxp(df, log_messages, progress_bar=None):
     """
     Orquesta la conciliación para Otras Cuentas por Pagar (VES).
-    Busca grupos por NIT y ENV que sumen CERO.
+    1. Concilia automáticamente Diferencias en Cambio.
+    2. Busca grupos por NIT y ENV que sumen CERO o coincidan en magnitud.
     """
     log_messages.append("\n--- INICIANDO LÓGICA DE OTRAS CUENTAS POR PAGAR (VES) ---")
     
@@ -946,33 +947,59 @@ def run_conciliation_otras_cxp(df, log_messages, progress_bar=None):
     if progress_bar: progress_bar.progress(0.2, text="Fase de Normalización completada.")
 
     total_conciliados = 0
+
+    # --- FASE 0: CONCILIACIÓN AUTOMÁTICA (DIFERENCIA EN CAMBIO) ---
+    # Detectamos referencias que contengan 'DIFF' o la combinación 'DIFERENCIA' y 'CAMBIO'
+    # Esto cubre "Diferencias de cambio al...", "DIFF000182", "Ajuste Diferencial", etc.
+    def es_diferencial_cambiario(texto):
+        t = str(texto).upper()
+        if 'DIFF' in t: return True
+        if 'CAMBIO' in t and ('DIFERENCIA' in t or 'DIF.' in t or 'AJUSTE' in t): return True
+        return False
+
+    indices_dif = df[df['Referencia'].apply(es_diferencial_cambiario) & (~df['Conciliado'])].index
+
+    if not indices_dif.empty:
+        df.loc[indices_dif, 'Conciliado'] = True
+        df.loc[indices_dif, 'Grupo_Conciliado'] = 'AUTOMATICO_DIF_CAMBIO'
+        count_dif = len(indices_dif)
+        total_conciliados += count_dif
+        log_messages.append(f"✔️ Fase Auto: {count_dif} movimientos conciliados por ser 'Diferencia en Cambio'.")
+    # ---------------------------------------------------------------
     
-    # Filtrar solo las filas donde se pudo extraer un número de envío válido
+    # Filtrar solo las filas pendientes donde se pudo extraer un número de envío válido
     df_procesable = df[(~df['Conciliado']) & (df['Numero_Envio'] != '')]
     
     # Agrupar por NIT y Número de Envío
     grupos = df_procesable.groupby(['NIT_Normalizado', 'Numero_Envio'])
-    log_messages.append(f"ℹ️ Se encontraron {len(grupos)} combinaciones de NIT/Envío para analizar.")
+    if not df_procesable.empty:
+        log_messages.append(f"ℹ️ Se encontraron {len(grupos)} combinaciones de NIT/Envío para analizar.")
 
     for (nit, envio), grupo in grupos:
-        if len(grupo) < 2: # Se necesita al menos 2 movimientos para cruzar
+        if len(grupo) < 2: 
             continue
 
-        # VERIFICACIÓN CONTABLE ESTRICTA (Suma Cero)
-        # Si la suma de los bolívares es cero (con tolerancia), se concilian.
-        # Si ambos son positivos (Débitos), NO sumarán cero y quedarán abiertos (Pendientes), que es lo correcto contablemente.
+        # CASO 1: Conciliación Estándar (Suma Cero)
         if np.isclose(grupo['Monto_BS'].sum(), 0, atol=TOLERANCIA_MAX_BS):
             indices_a_conciliar = grupo.index
-            
             df.loc[indices_a_conciliar, 'Conciliado'] = True
             df.loc[indices_a_conciliar, 'Grupo_Conciliado'] = f"OTRAS_CXP_{nit}_{envio}"
-            
             total_conciliados += len(indices_a_conciliar)
+            
+        # CASO 2: Conciliación por Magnitud (Corrección de Signos para Débitos vs Débitos)
+        elif len(grupo) == 2:
+            vals = grupo['Monto_BS'].abs().values
+            # Si el valor absoluto es igual (con tolerancia)
+            if np.isclose(vals[0], vals[1], atol=TOLERANCIA_MAX_BS):
+                indices_a_conciliar = grupo.index
+                df.loc[indices_a_conciliar, 'Conciliado'] = True
+                df.loc[indices_a_conciliar, 'Grupo_Conciliado'] = f"OTRAS_CXP_MAGNITUD_{nit}_{envio}"
+                total_conciliados += len(indices_a_conciliar)
 
     if total_conciliados > 0:
-        log_messages.append(f"✔️ Conciliación finalizada: Se conciliaron {total_conciliados} movimientos.")
+        log_messages.append(f"✔️ Conciliación finalizada: Se conciliaron {total_conciliados} movimientos en total.")
     else:
-        log_messages.append("ℹ️ No se encontraron grupos por NIT/Envío que sumen cero.")
+        log_messages.append("ℹ️ No se encontraron movimientos para conciliar.")
         
     log_messages.append("\n--- PROCESO DE CONCILIACIÓN FINALIZADO ---")
     return df
