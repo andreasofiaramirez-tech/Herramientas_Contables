@@ -244,7 +244,7 @@ def normalizar_referencia_fondos_usd(df):
         if 'BANCARIZACION' in ref: return 'BANCARIZACION', 'GRUPO_BANCARIZACION', ref_lit_norm
         if 'REINTEGRO' in ref: return 'REINTEGRO', 'GRUPO_REINTEGRO', ref_lit_norm
         if 'REMESA' in ref: return 'REMESA', 'GRUPO_REMESA', ref_lit_norm
-        if 'GASTOS POR TARJETA' in ref: return 'TARJETA_GASTOS', 'GRUPO_TARJETA', ref_lit_norm
+        if 'TARJETA' in ref and ('GASTOS' in ref or 'INGRESO' in ref): return 'TARJETA_GASTOS', 'GRUPO_TARJETA', 'LOTE_TARJETAS'
         if 'NOTA DE DEBITO' in ref: return 'NOTA_DEBITO', 'GRUPO_NOTA', 'NOTA_DEBITO'
         if 'NOTA DE CREDITO' in ref: return 'NOTA_CREDITO', 'GRUPO_NOTA', 'NOTA_CREDITO'
         return 'OTRO', 'OTRO', ref_lit_norm
@@ -254,13 +254,35 @@ def normalizar_referencia_fondos_usd(df):
     
 def conciliar_automaticos_usd(df, log_messages):
     total = 0
-    for grupo, etiqueta in [('GRUPO_DIF_CAMBIO', 'AUTOMATICO_DIF_CAMBIO'), ('GRUPO_AJUSTE', 'AUTOMATICO_AJUSTE')]:
+    grupos_a_revisar = [
+        ('GRUPO_DIF_CAMBIO', 'AUTOMATICO_DIF_CAMBIO'), 
+        ('GRUPO_AJUSTE', 'AUTOMATICO_AJUSTE'),
+        ('GRUPO_TARJETA', 'AUTOMATICO_TARJETA') # <--- NUEVO
+    ]
+    
+    for grupo, etiqueta in grupos_a_revisar:
+        # Filtramos los movimientos de ese grupo que no estén conciliados
         indices = df.loc[(df['Clave_Grupo'] == grupo) & (~df['Conciliado'])].index
+        
         if not indices.empty:
-            df.loc[indices, ['Conciliado', 'Grupo_Conciliado']] = [True, etiqueta]
-            log_messages.append(f"✔️ Fase Auto (USD): {len(indices)} conciliados por ser '{etiqueta}'.")
-            total += len(indices)
-    return total
+            # Verificamos si la suma total del grupo es Cero
+            suma_grupo = df.loc[indices, 'Monto_USD'].sum()
+            
+            if abs(suma_grupo) <= TOLERANCIA_MAX_USD:
+                df.loc[indices, ['Conciliado', 'Grupo_Conciliado']] = [True, etiqueta]
+                log_messages.append(f"✔️ Fase Auto (USD): {len(indices)} conciliados por ser '{etiqueta}'.")
+                total += len(indices)
+            else:
+                # Si no suman cero todos juntos, intentamos agrupar por la referencia literal forzada
+                # Esto ayuda si hay varios meses de tarjetas en el mismo archivo
+                subgrupos = df.loc[indices].groupby('Referencia_Normalizada_Literal')
+                for ref_lit, subgrupo in subgrupos:
+                    if abs(subgrupo['Monto_USD'].sum()) <= TOLERANCIA_MAX_USD:
+                         df.loc[subgrupo.index, ['Conciliado', 'Grupo_Conciliado']] = [True, f"{etiqueta}_{ref_lit}"]
+                         total += len(subgrupo.index)
+                         log_messages.append(f"✔️ Fase Auto (USD): {len(subgrupo)} conciliados en '{etiqueta}' (Subgrupo).")
+
+    return totall
 
 def conciliar_grupos_por_referencia_usd(df, log_messages):
     log_messages.append("\n--- FASE GRUPOS POR REFERENCIA EXACTA (USD) ---")
