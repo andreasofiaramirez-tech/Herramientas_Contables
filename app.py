@@ -169,7 +169,7 @@ ESTRATEGIAS = {
         "funcion_principal": run_conciliation_otras_cxp,
         "label_actual": "Movimientos del mes (Otras CxP)",
         "label_anterior": "Saldos anteriores (Otras CxP)",
-        "columnas_reporte": ['NIT', 'Descripcion NIT', 'Fecha', 'Referencia', 'Monto Bolivar'],
+        "columnas_reporte": ['NIT', 'Descripcion NIT', 'Fecha', 'Referencia', 'Numero_Envio', 'Monto Bolivar'],
         "nombre_hoja_excel": "212.05.1019",
         "columnas_requeridas": ['Asiento', 'Fuente', 'Fecha', 'Referencia', 'Nit', 'Descripcion NIT', 'Debito Bolivar', 'Credito Bolivar']
     }
