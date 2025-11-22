@@ -7,6 +7,10 @@ import xlsxwriter
 from io import BytesIO
 import streamlit as st
 
+# ==============================================================================
+# 1. FUNCIONES AUXILIARES Y DE LIMPIEZA
+# ==============================================================================
+
 def get_col_idx(df, possible_names):
     """
     Helper para encontrar el índice numérico de una columna en un DataFrame,
@@ -125,289 +129,6 @@ def cargar_y_limpiar_datos(uploaded_actual, uploaded_anterior, log_messages):
     return df_full
     
 @st.cache_data
-def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrategia_actual, casa_seleccionada, cuenta_seleccionada):
-    output_excel = BytesIO()
-    with pd.ExcelWriter(output_excel, engine='xlsxwriter') as writer:
-        workbook = writer.book
-
-        # --- Formatos ---
-        formato_encabezado_empresa = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'font_size': 14})
-        formato_encabezado_sub = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'font_size': 11})
-        formato_header_tabla = workbook.add_format({'bold': True, 'text_wrap': True, 'valign': 'top', 'fg_color': '#D9EAD3', 'border': 1, 'align': 'center'})
-        formato_bs = workbook.add_format({'num_format': '#,##0.00'})
-        formato_usd = workbook.add_format({'num_format': '$#,##0.00'})
-        formato_tasa = workbook.add_format({'num_format': '#,##0.0000'})
-        formato_total_label = workbook.add_format({'bold': True, 'align': 'right', 'top': 2})
-        formato_total_usd = workbook.add_format({'bold': True, 'num_format': '$#,##0.00', 'top': 2, 'bottom': 1})
-        formato_total_bs = workbook.add_format({'bold': True, 'num_format': '#,##0.00', 'top': 2, 'bottom': 1})
-        formato_proveedor_header = workbook.add_format({'bold': True, 'fg_color': '#F2F2F2', 'border': 1})
-        formato_subtotal_label = workbook.add_format({'bold': True, 'align': 'right', 'top': 1})
-        formato_subtotal_usd = workbook.add_format({'bold': True, 'num_format': '$#,##0.00', 'top': 1})
-        formato_subtotal_bs = workbook.add_format({'bold': True, 'num_format': '#,##0.00', 'top': 1})
-        date_format = workbook.add_format({'num_format': 'dd/mm/yyyy'})
-
-        # --- HOJA 1: SALDOS ABIERTOS (PENDIENTES) ---
-        fecha_maxima = _df_full['Fecha'].dropna().max()
-        if pd.notna(fecha_maxima):
-            ultimo_dia_mes = fecha_maxima + pd.offsets.MonthEnd(0)
-            meses_es = {1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio", 7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"}
-            texto_fecha_encabezado = f"PARA EL {ultimo_dia_mes.day} DE {meses_es[ultimo_dia_mes.month].upper()} DE {ultimo_dia_mes.year}"
-        else:
-            texto_fecha_encabezado = "FECHA NO DISPONIBLE"
-
-        nombre_hoja_pendientes = _estrategia_actual.get("nombre_hoja_excel", "Pendientes")
-        worksheet_pendientes = workbook.add_worksheet(nombre_hoja_pendientes)
-        
-        columnas_reporte = _estrategia_actual["columnas_reporte"]
-        num_cols = len(columnas_reporte)
-
-        if num_cols > 0:
-            worksheet_pendientes.merge_range(0, 0, 0, num_cols - 1, casa_seleccionada, formato_encabezado_empresa)
-            worksheet_pendientes.merge_range(1, 0, 1, num_cols - 1, f"ESPECIFICACION DE LA CUENTA {_estrategia_actual['nombre_hoja_excel']}", formato_encabezado_sub)
-            worksheet_pendientes.merge_range(2, 0, 2, num_cols - 1, texto_fecha_encabezado, formato_encabezado_sub)
-        
-        worksheet_pendientes.write_row(4, 0, columnas_reporte, formato_header_tabla)
-        
-        current_row = 5
-        
-        if not df_saldos_abiertos.empty:
-            df_pendientes_prep = df_saldos_abiertos.copy()
-            df_pendientes_prep['Monto Dólar'] = pd.to_numeric(df_pendientes_prep.get('Monto_USD'), errors='coerce').fillna(0)
-            df_pendientes_prep['Bs.'] = pd.to_numeric(df_pendientes_prep.get('Monto_BS'), errors='coerce').fillna(0)
-            df_pendientes_prep['Monto Bolivar'] = df_pendientes_prep['Bs.']
-            df_pendientes_prep['Tasa'] = np.where(df_pendientes_prep['Monto Dólar'].abs() != 0, df_pendientes_prep['Bs.'].abs() / df_pendientes_prep['Monto Dólar'].abs(), 0)
-            
-            df_pendientes_prep = df_pendientes_prep.sort_values(by=['NIT', 'Fecha'])
-            
-            for nit, grupo_cliente in df_pendientes_prep.groupby('NIT'):
-                for _, movimiento in grupo_cliente.iterrows():
-                    for col_idx, col_name in enumerate(columnas_reporte):
-                        cell_value = movimiento.get(col_name)
-                        if col_name == 'Fecha' and pd.notna(cell_value):
-                            worksheet_pendientes.write_datetime(current_row, col_idx, cell_value, date_format)
-                        elif col_name in ['Monto Dólar', 'Bs.', 'Tasa', 'Monto Bolivar']:
-                            fmt = formato_usd if col_name == 'Monto Dólar' else formato_bs if col_name in ['Bs.', 'Monto Bolivar'] else formato_tasa
-                            worksheet_pendientes.write_number(current_row, col_idx, cell_value if pd.notna(cell_value) else 0, fmt)
-                        else:
-                            worksheet_pendientes.write(current_row, col_idx, cell_value if pd.notna(cell_value) else '')
-                    current_row += 1
-                
-                subtotal_usd = grupo_cliente['Monto Dólar'].sum()
-                subtotal_bs = grupo_cliente['Bs.'].sum()
-                
-                try:
-                    usd_col_idx = columnas_reporte.index('Monto Dólar') if 'Monto Dólar' in columnas_reporte else -1
-                    bs_col_idx = columnas_reporte.index('Bs.') if 'Bs.' in columnas_reporte else columnas_reporte.index('Monto Bolivar')
-                    label_col_idx = (usd_col_idx if usd_col_idx != -1 else bs_col_idx) - 1
-                    nombre_cliente = grupo_cliente['Descripcion NIT'].iloc[0] if not grupo_cliente.empty else ''
-                    
-                    if label_col_idx >= 0:
-                        worksheet_pendientes.write(current_row, label_col_idx, f"Subtotal {nombre_cliente}", formato_subtotal_label)
-                    if usd_col_idx != -1:
-                        worksheet_pendientes.write_number(current_row, usd_col_idx, subtotal_usd, formato_subtotal_usd)
-                    worksheet_pendientes.write_number(current_row, bs_col_idx, subtotal_bs, formato_subtotal_bs)
-                except (ValueError, IndexError):
-                    pass
-                current_row += 2
-
-            total_usd = df_pendientes_prep['Monto Dólar'].sum()
-            total_bs = df_pendientes_prep['Bs.'].sum()
-            try:
-                usd_col_idx = columnas_reporte.index('Monto Dólar') if 'Monto Dólar' in columnas_reporte else -1
-                bs_col_idx = columnas_reporte.index('Bs.') if 'Bs.' in columnas_reporte else columnas_reporte.index('Monto Bolivar')
-                label_col_idx = (usd_col_idx if usd_col_idx != -1 else bs_col_idx) - 1
-                if label_col_idx >= 0:
-                    worksheet_pendientes.write(current_row, label_col_idx, "GRAN TOTAL", formato_total_label)
-                if usd_col_idx != -1:
-                    worksheet_pendientes.write_number(current_row, usd_col_idx, total_usd, formato_total_usd)
-                worksheet_pendientes.write_number(current_row, bs_col_idx, total_bs, formato_total_bs)
-            except (ValueError, IndexError):
-                pass
-        
-        # --- CÓDIGO FINAL PARA AJUSTAR ANCHOS DE COLUMNA ---
-        worksheet_pendientes.set_column('A:A', 15)
-        worksheet_pendientes.set_column('B:B', 45)
-        worksheet_pendientes.set_column('C:C', 12)
-        worksheet_pendientes.set_column('D:D', 15)
-        worksheet_pendientes.set_column('E:E', 40)
-        worksheet_pendientes.set_column('F:F', 30)
-        worksheet_pendientes.set_column('G:G', 18)
-        worksheet_pendientes.set_column('H:H', 18)
-        worksheet_pendientes.set_column('I:I', 15)
-                
-        # --- HOJA 2: MOVIMIENTOS CONCILIADOS ---
-        if not df_conciliados.empty:
-            worksheet_conciliados = workbook.add_worksheet("Conciliacion")
-            
-            if _estrategia_actual['id'] in ['fondos_transito', 'fondos_depositar', 'cuentas_viajes', 'deudores_empleados_me']:
-                df_reporte_conciliados_final = df_conciliados.copy()
-                df_reporte_conciliados_final['Débitos Dólares'] = df_reporte_conciliados_final['Monto_USD'].apply(lambda x: x if x > 0 else 0)
-                df_reporte_conciliados_final['Créditos Dólares'] = df_reporte_conciliados_final['Monto_USD'].apply(lambda x: x if x < 0 else 0)
-                df_reporte_conciliados_final['Débitos Bs'] = df_reporte_conciliados_final['Monto_BS'].apply(lambda x: x if x > 0 else 0)
-                df_reporte_conciliados_final['Créditos Bs'] = df_reporte_conciliados_final['Monto_BS'].apply(lambda x: x if x < 0 else 0)
-                df_reporte_conciliados_final['Grupo de Conciliación'] = df_reporte_conciliados_final['Grupo_Conciliado']
-                
-                columnas_conciliacion = ['Fecha', 'Asiento', 'Referencia', 'Débitos Dólares', 'Créditos Dólares', 'Débitos Bs', 'Créditos Bs', 'Grupo de Conciliación']
-                df_reporte_conciliados_final = df_reporte_conciliados_final[columnas_conciliacion].sort_values(by=['Grupo de Conciliación', 'Fecha'])
-                df_reporte_conciliados_final['Fecha'] = pd.to_datetime(df_reporte_conciliados_final['Fecha'], errors='coerce').dt.strftime('%d/%m/%Y').fillna('')
-                
-                worksheet_conciliados.merge_range(0, 0, 0, len(columnas_conciliacion) - 1, 'Detalle de Movimientos Conciliados', formato_encabezado_sub)
-                for col_num, value in enumerate(df_reporte_conciliados_final.columns.values):
-                    worksheet_conciliados.write(1, col_num, value, formato_header_tabla)
-
-                deb_usd_idx, cre_usd_idx = get_col_idx(df_reporte_conciliados_final, ['Débitos Dólares']), get_col_idx(df_reporte_conciliados_final, ['Créditos Dólares'])
-                deb_bs_idx, cre_bs_idx = get_col_idx(df_reporte_conciliados_final, ['Débitos Bs']), get_col_idx(df_reporte_conciliados_final, ['Créditos Bs'])
-
-                for r_idx, row in enumerate(df_reporte_conciliados_final.itertuples(index=False), start=2):
-                    for c_idx, value in enumerate(row):
-                        fmt = formato_usd if c_idx in [deb_usd_idx, cre_usd_idx] else formato_bs if c_idx in [deb_bs_idx, cre_bs_idx] else None
-                        if fmt: worksheet_conciliados.write_number(r_idx, c_idx, value, fmt)
-                        else: worksheet_conciliados.write(r_idx, c_idx, value)
-                
-                worksheet_conciliados.set_column('A:A', 12); worksheet_conciliados.set_column('B:B', 15); worksheet_conciliados.set_column('C:C', 30)
-                worksheet_conciliados.set_column('D:G', 18); worksheet_conciliados.set_column('H:H', 40)
-                worksheet_conciliados.freeze_panes(2, 0)
-
-            elif _estrategia_actual['id'] == 'devoluciones_proveedores':
-                df_conciliados_prep = df_conciliados.rename(columns={'Monto_USD': 'Monto Dólar', 'Monto_BS': 'Monto Bs.', 'Grupo_Conciliado': 'Grupo de Conciliación'})
-                columnas_prov = ['Fecha', 'Asiento', 'Referencia', 'Nombre del Proveedor', 'Monto Dólar', 'Monto Bs.', 'Grupo de Conciliación']
-                df_reporte_conciliados_final = df_conciliados_prep.reindex(columns=columnas_prov).sort_values(by=['Grupo de Conciliación', 'Fecha'])
-                df_reporte_conciliados_final['Fecha'] = pd.to_datetime(df_reporte_conciliados_final['Fecha'], errors='coerce').dt.strftime('%d/%m/%Y').fillna('')
-                
-                worksheet_conciliados.merge_range(0, 0, 0, len(columnas_prov) - 1, 'Detalle de Movimientos Conciliados', formato_encabezado_sub)
-                for col_num, value in enumerate(df_reporte_conciliados_final.columns.values):
-                    worksheet_conciliados.write(1, col_num, value, formato_header_tabla)
-                
-                dolar_idx_conc, bs_idx_conc = get_col_idx(df_reporte_conciliados_final, ['Monto Dólar']), get_col_idx(df_reporte_conciliados_final, ['Monto Bs.'])
-                
-                for r_idx, row in enumerate(df_reporte_conciliados_final.itertuples(index=False), start=2):
-                    for c_idx, value in enumerate(row):
-                        fmt = formato_usd if c_idx == dolar_idx_conc else formato_bs if c_idx == bs_idx_conc else None
-                        if fmt: worksheet_conciliados.write_number(r_idx, c_idx, value, fmt)
-                        else: worksheet_conciliados.write(r_idx, c_idx, value)
-                
-                worksheet_conciliados.set_column('A:A', 12); worksheet_conciliados.set_column('B:B', 15); worksheet_conciliados.set_column('C:C', 30)
-                worksheet_conciliados.set_column('D:D', 40); worksheet_conciliados.set_column('E:G', 18)
-                worksheet_conciliados.freeze_panes(2, 0)
-
-            elif _estrategia_actual['id'] == 'cobros_viajeros':
-                worksheet_conciliados.merge_range('A1:H1', 'Detalle de Movimientos Conciliados por Viajero (NIT)', formato_encabezado_sub)
-                
-                df_conciliados_prep = df_conciliados.copy()
-                df_conciliados_prep['Débitos Dólares'] = df_conciliados_prep['Monto_USD'].apply(lambda x: x if x > 0 else 0)
-                df_conciliados_prep['Créditos Dólares'] = df_conciliados_prep['Monto_USD'].apply(lambda x: abs(x) if x < 0 else 0)
-                
-                df_conciliados_final = df_conciliados_prep.sort_values(by=['NIT', 'Grupo_Conciliado', 'Fecha'])
-                
-                columnas_detalle_viajeros = ['Fecha', 'Asiento', 'Referencia', 'Fuente', 'Débitos Dólares', 'Créditos Dólares']
-                current_row = 2
-
-                for nit, grupo_viajero in df_conciliados_final.groupby('NIT'):
-                    nombre_viajero = grupo_viajero['Descripcion NIT'].iloc[0] if not grupo_viajero.empty else ''
-                    
-                    # Escribir encabezado del viajero/NIT
-                    worksheet_conciliados.merge_range(current_row, 0, current_row, len(columnas_detalle_viajeros) - 1, f"NIT: {nit} - {nombre_viajero}", formato_proveedor_header)
-                    current_row += 1
-                    
-                    # Escribir encabezados de la tabla
-                    worksheet_conciliados.write_row(current_row, 0, columnas_detalle_viajeros, formato_header_tabla)
-                    current_row += 1
-                    
-                    # Escribir filas de datos
-                    for _, movimiento in grupo_viajero.iterrows():
-                        worksheet_conciliados.write_datetime(current_row, 0, movimiento['Fecha'], date_format)
-                        worksheet_conciliados.write(current_row, 1, movimiento['Asiento'])
-                        worksheet_conciliados.write(current_row, 2, movimiento['Referencia'])
-                        worksheet_conciliados.write(current_row, 3, movimiento['Fuente'])
-                        worksheet_conciliados.write_number(current_row, 4, movimiento['Débitos Dólares'], formato_usd)
-                        worksheet_conciliados.write_number(current_row, 5, movimiento['Créditos Dólares'], formato_usd)
-                        current_row += 1
-                    
-                    # Escribir fila de subtotal
-                    subtotal_deb = grupo_viajero['Débitos Dólares'].sum()
-                    subtotal_cre = grupo_viajero['Créditos Dólares'].sum()
-                    worksheet_conciliados.write(current_row, 3, "Subtotal NIT", formato_subtotal_label)
-                    worksheet_conciliados.write_number(current_row, 4, subtotal_deb, formato_subtotal_usd)
-                    worksheet_conciliados.write_number(current_row, 5, subtotal_cre, formato_subtotal_usd)
-                    current_row += 2 # Espacio entre grupos
-
-                worksheet_conciliados.set_column('A:A', 12); worksheet_conciliados.set_column('B:B', 15)
-                worksheet_conciliados.set_column('C:D', 30); worksheet_conciliados.set_column('E:F', 18)
-
-            elif _estrategia_actual['id'] == 'otras_cuentas_por_pagar':
-                worksheet_conciliados.merge_range('A1:D1', 'Detalle de Movimientos Conciliados por Proveedor y Envío', formato_encabezado_sub)
-                
-                df_conciliados_prep = df_conciliados.copy()
-                df_conciliados_prep['Monto Bs.'] = df_conciliados_prep['Monto_BS']
-                
-                df_conciliados_final = df_conciliados_prep.sort_values(by=['NIT', 'Numero_Envio', 'Fecha'])
-                
-                columnas_detalle_cxp = ['Fecha', 'Descripcion NIT', 'Numero_Envio', 'Monto Bs.']
-                current_row = 2
-
-                for nit, grupo_proveedor in df_conciliados_final.groupby('NIT'):
-                    nombre_proveedor = grupo_proveedor['Descripcion NIT'].iloc[0] if not grupo_proveedor.empty else ''
-                    
-                    worksheet_conciliados.merge_range(current_row, 0, current_row, len(columnas_detalle_cxp) - 1, f"Proveedor: {nombre_proveedor} (NIT: {nit})", formato_proveedor_header)
-                    current_row += 1
-                    
-                    worksheet_conciliados.write_row(current_row, 0, columnas_detalle_cxp, formato_header_tabla)
-                    current_row += 1
-                    
-                    for _, movimiento in grupo_proveedor.iterrows():
-                        ws_date = pd.to_datetime(movimiento.get('Fecha'), errors='coerce')
-                        worksheet_conciliados.write_datetime(current_row, 0, ws_date, date_format)
-                        worksheet_conciliados.write(current_row, 1, movimiento.get('Descripcion NIT', ''))
-                        worksheet_conciliados.write(current_row, 2, movimiento.get('Numero_Envio', ''))
-                        worksheet_conciliados.write_number(current_row, 3, movimiento.get('Monto Bs.', 0), formato_bs)
-                        current_row += 1
-                    
-                    subtotal_bs = grupo_proveedor['Monto Bs.'].sum()
-                    worksheet_conciliados.write(current_row, 2, "Subtotal Proveedor", formato_subtotal_label)
-                    worksheet_conciliados.write_number(current_row, 3, subtotal_bs, formato_subtotal_bs)
-                    current_row += 2
-
-                worksheet_conciliados.set_column('A:A', 12)
-                worksheet_conciliados.set_column('B:B', 40)
-                worksheet_conciliados.set_column('C:C', 18)
-                worksheet_conciliados.set_column('D:D', 18)
-
-        if _estrategia_actual['id'] == 'devoluciones_proveedores' and not df_saldos_abiertos.empty:
-            worksheet_prov = workbook.add_worksheet("Resumen por Proveedor")
-            
-            worksheet_prov.merge_range('A1:E1', 'Detalle de Saldos Abiertos por Proveedor', formato_encabezado_sub)
-            columnas_detalle_prov = ['Fecha', 'Fuente', 'Referencia', 'Monto USD', 'Monto Bs']
-            worksheet_prov.write_row(2, 0, columnas_detalle_prov, formato_header_tabla)
-            
-            df_saldos_abiertos_sorted = df_saldos_abiertos.sort_values(by=['Nombre del Proveedor', 'Fecha'])
-            
-            current_row = 3 
-            for proveedor, grupo in df_saldos_abiertos_sorted.groupby('Nombre del Proveedor'):
-                if not grupo.empty:
-                    worksheet_prov.merge_range(current_row, 0, current_row, 4, f"Proveedor: {proveedor}", formato_proveedor_header)
-                    current_row += 1
-                    
-                    for _, movimiento in grupo.iterrows():
-                        worksheet_prov.write(current_row, 0, pd.to_datetime(movimiento['Fecha']).strftime('%d/%m/%Y'))
-                        worksheet_prov.write(current_row, 1, movimiento['Fuente'])
-                        worksheet_prov.write(current_row, 2, movimiento['Referencia'])
-                        worksheet_prov.write_number(current_row, 3, movimiento['Monto_USD'], formato_usd)
-                        worksheet_prov.write_number(current_row, 4, movimiento['Monto_BS'], formato_bs)
-                        current_row += 1
-                    
-                    subtotal_usd, subtotal_bs = grupo['Monto_USD'].sum(), grupo['Monto_BS'].sum()
-                    worksheet_prov.write(current_row, 2, f"Subtotal {proveedor}", formato_subtotal_label)
-                    worksheet_prov.write_number(current_row, 3, subtotal_usd, formato_subtotal_usd)
-                    worksheet_prov.write_number(current_row, 4, subtotal_bs, formato_subtotal_bs)
-                    current_row += 2
-            
-            worksheet_prov.set_column('A:A', 12); worksheet_prov.set_column('B:B', 20); worksheet_prov.set_column('C:C', 40)
-            worksheet_prov.set_column('D:E', 18)
-            worksheet_prov.freeze_panes(3, 0)
-            
-    return output_excel.getvalue()
-    
-@st.cache_data
 def generar_csv_saldos_abiertos(df_saldos_abiertos):
     """
     Genera el archivo CSV con los saldos pendientes para el próximo ciclo de conciliación.
@@ -425,7 +146,272 @@ def generar_csv_saldos_abiertos(df_saldos_abiertos):
     return df_saldos_a_exportar.to_csv(index=False, sep=';', encoding='utf-8-sig').encode('utf-8-sig')
 
 # ==============================================================================
-# REPORTE PARA LA HERRAMIENTA DE RETENCIONES
+# 2. LOGICA MODULAR PARA REPORTES EXCEL
+# ==============================================================================
+
+def _crear_formatos(workbook):
+    """Centraliza la creación de estilos para el Excel."""
+    return {
+        'encabezado_empresa': workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'font_size': 14}),
+        'encabezado_sub': workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'font_size': 11}),
+        'header_tabla': workbook.add_format({'bold': True, 'text_wrap': True, 'valign': 'top', 'fg_color': '#D9EAD3', 'border': 1, 'align': 'center'}),
+        'bs': workbook.add_format({'num_format': '#,##0.00'}),
+        'usd': workbook.add_format({'num_format': '$#,##0.00'}),
+        'tasa': workbook.add_format({'num_format': '#,##0.0000'}),
+        'fecha': workbook.add_format({'num_format': 'dd/mm/yyyy'}),
+        'total_label': workbook.add_format({'bold': True, 'align': 'right', 'top': 2}),
+        'total_usd': workbook.add_format({'bold': True, 'num_format': '$#,##0.00', 'top': 2, 'bottom': 1}),
+        'total_bs': workbook.add_format({'bold': True, 'num_format': '#,##0.00', 'top': 2, 'bottom': 1}),
+        'proveedor_header': workbook.add_format({'bold': True, 'fg_color': '#F2F2F2', 'border': 1}),
+        'subtotal_label': workbook.add_format({'bold': True, 'align': 'right', 'top': 1}),
+        'subtotal_usd': workbook.add_format({'bold': True, 'num_format': '$#,##0.00', 'top': 1}),
+        'subtotal_bs': workbook.add_format({'bold': True, 'num_format': '#,##0.00', 'top': 1})
+    }
+
+def _generar_hoja_pendientes(workbook, formatos, df_saldos, estrategia, casa, fecha_maxima):
+    """Genera la hoja de 'Pendientes' o 'Saldos Abiertos'."""
+    nombre_hoja = estrategia.get("nombre_hoja_excel", "Pendientes")
+    ws = workbook.add_worksheet(nombre_hoja)
+    cols = estrategia["columnas_reporte"]
+    
+    # Encabezados
+    if pd.notna(fecha_maxima):
+        ultimo_dia = fecha_maxima + pd.offsets.MonthEnd(0)
+        meses = {1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio", 7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"}
+        txt_fecha = f"PARA EL {ultimo_dia.day} DE {meses[ultimo_dia.month].upper()} DE {ultimo_dia.year}"
+    else:
+        txt_fecha = "FECHA NO DISPONIBLE"
+
+    if cols:
+        ws.merge_range(0, 0, 0, len(cols)-1, casa, formatos['encabezado_empresa'])
+        ws.merge_range(1, 0, 1, len(cols)-1, f"ESPECIFICACION DE LA CUENTA {estrategia['nombre_hoja_excel']}", formatos['encabezado_sub'])
+        ws.merge_range(2, 0, 2, len(cols)-1, txt_fecha, formatos['encabezado_sub'])
+        ws.write_row(4, 0, cols, formatos['header_tabla'])
+
+    if df_saldos.empty: return
+
+    # Preparar datos
+    df = df_saldos.copy()
+    df['Monto Dólar'] = pd.to_numeric(df.get('Monto_USD'), errors='coerce').fillna(0)
+    df['Bs.'] = pd.to_numeric(df.get('Monto_BS'), errors='coerce').fillna(0)
+    df['Monto Bolivar'] = df['Bs.'] # Alias
+    df['Tasa'] = np.where(df['Monto Dólar'].abs() != 0, df['Bs.'].abs() / df['Monto Dólar'].abs(), 0)
+    df = df.sort_values(by=['NIT', 'Fecha'])
+
+    current_row = 5
+    # Indices para totales
+    usd_idx = get_col_idx(pd.DataFrame(columns=cols), ['Monto Dólar', 'Monto USD'])
+    bs_idx = get_col_idx(pd.DataFrame(columns=cols), ['Bs.', 'Monto Bolivar', 'Monto Bs'])
+    
+    # Escritura agrupada por NIT
+    for nit, grupo in df.groupby('NIT'):
+        for _, row in grupo.iterrows():
+            for c_idx, col_name in enumerate(cols):
+                val = row.get(col_name)
+                if col_name == 'Fecha' and pd.notna(val): ws.write_datetime(current_row, c_idx, val, formatos['fecha'])
+                elif col_name in ['Monto Dólar', 'Monto USD']: ws.write_number(current_row, c_idx, val or 0, formatos['usd'])
+                elif col_name in ['Bs.', 'Monto Bolivar', 'Monto Bs']: ws.write_number(current_row, c_idx, val or 0, formatos['bs'])
+                elif col_name == 'Tasa': ws.write_number(current_row, c_idx, val or 0, formatos['tasa'])
+                else: ws.write(current_row, c_idx, val if pd.notna(val) else '')
+            current_row += 1
+        
+        # Subtotales
+        lbl_idx = max(0, (usd_idx if usd_idx != -1 else bs_idx) - 1)
+        nombre = grupo['Descripcion NIT'].iloc[0] if not grupo.empty and 'Descripcion NIT' in grupo else ''
+        ws.write(current_row, lbl_idx, f"Subtotal {nombre}", formatos['subtotal_label'])
+        if usd_idx != -1: ws.write_number(current_row, usd_idx, grupo['Monto Dólar'].sum(), formatos['subtotal_usd'])
+        if bs_idx != -1: ws.write_number(current_row, bs_idx, grupo['Bs.'].sum(), formatos['subtotal_bs'])
+        current_row += 2
+
+    # Gran Total
+    current_row += 1
+    lbl_idx = max(0, (usd_idx if usd_idx != -1 else bs_idx) - 1)
+    ws.write(current_row, lbl_idx, "GRAN TOTAL", formatos['total_label'])
+    if usd_idx != -1: ws.write_number(current_row, usd_idx, df['Monto Dólar'].sum(), formatos['total_usd'])
+    if bs_idx != -1: ws.write_number(current_row, bs_idx, df['Bs.'].sum(), formatos['total_bs'])
+
+    # Ajuste columnas
+    ws.set_column('A:B', 15); ws.set_column('B:C', 40); ws.set_column('D:H', 18)
+
+def _generar_hoja_conciliados_estandar(workbook, formatos, df_conciliados, estrategia):
+    """Para cuentas: Tránsito, Depositar, Viajes, Devoluciones, Deudores."""
+    ws = workbook.add_worksheet("Conciliacion")
+    
+    # Preparar DataFrame
+    df = df_conciliados.copy()
+    
+    # Caso especial nombres de columnas para Devoluciones
+    es_devolucion = estrategia['id'] == 'devoluciones_proveedores'
+    
+    if es_devolucion:
+        columnas = ['Fecha', 'Asiento', 'Referencia', 'Nombre del Proveedor', 'Monto Dólar', 'Monto Bs.', 'Grupo de Conciliación']
+        df['Monto Dólar'] = df['Monto_USD']
+        df['Monto Bs.'] = df['Monto_BS']
+        df['Grupo de Conciliación'] = df['Grupo_Conciliado']
+    else:
+        # Estándar
+        columnas = ['Fecha', 'Asiento', 'Referencia', 'Débitos Dólares', 'Créditos Dólares', 'Débitos Bs', 'Créditos Bs', 'Grupo de Conciliación']
+        df['Débitos Dólares'] = df['Monto_USD'].apply(lambda x: x if x > 0 else 0)
+        df['Créditos Dólares'] = df['Monto_USD'].apply(lambda x: x if x < 0 else 0)
+        df['Débitos Bs'] = df['Monto_BS'].apply(lambda x: x if x > 0 else 0)
+        df['Créditos Bs'] = df['Monto_BS'].apply(lambda x: x if x < 0 else 0)
+        df['Grupo de Conciliación'] = df['Grupo_Conciliado']
+    
+    df = df.reindex(columns=columnas).sort_values(by=['Grupo de Conciliación', 'Fecha'])
+    
+    # Escribir
+    ws.merge_range(0, 0, 0, len(columnas)-1, 'Detalle de Movimientos Conciliados', formatos['encabezado_sub'])
+    ws.write_row(1, 0, columnas, formatos['header_tabla'])
+    
+    # Indices
+    deb_usd_idx = get_col_idx(df, ['Débitos Dólares', 'Monto Dólar'])
+    cre_usd_idx = get_col_idx(df, ['Créditos Dólares']) # Puede no existir en devoluciones
+    deb_bs_idx = get_col_idx(df, ['Débitos Bs', 'Monto Bs.'])
+    cre_bs_idx = get_col_idx(df, ['Créditos Bs'])
+
+    current_row = 2
+    for _, row in df.iterrows():
+        for c_idx, val in enumerate(row):
+            if c_idx in [deb_usd_idx, cre_usd_idx]: ws.write_number(current_row, c_idx, val, formatos['usd'])
+            elif c_idx in [deb_bs_idx, cre_bs_idx]: ws.write_number(current_row, c_idx, val, formatos['bs'])
+            elif pd.isna(val): ws.write(current_row, c_idx, '')
+            elif isinstance(val, pd.Timestamp): ws.write_datetime(current_row, c_idx, val, formatos['fecha'])
+            else: ws.write(current_row, c_idx, val)
+        current_row += 1
+    
+    # Gran Total
+    ws.write(current_row, 2, "GRAN TOTAL", formatos['total_label'])
+    if deb_usd_idx != -1: ws.write_number(current_row, deb_usd_idx, df.iloc[:, deb_usd_idx].sum(), formatos['total_usd'])
+    if cre_usd_idx != -1: ws.write_number(current_row, cre_usd_idx, df.iloc[:, cre_usd_idx].sum(), formatos['total_usd'])
+    if deb_bs_idx != -1: ws.write_number(current_row, deb_bs_idx, df.iloc[:, deb_bs_idx].sum(), formatos['total_bs'])
+    if cre_bs_idx != -1: ws.write_number(current_row, cre_bs_idx, df.iloc[:, cre_bs_idx].sum(), formatos['total_bs'])
+    
+    ws.set_column('A:H', 18)
+
+def _generar_hoja_conciliados_agrupada(workbook, formatos, df_conciliados, estrategia):
+    """Para cuentas agrupadas: Cobros Viajeros, Otras CxP."""
+    ws = workbook.add_worksheet("Conciliacion")
+    df = df_conciliados.copy()
+    
+    if estrategia['id'] == 'cobros_viajeros':
+        df['Débitos Dólares'] = df['Monto_USD'].apply(lambda x: x if x > 0 else 0)
+        df['Créditos Dólares'] = df['Monto_USD'].apply(lambda x: abs(x) if x < 0 else 0) # Ojo: Abs para visualización si se desea
+        columnas = ['Fecha', 'Asiento', 'Referencia', 'Fuente', 'Débitos Dólares', 'Créditos Dólares']
+        df = df.sort_values(by=['NIT', 'Grupo_Conciliado', 'Fecha'])
+        cols_sum = ['Débitos Dólares', 'Créditos Dólares']
+        titulo = 'Detalle de Movimientos Conciliados por Viajero (NIT)'
+    else: # Otras CxP
+        df['Monto Bs.'] = df['Monto_BS']
+        columnas = ['Fecha', 'Descripcion NIT', 'Numero_Envio', 'Monto Bs.']
+        df = df.sort_values(by=['NIT', 'Numero_Envio', 'Fecha'])
+        cols_sum = ['Monto Bs.']
+        titulo = 'Detalle de Movimientos Conciliados por Proveedor y Envío'
+
+    ws.merge_range(0, 0, 0, len(columnas)+1, titulo, formatos['encabezado_sub'])
+    current_row = 2
+    
+    # Iterar por NIT
+    grand_totals = {c: 0.0 for c in cols_sum}
+    
+    for nit, grupo in df.groupby('NIT'):
+        nombre = grupo['Descripcion NIT'].iloc[0] if not grupo.empty and 'Descripcion NIT' in grupo else ''
+        ws.merge_range(current_row, 0, current_row, len(columnas)-1, f"NIT: {nit} - {nombre}", formatos['proveedor_header'])
+        current_row += 1
+        ws.write_row(current_row, 0, columnas, formatos['header_tabla'])
+        current_row += 1
+        
+        for _, row in grupo.iterrows():
+            for c_idx, col_name in enumerate(columnas):
+                val = row.get(col_name)
+                if col_name == 'Fecha' and pd.notna(val): ws.write_datetime(current_row, c_idx, val, formatos['fecha'])
+                elif col_name in ['Débitos Dólares', 'Créditos Dólares']: ws.write_number(current_row, c_idx, val, formatos['usd'])
+                elif col_name in ['Monto Bs.']: ws.write_number(current_row, c_idx, val, formatos['bs'])
+                else: ws.write(current_row, c_idx, val if pd.notna(val) else '')
+            current_row += 1
+        
+        # Subtotal
+        lbl_col = len(columnas) - len(cols_sum) - 1
+        ws.write(current_row, lbl_col, "Subtotal", formatos['subtotal_label'])
+        for i, c_sum in enumerate(cols_sum):
+            suma = grupo[c_sum].sum()
+            grand_totals[c_sum] += suma
+            fmt = formatos['subtotal_usd'] if 'Dólares' in c_sum else formatos['subtotal_bs']
+            ws.write_number(current_row, lbl_col + 1 + i, suma, fmt)
+        current_row += 2
+
+    # Gran Total
+    lbl_col = len(columnas) - len(cols_sum) - 1
+    ws.write(current_row, lbl_col, "GRAN TOTAL GENERAL", formatos['total_label'])
+    for i, c_sum in enumerate(cols_sum):
+        fmt = formatos['total_usd'] if 'Dólares' in c_sum else formatos['total_bs']
+        ws.write_number(current_row, lbl_col + 1 + i, grand_totals[c_sum], fmt)
+        
+    ws.set_column('A:F', 20)
+
+def _generar_hoja_resumen_devoluciones(workbook, formatos, df_saldos):
+    """Hoja extra específica para Devoluciones a Proveedores."""
+    ws = workbook.add_worksheet("Resumen por Proveedor")
+    cols = ['Fecha', 'Fuente', 'Referencia', 'Monto USD', 'Monto Bs']
+    ws.merge_range('A1:E1', 'Detalle de Saldos Abiertos por Proveedor', formatos['encabezado_sub'])
+    ws.write_row(2, 0, cols, formatos['header_tabla'])
+    
+    df = df_saldos.sort_values(by=['Nombre del Proveedor', 'Fecha'])
+    current_row = 3
+    
+    for prov, grupo in df.groupby('Nombre del Proveedor'):
+        ws.merge_range(current_row, 0, current_row, 4, f"Proveedor: {prov}", formatos['proveedor_header'])
+        current_row += 1
+        for _, row in grupo.iterrows():
+            ws.write_datetime(current_row, 0, row['Fecha'], formatos['fecha'])
+            ws.write(current_row, 1, row.get('Fuente', ''))
+            ws.write(current_row, 2, row.get('Referencia', ''))
+            ws.write_number(current_row, 3, row.get('Monto_USD', 0), formatos['usd'])
+            ws.write_number(current_row, 4, row.get('Monto_BS', 0), formatos['bs'])
+            current_row += 1
+        
+        ws.write(current_row, 2, f"Subtotal {prov}", formatos['subtotal_label'])
+        ws.write_number(current_row, 3, grupo['Monto_USD'].sum(), formatos['subtotal_usd'])
+        ws.write_number(current_row, 4, grupo['Monto_BS'].sum(), formatos['subtotal_bs'])
+        current_row += 2
+    ws.set_column('A:E', 18)
+
+# ==============================================================================
+# 3. FUNCIÓN PRINCIPAL (CONTROLADOR)
+# ==============================================================================
+
+@st.cache_data
+def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, estrategia, casa_seleccionada, cuenta_seleccionada):
+    """Controlador principal que orquesta la creación del Excel."""
+    output_excel = BytesIO()
+    
+    with pd.ExcelWriter(output_excel, engine='xlsxwriter') as writer:
+        workbook = writer.book
+        formatos = _crear_formatos(workbook)
+        
+        # 1. Generar Hoja de Pendientes (Común para todos)
+        fecha_max = _df_full['Fecha'].dropna().max()
+        _generar_hoja_pendientes(workbook, formatos, df_saldos_abiertos, estrategia, casa_seleccionada, fecha_max)
+        
+        # 2. Generar Hoja de Conciliados (Según estilo)
+        if not df_conciliados.empty:
+            # Lista de cuentas que usan el estilo agrupado por NIT
+            cuentas_agrupadas = ['cobros_viajeros', 'otras_cuentas_por_pagar']
+            
+            if estrategia['id'] in cuentas_agrupadas:
+                _generar_hoja_conciliados_agrupada(workbook, formatos, df_conciliados, estrategia)
+            else:
+                # Todas las demás usan el estilo estándar (lista plana)
+                _generar_hoja_conciliados_estandar(workbook, formatos, df_conciliados, estrategia)
+
+        # 3. Generar Hoja Extra (Solo para Devoluciones)
+        if estrategia['id'] == 'devoluciones_proveedores' and not df_saldos_abiertos.empty:
+            _generar_hoja_resumen_devoluciones(workbook, formatos, df_saldos_abiertos)
+
+    return output_excel.getvalue()
+
+
+# ==============================================================================
+# 4. REPORTE PARA LA HERRAMIENTA DE RETENCIONES
 # ==============================================================================
 
 def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_map):
@@ -577,7 +563,7 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
     return output_buffer.getvalue()
 
 # ==============================================================================
-# FUNCIÓN DE REPORTE PARA ANÁLISIS DE PAQUETE CC
+# 5. REPORTE PARA ANÁLISIS DE PAQUETE CC
 # ==============================================================================
 
 def generar_reporte_paquete_cc(df_analizado):
