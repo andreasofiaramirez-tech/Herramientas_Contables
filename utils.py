@@ -226,12 +226,16 @@ def _generar_hoja_pendientes(workbook, formatos, df_saldos, estrategia, casa, fe
     # Gran Total
     current_row += 1
     lbl_idx = max(0, (usd_idx if usd_idx != -1 else bs_idx) - 1)
-    ws.write(current_row, lbl_idx, "GRAN TOTAL", formatos['total_label'])
+    ws.write(current_row, lbl_idx, "TOTALES", formatos['total_label'])
     if usd_idx != -1: ws.write_number(current_row, usd_idx, df['Monto Dólar'].sum(), formatos['total_usd'])
     if bs_idx != -1: ws.write_number(current_row, bs_idx, df['Bs.'].sum(), formatos['total_bs'])
 
-    # Ajuste columnas
-    ws.set_column('A:B', 15); ws.set_column('B:C', 40); ws.set_column('D:H', 18)
+    # Ajuste de columnas
+    # Asumiendo estructura: Asiento(0), Referencia(1), Fecha(2), Montos...
+    ws.set_column(0, 0, 18)  # Asiento
+    ws.set_column(1, 1, 55)  # Referencia (Más ancho)
+    ws.set_column(2, 2, 15)  # Fecha
+    ws.set_column(3, 10, 20) # Montos y Tasa
 
 def _generar_hoja_conciliados_estandar(workbook, formatos, df_conciliados, estrategia):
     """Para cuentas: Tránsito, Depositar, Viajes, Devoluciones, Deudores."""
@@ -265,7 +269,7 @@ def _generar_hoja_conciliados_estandar(workbook, formatos, df_conciliados, estra
     
     # Indices
     deb_usd_idx = get_col_idx(df, ['Débitos Dólares', 'Monto Dólar'])
-    cre_usd_idx = get_col_idx(df, ['Créditos Dólares']) # Puede no existir en devoluciones
+    cre_usd_idx = get_col_idx(df, ['Créditos Dólares']) 
     deb_bs_idx = get_col_idx(df, ['Débitos Bs', 'Monto Bs.'])
     cre_bs_idx = get_col_idx(df, ['Créditos Bs'])
 
@@ -279,13 +283,34 @@ def _generar_hoja_conciliados_estandar(workbook, formatos, df_conciliados, estra
             else: ws.write(current_row, c_idx, val)
         current_row += 1
     
-    # Gran Total
-    ws.write(current_row, 2, "GRAN TOTAL", formatos['total_label'])
-    if deb_usd_idx != -1: ws.write_number(current_row, deb_usd_idx, df.iloc[:, deb_usd_idx].sum(), formatos['total_usd'])
-    if cre_usd_idx != -1: ws.write_number(current_row, cre_usd_idx, df.iloc[:, cre_usd_idx].sum(), formatos['total_usd'])
-    if deb_bs_idx != -1: ws.write_number(current_row, deb_bs_idx, df.iloc[:, deb_bs_idx].sum(), formatos['total_bs'])
-    if cre_bs_idx != -1: ws.write_number(current_row, cre_bs_idx, df.iloc[:, cre_bs_idx].sum(), formatos['total_bs'])
+    # --- TOTALES Y COMPROBACIÓN ---
+    ws.write(current_row, 2, "TOTALES", formatos['total_label']) # Etiqueta en col Referencia
     
+    sum_deb_usd = df.iloc[:, deb_usd_idx].sum() if deb_usd_idx != -1 else 0
+    sum_cre_usd = df.iloc[:, cre_usd_idx].sum() if cre_usd_idx != -1 else 0
+    sum_deb_bs = df.iloc[:, deb_bs_idx].sum() if deb_bs_idx != -1 else 0
+    sum_cre_bs = df.iloc[:, cre_bs_idx].sum() if cre_bs_idx != -1 else 0
+
+    if deb_usd_idx != -1: ws.write_number(current_row, deb_usd_idx, sum_deb_usd, formatos['total_usd'])
+    if cre_usd_idx != -1: ws.write_number(current_row, cre_usd_idx, sum_cre_usd, formatos['total_usd'])
+    if deb_bs_idx != -1: ws.write_number(current_row, deb_bs_idx, sum_deb_bs, formatos['total_bs'])
+    if cre_bs_idx != -1: ws.write_number(current_row, cre_bs_idx, sum_cre_bs, formatos['total_bs'])
+    
+    # --- FILA DE COMPROBACIÓN ---
+    # Como los créditos son negativos en la data, la suma algebraica (Débito + Crédito) debe dar 0.
+    current_row += 1
+    ws.write(current_row, 2, "Comprobacion", formatos['subtotal_label'])
+    
+    # Comprobación USD
+    if deb_usd_idx != -1 and cre_usd_idx != -1:
+        neto_usd = sum_deb_usd + sum_cre_usd 
+        ws.write_number(current_row, deb_usd_idx, neto_usd, formatos['total_usd'])
+        
+    # Comprobación Bs (o en devoluciones si solo hay 1 columna de monto, no aplica comprobación D-C)
+    if deb_bs_idx != -1 and cre_bs_idx != -1:
+        neto_bs = sum_deb_bs + sum_cre_bs
+        ws.write_number(current_row, deb_bs_idx, neto_bs, formatos['total_bs'])
+
     ws.set_column('A:H', 18)
 
 def _generar_hoja_conciliados_agrupada(workbook, formatos, df_conciliados, estrategia):
@@ -295,7 +320,13 @@ def _generar_hoja_conciliados_agrupada(workbook, formatos, df_conciliados, estra
     
     if estrategia['id'] == 'cobros_viajeros':
         df['Débitos Dólares'] = df['Monto_USD'].apply(lambda x: x if x > 0 else 0)
-        df['Créditos Dólares'] = df['Monto_USD'].apply(lambda x: abs(x) if x < 0 else 0) # Ojo: Abs para visualización si se desea
+        df['Créditos Dólares'] = df['Monto_USD'].apply(lambda x: abs(x) if x < 0 else 0) # Aquí usamos abs para visualización si lo prefieres
+        # NOTA: Si usamos abs en créditos para visualización, la comprobación debe ser RESTANDO.
+        # Pero para mantener consistencia matemática con la base de datos, mantengamos el signo negativo en la suma
+        # O si prefieres que se vean positivos en el reporte, cambiamos la lógica de comprobación.
+        # Vamos a mantener el signo negativo para que la suma algebraica de 0.
+        df['Créditos Dólares'] = df['Monto_USD'].apply(lambda x: x if x < 0 else 0) 
+        
         columnas = ['Fecha', 'Asiento', 'Referencia', 'Fuente', 'Débitos Dólares', 'Créditos Dólares']
         df = df.sort_values(by=['NIT', 'Grupo_Conciliado', 'Fecha'])
         cols_sum = ['Débitos Dólares', 'Créditos Dólares']
@@ -339,13 +370,21 @@ def _generar_hoja_conciliados_agrupada(workbook, formatos, df_conciliados, estra
             ws.write_number(current_row, lbl_col + 1 + i, suma, fmt)
         current_row += 2
 
-    # Gran Total
+    # TOTALES
     lbl_col = len(columnas) - len(cols_sum) - 1
-    ws.write(current_row, lbl_col, "GRAN TOTAL GENERAL", formatos['total_label'])
+    ws.write(current_row, lbl_col, "TOTALES", formatos['total_label'])
     for i, c_sum in enumerate(cols_sum):
         fmt = formatos['total_usd'] if 'Dólares' in c_sum else formatos['total_bs']
         ws.write_number(current_row, lbl_col + 1 + i, grand_totals[c_sum], fmt)
         
+    # COMPROBACION (Solo si hay débitos y créditos separados)
+    if len(cols_sum) > 1:
+        current_row += 1
+        ws.write(current_row, lbl_col, "Comprobacion", formatos['subtotal_label'])
+        # Asumiendo cols_sum = ['Debitos', 'Creditos'] donde Creditos son negativos
+        neto = grand_totals[cols_sum[0]] + grand_totals[cols_sum[1]]
+        ws.write_number(current_row, lbl_col + 1, neto, formatos['total_usd'])
+
     ws.set_column('A:F', 20)
 
 def _generar_hoja_resumen_devoluciones(workbook, formatos, df_saldos):
