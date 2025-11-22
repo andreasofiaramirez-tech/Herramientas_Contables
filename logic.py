@@ -1740,7 +1740,7 @@ def _validar_asiento(asiento_group):
     # --- GRUPO 2: DIFERENCIAL CAMBIARIO ---
     elif grupo.startswith("Grupo 2:"):
         diff_lines = asiento_group[asiento_group['Cuenta Contable Norm'] == normalize_account('6.1.1.12.1.001')]
-        keywords = ['DIFERENCIAL', 'DIFERENCIA', 'DIF CAMBIARIO', 'DIF. CAMBIARIO', 'DIF.', 'TASA', DC]
+        keywords = ['DIFERENCIAL', 'DIFERENCIA', 'DIF CAMBIARIO', 'DIF. CAMBIARIO', 'DIF.', 'TASA', 'DC']
         patron_regex = '|'.join([re.escape(k) if '.' in k else k for k in keywords])
         if not diff_lines['Referencia'].str.contains(patron_regex, case=False, na=False, regex=True).all():
             return "Incidencia: Referencia sin palabra clave de diferencial (DIF, TASA, ETC)."
