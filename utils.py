@@ -199,7 +199,7 @@ def _generar_hoja_pendientes(workbook, formatos, df_saldos, estrategia, casa, fe
     df = df.sort_values(by=['NIT', 'Fecha'])
 
     current_row = 5
-    # Indices para totales
+    # Indices para columnas
     usd_idx = get_col_idx(pd.DataFrame(columns=cols), ['Monto Dólar', 'Monto USD'])
     bs_idx = get_col_idx(pd.DataFrame(columns=cols), ['Bs.', 'Monto Bolivar', 'Monto Bs'])
     
@@ -215,23 +215,19 @@ def _generar_hoja_pendientes(workbook, formatos, df_saldos, estrategia, casa, fe
                 else: ws.write(current_row, c_idx, val if pd.notna(val) else '')
             current_row += 1
         
-        # Subtotales
+        # --- CAMBIO 1: ETIQUETA "Saldo" ---
         lbl_idx = max(0, (usd_idx if usd_idx != -1 else bs_idx) - 1)
-        nombre = grupo['Descripcion NIT'].iloc[0] if not grupo.empty and 'Descripcion NIT' in grupo else ''
-        ws.write(current_row, lbl_idx, f"Subtotal {nombre}", formatos['subtotal_label'])
+        # Antes decía: f"Subtotal {nombre}" -> Ahora dice: "Saldo"
+        ws.write(current_row, lbl_idx, "Saldo", formatos['subtotal_label'])
+        
         if usd_idx != -1: ws.write_number(current_row, usd_idx, grupo['Monto Dólar'].sum(), formatos['subtotal_usd'])
         if bs_idx != -1: ws.write_number(current_row, bs_idx, grupo['Bs.'].sum(), formatos['subtotal_bs'])
         current_row += 2
 
-    # Gran Total
-    current_row += 1
-    lbl_idx = max(0, (usd_idx if usd_idx != -1 else bs_idx) - 1)
-    ws.write(current_row, lbl_idx, "TOTALES", formatos['total_label'])
-    if usd_idx != -1: ws.write_number(current_row, usd_idx, df['Monto Dólar'].sum(), formatos['total_usd'])
-    if bs_idx != -1: ws.write_number(current_row, bs_idx, df['Bs.'].sum(), formatos['total_bs'])
+    # --- CAMBIO 2: ELIMINADO EL BLOQUE DE "GRAN TOTAL" ---
+    # Se eliminó el código que escribía la fila de totales generales al final de esta hoja.
 
-    # Ajuste de columnas
-    # Asumiendo estructura: Asiento(0), Referencia(1), Fecha(2), Montos...
+    # --- AJUSTE DE ANCHOS DE COLUMNA ---
     ws.set_column(0, 0, 18)  # Asiento
     ws.set_column(1, 1, 55)  # Referencia (Más ancho)
     ws.set_column(2, 2, 15)  # Fecha
