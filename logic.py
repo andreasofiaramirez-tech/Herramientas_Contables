@@ -912,7 +912,7 @@ def run_conciliation_cobros_viajeros(df, log_messages, progress_bar=None):
 def normalizar_datos_otras_cxp(df, log_messages):
     """
     Prepara el DataFrame extrayendo el número de envío de la Referencia.
-    CORREGIDO: Ahora detecta 'ENV:', 'ENV.', 'ENV ' y variaciones con espacios.
+    Versión 'Nuclear': Captura ENV seguido de cualquier cosa hasta encontrar números.
     """
     df_copy = df.copy()
     
@@ -924,15 +924,14 @@ def normalizar_datos_otras_cxp(df, log_messages):
         log_messages.append("⚠️ ADVERTENCIA: No se encontró columna 'NIT' o 'RIF'.")
         df_copy['NIT_Normalizado'] = 'SIN_NIT'
 
-    # --- CORRECCIÓN CRÍTICA DEL REGEX ---
-    # Explicación: 
-    # ENV       -> Busca la palabra literal
-    # [\s.:]*   -> Acepta cualquier combinación de espacios (\s), puntos (.) o dos puntos (:)
-    # (\d+)     -> Captura los números que siguen
-    df_copy['Numero_Envio'] = df_copy['Referencia'].str.extract(r"ENV[\s.:]*(\d+)", expand=False, flags=re.IGNORECASE)
+    # --- REGEX NUCLEAR ---
+    # 1. Busca 'ENV' (insensible a mayúsculas)
+    # 2. .*? salta cualquier caracter (puntos, espacios, guiones) de forma no codiciosa
+    # 3. (\d+) captura el primer grupo de números que encuentre después
+    df_copy['Numero_Envio'] = df_copy['Referencia'].str.extract(r"ENV.*?(\d+)", expand=False, flags=re.IGNORECASE)
     
-    # Convertir a string para evitar problemas de tipos
-    df_copy['Numero_Envio'] = df_copy['Numero_Envio'].astype(str).replace('nan', '')
+    # Rellenar vacíos para evitar errores al ordenar
+    df_copy['Numero_Envio'] = df_copy['Numero_Envio'].fillna('')
     
     return df_copy
 
