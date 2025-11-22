@@ -257,7 +257,7 @@ def conciliar_automaticos_usd(df, log_messages):
     grupos_a_revisar = [
         ('GRUPO_DIF_CAMBIO', 'AUTOMATICO_DIF_CAMBIO'), 
         ('GRUPO_AJUSTE', 'AUTOMATICO_AJUSTE'),
-        ('GRUPO_TARJETA', 'AUTOMATICO_TARJETA') # <--- NUEVO
+        ('GRUPO_TARJETA', 'AUTOMATICO_TARJETA') 
     ]
     
     for grupo, etiqueta in grupos_a_revisar:
@@ -282,7 +282,7 @@ def conciliar_automaticos_usd(df, log_messages):
                          total += len(subgrupo.index)
                          log_messages.append(f"✔️ Fase Auto (USD): {len(subgrupo)} conciliados en '{etiqueta}' (Subgrupo).")
 
-    return totall
+    return total
 
 def conciliar_grupos_por_referencia_usd(df, log_messages):
     log_messages.append("\n--- FASE GRUPOS POR REFERENCIA EXACTA (USD) ---")
