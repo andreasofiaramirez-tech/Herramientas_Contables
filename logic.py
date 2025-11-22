@@ -1744,7 +1744,8 @@ def _validar_asiento(asiento_group):
             'DIF CAMBIARIO',        # Cubre "Dif Cambiario"
             'DIF. CAMBIARIO',       # Cubre "Dif. Cambiario" (con punto)
             'DIF.',                 # Cubre abreviaciones generales con punto
-            'TASA'                  # Cubre "Diferencia Tasa"
+            'TASA',                  # Cubre "Diferencia Tasa"
+            'DC'
         ]
         
         # Construimos un patrón Regex seguro (escapando el punto para que funcione bien)
