@@ -1766,9 +1766,19 @@ def _validar_asiento(asiento_group):
             return "Incidencia: Movimiento mayor a $5 encontrado."
 
     elif grupo.startswith("Grupo 9:"):
-        referencia_str = asiento_group['Referencia'].iloc[0]
-        if not re.fullmatch(r'\d+', str(referencia_str).strip()):
-            return "Incidencia: Referencia no es un número de comprobante válido."
+        referencia_str = str(asiento_group['Referencia'].iloc[0]).upper().strip()
+        
+        # 1. Buscamos si existe al menos un dígito en la referencia (indicador de número de comprobante)
+        tiene_numeros = bool(re.search(r'\d', referencia_str))
+        
+        # 2. Buscamos palabras clave comunes en retenciones
+        palabras_clave = ['RET', 'IMP', 'ISLR', 'IVA', 'MUNICIPAL', 'ALCALDIA']
+        tiene_keyword = any(k in referencia_str for k in palabras_clave)
+        
+        # Si NO tiene números Y NO tiene palabras clave, entonces es incidencia.
+        # (Es decir, con que tenga una de las dos condiciones, es válido).
+        if not (tiene_numeros or tiene_keyword):
+            return "Incidencia: Referencia no parece contener un comprobante (sin números ni RET/IMP)."
 
     elif grupo.startswith("Grupo 10:"):
         if not np.isclose(asiento_group['Monto_USD'].sum(), 0, atol=TOLERANCIA_MAX_USD):
