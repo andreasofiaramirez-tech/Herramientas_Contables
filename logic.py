@@ -1731,59 +1731,53 @@ def _validar_asiento(asiento_group):
     """
     grupo = asiento_group['Grupo'].iloc[0]
     
+    # --- GRUPO 1: FLETES ---
     if grupo.startswith("Grupo 1:"):
         fletes_lines = asiento_group[asiento_group['Cuenta Contable Norm'] == normalize_account('7.1.3.45.1.997')]
         if not fletes_lines['Referencia'].str.contains('FLETE', case=False, na=False).all():
             return "Incidencia: Referencia sin 'FLETE' encontrada."
             
+    # --- GRUPO 2: DIFERENCIAL CAMBIARIO ---
     elif grupo.startswith("Grupo 2:"):
         diff_lines = asiento_group[asiento_group['Cuenta Contable Norm'] == normalize_account('6.1.1.12.1.001')]
-        
-        # --- CAMBIO AQUÍ: Lista de palabras clave ampliada ---
-        # Ahora acepta variaciones con punto, sin punto, y la palabra 'TASA'
-        keywords = [
-            'DIFERENCIAL',          # Cubre "Diferencial Cambiario", "Ajuste Diferencial"
-            'DIFERENCIA',           # Cubre "Diferencia en Cambio"
-            'DIF CAMBIARIO',        # Cubre "Dif Cambiario"
-            'DIF. CAMBIARIO',       # Cubre "Dif. Cambiario" (con punto)
-            'DIF.',                 # Cubre abreviaciones generales con punto
-            'TASA',                  # Cubre "Diferencia Tasa"
-            'DC'
-        ]
-        
-        # Construimos un patrón Regex seguro (escapando el punto para que funcione bien)
+        keywords = ['DIFERENCIAL', 'DIFERENCIA', 'DIF CAMBIARIO', 'DIF. CAMBIARIO', 'DIF.', 'TASA', DC]
         patron_regex = '|'.join([re.escape(k) if '.' in k else k for k in keywords])
-        
         if not diff_lines['Referencia'].str.contains(patron_regex, case=False, na=False, regex=True).all():
             return "Incidencia: Referencia sin palabra clave de diferencial (DIF, TASA, ETC)."
             
+    # --- GRUPO 6: INGRESOS VARIOS ---
     elif grupo.startswith("Grupo 6:"):
         if (asiento_group['Monto_USD'].abs() > 25).any():
-            return "Incidencia: Movimiento mayor a $25 encontrado."
+            return "Incidencia: Movimiento mayor al límite permitido ($25)."
             
+    # --- GRUPO 7: DEVOLUCIONES ---
     elif grupo.startswith("Grupo 7:"):
         if (asiento_group['Monto_USD'].abs() > 5).any():
             return "Incidencia: Movimiento mayor a $5 encontrado."
 
+    # --- GRUPO 9: RETENCIONES (CORREGIDO) ---
     elif grupo.startswith("Grupo 9:"):
+        # Tomamos la referencia como texto y mayúsculas
         referencia_str = str(asiento_group['Referencia'].iloc[0]).upper().strip()
         
-        # 1. Buscamos si existe al menos un dígito en la referencia (indicador de número de comprobante)
-        tiene_numeros = bool(re.search(r'\d', referencia_str))
+        # Validacion 1: ¿Tiene algún número? (Ej: "00000072", "2025...", "123")
+        tiene_numeros = any(char.isdigit() for char in referencia_str)
         
-        # 2. Buscamos palabras clave comunes en retenciones
-        palabras_clave = ['RET', 'IMP', 'ISLR', 'IVA', 'MUNICIPAL', 'ALCALDIA']
-        tiene_keyword = any(k in referencia_str for k in palabras_clave)
+        # Validacion 2: ¿Tiene palabras clave?
+        tiene_keywords = any(k in referencia_str for k in ['RET', 'IMP', 'ISLR', 'IVA', 'MUNICIPAL'])
         
-        # Si NO tiene números Y NO tiene palabras clave, entonces es incidencia.
-        # (Es decir, con que tenga una de las dos condiciones, es válido).
-        if not (tiene_numeros or tiene_keyword):
-            return "Incidencia: Referencia no parece contener un comprobante (sin números ni RET/IMP)."
+        # Si cumple CUALQUIERA de las dos, es válido.
+        if tiene_numeros or tiene_keywords:
+            pass # Está correcto, pasará al return "Conciliado" final.
+        else:
+            return f"Incidencia: Referencia '{referencia_str}' inválida (Se requiere Nro Comprobante o RET/IMP)."
 
+    # --- GRUPO 10: TRASPASOS ---
     elif grupo.startswith("Grupo 10:"):
         if not np.isclose(asiento_group['Monto_USD'].sum(), 0, atol=TOLERANCIA_MAX_USD):
             return "Incidencia: El traspaso no suma cero."
     
+    # Si pasó todas las validaciones (o es un grupo sin reglas específicas como Cobranzas)
     return "Conciliado"
 
 def run_analysis_paquete_cc(df_diario, log_messages):
