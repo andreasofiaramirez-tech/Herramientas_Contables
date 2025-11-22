@@ -269,7 +269,7 @@ def render_especificaciones():
     st.markdown("Esta aplicación automatiza el proceso de conciliación de cuentas contables.")
     
     CASA_OPTIONS = ["FEBECA, C.A", "MAYOR BEVAL, C.A", "PRISMA, C.A", "FEBECA, C.A (QUINCALLA)"]
-    CUENTA_OPTIONS = list(ESTRATEGIAS.keys())
+    CUENTA_OPTIONS = sorted(list(ESTRATEGIAS.keys()))
     
     st.subheader("1. Seleccione la Empresa (Casa):", anchor=False)
     casa_seleccionada = st.selectbox("1. Seleccione la Empresa (Casa):", CASA_OPTIONS, label_visibility="collapsed")
