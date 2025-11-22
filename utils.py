@@ -380,8 +380,9 @@ def _generar_hoja_resumen_devoluciones(workbook, formatos, df_saldos):
 # ==============================================================================
 
 @st.cache_data
-def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, estrategia, casa_seleccionada, cuenta_seleccionada):
+def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrategia, casa_seleccionada, cuenta_seleccionada):
     """Controlador principal que orquesta la creación del Excel."""
+    
     output_excel = BytesIO()
     
     with pd.ExcelWriter(output_excel, engine='xlsxwriter') as writer:
@@ -390,21 +391,23 @@ def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, estrateg
         
         # 1. Generar Hoja de Pendientes (Común para todos)
         fecha_max = _df_full['Fecha'].dropna().max()
-        _generar_hoja_pendientes(workbook, formatos, df_saldos_abiertos, estrategia, casa_seleccionada, fecha_max)
+        
+        # Pasamos _estrategia a las funciones auxiliares
+        _generar_hoja_pendientes(workbook, formatos, df_saldos_abiertos, _estrategia, casa_seleccionada, fecha_max)
         
         # 2. Generar Hoja de Conciliados (Según estilo)
         if not df_conciliados.empty:
             # Lista de cuentas que usan el estilo agrupado por NIT
             cuentas_agrupadas = ['cobros_viajeros', 'otras_cuentas_por_pagar']
             
-            if estrategia['id'] in cuentas_agrupadas:
-                _generar_hoja_conciliados_agrupada(workbook, formatos, df_conciliados, estrategia)
+            if _estrategia['id'] in cuentas_agrupadas:
+                _generar_hoja_conciliados_agrupada(workbook, formatos, df_conciliados, _estrategia)
             else:
                 # Todas las demás usan el estilo estándar (lista plana)
-                _generar_hoja_conciliados_estandar(workbook, formatos, df_conciliados, estrategia)
+                _generar_hoja_conciliados_estandar(workbook, formatos, df_conciliados, _estrategia)
 
         # 3. Generar Hoja Extra (Solo para Devoluciones)
-        if estrategia['id'] == 'devoluciones_proveedores' and not df_saldos_abiertos.empty:
+        if _estrategia['id'] == 'devoluciones_proveedores' and not df_saldos_abiertos.empty:
             _generar_hoja_resumen_devoluciones(workbook, formatos, df_saldos_abiertos)
 
     return output_excel.getvalue()
