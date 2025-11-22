@@ -215,23 +215,32 @@ def _generar_hoja_pendientes(workbook, formatos, df_saldos, estrategia, casa, fe
                 else: ws.write(current_row, c_idx, val if pd.notna(val) else '')
             current_row += 1
         
-        # --- CAMBIO 1: ETIQUETA "Saldo" ---
+        # Subtotal por NIT (Etiqueta "Saldo")
         lbl_idx = max(0, (usd_idx if usd_idx != -1 else bs_idx) - 1)
-        # Antes decía: f"Subtotal {nombre}" -> Ahora dice: "Saldo"
         ws.write(current_row, lbl_idx, "Saldo", formatos['subtotal_label'])
         
         if usd_idx != -1: ws.write_number(current_row, usd_idx, grupo['Monto Dólar'].sum(), formatos['subtotal_usd'])
         if bs_idx != -1: ws.write_number(current_row, bs_idx, grupo['Bs.'].sum(), formatos['subtotal_bs'])
         current_row += 2
 
-    # --- CAMBIO 2: ELIMINADO EL BLOQUE DE "GRAN TOTAL" ---
-    # Se eliminó el código que escribía la fila de totales generales al final de esta hoja.
+    # --- NUEVO BLOQUE: SALDO TOTAL AL FINAL DE LA HOJA ---
+    current_row += 1 # Dejar una fila extra de espacio
+    lbl_idx = max(0, (usd_idx if usd_idx != -1 else bs_idx) - 1)
+    
+    ws.write(current_row, lbl_idx, "SALDO TOTAL", formatos['total_label'])
+    
+    # Sumar toda la columna del DataFrame filtrado
+    if usd_idx != -1: 
+        ws.write_number(current_row, usd_idx, df['Monto Dólar'].sum(), formatos['total_usd'])
+    if bs_idx != -1: 
+        ws.write_number(current_row, bs_idx, df['Bs.'].sum(), formatos['total_bs'])
+    # -----------------------------------------------------
 
-    # --- AJUSTE DE ANCHOS DE COLUMNA ---
+    # Ajuste de anchos de columna
     ws.set_column(0, 0, 18)  # Asiento
-    ws.set_column(1, 1, 55)  # Referencia (Más ancho)
+    ws.set_column(1, 1, 55)  # Referencia
     ws.set_column(2, 2, 15)  # Fecha
-    ws.set_column(3, 10, 20) # Montos y Tasa
+    ws.set_column(3, 10, 20) # Montos
 
 def _generar_hoja_conciliados_estandar(workbook, formatos, df_conciliados, estrategia):
     """Para cuentas: Tránsito, Depositar, Viajes, Devoluciones, Deudores."""
