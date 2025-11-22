@@ -912,10 +912,11 @@ def run_conciliation_cobros_viajeros(df, log_messages, progress_bar=None):
 def normalizar_datos_otras_cxp(df, log_messages):
     """
     Prepara el DataFrame extrayendo el número de envío de la Referencia.
+    CORREGIDO: Ahora detecta 'ENV:', 'ENV.', 'ENV ' y variaciones con espacios.
     """
     df_copy = df.copy()
     
-    # Normalizar NIT para usarlo como clave de agrupación
+    # Normalizar NIT
     nit_col_name = next((col for col in df_copy.columns if str(col).strip().upper() in ['NIT', 'RIF']), None)
     if nit_col_name:
         df_copy['NIT_Normalizado'] = df_copy[nit_col_name].astype(str).str.upper().str.replace(r'[^A-Z0-9]', '', regex=True)
@@ -923,17 +924,22 @@ def normalizar_datos_otras_cxp(df, log_messages):
         log_messages.append("⚠️ ADVERTENCIA: No se encontró columna 'NIT' o 'RIF'.")
         df_copy['NIT_Normalizado'] = 'SIN_NIT'
 
-    # Extraer el número de envío usando una expresión regular
-    # Busca el patrón "ENV:" seguido de uno o más dígitos (\d+)
-    df_copy['Numero_Envio'] = df_copy['Referencia'].str.extract(r"ENV:(\d+)", expand=False, flags=re.IGNORECASE)
+    # --- CORRECCIÓN CRÍTICA DEL REGEX ---
+    # Explicación: 
+    # ENV       -> Busca la palabra literal
+    # [\s.:]*   -> Acepta cualquier combinación de espacios (\s), puntos (.) o dos puntos (:)
+    # (\d+)     -> Captura los números que siguen
+    df_copy['Numero_Envio'] = df_copy['Referencia'].str.extract(r"ENV[\s.:]*(\d+)", expand=False, flags=re.IGNORECASE)
+    
+    # Convertir a string para evitar problemas de tipos
+    df_copy['Numero_Envio'] = df_copy['Numero_Envio'].astype(str).replace('nan', '')
     
     return df_copy
 
-
 def run_conciliation_otras_cxp(df, log_messages, progress_bar=None):
     """
-    Orquesta la conciliación para Otras Cuentas por Pagar, agrupando por NIT
-    y cruzando por el número de envío extraído. La conciliación es en VES.
+    Orquesta la conciliación para Otras Cuentas por Pagar (VES).
+    Busca grupos por NIT y ENV que sumen CERO.
     """
     log_messages.append("\n--- INICIANDO LÓGICA DE OTRAS CUENTAS POR PAGAR (VES) ---")
     
@@ -942,18 +948,20 @@ def run_conciliation_otras_cxp(df, log_messages, progress_bar=None):
 
     total_conciliados = 0
     
-    # Filtrar solo las filas donde se pudo extraer un número de envío
-    df_procesable = df[(~df['Conciliado']) & (df['Numero_Envio'].notna())]
+    # Filtrar solo las filas donde se pudo extraer un número de envío válido
+    df_procesable = df[(~df['Conciliado']) & (df['Numero_Envio'] != '')]
     
-    # Agrupar por NIT y luego por Número de Envío
+    # Agrupar por NIT y Número de Envío
     grupos = df_procesable.groupby(['NIT_Normalizado', 'Numero_Envio'])
     log_messages.append(f"ℹ️ Se encontraron {len(grupos)} combinaciones de NIT/Envío para analizar.")
 
     for (nit, envio), grupo in grupos:
-        if len(grupo) < 2: # Se necesita al menos un débito y un crédito
+        if len(grupo) < 2: # Se necesita al menos 2 movimientos para cruzar
             continue
 
-        # Verificar si la suma de los movimientos en Bolívares es cero
+        # VERIFICACIÓN CONTABLE ESTRICTA (Suma Cero)
+        # Si la suma de los bolívares es cero (con tolerancia), se concilian.
+        # Si ambos son positivos (Débitos), NO sumarán cero y quedarán abiertos (Pendientes), que es lo correcto contablemente.
         if np.isclose(grupo['Monto_BS'].sum(), 0, atol=TOLERANCIA_MAX_BS):
             indices_a_conciliar = grupo.index
             
