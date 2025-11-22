@@ -1671,9 +1671,12 @@ def _get_base_classification(asiento_group, cuentas_del_asiento, referencia_comp
         if is_reverso_check: return "Grupo 6: Ingresos Varios"
         keywords_limpieza = {'LIMPIEZA', 'LIMPIEZAS', 'SALDO', 'SALDOS', 'HISTORICO'}
         if not keywords_limpieza.isdisjoint(referencia_limpia_palabras):
-            if (asiento_group['Monto_USD'].abs() <= 5).all(): return "Grupo 6: Ingresos Varios - Limpieza (<= $5)"
-            else: return "Grupo 6: Ingresos Varios - Limpieza (> $5)"
-        else: return "Grupo 6: Ingresos Varios - Otros"
+            if (asiento_group['Monto_USD'].abs() <= 25).all(): 
+                return "Grupo 6: Ingresos Varios - Limpieza (<= $25)"
+            else: 
+                return "Grupo 6: Ingresos Varios - Limpieza (> $25)"
+        else: 
+            return "Grupo 6: Ingresos Varios - Otros"
 
     # PRIORIDAD 5: Traspasos vs. Devoluciones (Grupo 10 y 7)
     if normalize_account('4.1.1.21.4.001') in cuentas_del_asiento:
