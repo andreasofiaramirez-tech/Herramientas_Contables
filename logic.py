@@ -1638,16 +1638,28 @@ def _get_base_classification(asiento_group, cuentas_del_asiento, referencia_comp
     Función auxiliar que contiene la lógica de clasificación base, ordenada por prioridad.
     El parámetro 'is_reverso_check' relaja ciertas reglas para identificar el tipo de un reverso.
     """
-    # PRIORIDAD 1: Notas de Crédito
-    # Si estamos chequeando un reverso, no exigimos que la Fuente contenga 'N/C', solo las cuentas.
-    if (is_reverso_check or 'N/C' in fuente_completa):
-        if {normalize_account('4.1.1.22.4.001'), normalize_account('2.1.3.04.1.001')}.issubset(cuentas_del_asiento):
-            if is_reverso_check: return "Grupo 3: N/C" # Para reversos, solo identificamos el tipo base
+    # PRIORIDAD 1: Notas de Crédito (AUDITORÍA ESTRICTA)
+    # Si es reverso o la fuente es N/C, o si usa la cuenta de Descuentos (aunque la fuente sea otra)
+    es_fuente_nc = 'N/C' in fuente_completa
+    tiene_cuenta_descuento = normalize_account('4.1.1.22.4.001') in cuentas_del_asiento
+    tiene_cuenta_iva = normalize_account('2.1.3.04.1.001') in cuentas_del_asiento
+    
+    if is_reverso_check or es_fuente_nc or tiene_cuenta_descuento:
+        # Si tiene cuenta de descuento O es fuente N/C, lo analizamos como Grupo 3
+        if tiene_cuenta_descuento or (es_fuente_nc and tiene_cuenta_iva):
+            
+            if is_reverso_check: return "Grupo 3: N/C" 
             if 'AVISOS DE CREDITO' in referencia_completa: return "Grupo 3: N/C - Avisos de Crédito"
+            
+            # Detección de errores contables cruzados (Diferencial en cuenta de descuentos)
+            if referencia_limpia_palabras.intersection({'DIFERENCIAL', 'DIFERENCIA', 'CAMBIO', 'DIF'}): 
+                return "Grupo 3: N/C - Posible Error de Cuenta (Ref. Diferencial)"
+
             if referencia_limpia_palabras.intersection({'ESTRATEGIA', 'ESTRATEGIAS'}): return "Grupo 3: N/C - Estrategias"
             if referencia_limpia_palabras.intersection({'INCENTIVO', 'INCENTIVOS'}): return "Grupo 3: N/C - Incentivos"
             if referencia_limpia_palabras.intersection({'BONIFICACION', 'BONIFICACIONES', 'BONIF', 'BONF'}): return "Grupo 3: N/C - Bonificaciones"
             if referencia_limpia_palabras.intersection({'DESCUENTO', 'DESCUENTOS', 'DSCTO', 'DESC', 'DESTO'}): return "Grupo 3: N/C - Descuentos"
+            
             return "Grupo 3: N/C - Otros"
 
     # PRIORIDAD 2: Retenciones
