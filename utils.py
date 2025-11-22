@@ -196,7 +196,7 @@ def _generar_hoja_pendientes(workbook, formatos, df_saldos, estrategia, casa, fe
     df['Bs.'] = pd.to_numeric(df.get('Monto_BS'), errors='coerce').fillna(0)
     df['Monto Bolivar'] = df['Bs.'] # Alias
     df['Tasa'] = np.where(df['Monto Dólar'].abs() != 0, df['Bs.'].abs() / df['Monto Dólar'].abs(), 0)
-    df = df.sort_values(by=['NIT', 'Fecha'])
+    df = df.sort_values(by=['NIT', 'Referencia', 'Fecha'])
 
     current_row = 5
     # Indices para columnas
