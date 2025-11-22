@@ -7,6 +7,16 @@ import xlsxwriter
 from io import BytesIO
 import streamlit as st
 
+def get_col_idx(df, possible_names):
+    """
+    Helper para encontrar el índice numérico de una columna en un DataFrame,
+    necesario para aplicar formatos en xlsxwriter.
+    """
+    for idx, col in enumerate(df.columns):
+        if col in possible_names:
+            return idx
+    return -1
+    
 @st.cache_data
 def cargar_y_limpiar_datos(uploaded_actual, uploaded_anterior, log_messages):
     """
