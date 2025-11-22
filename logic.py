@@ -1788,6 +1788,26 @@ def _validar_asiento(asiento_group):
     elif grupo.startswith("Grupo 10:"):
         if not np.isclose(asiento_group['Monto_USD'].sum(), 0, atol=TOLERANCIA_MAX_USD):
             return "Incidencia: El traspaso no suma cero."
+            
+    # --- GRUPO 3: N/C ---
+    elif grupo.startswith("Grupo 3:"):
+        # Regla 1: Si la referencia habla de Diferencial Cambiario, es un error de cuenta.
+        if "Error de Cuenta" in grupo:
+            return "Incidencia: Diferencial Cambiario registrado en cuenta de Descuentos/NC."
+            
+        # Regla 2: Auditoría de Cuentas Cruzadas (Debe tener Descuento + IVA)
+        # Obtenemos las cuentas presentes en este asiento específico
+        cuentas_presentes = set(asiento_group['Cuenta Contable Norm'])
+        tiene_descuento = normalize_account('4.1.1.22.4.001') in cuentas_presentes
+        tiene_iva = normalize_account('2.1.3.04.1.001') in cuentas_presentes
+        
+        # Si es una Bonificación/Estrategia/Descuento, usualmente esperamos que afecte el IVA.
+        # Si falta alguna de las dos, avisamos.
+        if not (tiene_descuento and tiene_iva):
+            faltante = []
+            if not tiene_descuento: faltante.append("Cta Descuentos")
+            if not tiene_iva: faltante.append("Cta IVA")
+            return f"Incidencia: Asiento de N/C incompleto. Falta: {', '.join(faltante)}."
     
     # Si pasó todas las validaciones (o es un grupo sin reglas específicas como Cobranzas)
     return "Conciliado"
