@@ -129,6 +129,24 @@ LOGICA_POR_CUENTA = {
         2.  **Conciliación por Saldo Total del Empleado:**
             *   La herramienta calcula el saldo total en **Dólares (USD)** sumando todos los débitos y créditos para cada empleado.
             *   Si el saldo final de un empleado es **cero (o un valor muy cercano a cero)**, todos sus movimientos se marcan como conciliados. La lógica asume que la cuenta del empleado está saldada.
+        """,
+    
+    "111.04.6003 - Fondos por Depositar - Cobros Viajeros - ME": """
+        #### 🔎 Lógica de Conciliación Automática (Dólares - USD)
+
+        Esta cuenta gestiona la liquidación de cobros de viajeros, enfocándose en cruzar la cobranza (CC) con su depósito o registro bancario (CB).
+
+        1.  **Agrupación Principal por NIT:**
+            *   🔑 El **NIT** del viajero es la clave fundamental. La herramienta nunca mezclará movimientos de clientes diferentes.
+
+        2.  **Fase 1: Detección Inteligente de Reversos:**
+            *   La herramienta busca movimientos marcados como **"REVERSO"**.
+            *   Utiliza una lógica de **coincidencia parcial**: si un reverso tiene la referencia "REV-12345" y existe un movimiento original "12345" (o viceversa) para el mismo NIT, y sus montos se anulan, los concilia automáticamente.
+
+        3.  **Fase 2: Cruce Estándar (N-a-N):**
+            *   Para el resto de movimientos, la herramienta construye una **"Clave de Vínculo"** extrayendo solo los números de la Referencia o la Fuente, dependiendo del tipo de asiento (CC vs CB).
+            *   Agrupa todos los movimientos de un mismo NIT que compartan ese número de vínculo (ej. un número de planilla o recibo).
+            *   Si la suma total del grupo es **cero (0.00 USD)**, se marcan todos como conciliados.
         """
 }
 
