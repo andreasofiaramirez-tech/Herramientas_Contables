@@ -122,9 +122,10 @@ def cargar_y_limpiar_datos(uploaded_actual, uploaded_anterior, log_messages):
         return None
 
     df_full = pd.concat([df_anterior, df_actual], ignore_index=True)
-    key_cols = ['Asiento', 'Referencia', 'Fecha', 'Débito Bolivar', 'Crédito Bolivar', 'Débito Dolar', 'Crédito Dolar']
-    df_full.drop_duplicates(subset=[col for col in key_cols if col in df_full.columns], keep='first', inplace=True)
+    #key_cols = ['Asiento', 'Referencia', 'Fecha', 'Débito Bolivar', 'Crédito Bolivar', 'Débito Dolar', 'Crédito Dolar']
+    #df_full.drop_duplicates(subset=[col for col in key_cols if col in df_full.columns], keep='first', inplace=True)
 
+    # Cálculos de montos netos
     df_full['Monto_BS'] = (df_full.get('Débito Bolivar', 0) - df_full.get('Crédito Bolivar', 0)).round(2)
     df_full['Monto_USD'] = (df_full.get('Débito Dolar', 0) - df_full.get('Crédito Dolar', 0)).round(2)
     df_full[['Conciliado', 'Grupo_Conciliado', 'Referencia_Normalizada_Literal']] = [False, np.nan, np.nan]
@@ -230,6 +231,14 @@ def _generar_hoja_pendientes(workbook, formatos, df_saldos, estrategia, casa, fe
 
     # Preparar datos
     df = df_saldos.copy()
+    # Rellenar NITs vacíos para que groupby no elimine esas filas
+    if 'NIT' in df.columns:
+        df['NIT'] = df['NIT'].fillna('SIN_NIT').replace(['', ' '], 'SIN_NIT').astype(str)
+        df['Descripcion NIT'] = df['Descripcion NIT'].fillna('NO DEFINIDO')
+    else:
+        # Si por alguna razón no existe la columna, la creamos
+        df['NIT'] = 'SIN_NIT'
+        df['Descripcion NIT'] = 'NO DEFINIDO'
     df['Monto Dólar'] = pd.to_numeric(df.get('Monto_USD'), errors='coerce').fillna(0)
     df['Bs.'] = pd.to_numeric(df.get('Monto_BS'), errors='coerce').fillna(0)
     df['Monto Bolivar'] = df['Bs.'] # Alias
