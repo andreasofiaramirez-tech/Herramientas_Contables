@@ -129,21 +129,55 @@ def cargar_y_limpiar_datos(uploaded_actual, uploaded_anterior, log_messages):
     return df_full
     
 @st.cache_data
-def generar_csv_saldos_abiertos(df_saldos_abiertos):
+def generar_excel_saldos_abiertos(df_saldos_abiertos):
     """
-    Genera el archivo CSV con los saldos pendientes para el próximo ciclo de conciliación.
+    Genera el archivo Excel (.xlsx) con los saldos pendientes para el próximo ciclo.
+    Mantiene el formato numérico correcto para que la herramienta lo lea bien el próximo mes.
     """
-    columnas_csv = ['Asiento', 'Referencia', 'Fecha', 'Débito Bolivar', 'Crédito Bolivar', 'Débito Dolar', 'Crédito Dolar', 'Fuente', 'Nombre del Proveedor', 'NIT']
-    df_saldos_a_exportar = df_saldos_abiertos.reindex(columns=columnas_csv).copy()
+    output = BytesIO()
     
-    if 'Fecha' in df_saldos_a_exportar.columns:
-        df_saldos_a_exportar['Fecha'] = pd.to_datetime(df_saldos_a_exportar['Fecha'], errors='coerce').dt.strftime('%d/%m/%Y').fillna('')
+    # Definir las columnas estándar que espera la herramienta al cargar
+    columnas_exportar = [
+        'Asiento', 'Referencia', 'Fecha', 
+        'Débito Bolivar', 'Crédito Bolivar', 
+        'Débito Dolar', 'Crédito Dolar', 
+        'Fuente', 'Nombre del Proveedor', 'NIT', 'Descripcion NIT'
+    ]
+    
+    # Filtrar solo las columnas que existen en el DF
+    cols_existentes = [c for c in columnas_exportar if c in df_saldos_abiertos.columns]
+    df_export = df_saldos_abiertos[cols_existentes].copy()
+    
+    # Asegurar que la fecha tenga formato fecha (sin hora)
+    if 'Fecha' in df_export.columns:
+        df_export['Fecha'] = pd.to_datetime(df_export['Fecha']).dt.date
         
-    for col in ['Débito Bolivar', 'Crédito Bolivar', 'Débito Dolar', 'Crédito Dolar']:
-        if col in df_saldos_a_exportar.columns:
-            df_saldos_a_exportar[col] = df_saldos_a_exportar[col].round(2).apply(lambda x: f"{x:.2f}".replace('.', ','))
+    # Crear el Excel
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df_export.to_excel(writer, index=False, sheet_name='SaldosAnteriores')
+        
+        # Ajustar anchos de columna para mejor visualización
+        workbook = writer.book
+        worksheet = writer.sheets['SaldosAnteriores']
+        
+        # Formatos
+        date_format = workbook.add_format({'num_format': 'dd/mm/yyyy'})
+        num_format = workbook.add_format({'num_format': '#,##0.00'})
+        
+        # Aplicar formatos
+        for idx, col in enumerate(cols_existentes):
+            # Ancho base
+            worksheet.set_column(idx, idx, 15)
             
-    return df_saldos_a_exportar.to_csv(index=False, sep=';', encoding='utf-8-sig').encode('utf-8-sig')
+            # Formato específico
+            if col == 'Fecha':
+                worksheet.set_column(idx, idx, 12, date_format)
+            elif 'Débito' in col or 'Crédito' in col:
+                worksheet.set_column(idx, idx, 15, num_format)
+            elif col in ['Referencia', 'Nombre del Proveedor', 'Descripcion NIT']:
+                worksheet.set_column(idx, idx, 40)
+
+    return output.getvalue()
 
 # ==============================================================================
 # 2. LOGICA MODULAR PARA REPORTES EXCEL
