@@ -24,7 +24,7 @@ from logic import (
 from utils import (
     cargar_y_limpiar_datos,
     generar_reporte_excel,
-    generar_csv_saldos_abiertos,
+    generar_excel_saldos_abiertos,
     generar_reporte_paquete_cc
 )
 
