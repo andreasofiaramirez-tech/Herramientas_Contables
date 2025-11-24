@@ -126,16 +126,16 @@ def cargar_y_limpiar_datos(uploaded_actual, uploaded_anterior, log_messages):
     
     # 2. Eliminamos filas que parecen Totales o Subtotales
     # Buscamos en las columnas de texto palabras clave como "TOTAL", "SALDO", "SUMA"
-    cols_texto = ['Asiento', 'Referencia', 'NIT', 'Descripcion NIT', 'Nombre del Proveedor']
-    for col in cols_texto:
-        if col in df_full.columns:
+    #cols_texto = ['Asiento', 'Referencia', 'NIT', 'Descripcion NIT', 'Nombre del Proveedor']
+    #for col in cols_texto:
+    #    if col in df_full.columns:
             # Convertimos a string mayúscula y buscamos la palabra "TOTAL" o "SALDO"
             # Pero CUIDADO: No borrar "SALDO INICIAL" si es un asiento legítimo.
             # Borramos solo si la celda es EXACTAMENTE "TOTAL", "GRAN TOTAL", "SALDO TOTAL"
-            mask_basura = df_full[col].astype(str).str.upper().str.strip().isin(['TOTAL', 'GRAN TOTAL', 'SALDO TOTAL', 'SUBTOTAL', 'TOTALES'])
-            if mask_basura.any():
-                filas_borradas = mask_basura.sum()
-                df_full = df_full[~mask_basura]
+    #        mask_basura = df_full[col].astype(str).str.upper().str.strip().isin(['TOTAL', 'GRAN TOTAL', 'SALDO TOTAL', 'SUBTOTAL', 'TOTALES'])
+    #        if mask_basura.any():
+    #            filas_borradas = mask_basura.sum()
+    #            df_full = df_full[~mask_basura]
                 # log_messages.append(f"🧹 Se eliminaron {filas_borradas} filas de totales en columna {col}.")
     
     # --- ¡IMPORTANTE! ELIMINACIÓN DE DUPLICADOS DESACTIVADA ---
