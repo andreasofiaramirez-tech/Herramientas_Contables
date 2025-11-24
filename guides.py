@@ -147,7 +147,19 @@ LOGICA_POR_CUENTA = {
             *   Para el resto de movimientos, la herramienta construye una **"Clave de Vínculo"** extrayendo solo los números de la Referencia o la Fuente, dependiendo del tipo de asiento (CC vs CB).
             *   Agrupa todos los movimientos de un mismo NIT que compartan ese número de vínculo (ej. un número de planilla o recibo).
             *   Si la suma total del grupo es **cero (0.00 USD)**, se marcan todos como conciliados.
-        """
+        """,
+    "212.05.1108 - Haberes de Clientes": """
+        #### 🔎 Lógica de Conciliación Automática (Bolívares - Bs.)
+
+        Esta cuenta maneja los anticipos o saldos a favor de clientes.
+        
+        1.  **Fase 1: Cruce por NIT:**
+            *   Agrupa todos los movimientos de un mismo cliente (NIT). Si la suma de débitos y créditos es cero, se concilia.
+        
+        2.  **Fase 2: Recuperación por Monto (Sin NIT):**
+            *   Si quedan partidas abiertas, busca coincidencias por **Monto Exacto**.
+            *   Esto permite cruzar un Débito que tiene el NIT correcto con un Crédito que quizás no tiene NIT (o viceversa), siempre que los montos sean idénticos.
+        """,
 }
 
 # ==============================================================================
