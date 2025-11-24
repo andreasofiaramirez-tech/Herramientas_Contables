@@ -433,6 +433,18 @@ def _generar_hoja_conciliados_agrupada(workbook, formatos, df_conciliados, estra
         titulo = 'Detalle de Movimientos Conciliados por Cliente (NIT)'
         fmt_moneda = formatos['bs']
         fmt_total = formatos['total_bs']
+
+    # 4. Configuración para CDC - Factoring (USD)
+    elif estrategia['id'] == 'cdc_factoring':
+        df['Débitos'] = df['Monto_USD'].apply(lambda x: x if x > 0 else 0)
+        df['Créditos'] = df['Monto_USD'].apply(lambda x: abs(x) if x < 0 else 0)
+        
+        # Mostramos Contrato y Fuente
+        columnas = ['Fecha', 'Contrato', 'Fuente', 'Referencia', 'Débitos', 'Créditos']
+        cols_sum = ['Débitos', 'Créditos']
+        titulo = 'Detalle de Movimientos Conciliados por NIT (Factoring)'
+        fmt_moneda = formatos['usd']
+        fmt_total = formatos['total_usd']
     # --------------------------------------------------
 
     df = df.sort_values(by=['NIT', 'Fecha'])
@@ -597,6 +609,58 @@ def _generar_hoja_pendientes_resumida(workbook, formatos, df_saldos, estrategia,
     ws.set_column('C:C', 45) # Nombre
     ws.set_column('D:G', 15) # Montos y Fechas
     
+def _generar_hoja_pendientes_cdc(workbook, formatos, df_saldos, estrategia, casa, fecha_maxima):
+    """Genera hoja de pendientes con formato específico para Factoring."""
+    ws = workbook.add_worksheet(estrategia.get("nombre_hoja_excel", "Pendientes"))
+    
+    # Encabezados
+    if pd.notna(fecha_maxima):
+        ultimo_dia = fecha_maxima + pd.offsets.MonthEnd(0)
+        meses = {1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio", 7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"}
+        txt_fecha = f"PARA EL {ultimo_dia.day} DE {meses[ultimo_dia.month].upper()} DE {ultimo_dia.year}"
+    else:
+        txt_fecha = "FECHA NO DISPONIBLE"
+
+    ws.merge_range('A1:E1', casa, formatos['encabezado_empresa'])
+    ws.merge_range('A2:E2', f"ESPECIFICACION DE LA CUENTA {estrategia['nombre_hoja_excel']}", formatos['encabezado_sub'])
+    ws.merge_range('A3:E3', txt_fecha, formatos['encabezado_sub'])
+
+    # Columnas: Contrato, Documento (Fuente), Saldo USD, Tasa, Saldo Bs
+    headers = ['Contrato', 'Documento', 'Saldo USD', 'Tasa', 'Saldo Bs']
+    ws.write_row('A5', headers, formatos['header_tabla'])
+
+    if df_saldos.empty: return
+
+    df = df_saldos.copy()
+    # Asegurar cálculo de tasa
+    df['Monto_BS'] = pd.to_numeric(df['Monto_BS'], errors='coerce').fillna(0)
+    df['Monto_USD'] = pd.to_numeric(df['Monto_USD'], errors='coerce').fillna(0)
+    df['Tasa_Impl'] = np.where(df['Monto_USD'].abs() > 0.01, (df['Monto_BS'] / df['Monto_USD']).abs(), 0)
+    
+    # Ordenar por Contrato
+    df = df.sort_values(by=['Contrato', 'Fecha'])
+    
+    current_row = 5
+    
+    for _, row in df.iterrows():
+        contrato = row.get('Contrato', 'SIN_CONTRATO')
+        fuente = row.get('Fuente', '')
+        
+        ws.write(current_row, 0, contrato)
+        ws.write(current_row, 1, fuente)
+        ws.write_number(current_row, 2, row['Monto_USD'], formatos['usd'])
+        ws.write_number(current_row, 3, row['Tasa_Impl'], formatos['tasa'])
+        ws.write_number(current_row, 4, row['Monto_BS'], formatos['bs'])
+        current_row += 1
+        
+    # Totales
+    ws.write(current_row, 1, "TOTALES", formatos['total_label'])
+    ws.write_number(current_row, 2, df['Monto_USD'].sum(), formatos['total_usd'])
+    ws.write_number(current_row, 4, df['Monto_BS'].sum(), formatos['total_bs'])
+    
+    ws.set_column('A:B', 25) # Contrato y Documento anchos
+    ws.set_column('C:E', 18) # Montos
+
 #@st.cache_data
 def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrategia, casa_seleccionada, cuenta_seleccionada):
     """Controlador principal que orquesta la creación del Excel."""
@@ -616,6 +680,8 @@ def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrate
         if _estrategia['id'] in cuentas_empleados:
             # Usamos la función de resumen (Saldo por NIT)
             _generar_hoja_pendientes_resumida(workbook, formatos, df_saldos_abiertos, _estrategia, casa_seleccionada, fecha_max)
+        elif _estrategia['id'] == 'cdc_factoring':  # <--- NUEVA CONDICIÓN
+            _generar_hoja_pendientes_cdc(workbook, formatos, df_saldos_abiertos, _estrategia, casa_seleccionada, fecha_max)
         else:
             # Usamos la función estándar detallada
             _generar_hoja_pendientes(workbook, formatos, df_saldos_abiertos, _estrategia, casa_seleccionada, fecha_max)
@@ -638,7 +704,8 @@ def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrate
                 'otras_cuentas_por_pagar', 
                 'deudores_empleados_me',
                 'deudores_empleados_bs',
-                'haberes_clientes'
+                'haberes_clientes',
+                'cdc_factoring'
             ]
             
             if _estrategia['id'] in cuentas_agrupadas:
