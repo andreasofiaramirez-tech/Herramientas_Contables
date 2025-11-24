@@ -54,6 +54,10 @@ def cargar_y_limpiar_datos(uploaded_actual, uploaded_anterior, log_messages):
                 log_messages.append(f"⚠️ ADVERTENCIA: No se encontró columna para '{req_col}'. Se creará vacía.")
                 df[req_col] = 0.0
         df.rename(columns=column_mapping, inplace=True)
+
+        log_messages.append(f"✅ Datos cargados. Filas archivo anterior: {len(df_anterior)}, Actual: {len(df_actual)}. Total consolidado: {len(df_full)}")
+    return df_full
+    
         return df
 
     def limpiar_numero_avanzado(texto):
