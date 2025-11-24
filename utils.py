@@ -23,10 +23,9 @@ def get_col_idx(df, possible_names):
     
 @st.cache_data
 def cargar_y_limpiar_datos(uploaded_actual, uploaded_anterior, log_messages):
-    """
-    Versión final que estandariza los nombres de las columnas principales
-    para ser insensible a mayúsculas/minúsculas y variaciones comunes.
-    """
+    """Carga, limpia y unifica los archivos de Excel."""
+    
+    # --- FUNCIONES AUXILIARES INTERNAS ---
     def mapear_columnas_financieras(df, log_messages):
         DEBITO_SYNONYMS = ['debito', 'debitos', 'débito', 'débitos', 'debe']
         CREDITO_SYNONYMS = ['credito', 'creditos', 'crédito', 'créditos', 'haber']
@@ -54,10 +53,6 @@ def cargar_y_limpiar_datos(uploaded_actual, uploaded_anterior, log_messages):
                 log_messages.append(f"⚠️ ADVERTENCIA: No se encontró columna para '{req_col}'. Se creará vacía.")
                 df[req_col] = 0.0
         df.rename(columns=column_mapping, inplace=True)
-
-        log_messages.append(f"✅ Datos cargados. Filas archivo anterior: {len(df_anterior)}, Actual: {len(df_actual)}. Total consolidado: {len(df_full)}")
-        return df_full
-    
         return df
 
     def limpiar_numero_avanzado(texto):
@@ -114,6 +109,7 @@ def cargar_y_limpiar_datos(uploaded_actual, uploaded_anterior, log_messages):
                 df[col] = pd.to_numeric(temp_serie, errors='coerce').fillna(0.0).round(2)
         return df
 
+    # --- EJECUCIÓN PRINCIPAL ---
     df_actual = procesar_excel(uploaded_actual)
     df_anterior = procesar_excel(uploaded_anterior)
 
@@ -122,15 +118,20 @@ def cargar_y_limpiar_datos(uploaded_actual, uploaded_anterior, log_messages):
         return None
 
     df_full = pd.concat([df_anterior, df_actual], ignore_index=True)
-    #key_cols = ['Asiento', 'Referencia', 'Fecha', 'Débito Bolivar', 'Crédito Bolivar', 'Débito Dolar', 'Crédito Dolar']
-    #df_full.drop_duplicates(subset=[col for col in key_cols if col in df_full.columns], keep='first', inplace=True)
+    
+    # --- ¡IMPORTANTE! ELIMINACIÓN DE DUPLICADOS DESACTIVADA ---
+    # Se comenta esta línea para evitar pérdida de datos legítimos idénticos
+    # key_cols = ['Asiento', 'Referencia', 'Fecha', 'Débito Bolivar', 'Crédito Bolivar', 'Débito Dolar', 'Crédito Dolar']
+    # df_full.drop_duplicates(subset=[col for col in key_cols if col in df_full.columns], keep='first', inplace=True)
+    # ----------------------------------------------------------
 
-    # Cálculos de montos netos
     df_full['Monto_BS'] = (df_full.get('Débito Bolivar', 0) - df_full.get('Crédito Bolivar', 0)).round(2)
     df_full['Monto_USD'] = (df_full.get('Débito Dolar', 0) - df_full.get('Crédito Dolar', 0)).round(2)
     df_full[['Conciliado', 'Grupo_Conciliado', 'Referencia_Normalizada_Literal']] = [False, np.nan, np.nan]
 
-    log_messages.append(f"✅ Datos de Excel cargados. Total movimientos: {len(df_full)}")
+    # --- LOG DE VERIFICACIÓN (AHORA EN EL LUGAR CORRECTO) ---
+    log_messages.append(f"✅ Datos cargados. Filas archivo anterior: {len(df_anterior)}, Actual: {len(df_actual)}. Total consolidado: {len(df_full)}")
+    
     return df_full
     
 @st.cache_data
