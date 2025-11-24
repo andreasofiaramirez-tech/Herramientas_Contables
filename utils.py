@@ -490,6 +490,85 @@ def _generar_hoja_resumen_devoluciones(workbook, formatos, df_saldos):
 # 3. FUNCIÓN PRINCIPAL (CONTROLADOR)
 # ==============================================================================
 
+def _generar_hoja_pendientes_resumida(workbook, formatos, df_saldos, estrategia, casa, fecha_maxima):
+    """
+    Genera una hoja de saldos RESUMIDA (una línea por NIT) para cuentas de Empleados.
+    """
+    nombre_hoja = estrategia.get("nombre_hoja_excel", "Saldos Por Empleado")
+    ws = workbook.add_worksheet(nombre_hoja)
+    
+    # Encabezados
+    if pd.notna(fecha_maxima):
+        ultimo_dia = fecha_maxima + pd.offsets.MonthEnd(0)
+        meses = {1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio", 7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"}
+        txt_fecha = f"PARA EL {ultimo_dia.day} DE {meses[ultimo_dia.month].upper()} DE {ultimo_dia.year}"
+        fecha_excel = ultimo_dia
+    else:
+        txt_fecha = "FECHA NO DISPONIBLE"
+        fecha_excel = None
+
+    ws.merge_range('A1:G1', casa, formatos['encabezado_empresa'])
+    ws.merge_range('A2:G2', f"ESPECIFICACION DE LA CUENTA {estrategia['nombre_hoja_excel']}", formatos['encabezado_sub'])
+    ws.merge_range('A3:G3', txt_fecha, formatos['encabezado_sub'])
+
+    # Columnas específicas solicitadas en la imagen
+    # SUB-CTA | NIT | NOMBRE | $ (USD) | FECHA | Bs. | Tasa
+    headers = ['SUB-CTA', 'NIT', 'NOMBRE', '$', 'FECHA', 'Bs.', 'Tasa']
+    ws.write_row('A5', headers, formatos['header_tabla'])
+
+    if df_saldos.empty: return
+
+    # --- LÓGICA DE AGRUPACIÓN (RESUMEN) ---
+    # 1. Rellenar nombres faltantes
+    col_nombre = 'Descripcion NIT' if 'Descripcion NIT' in df_saldos.columns else 'Nombre del Proveedor'
+    if col_nombre not in df_saldos.columns:
+        df_saldos['Nombre_Final'] = 'NO DEFINIDO'
+    else:
+        df_saldos['Nombre_Final'] = df_saldos[col_nombre].fillna('NO DEFINIDO')
+
+    # 2. Agrupar por NIT y sumar
+    resumen = df_saldos.groupby('NIT').agg({
+        'Nombre_Final': 'first', # Toma el primer nombre que encuentre
+        'Monto_USD': 'sum',
+        'Monto_BS': 'sum'
+    }).reset_index()
+
+    # 3. Calcular Tasa Implícita del saldo
+    # Evitamos división por cero
+    resumen['Tasa_Impl'] = np.where(
+        resumen['Monto_USD'].abs() > 0.01, 
+        (resumen['Monto_BS'] / resumen['Monto_USD']).abs(), 
+        0
+    )
+
+    # --- ESCRITURA EN EXCEL ---
+    current_row = 5
+    sub_cta = estrategia['nombre_hoja_excel'].split('.')[-1][:4] # Extrae '6006' o '1006'
+
+    for _, row in resumen.iterrows():
+        ws.write(current_row, 0, sub_cta, formatos['encabezado_sub']) # SUB-CTA Centrada
+        ws.write(current_row, 1, row['NIT'])
+        ws.write(current_row, 2, row['Nombre_Final'])
+        ws.write_number(current_row, 3, row['Monto_USD'], formatos['usd'])
+        if fecha_excel:
+            ws.write_datetime(current_row, 4, fecha_excel, formatos['fecha'])
+        else:
+            ws.write(current_row, 4, '-')
+        ws.write_number(current_row, 5, row['Monto_BS'], formatos['bs'])
+        ws.write_number(current_row, 6, row['Tasa_Impl'], formatos['tasa'])
+        current_row += 1
+
+    # --- TOTALES AL FINAL ---
+    ws.write(current_row, 2, "TOTALES", formatos['total_label'])
+    ws.write_number(current_row, 3, resumen['Monto_USD'].sum(), formatos['total_usd'])
+    ws.write_number(current_row, 5, resumen['Monto_BS'].sum(), formatos['total_bs'])
+
+    # Ajuste de anchos
+    ws.set_column('A:A', 10) # Sub-Cta
+    ws.set_column('B:B', 15) # NIT
+    ws.set_column('C:C', 45) # Nombre
+    ws.set_column('D:G', 15) # Montos y Fechas
+    
 @st.cache_data
 def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrategia, casa_seleccionada, cuenta_seleccionada):
     """Controlador principal que orquesta la creación del Excel."""
@@ -500,29 +579,34 @@ def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrate
         workbook = writer.book
         formatos = _crear_formatos(workbook)
         
-        # 1. Generar Hoja de Pendientes (Común para todos)
         fecha_max = _df_full['Fecha'].dropna().max()
         
-        # Pasamos _estrategia a las funciones auxiliares
-        _generar_hoja_pendientes(workbook, formatos, df_saldos_abiertos, _estrategia, casa_seleccionada, fecha_max)
+        # --- 1. SELECCIÓN DEL TIPO DE REPORTE DE PENDIENTES ---
         
-        # 2. Generar Hoja de Conciliados (Según estilo)
+        # Lista de cuentas que requieren reporte RESUMIDO (1 línea por empleado)
+        cuentas_empleados = ['deudores_empleados_me', 'deudores_empleados_bs']
+        
+        if _estrategia['id'] in cuentas_empleados:
+            # Usamos la nueva función de resumen
+            _generar_hoja_pendientes_resumida(workbook, formatos, df_saldos_abiertos, _estrategia, casa_seleccionada, fecha_max)
+        else:
+            # Usamos la función estándar detallada (Fondos tránsito, etc.)
+            _generar_hoja_pendientes(workbook, formatos, df_saldos_abiertos, _estrategia, casa_seleccionada, fecha_max)
+        
+        # --- 2. Generar Hoja de Conciliados (Igual que antes) ---
         if not df_conciliados.empty:
-            # Lista de cuentas que usan el estilo agrupado por NIT
             cuentas_agrupadas = ['cobros_viajeros', 'otras_cuentas_por_pagar']
             
             if _estrategia['id'] in cuentas_agrupadas:
                 _generar_hoja_conciliados_agrupada(workbook, formatos, df_conciliados, _estrategia)
             else:
-                # Todas las demás usan el estilo estándar (lista plana)
                 _generar_hoja_conciliados_estandar(workbook, formatos, df_conciliados, _estrategia)
 
-        # 3. Generar Hoja Extra (Solo para Devoluciones)
+        # 3. Hoja Extra Devoluciones
         if _estrategia['id'] == 'devoluciones_proveedores' and not df_saldos_abiertos.empty:
             _generar_hoja_resumen_devoluciones(workbook, formatos, df_saldos_abiertos)
 
     return output_excel.getvalue()
-
 
 # ==============================================================================
 # 4. REPORTE PARA LA HERRAMIENTA DE RETENCIONES
