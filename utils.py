@@ -610,10 +610,13 @@ def _generar_hoja_pendientes_resumida(workbook, formatos, df_saldos, estrategia,
     ws.set_column('D:G', 15) # Montos y Fechas
     
 def _generar_hoja_pendientes_cdc(workbook, formatos, df_saldos, estrategia, casa, fecha_maxima):
-    """Genera hoja de pendientes con formato específico para Factoring."""
+    """
+    Genera hoja de pendientes para Factoring agrupada por NIT/Proveedor.
+    Formato tipo Estado de Cuenta.
+    """
     ws = workbook.add_worksheet(estrategia.get("nombre_hoja_excel", "Pendientes"))
     
-    # Encabezados
+    # 1. Encabezados del Reporte
     if pd.notna(fecha_maxima):
         ultimo_dia = fecha_maxima + pd.offsets.MonthEnd(0)
         meses = {1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio", 7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"}
@@ -621,45 +624,97 @@ def _generar_hoja_pendientes_cdc(workbook, formatos, df_saldos, estrategia, casa
     else:
         txt_fecha = "FECHA NO DISPONIBLE"
 
-    ws.merge_range('A1:E1', casa, formatos['encabezado_empresa'])
-    ws.merge_range('A2:E2', f"ESPECIFICACION DE LA CUENTA {estrategia['nombre_hoja_excel']}", formatos['encabezado_sub'])
-    ws.merge_range('A3:E3', txt_fecha, formatos['encabezado_sub'])
+    # Títulos principales (Centrados hasta la columna H)
+    ws.merge_range('A1:H1', casa, formatos['encabezado_empresa'])
+    ws.merge_range('A2:H2', f"ESPECIFICACIÓN DE LA CUENTA {estrategia['nombre_hoja_excel']}", formatos['encabezado_sub'])
+    ws.merge_range('A3:H3', txt_fecha, formatos['encabezado_sub'])
 
-    # Columnas: Contrato, Documento (Fuente), Saldo USD, Tasa, Saldo Bs
-    headers = ['Contrato', 'Documento', 'Saldo USD', 'Tasa', 'Saldo Bs']
+    # 2. Encabezados de la Tabla (Fila 5)
+    headers = ['NIT', 'PROVEEDOR', 'FECHA', 'CONTRATO', 'DOCUMENTO', 'MONEDA ($)', 'TASA', 'MONTO (Bs)']
     ws.write_row('A5', headers, formatos['header_tabla'])
 
     if df_saldos.empty: return
 
+    # 3. Preparación de Datos
     df = df_saldos.copy()
-    # Asegurar cálculo de tasa
     df['Monto_BS'] = pd.to_numeric(df['Monto_BS'], errors='coerce').fillna(0)
     df['Monto_USD'] = pd.to_numeric(df['Monto_USD'], errors='coerce').fillna(0)
+    
+    # Calcular Tasa Implícita (Evitando división por cero)
     df['Tasa_Impl'] = np.where(df['Monto_USD'].abs() > 0.01, (df['Monto_BS'] / df['Monto_USD']).abs(), 0)
     
-    # Ordenar por Contrato
-    df = df.sort_values(by=['Contrato', 'Fecha'])
+    # Asegurar que exista columna NIT y Nombre para agrupar
+    col_nit = 'NIT' if 'NIT' in df.columns else 'NIT_Normalizado'
+    col_nombre = 'Nombre del Proveedor' if 'Nombre del Proveedor' in df.columns else 'Descripcion NIT'
     
-    current_row = 5
+    if col_nombre not in df.columns: df[col_nombre] = 'NO DEFINIDO'
+    if col_nit not in df.columns: df[col_nit] = 'SIN_NIT'
+
+    # Ordenar: Primero por Proveedor, luego por Contrato y Fecha
+    df = df.sort_values(by=[col_nombre, 'Contrato', 'Fecha'])
     
-    for _, row in df.iterrows():
-        contrato = row.get('Contrato', 'SIN_CONTRATO')
-        fuente = row.get('Fuente', '')
+    current_row = 5 # Comenzamos en la fila 6 (índice 5)
+    
+    grand_total_usd = 0
+    grand_total_bs = 0
+
+    # 4. Iteración por Grupos (Proveedores)
+    for nombre_prov, grupo in df.groupby(col_nombre):
+        nit_prov = grupo[col_nit].iloc[0]
         
-        ws.write(current_row, 0, contrato)
-        ws.write(current_row, 1, fuente)
-        ws.write_number(current_row, 2, row['Monto_USD'], formatos['usd'])
-        ws.write_number(current_row, 3, row['Tasa_Impl'], formatos['tasa'])
-        ws.write_number(current_row, 4, row['Monto_BS'], formatos['bs'])
+        # Escribir Encabezado del Grupo (Nombre del Proveedor)
+        # Se escribe en la columna B (Proveedor) resaltado, como en la imagen
+        ws.write(current_row, 1, nombre_prov, formatos['proveedor_header'])
+        # Opcional: Poner el NIT en la columna A
+        ws.write(current_row, 0, nit_prov, formatos['proveedor_header']) 
         current_row += 1
         
-    # Totales
-    ws.write(current_row, 1, "TOTALES", formatos['total_label'])
-    ws.write_number(current_row, 2, df['Monto_USD'].sum(), formatos['total_usd'])
-    ws.write_number(current_row, 4, df['Monto_BS'].sum(), formatos['total_bs'])
+        subtotal_usd = 0
+        subtotal_bs = 0
+
+        for _, row in grupo.iterrows():
+            contrato = row.get('Contrato', 'SIN_CONTRATO')
+            fuente = row.get('Fuente', '') # Documento
+            fecha = row['Fecha']
+            monto_usd = row['Monto_USD']
+            monto_bs = row['Monto_BS']
+            tasa = row['Tasa_Impl']
+
+            subtotal_usd += monto_usd
+            subtotal_bs += monto_bs
+
+            # Escribir fila de detalle
+            # Col A (NIT) y Col B (PROVEEDOR) se dejan vacías para limpieza visual (o se repiten si prefieres)
+            ws.write_datetime(current_row, 2, fecha, formatos['fecha'])   # Col C: Fecha
+            ws.write(current_row, 3, contrato)                            # Col D: Contrato
+            ws.write(current_row, 4, fuente)                              # Col E: Documento
+            ws.write_number(current_row, 5, monto_usd, formatos['usd'])   # Col F: Moneda ($)
+            ws.write_number(current_row, 6, tasa, formatos['tasa'])       # Col G: Tasa
+            ws.write_number(current_row, 7, monto_bs, formatos['bs'])     # Col H: Monto (Bs)
+            
+            current_row += 1
+        
+        # Subtotal por Proveedor
+        ws.write(current_row, 4, "Subtotal", formatos['subtotal_label'])
+        ws.write_number(current_row, 5, subtotal_usd, formatos['subtotal_usd'])
+        ws.write_number(current_row, 7, subtotal_bs, formatos['subtotal_bs'])
+        
+        grand_total_usd += subtotal_usd
+        grand_total_bs += subtotal_bs
+        current_row += 2 # Espacio entre proveedores
+
+    # 5. Gran Total Final
+    ws.write(current_row, 4, "TOTAL GENERAL", formatos['total_label'])
+    ws.write_number(current_row, 5, grand_total_usd, formatos['total_usd'])
+    ws.write_number(current_row, 7, grand_total_bs, formatos['total_bs'])
     
-    ws.set_column('A:B', 25) # Contrato y Documento anchos
-    ws.set_column('C:E', 18) # Montos
+    # 6. Ajuste de Anchos
+    ws.set_column('A:A', 15) # NIT
+    ws.set_column('B:B', 40) # Proveedor
+    ws.set_column('C:C', 12) # Fecha
+    ws.set_column('D:D', 15) # Contrato
+    ws.set_column('E:E', 15) # Documento
+    ws.set_column('F:H', 18) # Montos y Tasa
 
 #@st.cache_data
 def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrategia, casa_seleccionada, cuenta_seleccionada):
