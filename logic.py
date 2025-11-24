@@ -1110,8 +1110,10 @@ def run_conciliation_haberes_clientes(df, log_messages, progress_bar=None):
 
 def normalizar_datos_cdc_factoring(df, log_messages):
     """
-    Extrae el código del contrato buscando en Referencia y Fuente.
-    Versión 'Barrido de Palabras': Salta conectores (DE, DEL, NRO) para encontrar el ID.
+    Extrae el código del contrato.
+    Nivel 1: Patrones FQ u O/C.
+    Nivel 2: Barrido después de palabra 'FACTORING'.
+    Nivel 3: Detección directa (si la referencia es solo el número).
     """
     df_copy = df.copy()
     
@@ -1125,9 +1127,9 @@ def normalizar_datos_cdc_factoring(df, log_messages):
     def limpiar_y_extraer(texto_crudo):
         if not isinstance(texto_crudo, str): return None
         texto = texto_crudo.upper().strip()
+        if not texto: return None
         
         # --- NIVEL 1: Patrones de Alta Precisión (FQ y O/C) ---
-        # Si aparece FQ-xxxx, es eso seguro.
         match_fq = re.search(r"(FQ-[A-Z0-9-]+)", texto)
         if match_fq: return match_fq.group(1)
         
@@ -1136,34 +1138,30 @@ def normalizar_datos_cdc_factoring(df, log_messages):
 
         # --- NIVEL 2: Barrido Inteligente después de 'FACTORING' ---
         if "FACTORING" in texto:
-            # Cortamos el texto a partir de la palabra FACTORING
-            # Ej: "PAGO FACTORING DE NRO 6016301 $500" -> " DE NRO 6016301 $500"
-            parte_derecha = texto.split("FACTORING", 1)[1]
-            
-            # Limpiamos caracteres sucios que puedan estar pegados ($ , . :)
-            parte_derecha = parte_derecha.replace('$', ' ').replace(':', ' ').replace(',', ' ')
-            
-            # Dividimos en palabras individuales
-            palabras = parte_derecha.split()
-            
-            # Lista de palabras "basura" a ignorar
-            ignorar = ['DE', 'DEL', 'AL', 'NRO', 'NUM', 'NUMERO', 'REF', 'NO', 'PAGO', 'ABONO', 'CANCELACION', 'FAC', 'FACT']
-            
-            for palabra in palabras:
-                # Limpiamos puntos finales (ej: "NRO." -> "NRO")
-                p_clean = palabra.replace('.', '').strip()
+            try:
+                parte_derecha = texto.split("FACTORING", 1)[1]
+                parte_derecha = parte_derecha.replace('$', ' ').replace(':', ' ').replace(',', ' ')
+                palabras = parte_derecha.split()
+                ignorar = ['DE', 'DEL', 'AL', 'NRO', 'NUM', 'NUMERO', 'REF', 'NO', 'PAGO', 'ABONO', 'CANCELACION', 'FAC', 'FACT']
                 
-                # Si es una palabra de relleno, pasamos a la siguiente
-                if p_clean in ignorar:
-                    continue
-                
-                # Si la palabra tiene al menos un dígito, ¡ES EL CONTRATO!
-                # (Ej: "6016301" o "F-2025")
-                if any(char.isdigit() for char in p_clean):
-                    # Filtro final: que tenga al menos 3 caracteres para evitar falsos positivos cortos
-                    if len(p_clean) >= 3:
-                        return p_clean
-                        
+                for palabra in palabras:
+                    p_clean = palabra.replace('.', '').strip()
+                    if p_clean in ignorar: continue
+                    if any(char.isdigit() for char in p_clean):
+                        if len(p_clean) >= 3: return p_clean
+            except IndexError:
+                pass
+
+        # --- NIVEL 3: Referencia Directa (Caso Febeca) ---
+        # Si la referencia NO tiene espacios y contiene números (ej: "6016301")
+        # Verificamos que sea un bloque sólido alfanumérico
+        if ' ' not in texto:
+            # Debe tener al menos un número
+            if any(char.isdigit() for char in texto):
+                # Longitud mínima 4 para evitar capturar "1", "2023" (años), etc.
+                if len(texto) >= 4:
+                    return texto
+
         return None
 
     def extraer_contrato_row(row):
@@ -1179,7 +1177,7 @@ def normalizar_datos_cdc_factoring(df, log_messages):
     df_copy['Contrato'] = df_copy.apply(extraer_contrato_row, axis=1)
     
     return df_copy
-
+    
 def run_conciliation_cdc_factoring(df, log_messages, progress_bar=None):
     """
     Conciliación de Factoring (USD).
