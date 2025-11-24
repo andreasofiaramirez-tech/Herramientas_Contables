@@ -1110,25 +1110,53 @@ def run_conciliation_haberes_clientes(df, log_messages, progress_bar=None):
 
 def normalizar_datos_cdc_factoring(df, log_messages):
     """
-    Extrae el código del contrato de la Referencia.
-    Patrón esperado: '...FACTORING [CODIGO] $...'
+    Extrae el código del contrato buscando en Referencia y Fuente.
+    Maneja patrones numéricos (Febeca) y alfanuméricos (FQ, O/C).
     """
     df_copy = df.copy()
     
-    # 1. Normalizar NIT (Estándar)
+    # 1. Normalizar NIT
     nit_col_name = next((col for col in df_copy.columns if str(col).strip().upper() in ['NIT', 'RIF']), None)
     if nit_col_name:
         df_copy['NIT_Normalizado'] = df_copy[nit_col_name].astype(str).str.upper().str.replace(r'[^A-Z0-9]', '', regex=True)
     else:
         df_copy['NIT_Normalizado'] = 'SIN_NIT'
 
-    # 2. Extraer Contrato usando Regex
-    # Busca la palabra FACTORING, un espacio, captura todo lo que haya hasta el signo $
-    df_copy['Contrato'] = df_copy['Referencia'].str.extract(r"FACTORING\s+(.*?)\s*\$", flags=re.IGNORECASE, expand=False)
-    
-    # Limpieza del contrato extraído
-    df_copy['Contrato'] = df_copy['Contrato'].str.strip().str.upper()
-    df_copy['Contrato'] = df_copy['Contrato'].fillna('SIN_CONTRATO')
+    def extraer_contrato_row(row):
+        # Unimos Referencia y Fuente para buscar en ambos lados
+        # (A veces el dato está en uno u otro)
+        textos_a_revisar = [
+            str(row.get('Referencia', '')).strip().upper(),
+            str(row.get('Fuente', '')).strip().upper()
+        ]
+        
+        for texto in textos_a_revisar:
+            if not texto: continue
+
+            # ESTRATEGIA 1: Patrón específico FQ (Alta prioridad)
+            # Ej: FQ-202507-01
+            match_fq = re.search(r"(FQ-[A-Z0-9-]+)", texto)
+            if match_fq: return match_fq.group(1)
+
+            # ESTRATEGIA 2: Patrón Fuente O/C
+            # Ej: O/C6016301 o O/C-123
+            match_oc = re.search(r"O/C\s*[-]?\s*([A-Z0-9]+)", texto)
+            if match_oc: return match_oc.group(1)
+
+            # ESTRATEGIA 3: Buscar después de "FACTORING" (General)
+            # Permite: "FACTORING 6016301", "FACTORING NRO 6016301", "FACTORING # 123"
+            # (?: ... )? es un grupo opcional no capturante para saltar "NRO", "NUM", etc.
+            match_gral = re.search(r"FACTORING\s+(?:NRO\.?|NUMERO|#|REF)?\s*([A-Z0-9-]+)", texto)
+            
+            if match_gral:
+                captured = match_gral.group(1)
+                # Filtro de seguridad: Evitar capturar palabras comunes si el texto está mal formado
+                if captured not in ['DEL', 'AL', 'DE', 'PAGO', 'ABONO', 'CANCELACION']:
+                    return captured
+            
+        return 'SIN_CONTRATO'
+
+    df_copy['Contrato'] = df_copy.apply(extraer_contrato_row, axis=1)
     
     return df_copy
 
