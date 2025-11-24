@@ -569,7 +569,7 @@ def _generar_hoja_pendientes_resumida(workbook, formatos, df_saldos, estrategia,
     ws.set_column('C:C', 45) # Nombre
     ws.set_column('D:G', 15) # Montos y Fechas
     
-@st.cache_data
+#@st.cache_data
 def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrategia, casa_seleccionada, cuenta_seleccionada):
     """Controlador principal que orquesta la creación del Excel."""
     
