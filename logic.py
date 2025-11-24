@@ -820,9 +820,16 @@ def normalizar_datos_cobros_viajeros(df, log_messages):
 def run_conciliation_cobros_viajeros(df, log_messages, progress_bar=None):
     """
     Versión final que maneja coincidencias parciales y limpieza automática de Diferencial Cambiario.
+    USA TOLERANCIA ESTRICTA (0.01) para evitar descuadres acumulados.
     """
-    log_messages.append("\n--- INICIANDO LÓGICA DE COBROS VIAJEROS (V10 - CON AUTO DIF CAMBIO) ---")
+    log_messages.append("\n--- INICIANDO LÓGICA DE COBROS VIAJEROS (V11 - TOLERANCIA ESTRICTA) ---")
     
+    # --- DEFINICIÓN DE TOLERANCIA LOCAL ---
+    # Para esta cuenta, la coincidencia debe ser exacta (o máximo 1 centavo por redondeo).
+    # No usamos la global de 0.50 porque acumula errores.
+    TOLERANCIA_ESTRICTA_USD = 0.01 
+    # --------------------------------------
+
     df = normalizar_datos_cobros_viajeros(df, log_messages)
     if progress_bar: progress_bar.progress(0.1, text="Fase de Normalización completada.")
 
@@ -830,45 +837,35 @@ def run_conciliation_cobros_viajeros(df, log_messages, progress_bar=None):
     indices_usados = set()
 
     # --- FASE 0: CONCILIACIÓN AUTOMÁTICA (DIFERENCIAL CAMBIARIO) ---
-    # Detectamos ajustes contables por valoración de moneda que no deben cruzarse con pagos.
     def es_ajuste_cambiario(texto):
         t = str(texto).upper()
         if 'DIFF' in t: return True
         if 'CAMBIO' in t and ('DIFERENCIA' in t or 'DIF' in t or 'AJUSTE' in t): return True
         return False
 
-    # Filtramos movimientos no conciliados que cumplan la condición
     indices_dif = df[df['Referencia'].apply(es_ajuste_cambiario) & (~df['Conciliado'])].index
 
     if not indices_dif.empty:
         df.loc[indices_dif, 'Conciliado'] = True
         df.loc[indices_dif, 'Grupo_Conciliado'] = 'AUTOMATICO_DIF_CAMBIO'
-        
-        # Agregamos a indices_usados para que las siguientes fases los ignoren
         indices_usados.update(indices_dif)
-        
         count_dif = len(indices_dif)
         total_conciliados += count_dif
         log_messages.append(f"✔️ Fase Auto: {count_dif} movimientos conciliados por ser 'Diferencia en Cambio'.")
-    # ------------------------------------------------------------------
 
-    # --- FASE 1: CONCILIACIÓN DE REVERSOS (CON LÓGICA 'ENDSWITH') ---
+    # --- FASE 1: CONCILIACIÓN DE REVERSOS ---
     log_messages.append("--- Fase 1: Buscando reversos con coincidencia parcial ---")
-    # Filtramos ignorando lo ya conciliado en Fase 0
     df_reversos = df[df['Es_Reverso'] & (~df['Conciliado'])].copy()
     df_originales = df[~df['Es_Reverso'] & (~df['Conciliado'])].copy()
 
     for idx_r, reverso_row in df_reversos.iterrows():
-        if idx_r in indices_usados:
-            continue
+        if idx_r in indices_usados: continue
         
         clave_reverso = reverso_row['Referencia_Norm_Num']
-        if not clave_reverso:
-            continue
+        if not clave_reverso: continue
 
         nit_reverso = reverso_row['NIT_Normalizado']
         
-        # Iterar sobre los originales para encontrar la contrapartida
         for idx_o, original_row in df_originales.iterrows():
             if idx_o in indices_usados or original_row['NIT_Normalizado'] != nit_reverso:
                 continue
@@ -879,22 +876,22 @@ def run_conciliation_cobros_viajeros(df, log_messages, progress_bar=None):
             match_en_referencia = (clave_reverso and clave_orig_ref and (clave_reverso.endswith(clave_orig_ref) or clave_orig_ref.endswith(clave_reverso)))
             match_en_fuente = (clave_reverso and clave_orig_fuente and (clave_reverso.endswith(clave_orig_fuente) or clave_orig_fuente.endswith(clave_reverso)))
 
-            if (match_en_referencia or match_en_fuente) and np.isclose(reverso_row['Monto_USD'] + original_row['Monto_USD'], 0, atol=TOLERANCIA_MAX_USD):
+            # --- AQUI USAMOS LA TOLERANCIA ESTRICTA ---
+            if (match_en_referencia or match_en_fuente) and np.isclose(reverso_row['Monto_USD'] + original_row['Monto_USD'], 0, atol=TOLERANCIA_ESTRICTA_USD):
                 indices_a_conciliar = [idx_r, idx_o]
                 df.loc[indices_a_conciliar, 'Conciliado'] = True
                 df.loc[indices_a_conciliar, 'Grupo_Conciliado'] = f"REVERSO_{nit_reverso}_{clave_reverso}"
                 indices_usados.update(indices_a_conciliar)
                 total_conciliados += 2
-                log_messages.append(f"✔️ Reverso (parcial) conciliado para NIT {nit_reverso} con clave {clave_reverso}.")
+                log_messages.append(f"✔️ Reverso conciliado para NIT {nit_reverso}.")
                 break 
 
     if progress_bar: progress_bar.progress(0.5, text="Fase de Reversos completada.")
 
-    # --- FASE 2: CONCILIACIÓN ESTÁNDAR N-a-N (Movimientos Restantes) ---
+    # --- FASE 2: CONCILIACIÓN ESTÁNDAR N-a-N ---
     log_messages.append("--- Fase 2: Buscando grupos de conciliación estándar N-a-N ---")
     
     df['Clave_Vinculo'] = ''
-    # Importante: Filtrar usando indices_usados para excluir los DIFF y los Reversos ya procesados
     df_restante = df[~df.index.isin(indices_usados) & ~df['Conciliado']]
     
     for index, row in df_restante.iterrows():
@@ -909,7 +906,9 @@ def run_conciliation_cobros_viajeros(df, log_messages, progress_bar=None):
     for (nit, clave), grupo in grupos:
         if len(grupo) < 2 or not ((grupo['Monto_USD'] > 0).any() and (grupo['Monto_USD'] < 0).any()):
             continue
-        if np.isclose(grupo['Monto_USD'].sum(), 0, atol=TOLERANCIA_MAX_USD):
+            
+        # --- AQUI USAMOS LA TOLERANCIA ESTRICTA ---
+        if np.isclose(grupo['Monto_USD'].sum(), 0, atol=TOLERANCIA_ESTRICTA_USD):
             indices_a_conciliar = grupo.index
             df.loc[indices_a_conciliar, 'Conciliado'] = True
             df.loc[indices_a_conciliar, 'Grupo_Conciliado'] = f"VIAJERO_{nit}_{clave}"
