@@ -160,6 +160,19 @@ LOGICA_POR_CUENTA = {
             *   Si quedan partidas abiertas, busca coincidencias por **Monto Exacto**.
             *   Esto permite cruzar un Débito que tiene el NIT correcto con un Crédito que quizás no tiene NIT (o viceversa), siempre que los montos sean idénticos.
         """,
+    "212.07.9001 - CDC - Factoring": """
+        #### 🔎 Lógica de Conciliación Automática (Dólares - USD)
+
+        Conciliación de contratos de factoring basada en la referencia del documento.
+        
+        1.  **Extracción de Contrato:**
+            *   Busca en la referencia el patrón `FACTORING [CODIGO] $`.
+            *   Extrae el código que se encuentra entre la palabra "FACTORING" y el signo de dólar.
+        
+        2.  **Conciliación por Grupo:**
+            *   Agrupa por **NIT** y **Contrato**.
+            *   Si la suma en Dólares de ese contrato es cero, se marca como conciliado.
+        """
 }
 
 # ==============================================================================
