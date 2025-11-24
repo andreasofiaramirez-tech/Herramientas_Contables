@@ -612,7 +612,7 @@ def _generar_hoja_pendientes_resumida(workbook, formatos, df_saldos, estrategia,
 def _generar_hoja_pendientes_cdc(workbook, formatos, df_saldos, estrategia, casa, fecha_maxima):
     """
     Genera hoja de pendientes para Factoring agrupada por NIT/Proveedor.
-    CORREGIDO: Muestra NIT y Descripción en cada línea y cambia el encabezado.
+    CORREGIDO: Fuerza el relleno de nombres vacíos o espacios en blanco.
     """
     ws = workbook.add_worksheet(estrategia.get("nombre_hoja_excel", "Pendientes"))
     
@@ -628,7 +628,7 @@ def _generar_hoja_pendientes_cdc(workbook, formatos, df_saldos, estrategia, casa
     ws.merge_range('A2:H2', f"ESPECIFICACIÓN DE LA CUENTA {estrategia['nombre_hoja_excel']}", formatos['encabezado_sub'])
     ws.merge_range('A3:H3', txt_fecha, formatos['encabezado_sub'])
 
-    # 2. Encabezados de la Tabla (CAMBIO AQUÍ: 'Descripción NIT')
+    # 2. Encabezados de la Tabla
     headers = ['NIT', 'Descripción NIT', 'FECHA', 'CONTRATO', 'DOCUMENTO', 'MONEDA ($)', 'TASA', 'MONTO (Bs)']
     ws.write_row('A5', headers, formatos['header_tabla'])
 
@@ -640,7 +640,7 @@ def _generar_hoja_pendientes_cdc(workbook, formatos, df_saldos, estrategia, casa
     df['Monto_USD'] = pd.to_numeric(df['Monto_USD'], errors='coerce').fillna(0)
     df['Tasa_Impl'] = np.where(df['Monto_USD'].abs() > 0.01, (df['Monto_BS'] / df['Monto_USD']).abs(), 0)
     
-    # --- DETECCIÓN INTELIGENTE DE COLUMNAS ---
+    # --- DETECCIÓN Y LIMPIEZA PROFUNDA DE COLUMNAS ---
     col_nombre = None
     posibles_nombres = ['Nombre del Proveedor', 'NOMBRE DEL PROVEEDOR', 'Descripcion NIT', 'Descripción Nit', 'Descripción NIT', 'Descripcion Nit', 'Nombre', 'Proveedor']
     
@@ -652,20 +652,28 @@ def _generar_hoja_pendientes_cdc(workbook, formatos, df_saldos, estrategia, casa
     if col_nombre is None:
         df['Nombre_Final'] = 'NO DEFINIDO'
         col_nombre = 'Nombre_Final'
-        
+    
+    # Búsqueda de NIT
     col_nit = None
     posibles_nits = ['NIT', 'Nit', 'nit', 'NIT_Normalizado', 'RIF', 'Rif']
     for col in posibles_nits:
         if col in df.columns:
             col_nit = col
             break
-            
     if col_nit is None:
         df['NIT_Final'] = 'SIN_NIT'
         col_nit = 'NIT_Final'
 
-    df[col_nombre] = df[col_nombre].fillna('NO DEFINIDO')
-    df[col_nit] = df[col_nit].fillna('SIN_NIT')
+    # --- AQUÍ ESTÁ LA CORRECCIÓN CLAVE ---
+    # 1. Convertimos todo a string
+    df[col_nombre] = df[col_nombre].astype(str)
+    df[col_nit] = df[col_nit].astype(str)
+
+    # 2. Reemplazamos espacios vacíos, 'nan', 'None' por NaN real de numpy
+    # 3. Rellenamos con el valor por defecto
+    df[col_nombre] = df[col_nombre].replace(r'^\s*$', np.nan, regex=True).replace(['nan', 'None', 'NAN'], np.nan).fillna('NO DEFINIDO')
+    df[col_nit] = df[col_nit].replace(r'^\s*$', np.nan, regex=True).replace(['nan', 'None', 'NAN'], np.nan).fillna('SIN_NIT')
+    # --------------------------------------
 
     # Ordenar
     df = df.sort_values(by=[col_nombre, 'Contrato', 'Fecha'])
@@ -677,8 +685,9 @@ def _generar_hoja_pendientes_cdc(workbook, formatos, df_saldos, estrategia, casa
     # 4. Iteración por Grupos
     for (nombre_prov, nit_prov), grupo in df.groupby([col_nombre, col_nit]):
         
-        # Encabezado visual del grupo (Mantiene el separador visual)
-        ws.merge_range(current_row, 0, current_row, 7, f"{nit_prov} - {nombre_prov}", formatos['proveedor_header'])
+        # Encabezado visual del grupo
+        display_header = f"{nit_prov} - {nombre_prov}"
+        ws.merge_range(current_row, 0, current_row, 7, display_header, formatos['proveedor_header'])
         current_row += 1
         
         subtotal_usd = 0
@@ -695,9 +704,9 @@ def _generar_hoja_pendientes_cdc(workbook, formatos, df_saldos, estrategia, casa
             subtotal_usd += monto_usd
             subtotal_bs += monto_bs
 
-            # --- CAMBIO AQUÍ: Escribir NIT y Nombre en CADA FILA ---
-            ws.write(current_row, 0, nit_prov)          # Col A: NIT
-            ws.write(current_row, 1, nombre_prov)       # Col B: Descripción NIT
+            # Escribir datos en CADA fila
+            ws.write(current_row, 0, nit_prov)          # NIT
+            ws.write(current_row, 1, nombre_prov)       # Nombre (Ahora sí debe salir)
             
             if pd.notna(fecha): ws.write_datetime(current_row, 2, fecha, formatos['fecha'])
             else: ws.write(current_row, 2, '-')
@@ -725,11 +734,11 @@ def _generar_hoja_pendientes_cdc(workbook, formatos, df_saldos, estrategia, casa
     ws.write_number(current_row, 7, grand_total_bs, formatos['total_bs'])
     
     # 6. Ajuste de Anchos
-    ws.set_column('A:A', 15) # NIT
-    ws.set_column('B:B', 45) # Descripción NIT (Más ancho para que se lea)
-    ws.set_column('C:C', 12) # Fecha
-    ws.set_column('D:E', 15) # Contrato y Doc
-    ws.set_column('F:H', 18) # Montos
+    ws.set_column('A:A', 15)
+    ws.set_column('B:B', 45)
+    ws.set_column('C:C', 12)
+    ws.set_column('D:E', 15)
+    ws.set_column('F:H', 18)
 
 #@st.cache_data
 def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrategia, casa_seleccionada, cuenta_seleccionada):
