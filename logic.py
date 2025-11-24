@@ -1031,6 +1031,81 @@ def run_conciliation_otras_cxp(df, log_messages, progress_bar=None):
     log_messages.append("\n--- PROCESO DE CONCILIACIÓN FINALIZADO ---")
     return df
 
+# --- (H) Módulo: Haberes de Clientes (VES) ---
+
+def run_conciliation_haberes_clientes(df, log_messages, progress_bar=None):
+    """
+    Conciliación de Haberes de Clientes (BS).
+    Fase 1: Por NIT (Suma Cero).
+    Fase 2: Por Monto Exacto (Recuperación de NITs perdidos).
+    """
+    log_messages.append("\n--- INICIANDO LÓGICA DE HABERES DE CLIENTES (BS) ---")
+    
+    # 1. Normalización (Usamos la misma lógica de limpieza de NIT)
+    # Reutilizamos normalizar_datos_otras_cxp que ya limpia NITs y Referencias
+    df = normalizar_datos_otras_cxp(df, log_messages) 
+    if progress_bar: progress_bar.progress(0.2, text="Fase de Normalización completada.")
+
+    total_conciliados = 0
+
+    # --- FASE 1: CONCILIACIÓN POR NIT (ESTÁNDAR) ---
+    # Agrupamos por NIT. Si la suma de todos sus movimientos es 0, se cierran.
+    df_pendientes = df[~df['Conciliado']]
+    grupos_nit = df_pendientes.groupby('NIT_Normalizado')
+    
+    for nit, grupo in grupos_nit:
+        if nit == 'SIN_NIT': continue # Saltamos los vacíos para la fase 2
+        
+        if np.isclose(grupo['Monto_BS'].sum(), 0, atol=TOLERANCIA_MAX_BS):
+            indices = grupo.index
+            df.loc[indices, 'Conciliado'] = True
+            df.loc[indices, 'Grupo_Conciliado'] = f"HABER_NIT_{nit}"
+            total_conciliados += len(indices)
+            
+    log_messages.append(f"✔️ Fase 1 (Por NIT): {total_conciliados} movimientos conciliados.")
+    if progress_bar: progress_bar.progress(0.5, text="Fase 1 completada.")
+
+    # --- FASE 2: CONCILIACIÓN POR MONTO EXACTO (RECUPERACIÓN) ---
+    # Buscamos pares (Débito vs Crédito) que tengan exactamente el mismo monto absoluto
+    # Esto cruza filas con NIT vs filas SIN NIT (o NIT errado).
+    
+    df_pendientes = df[~df['Conciliado']].copy()
+    df_pendientes['Monto_Abs'] = df_pendientes['Monto_BS'].abs()
+    
+    # Agrupamos por monto absoluto
+    grupos_monto = df_pendientes.groupby('Monto_Abs')
+    count_fase2 = 0
+    
+    for monto, grupo in grupos_monto:
+        if len(grupo) < 2 or monto <= TOLERANCIA_MAX_BS: continue
+        
+        debitos = grupo[grupo['Monto_BS'] > 0].index.tolist()
+        creditos = grupo[grupo['Monto_BS'] < 0].index.tolist()
+        
+        # Emparejamos 1 a 1
+        pares = min(len(debitos), len(creditos))
+        for i in range(pares):
+            idx_d = debitos[i]
+            idx_c = creditos[i]
+            
+            # Validamos suma cero estricta
+            if np.isclose(df.loc[idx_d, 'Monto_BS'] + df.loc[idx_c, 'Monto_BS'], 0, atol=TOLERANCIA_MAX_BS):
+                # Intentamos rescatar el NIT del que sí lo tenga para la etiqueta
+                nit_d = df.loc[idx_d, 'NIT_Normalizado']
+                nit_c = df.loc[idx_c, 'NIT_Normalizado']
+                nit_ref = nit_d if nit_d != 'SIN_NIT' else (nit_c if nit_c != 'SIN_NIT' else 'GENERICO')
+                
+                df.loc[[idx_d, idx_c], 'Conciliado'] = True
+                df.loc[[idx_d, idx_c], 'Grupo_Conciliado'] = f"HABER_MONTO_{nit_ref}_{int(monto)}"
+                count_fase2 += 2
+
+    total_conciliados += count_fase2
+    log_messages.append(f"✔️ Fase 2 (Por Monto/Sin NIT): {count_fase2} movimientos conciliados.")
+    if progress_bar: progress_bar.progress(1.0, text="Proceso Finalizado.")
+    
+    log_messages.append("\n--- PROCESO DE CONCILIACIÓN FINALIZADO ---")
+    return df
+
 # ==============================================================================
 # FUNCIONES MAESTRAS DE ESTRATEGIA
 # ==============================================================================
