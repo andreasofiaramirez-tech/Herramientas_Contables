@@ -20,6 +20,7 @@ from logic import (
     run_conciliation_cobros_viajeros,
     run_conciliation_otras_cxp,
     run_conciliation_haberes_clientes,
+    run_conciliation_cdc_factoring,
     run_conciliation_deudores_empleados_me
 )
 from utils import (
@@ -182,6 +183,16 @@ ESTRATEGIAS = {
         "columnas_reporte": ['NIT', 'Descripción Nit', 'Fecha', 'Fuente', 'Referencia', 'Monto Bolivar'],
         "nombre_hoja_excel": "212.05.1108",
         "columnas_requeridas": ['Fecha', 'Asiento', 'Referencia', 'Nit', 'Descripción Nit', 'Débito Bolivar', 'Crédito Bolivar']
+    },
+    "212.07.9001 - CDC - Factoring": {
+        "id": "cdc_factoring",
+        "funcion_principal": run_conciliation_cdc_factoring,
+        "label_actual": "Movimientos del mes (Factoring)",
+        "label_anterior": "Saldos anteriores (Factoring)",
+        # Estas columnas son referenciales para el excel genérico, pero usaremos la función específica
+        "columnas_reporte": ['Contrato', 'Documento', 'Saldo USD', 'Tasa', 'Saldo Bs'], 
+        "nombre_hoja_excel": "212.07.9001",
+        "columnas_requeridas": ['Fecha', 'Asiento', 'Referencia', 'Nit', 'Fuente', 'Débito Dolar', 'Crédito Dolar', 'Débito Bolivar', 'Crédito Bolivar']
     }
     
 }
