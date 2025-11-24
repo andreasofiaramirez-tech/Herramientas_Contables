@@ -736,47 +736,53 @@ def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrate
         
         fecha_max = _df_full['Fecha'].dropna().max()
         
-        # --- 1. HOJA DE PENDIENTES (Saldos Abiertos) ---
-        # Lista de cuentas que requieren reporte RESUMIDO (1 línea por empleado)
-        cuentas_empleados = ['deudores_empleados_me', 'deudores_empleados_bs', 'haberes_clientes']
+        # ============================================================
+        # 1. SELECCIÓN DE LA HOJA DE PENDIENTES (SALDOS ABIERTOS)
+        # ============================================================
         
+        cuentas_empleados = ['deudores_empleados_me', 'deudores_empleados_bs']
+        
+        # A. Cuentas de Empleados (Resumen 1 línea por NIT)
         if _estrategia['id'] in cuentas_empleados:
-            # Usamos la función de resumen (Saldo por NIT)
             _generar_hoja_pendientes_resumida(workbook, formatos, df_saldos_abiertos, _estrategia, casa_seleccionada, fecha_max)
-        elif _estrategia['id'] == 'cdc_factoring':  # <--- NUEVA CONDICIÓN
+            
+        # B. Cuenta Factoring (Agrupado: Proveedor -> Contrato)
+        elif _estrategia['id'] == 'cdc_factoring':
+            # ¡AQUÍ ES DONDE SE LLAMA A LA FUNCIÓN NUEVA!
             _generar_hoja_pendientes_cdc(workbook, formatos, df_saldos_abiertos, _estrategia, casa_seleccionada, fecha_max)
+            
+        # C. Resto de Cuentas (Lista Plana Detallada)
         else:
-            # Usamos la función estándar detallada
             _generar_hoja_pendientes(workbook, formatos, df_saldos_abiertos, _estrategia, casa_seleccionada, fecha_max)
         
-        # --- 2. HOJA DE DETALLE (Conciliación / Estado de Cuenta) ---
+        # ============================================================
+        # 2. SELECCIÓN DE LA HOJA DE CONCILIADOS (CERRADOS)
+        # ============================================================
         
-        # Determinamos qué datos usar:
-        # Para Empleados: Usamos _df_full (TODO: Abierto + Cerrado) para ver la historia completa.
-        # Para Otros: Usamos df_conciliados (Solo lo cerrado) como es estándar.
+        # Definimos qué datos usar para la hoja de conciliación
         if _estrategia['id'] in cuentas_empleados:
-            datos_para_detalle = _df_full.copy()
+            datos_conciliacion = _df_full.copy() # Empleados muestra TODO (Estado de Cuenta)
         else:
-            datos_para_detalle = df_conciliados.copy()
+            datos_conciliacion = df_conciliados.copy() # Otros muestran solo lo cerrado
 
-        if not datos_para_detalle.empty:
+        if not datos_conciliacion.empty:
             
-            # Lista de cuentas que usan el formato agrupado visualmente
+            # Lista de cuentas que usan el formato visual agrupado
             cuentas_agrupadas = [
                 'cobros_viajeros', 
                 'otras_cuentas_por_pagar', 
                 'deudores_empleados_me',
                 'deudores_empleados_bs',
                 'haberes_clientes',
-                'cdc_factoring'
+                'cdc_factoring' # Asegúrate de que esté aquí también
             ]
             
             if _estrategia['id'] in cuentas_agrupadas:
-                _generar_hoja_conciliados_agrupada(workbook, formatos, datos_para_detalle, _estrategia)
+                _generar_hoja_conciliados_agrupada(workbook, formatos, datos_conciliacion, _estrategia)
             else:
-                _generar_hoja_conciliados_estandar(workbook, formatos, datos_para_detalle, _estrategia)
+                _generar_hoja_conciliados_estandar(workbook, formatos, datos_conciliacion, _estrategia)
 
-        # 3. Hoja Extra Devoluciones
+        # 3. Hoja Extra Devoluciones (Solo para esa cuenta)
         if _estrategia['id'] == 'devoluciones_proveedores' and not df_saldos_abiertos.empty:
             _generar_hoja_resumen_devoluciones(workbook, formatos, df_saldos_abiertos)
 
