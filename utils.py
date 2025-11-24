@@ -599,31 +599,41 @@ def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrate
         
         fecha_max = _df_full['Fecha'].dropna().max()
         
-        # --- 1. SELECCIÓN DEL TIPO DE REPORTE DE PENDIENTES ---
-        
+        # --- 1. HOJA DE PENDIENTES (Saldos Abiertos) ---
         # Lista de cuentas que requieren reporte RESUMIDO (1 línea por empleado)
         cuentas_empleados = ['deudores_empleados_me', 'deudores_empleados_bs']
         
         if _estrategia['id'] in cuentas_empleados:
-            # Usamos la nueva función de resumen
+            # Usamos la función de resumen (Saldo por NIT)
             _generar_hoja_pendientes_resumida(workbook, formatos, df_saldos_abiertos, _estrategia, casa_seleccionada, fecha_max)
         else:
-            # Usamos la función estándar detallada (Fondos tránsito, etc.)
+            # Usamos la función estándar detallada
             _generar_hoja_pendientes(workbook, formatos, df_saldos_abiertos, _estrategia, casa_seleccionada, fecha_max)
         
-        # --- 2. Generar Hoja de Conciliados (Igual que antes) ---
-        if not df_conciliados.empty:
+        # --- 2. HOJA DE DETALLE (Conciliación / Estado de Cuenta) ---
+        
+        # Determinamos qué datos usar:
+        # Para Empleados: Usamos _df_full (TODO: Abierto + Cerrado) para ver la historia completa.
+        # Para Otros: Usamos df_conciliados (Solo lo cerrado) como es estándar.
+        if _estrategia['id'] in cuentas_empleados:
+            datos_para_detalle = _df_full.copy()
+        else:
+            datos_para_detalle = df_conciliados.copy()
+
+        if not datos_para_detalle.empty:
+            
+            # Lista de cuentas que usan el formato agrupado visualmente
             cuentas_agrupadas = [
-                'cobros_viajeros',          # Ya estaba
-                'otras_cuentas_por_pagar',  # Ya estaba
-                'deudores_empleados_me'     # <--- NUEVA AGREGADA (Solo ME por ahora)
+                'cobros_viajeros', 
+                'otras_cuentas_por_pagar', 
+                'deudores_empleados_me',
+                'deudores_empleados_bs'
             ]
             
             if _estrategia['id'] in cuentas_agrupadas:
-                _generar_hoja_conciliados_agrupada(workbook, formatos, df_conciliados, _estrategia)
+                _generar_hoja_conciliados_agrupada(workbook, formatos, datos_para_detalle, _estrategia)
             else:
-                # Fondos en Tránsito, Fondos por Depositar, Viajes, etc. entran aquí
-                _generar_hoja_conciliados_estandar(workbook, formatos, df_conciliados, _estrategia)
+                _generar_hoja_conciliados_estandar(workbook, formatos, datos_para_detalle, _estrategia)
 
         # 3. Hoja Extra Devoluciones
         if _estrategia['id'] == 'devoluciones_proveedores' and not df_saldos_abiertos.empty:
