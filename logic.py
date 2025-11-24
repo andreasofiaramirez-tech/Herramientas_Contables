@@ -1111,7 +1111,7 @@ def run_conciliation_haberes_clientes(df, log_messages, progress_bar=None):
 def normalizar_datos_cdc_factoring(df, log_messages):
     """
     Extrae el código del contrato buscando en Referencia y Fuente.
-    Maneja patrones numéricos (Febeca) y alfanuméricos (FQ, O/C).
+    Versión 'Barrido de Palabras': Salta conectores (DE, DEL, NRO) para encontrar el ID.
     """
     df_copy = df.copy()
     
@@ -1122,38 +1122,58 @@ def normalizar_datos_cdc_factoring(df, log_messages):
     else:
         df_copy['NIT_Normalizado'] = 'SIN_NIT'
 
-    def extraer_contrato_row(row):
-        # Unimos Referencia y Fuente para buscar en ambos lados
-        # (A veces el dato está en uno u otro)
-        textos_a_revisar = [
-            str(row.get('Referencia', '')).strip().upper(),
-            str(row.get('Fuente', '')).strip().upper()
-        ]
+    def limpiar_y_extraer(texto_crudo):
+        if not isinstance(texto_crudo, str): return None
+        texto = texto_crudo.upper().strip()
         
-        for texto in textos_a_revisar:
-            if not texto: continue
+        # --- NIVEL 1: Patrones de Alta Precisión (FQ y O/C) ---
+        # Si aparece FQ-xxxx, es eso seguro.
+        match_fq = re.search(r"(FQ-[A-Z0-9-]+)", texto)
+        if match_fq: return match_fq.group(1)
+        
+        match_oc = re.search(r"O/C\s*[-]?\s*([A-Z0-9]+)", texto)
+        if match_oc: return match_oc.group(1)
 
-            # ESTRATEGIA 1: Patrón específico FQ (Alta prioridad)
-            # Ej: FQ-202507-01
-            match_fq = re.search(r"(FQ-[A-Z0-9-]+)", texto)
-            if match_fq: return match_fq.group(1)
-
-            # ESTRATEGIA 2: Patrón Fuente O/C
-            # Ej: O/C6016301 o O/C-123
-            match_oc = re.search(r"O/C\s*[-]?\s*([A-Z0-9]+)", texto)
-            if match_oc: return match_oc.group(1)
-
-            # ESTRATEGIA 3: Buscar después de "FACTORING" (General)
-            # Permite: "FACTORING 6016301", "FACTORING NRO 6016301", "FACTORING # 123"
-            # (?: ... )? es un grupo opcional no capturante para saltar "NRO", "NUM", etc.
-            match_gral = re.search(r"FACTORING\s+(?:NRO\.?|NUMERO|#|REF)?\s*([A-Z0-9-]+)", texto)
+        # --- NIVEL 2: Barrido Inteligente después de 'FACTORING' ---
+        if "FACTORING" in texto:
+            # Cortamos el texto a partir de la palabra FACTORING
+            # Ej: "PAGO FACTORING DE NRO 6016301 $500" -> " DE NRO 6016301 $500"
+            parte_derecha = texto.split("FACTORING", 1)[1]
             
-            if match_gral:
-                captured = match_gral.group(1)
-                # Filtro de seguridad: Evitar capturar palabras comunes si el texto está mal formado
-                if captured not in ['DEL', 'AL', 'DE', 'PAGO', 'ABONO', 'CANCELACION']:
-                    return captured
+            # Limpiamos caracteres sucios que puedan estar pegados ($ , . :)
+            parte_derecha = parte_derecha.replace('$', ' ').replace(':', ' ').replace(',', ' ')
             
+            # Dividimos en palabras individuales
+            palabras = parte_derecha.split()
+            
+            # Lista de palabras "basura" a ignorar
+            ignorar = ['DE', 'DEL', 'AL', 'NRO', 'NUM', 'NUMERO', 'REF', 'NO', 'PAGO', 'ABONO', 'CANCELACION', 'FAC', 'FACT']
+            
+            for palabra in palabras:
+                # Limpiamos puntos finales (ej: "NRO." -> "NRO")
+                p_clean = palabra.replace('.', '').strip()
+                
+                # Si es una palabra de relleno, pasamos a la siguiente
+                if p_clean in ignorar:
+                    continue
+                
+                # Si la palabra tiene al menos un dígito, ¡ES EL CONTRATO!
+                # (Ej: "6016301" o "F-2025")
+                if any(char.isdigit() for char in p_clean):
+                    # Filtro final: que tenga al menos 3 caracteres para evitar falsos positivos cortos
+                    if len(p_clean) >= 3:
+                        return p_clean
+                        
+        return None
+
+    def extraer_contrato_row(row):
+        # Buscamos primero en Referencia, luego en Fuente
+        contrato_ref = limpiar_y_extraer(row.get('Referencia', ''))
+        if contrato_ref: return contrato_ref
+        
+        contrato_fuente = limpiar_y_extraer(row.get('Fuente', ''))
+        if contrato_fuente: return contrato_fuente
+        
         return 'SIN_CONTRATO'
 
     df_copy['Contrato'] = df_copy.apply(extraer_contrato_row, axis=1)
