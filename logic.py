@@ -820,14 +820,13 @@ def normalizar_datos_cobros_viajeros(df, log_messages):
 def run_conciliation_cobros_viajeros(df, log_messages, progress_bar=None):
     """
     Versión final que maneja coincidencias parciales y limpieza automática de Diferencial Cambiario.
-    USA TOLERANCIA ESTRICTA (0.01) para evitar descuadres acumulados.
+    USA TOLERANCIA EXACTA (0.00) para contabilidad precisa.
     """
-    log_messages.append("\n--- INICIANDO LÓGICA DE COBROS VIAJEROS (V11 - TOLERANCIA ESTRICTA) ---")
+    log_messages.append("\n--- INICIANDO LÓGICA DE COBROS VIAJEROS (V12 - TOLERANCIA CERO) ---")
     
     # --- DEFINICIÓN DE TOLERANCIA LOCAL ---
-    # Para esta cuenta, la coincidencia debe ser exacta (o máximo 1 centavo por redondeo).
-    # No usamos la global de 0.50 porque acumula errores.
-    TOLERANCIA_ESTRICTA_USD = 0.01 
+    # Cambio solicitado: Tolerancia CERO. No se permiten diferencias.
+    TOLERANCIA_ESTRICTA_USD = 0.00
     # --------------------------------------
 
     df = normalizar_datos_cobros_viajeros(df, log_messages)
@@ -876,7 +875,7 @@ def run_conciliation_cobros_viajeros(df, log_messages, progress_bar=None):
             match_en_referencia = (clave_reverso and clave_orig_ref and (clave_reverso.endswith(clave_orig_ref) or clave_orig_ref.endswith(clave_reverso)))
             match_en_fuente = (clave_reverso and clave_orig_fuente and (clave_reverso.endswith(clave_orig_fuente) or clave_orig_fuente.endswith(clave_reverso)))
 
-            # --- AQUI USAMOS LA TOLERANCIA ESTRICTA ---
+            # Comparación con tolerancia 0.00
             if (match_en_referencia or match_en_fuente) and np.isclose(reverso_row['Monto_USD'] + original_row['Monto_USD'], 0, atol=TOLERANCIA_ESTRICTA_USD):
                 indices_a_conciliar = [idx_r, idx_o]
                 df.loc[indices_a_conciliar, 'Conciliado'] = True
@@ -907,7 +906,7 @@ def run_conciliation_cobros_viajeros(df, log_messages, progress_bar=None):
         if len(grupo) < 2 or not ((grupo['Monto_USD'] > 0).any() and (grupo['Monto_USD'] < 0).any()):
             continue
             
-        # --- AQUI USAMOS LA TOLERANCIA ESTRICTA ---
+        # Comparación con tolerancia 0.00
         if np.isclose(grupo['Monto_USD'].sum(), 0, atol=TOLERANCIA_ESTRICTA_USD):
             indices_a_conciliar = grupo.index
             df.loc[indices_a_conciliar, 'Conciliado'] = True
