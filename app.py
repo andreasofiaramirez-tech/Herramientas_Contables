@@ -278,14 +278,12 @@ def render_especificaciones():
     cuenta_seleccionada = st.selectbox("2. Seleccione la Cuenta Contable:", CUENTA_OPTIONS, label_visibility="collapsed")
     estrategia_actual = ESTRATEGIAS[cuenta_seleccionada]
 
-    # --- INICIO DEL BLOQUE DE GUÍA DINÁMICA ---
     with st.expander("📖 Guía Completa: Cómo Usar y Entender la Conciliación", expanded=False):
         st.markdown(GUIA_GENERAL_ESPECIFICACIONES)
         st.divider()
         # Muestra la lógica específica de la cuenta seleccionada
         logica_especifica = LOGICA_POR_CUENTA.get(cuenta_seleccionada, "No hay una guía detallada para esta cuenta.")
         st.markdown(logica_especifica)
-    # --- FIN DEL BLOQUE DE GUÍA DINÁMICA ---
 
     st.subheader("3. Cargue los Archivos de Excel (.xlsx):", anchor=False)
     st.markdown("*Asegúrese de que los datos estén en la **primera hoja** y los **encabezados en la primera fila**.*")
@@ -315,7 +313,7 @@ def render_especificaciones():
                     progress_container.progress(1.0, text="¡Proceso completado!")
                     st.session_state.df_saldos_abiertos = df_resultado[~df_resultado['Conciliado']].copy()
                     st.session_state.df_conciliados = df_resultado[df_resultado['Conciliado']].copy()
-                    st.session_state.csv_output = generar_csv_saldos_abiertos(st.session_state.df_saldos_abiertos)
+                    st.session_state.excel_saldos_output = generar_excel_saldos_abiertos(st.session_state.df_saldos_abiertos)
                     st.session_state.excel_output = generar_reporte_excel(
                         df_full, st.session_state.df_saldos_abiertos, st.session_state.df_conciliados,
                         estrategia_actual, casa_seleccionada, cuenta_seleccionada
@@ -339,7 +337,14 @@ def render_especificaciones():
             st.download_button("⬇️ Descargar Reporte Completo (Excel)", st.session_state.excel_output, f"reporte_conciliacion_{estrategia_actual['id']}.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True, key="download_excel")
         with res_col2:
             st.metric("Saldos Abiertos (Pendientes)", len(st.session_state.df_saldos_abiertos))
-            st.download_button("⬇️ Descargar Saldos para Próximo Mes (CSV)", st.session_state.csv_output, "saldos_para_proximo_mes.csv", "text/csv", use_container_width=True, key="download_csv")
+            st.download_button(
+                label="⬇️ Descargar Saldos para Próximo Mes (Excel)",
+                data=st.session_state.excel_saldos_output,
+                file_name="saldos_para_proximo_mes.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+                key="download_saldos_xlsx"
+            )
         
         st.info("**Instrucción de Ciclo Mensual:** Para el próximo mes, debe usar el archivo CSV descargado como el archivo de 'saldos anteriores'.")
         
