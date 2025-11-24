@@ -19,6 +19,7 @@ from logic import (
     run_analysis_paquete_cc,
     run_conciliation_cobros_viajeros,
     run_conciliation_otras_cxp,
+    run_conciliation_haberes_clientes,
     run_conciliation_deudores_empleados_me
 )
 from utils import (
@@ -172,6 +173,15 @@ ESTRATEGIAS = {
         "columnas_reporte": ['NIT', 'Descripcion NIT', 'Fecha', 'Referencia', 'Numero_Envio', 'Monto Bolivar'],
         "nombre_hoja_excel": "212.05.1019",
         "columnas_requeridas": ['Asiento', 'Fuente', 'Fecha', 'Referencia', 'Nit', 'Descripcion NIT', 'Debito Bolivar', 'Credito Bolivar']
+    },
+    "212.05.1108 - Haberes de Clientes": {
+        "id": "haberes_clientes",
+        "funcion_principal": run_conciliation_haberes_clientes,
+        "label_actual": "Movimientos del mes (Haberes Clientes)",
+        "label_anterior": "Saldos anteriores (Haberes Clientes)",
+        "columnas_reporte": ['NIT', 'Descripción Nit', 'Fecha', 'Fuente', 'Referencia', 'Monto Bolivar'],
+        "nombre_hoja_excel": "212.05.1108",
+        "columnas_requeridas": ['Fecha', 'Asiento', 'Referencia', 'Nit', 'Descripción Nit', 'Débito Bolivar', 'Crédito Bolivar']
     }
     
 }
