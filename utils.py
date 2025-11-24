@@ -409,7 +409,7 @@ def _generar_hoja_conciliados_agrupada(workbook, formatos, df_conciliados, estra
         fmt_moneda = formatos['bs']
         fmt_total = formatos['total_bs']
 
-    # 3. NUEVO: Configuración para DEUDORES EMPLEADOS (Solo ME por ahora)
+    # 3. Configuración para DEUDORES EMPLEADOS (Solo ME por ahora)
     elif estrategia['id'] in ['deudores_empleados_me', 'deudores_empleados_bs']:
         is_usd = estrategia['id'] == 'deudores_empleados_me'
         col_origen = 'Monto_USD' if is_usd else 'Monto_BS'
@@ -423,6 +423,16 @@ def _generar_hoja_conciliados_agrupada(workbook, formatos, df_conciliados, estra
         columnas = ['Fecha', 'Asiento', 'Referencia', 'Débitos', 'Créditos']
         cols_sum = ['Débitos', 'Créditos']
         titulo = 'Detalle de Movimientos Conciliados por Empleado'
+        
+    # 4. Configuración para Haberes de Clientes (VES)
+    elif estrategia['id'] == 'haberes_clientes':
+        df['Monto Bs.'] = df['Monto_BS']
+        # Columnas solicitadas: Nit, Descripcion, Fecha, Fuente, Monto
+        columnas = ['Fecha', 'Fuente', 'Referencia', 'Monto Bs.'] 
+        cols_sum = ['Monto Bs.']
+        titulo = 'Detalle de Movimientos Conciliados por Cliente (NIT)'
+        fmt_moneda = formatos['bs']
+        fmt_total = formatos['total_bs']
     # --------------------------------------------------
 
     df = df.sort_values(by=['NIT', 'Fecha'])
@@ -601,7 +611,7 @@ def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrate
         
         # --- 1. HOJA DE PENDIENTES (Saldos Abiertos) ---
         # Lista de cuentas que requieren reporte RESUMIDO (1 línea por empleado)
-        cuentas_empleados = ['deudores_empleados_me', 'deudores_empleados_bs']
+        cuentas_empleados = ['deudores_empleados_me', 'deudores_empleados_bs', 'haberes_clientes']
         
         if _estrategia['id'] in cuentas_empleados:
             # Usamos la función de resumen (Saldo por NIT)
@@ -627,7 +637,8 @@ def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrate
                 'cobros_viajeros', 
                 'otras_cuentas_por_pagar', 
                 'deudores_empleados_me',
-                'deudores_empleados_bs'
+                'deudores_empleados_bs',
+                'haberes_clientes'
             ]
             
             if _estrategia['id'] in cuentas_agrupadas:
