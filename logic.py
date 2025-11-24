@@ -1181,7 +1181,7 @@ def normalizar_datos_cdc_factoring(df, log_messages):
 def run_conciliation_cdc_factoring(df, log_messages, progress_bar=None):
     """
     Conciliación de Factoring (USD).
-    Agrupa por NIT y Contrato. Si la suma en USD es 0, se concilia.
+    Incluye limpieza automática de Diferencial Cambiario y cruce por Contrato.
     """
     log_messages.append("\n--- INICIANDO LÓGICA DE CDC - FACTORING (USD) ---")
     
@@ -1189,12 +1189,38 @@ def run_conciliation_cdc_factoring(df, log_messages, progress_bar=None):
     if progress_bar: progress_bar.progress(0.2, text="Fase de Normalización completada.")
 
     total_conciliados = 0
+
+    # --- FASE 0: CONCILIACIÓN AUTOMÁTICA (DIFERENCIAL CAMBIARIO) ---
+    # Detectamos ajustes contables por valoración de moneda.
+    # Buscamos en Referencia, Fuente y Descripción si existe.
+    def es_ajuste_cambiario(row):
+        texto_completo = (str(row.get('Referencia', '')) + " " + 
+                          str(row.get('Fuente', '')) + " " + 
+                          str(row.get('Descripción', ''))).upper()
+        
+        palabras_clave = ['DIFERENCIA DE CAMBIO', 'DIFERENCIAS DE CAMBIO', 'DIFERENCIAL CAMBIARIO', 'AJUSTE CAMBIARIO', 'DIFF']
+        
+        for palabra in palabras_clave:
+            if palabra in texto_completo:
+                return True
+        return False
+
+    # Aplicamos el filtro
+    indices_dif = df[df.apply(es_ajuste_cambiario, axis=1) & (~df['Conciliado'])].index
+
+    if not indices_dif.empty:
+        df.loc[indices_dif, 'Conciliado'] = True
+        df.loc[indices_dif, 'Grupo_Conciliado'] = 'AUTOMATICO_DIF_CAMBIO'
+        count_dif = len(indices_dif)
+        total_conciliados += count_dif
+        log_messages.append(f"✔️ Fase Auto: {count_dif} movimientos conciliados por ser 'Diferencia en Cambio'.")
+    # ------------------------------------------------------------------
     
-    # Filtramos pendientes
+    # Filtramos pendientes reales para la lógica de contratos
     df_pendientes = df[~df['Conciliado']]
     
-    # Agrupamos por NIT y Contrato extraído
-    # (Excluyendo los que no se pudo extraer contrato)
+    # Agrupamos por NIT y Contrato
+    # Ignoramos los que no tienen contrato identificado para esta fase
     grupos = df_pendientes[df_pendientes['Contrato'] != 'SIN_CONTRATO'].groupby(['NIT_Normalizado', 'Contrato'])
     
     log_messages.append(f"ℹ️ Se encontraron {len(grupos)} contratos para analizar.")
