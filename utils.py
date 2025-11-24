@@ -612,7 +612,7 @@ def _generar_hoja_pendientes_resumida(workbook, formatos, df_saldos, estrategia,
 def _generar_hoja_pendientes_cdc(workbook, formatos, df_saldos, estrategia, casa, fecha_maxima):
     """
     Genera hoja de pendientes para Factoring agrupada por NIT/Proveedor.
-    CORREGIDO: Fuerza el relleno de nombres vacíos o espacios en blanco.
+    CORREGIDO: Prioriza 'Descripción NIT' sobre 'Nombre del Proveedor' vacíos.
     """
     ws = workbook.add_worksheet(estrategia.get("nombre_hoja_excel", "Pendientes"))
     
@@ -640,9 +640,13 @@ def _generar_hoja_pendientes_cdc(workbook, formatos, df_saldos, estrategia, casa
     df['Monto_USD'] = pd.to_numeric(df['Monto_USD'], errors='coerce').fillna(0)
     df['Tasa_Impl'] = np.where(df['Monto_USD'].abs() > 0.01, (df['Monto_BS'] / df['Monto_USD']).abs(), 0)
     
-    # --- DETECCIÓN Y LIMPIEZA PROFUNDA DE COLUMNAS ---
+    # --- CAMBIO AQUÍ: ORDEN DE PRIORIDAD MODIFICADO ---
     col_nombre = None
-    posibles_nombres = ['Nombre del Proveedor', 'NOMBRE DEL PROVEEDOR', 'Descripcion NIT', 'Descripción Nit', 'Descripción NIT', 'Descripcion Nit', 'Nombre', 'Proveedor']
+    # Ponemos primero las variaciones de NIT porque esas son las que traen datos en tu archivo
+    posibles_nombres = [
+        'Descripcion NIT', 'Descripción Nit', 'Descripción NIT', 'Descripcion Nit', 
+        'Nombre del Proveedor', 'NOMBRE DEL PROVEEDOR', 'Nombre', 'Proveedor'
+    ]
     
     for col in posibles_nombres:
         if col in df.columns:
@@ -652,8 +656,7 @@ def _generar_hoja_pendientes_cdc(workbook, formatos, df_saldos, estrategia, casa
     if col_nombre is None:
         df['Nombre_Final'] = 'NO DEFINIDO'
         col_nombre = 'Nombre_Final'
-    
-    # Búsqueda de NIT
+        
     col_nit = None
     posibles_nits = ['NIT', 'Nit', 'nit', 'NIT_Normalizado', 'RIF', 'Rif']
     for col in posibles_nits:
@@ -664,16 +667,13 @@ def _generar_hoja_pendientes_cdc(workbook, formatos, df_saldos, estrategia, casa
         df['NIT_Final'] = 'SIN_NIT'
         col_nit = 'NIT_Final'
 
-    # --- AQUÍ ESTÁ LA CORRECCIÓN CLAVE ---
-    # 1. Convertimos todo a string
+    # Limpieza de datos
     df[col_nombre] = df[col_nombre].astype(str)
     df[col_nit] = df[col_nit].astype(str)
 
-    # 2. Reemplazamos espacios vacíos, 'nan', 'None' por NaN real de numpy
-    # 3. Rellenamos con el valor por defecto
+    # Convertir vacíos a NO DEFINIDO
     df[col_nombre] = df[col_nombre].replace(r'^\s*$', np.nan, regex=True).replace(['nan', 'None', 'NAN'], np.nan).fillna('NO DEFINIDO')
     df[col_nit] = df[col_nit].replace(r'^\s*$', np.nan, regex=True).replace(['nan', 'None', 'NAN'], np.nan).fillna('SIN_NIT')
-    # --------------------------------------
 
     # Ordenar
     df = df.sort_values(by=[col_nombre, 'Contrato', 'Fecha'])
@@ -685,7 +685,7 @@ def _generar_hoja_pendientes_cdc(workbook, formatos, df_saldos, estrategia, casa
     # 4. Iteración por Grupos
     for (nombre_prov, nit_prov), grupo in df.groupby([col_nombre, col_nit]):
         
-        # Encabezado visual del grupo
+        # Encabezado visual
         display_header = f"{nit_prov} - {nombre_prov}"
         ws.merge_range(current_row, 0, current_row, 7, display_header, formatos['proveedor_header'])
         current_row += 1
@@ -704,9 +704,9 @@ def _generar_hoja_pendientes_cdc(workbook, formatos, df_saldos, estrategia, casa
             subtotal_usd += monto_usd
             subtotal_bs += monto_bs
 
-            # Escribir datos en CADA fila
-            ws.write(current_row, 0, nit_prov)          # NIT
-            ws.write(current_row, 1, nombre_prov)       # Nombre (Ahora sí debe salir)
+            # Escribir datos
+            ws.write(current_row, 0, nit_prov)          
+            ws.write(current_row, 1, nombre_prov)       
             
             if pd.notna(fecha): ws.write_datetime(current_row, 2, fecha, formatos['fecha'])
             else: ws.write(current_row, 2, '-')
@@ -719,7 +719,7 @@ def _generar_hoja_pendientes_cdc(workbook, formatos, df_saldos, estrategia, casa
             
             current_row += 1
         
-        # Subtotal por Proveedor
+        # Subtotal
         ws.write(current_row, 4, "Subtotal", formatos['subtotal_label'])
         ws.write_number(current_row, 5, subtotal_usd, formatos['subtotal_usd'])
         ws.write_number(current_row, 7, subtotal_bs, formatos['subtotal_bs'])
@@ -728,12 +728,11 @@ def _generar_hoja_pendientes_cdc(workbook, formatos, df_saldos, estrategia, casa
         grand_total_bs += subtotal_bs
         current_row += 2 
 
-    # 5. Gran Total Final
+    # 5. Gran Total
     ws.write(current_row, 4, "TOTAL GENERAL", formatos['total_label'])
     ws.write_number(current_row, 5, grand_total_usd, formatos['total_usd'])
     ws.write_number(current_row, 7, grand_total_bs, formatos['total_bs'])
     
-    # 6. Ajuste de Anchos
     ws.set_column('A:A', 15)
     ws.set_column('B:B', 45)
     ws.set_column('C:C', 12)
