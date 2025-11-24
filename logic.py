@@ -748,16 +748,21 @@ def conciliar_grupos_por_empleado(df, log_messages):
     log_messages.append("\n--- FASE 1: Conciliación de saldos totales por empleado (USD) ---")
     
     total_conciliados = 0
-    
     df_pendientes = df.loc[~df['Conciliado']]
     grupos_por_empleado = df_pendientes.groupby('Clave_Empleado')
     
     log_messages.append(f"ℹ️ Se analizarán los saldos de {len(grupos_por_empleado)} empleados.")
     
-    # --- CORRECCIÓN: Detectar nombre de columna disponible ---
-    col_desc = 'Descripcion NIT' if 'Descripcion NIT' in df.columns else 'Descripción Nit'
-    if col_desc not in df.columns: col_desc = None # Fallback
-    # --------------------------------------------------------
+    # --- BÚSQUEDA INTELIGENTE DE LA COLUMNA DE NOMBRE ---
+    col_nombre = None
+    # Lista de posibles nombres que puede tener la columna en el Excel
+    candidatos = ['Descripcion NIT', 'Descripción Nit', 'Nombre del Proveedor', 'Nombre', 'Cliente']
+    
+    for col in candidatos:
+        if col in df.columns:
+            col_nombre = col
+            break # Encontramos una válida, dejamos de buscar
+    # ----------------------------------------------------
 
     for clave_empleado, grupo in grupos_por_empleado:
         if clave_empleado == 'SIN_NIT' or pd.isna(clave_empleado) or not clave_empleado:
@@ -774,11 +779,11 @@ def conciliar_grupos_por_empleado(df, log_messages):
             num_movs = len(indices_a_conciliar)
             total_conciliados += num_movs
             
-            # Uso seguro de la columna de descripción
-            if col_desc and not grupo.empty:
-                nombre_empleado = grupo[col_desc].iloc[0]
+            # Extracción segura del nombre
+            if col_nombre and not grupo.empty:
+                nombre_empleado = grupo[col_nombre].iloc[0]
             else:
-                nombre_empleado = clave_empleado
+                nombre_empleado = clave_empleado # Si no hay columna de nombre, usamos el NIT
                 
             log_messages.append(f"✔️ Empleado '{nombre_empleado}' ({clave_empleado}) conciliado. Suma: ${suma_usd:.2f} ({num_movs} movimientos).")
 
