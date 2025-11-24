@@ -386,30 +386,47 @@ def _generar_hoja_conciliados_estandar(workbook, formatos, df_conciliados, estra
     ws.set_column('A:H', 18)
 
 def _generar_hoja_conciliados_agrupada(workbook, formatos, df_conciliados, estrategia):
-    """Para cuentas agrupadas: Cobros Viajeros, Otras CxP."""
+    """Para cuentas agrupadas: Cobros Viajeros, Otras CxP y Deudores Empleados."""
     ws = workbook.add_worksheet("Conciliacion")
     df = df_conciliados.copy()
     
+    # 1. Configuración específica para COBROS VIAJEROS
     if estrategia['id'] == 'cobros_viajeros':
-        df['Débitos Dólares'] = df['Monto_USD'].apply(lambda x: x if x > 0 else 0)
-        df['Créditos Dólares'] = df['Monto_USD'].apply(lambda x: abs(x) if x < 0 else 0) # Aquí usamos abs para visualización si lo prefieres
-        # NOTA: Si usamos abs en créditos para visualización, la comprobación debe ser RESTANDO.
-        # Pero para mantener consistencia matemática con la base de datos, mantengamos el signo negativo en la suma
-        # O si prefieres que se vean positivos en el reporte, cambiamos la lógica de comprobación.
-        # Vamos a mantener el signo negativo para que la suma algebraica de 0.
-        df['Créditos Dólares'] = df['Monto_USD'].apply(lambda x: x if x < 0 else 0) 
-        
-        columnas = ['Fecha', 'Asiento', 'Referencia', 'Fuente', 'Débitos Dólares', 'Créditos Dólares']
-        df = df.sort_values(by=['NIT', 'Grupo_Conciliado', 'Fecha'])
-        cols_sum = ['Débitos Dólares', 'Créditos Dólares']
+        df['Débitos'] = df['Monto_USD'].apply(lambda x: x if x > 0 else 0)
+        df['Créditos'] = df['Monto_USD'].apply(lambda x: abs(x) if x < 0 else 0)
+        columnas = ['Fecha', 'Asiento', 'Referencia', 'Fuente', 'Débitos', 'Créditos']
+        cols_sum = ['Débitos', 'Créditos']
         titulo = 'Detalle de Movimientos Conciliados por Viajero (NIT)'
-    else: # Otras CxP
+        fmt_moneda = formatos['usd']
+        fmt_total = formatos['total_usd']
+        
+    # 2. Configuración específica para OTRAS CXP
+    elif estrategia['id'] == 'otras_cuentas_por_pagar':
         df['Monto Bs.'] = df['Monto_BS']
         columnas = ['Fecha', 'Descripcion NIT', 'Numero_Envio', 'Monto Bs.']
-        df = df.sort_values(by=['NIT', 'Numero_Envio', 'Fecha'])
         cols_sum = ['Monto Bs.']
         titulo = 'Detalle de Movimientos Conciliados por Proveedor y Envío'
+        fmt_moneda = formatos['bs']
+        fmt_total = formatos['total_bs']
 
+    # 3. NUEVO: Configuración para DEUDORES EMPLEADOS (Solo ME por ahora)
+    elif estrategia['id'] in ['deudores_empleados_me', 'deudores_empleados_bs']:
+        is_usd = estrategia['id'] == 'deudores_empleados_me'
+        col_origen = 'Monto_USD' if is_usd else 'Monto_BS'
+        fmt_moneda = formatos['usd'] if is_usd else formatos['bs']
+        fmt_total = formatos['total_usd'] if is_usd else formatos['total_bs']
+        
+        # Separamos Débitos y Créditos (Valor Absoluto para visualización)
+        df['Débitos'] = df[col_origen].apply(lambda x: x if x > 0 else 0)
+        df['Créditos'] = df[col_origen].apply(lambda x: abs(x) if x < 0 else 0)
+        
+        columnas = ['Fecha', 'Asiento', 'Referencia', 'Débitos', 'Créditos']
+        cols_sum = ['Débitos', 'Créditos']
+        titulo = 'Detalle de Movimientos Conciliados por Empleado'
+    # --------------------------------------------------
+
+    df = df.sort_values(by=['NIT', 'Fecha'])
+    
     ws.merge_range(0, 0, 0, len(columnas)+1, titulo, formatos['encabezado_sub'])
     current_row = 2
     
@@ -417,47 +434,48 @@ def _generar_hoja_conciliados_agrupada(workbook, formatos, df_conciliados, estra
     grand_totals = {c: 0.0 for c in cols_sum}
     
     for nit, grupo in df.groupby('NIT'):
-        nombre = grupo['Descripcion NIT'].iloc[0] if not grupo.empty and 'Descripcion NIT' in grupo else ''
+        col_nombre = 'Descripcion NIT' if 'Descripcion NIT' in grupo.columns else 'Nombre del Proveedor'
+        nombre = grupo[col_nombre].iloc[0] if not grupo.empty and col_nombre in grupo else 'NO DEFINIDO'
+        
+        # Encabezado del Grupo (Empleado/Proveedor)
         ws.merge_range(current_row, 0, current_row, len(columnas)-1, f"NIT: {nit} - {nombre}", formatos['proveedor_header'])
         current_row += 1
         ws.write_row(current_row, 0, columnas, formatos['header_tabla'])
         current_row += 1
         
+        # Filas de detalle
         for _, row in grupo.iterrows():
             for c_idx, col_name in enumerate(columnas):
                 val = row.get(col_name)
                 if col_name == 'Fecha' and pd.notna(val): ws.write_datetime(current_row, c_idx, val, formatos['fecha'])
-                elif col_name in ['Débitos Dólares', 'Créditos Dólares']: ws.write_number(current_row, c_idx, val, formatos['usd'])
-                elif col_name in ['Monto Bs.']: ws.write_number(current_row, c_idx, val, formatos['bs'])
+                elif col_name in ['Débitos', 'Créditos', 'Monto Bs.']: ws.write_number(current_row, c_idx, val, fmt_moneda)
                 else: ws.write(current_row, c_idx, val if pd.notna(val) else '')
             current_row += 1
         
-        # Subtotal
+        # Subtotal del Grupo
         lbl_col = len(columnas) - len(cols_sum) - 1
         ws.write(current_row, lbl_col, "Subtotal", formatos['subtotal_label'])
         for i, c_sum in enumerate(cols_sum):
             suma = grupo[c_sum].sum()
             grand_totals[c_sum] += suma
-            fmt = formatos['subtotal_usd'] if 'Dólares' in c_sum else formatos['subtotal_bs']
-            ws.write_number(current_row, lbl_col + 1 + i, suma, fmt)
+            ws.write_number(current_row, lbl_col + 1 + i, suma, fmt_moneda)
         current_row += 2
 
-    # TOTALES
+    # TOTALES GENERALES
     lbl_col = len(columnas) - len(cols_sum) - 1
     ws.write(current_row, lbl_col, "TOTALES", formatos['total_label'])
     for i, c_sum in enumerate(cols_sum):
-        fmt = formatos['total_usd'] if 'Dólares' in c_sum else formatos['total_bs']
-        ws.write_number(current_row, lbl_col + 1 + i, grand_totals[c_sum], fmt)
+        ws.write_number(current_row, lbl_col + 1 + i, grand_totals[c_sum], fmt_total)
         
-    # COMPROBACION (Solo si hay débitos y créditos separados)
+    # Comprobación (Solo si hay D/C separados)
     if len(cols_sum) > 1:
         current_row += 1
         ws.write(current_row, lbl_col, "Comprobacion", formatos['subtotal_label'])
-        # Asumiendo cols_sum = ['Debitos', 'Creditos'] donde Creditos son negativos
-        neto = grand_totals[cols_sum[0]] + grand_totals[cols_sum[1]]
-        ws.write_number(current_row, lbl_col + 1, neto, formatos['total_usd'])
+        # Restamos Débitos - Créditos (Debe dar 0)
+        neto = grand_totals[cols_sum[0]] - grand_totals[cols_sum[1]]
+        ws.write_number(current_row, lbl_col + 1, neto, formatos['total_bs']) # Formato genérico para la diferencia
 
-    ws.set_column('A:F', 20)
+    ws.set_column('A:F', 18)
 
 def _generar_hoja_resumen_devoluciones(workbook, formatos, df_saldos):
     """Hoja extra específica para Devoluciones a Proveedores."""
@@ -595,11 +613,16 @@ def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrate
         
         # --- 2. Generar Hoja de Conciliados (Igual que antes) ---
         if not df_conciliados.empty:
-            cuentas_agrupadas = ['cobros_viajeros', 'otras_cuentas_por_pagar']
+            cuentas_agrupadas = [
+                'cobros_viajeros',          # Ya estaba
+                'otras_cuentas_por_pagar',  # Ya estaba
+                'deudores_empleados_me'     # <--- NUEVA AGREGADA (Solo ME por ahora)
+            ]
             
             if _estrategia['id'] in cuentas_agrupadas:
                 _generar_hoja_conciliados_agrupada(workbook, formatos, df_conciliados, _estrategia)
             else:
+                # Fondos en Tránsito, Fondos por Depositar, Viajes, etc. entran aquí
                 _generar_hoja_conciliados_estandar(workbook, formatos, df_conciliados, _estrategia)
 
         # 3. Hoja Extra Devoluciones
