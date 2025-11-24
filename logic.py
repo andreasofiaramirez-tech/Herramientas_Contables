@@ -749,32 +749,37 @@ def conciliar_grupos_por_empleado(df, log_messages):
     
     total_conciliados = 0
     
-    # Agrupa por la clave de empleado normalizada, excluyendo los ya conciliados
     df_pendientes = df.loc[~df['Conciliado']]
     grupos_por_empleado = df_pendientes.groupby('Clave_Empleado')
     
     log_messages.append(f"ℹ️ Se analizarán los saldos de {len(grupos_por_empleado)} empleados.")
     
+    # --- CORRECCIÓN: Detectar nombre de columna disponible ---
+    col_desc = 'Descripcion NIT' if 'Descripcion NIT' in df.columns else 'Descripción Nit'
+    if col_desc not in df.columns: col_desc = None # Fallback
+    # --------------------------------------------------------
+
     for clave_empleado, grupo in grupos_por_empleado:
-        # Omitir si la clave no es válida
         if clave_empleado == 'SIN_NIT' or pd.isna(clave_empleado) or not clave_empleado:
             continue
             
-        # Suma de los movimientos en Dólares para el empleado
         suma_usd = grupo['Monto_USD'].sum()
         
-        # Comprueba si la suma está dentro de la tolerancia permitida
         if abs(suma_usd) <= TOLERANCIA_MAX_USD:
             indices_a_conciliar = grupo.index
             
-            # Marcar como conciliado y asignar un grupo
             df.loc[indices_a_conciliar, 'Conciliado'] = True
             df.loc[indices_a_conciliar, 'Grupo_Conciliado'] = f"SALDO_CERO_EMP_{clave_empleado}"
             
             num_movs = len(indices_a_conciliar)
             total_conciliados += num_movs
             
-            nombre_empleado = grupo['Descripción Nit'].iloc[0] if not grupo.empty else clave_empleado
+            # Uso seguro de la columna de descripción
+            if col_desc and not grupo.empty:
+                nombre_empleado = grupo[col_desc].iloc[0]
+            else:
+                nombre_empleado = clave_empleado
+                
             log_messages.append(f"✔️ Empleado '{nombre_empleado}' ({clave_empleado}) conciliado. Suma: ${suma_usd:.2f} ({num_movs} movimientos).")
 
     if total_conciliados > 0:
