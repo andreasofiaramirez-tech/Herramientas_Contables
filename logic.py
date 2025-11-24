@@ -1106,6 +1106,69 @@ def run_conciliation_haberes_clientes(df, log_messages, progress_bar=None):
     log_messages.append("\n--- PROCESO DE CONCILIACIÓN FINALIZADO ---")
     return df
 
+# --- (I) Módulo: CDC - Factoring (USD) ---
+
+def normalizar_datos_cdc_factoring(df, log_messages):
+    """
+    Extrae el código del contrato de la Referencia.
+    Patrón esperado: '...FACTORING [CODIGO] $...'
+    """
+    df_copy = df.copy()
+    
+    # 1. Normalizar NIT (Estándar)
+    nit_col_name = next((col for col in df_copy.columns if str(col).strip().upper() in ['NIT', 'RIF']), None)
+    if nit_col_name:
+        df_copy['NIT_Normalizado'] = df_copy[nit_col_name].astype(str).str.upper().str.replace(r'[^A-Z0-9]', '', regex=True)
+    else:
+        df_copy['NIT_Normalizado'] = 'SIN_NIT'
+
+    # 2. Extraer Contrato usando Regex
+    # Busca la palabra FACTORING, un espacio, captura todo lo que haya hasta el signo $
+    df_copy['Contrato'] = df_copy['Referencia'].str.extract(r"FACTORING\s+(.*?)\s*\$", flags=re.IGNORECASE, expand=False)
+    
+    # Limpieza del contrato extraído
+    df_copy['Contrato'] = df_copy['Contrato'].str.strip().str.upper()
+    df_copy['Contrato'] = df_copy['Contrato'].fillna('SIN_CONTRATO')
+    
+    return df_copy
+
+def run_conciliation_cdc_factoring(df, log_messages, progress_bar=None):
+    """
+    Conciliación de Factoring (USD).
+    Agrupa por NIT y Contrato. Si la suma en USD es 0, se concilia.
+    """
+    log_messages.append("\n--- INICIANDO LÓGICA DE CDC - FACTORING (USD) ---")
+    
+    df = normalizar_datos_cdc_factoring(df, log_messages)
+    if progress_bar: progress_bar.progress(0.2, text="Fase de Normalización completada.")
+
+    total_conciliados = 0
+    
+    # Filtramos pendientes
+    df_pendientes = df[~df['Conciliado']]
+    
+    # Agrupamos por NIT y Contrato extraído
+    # (Excluyendo los que no se pudo extraer contrato)
+    grupos = df_pendientes[df_pendientes['Contrato'] != 'SIN_CONTRATO'].groupby(['NIT_Normalizado', 'Contrato'])
+    
+    log_messages.append(f"ℹ️ Se encontraron {len(grupos)} contratos para analizar.")
+
+    for (nit, contrato), grupo in grupos:
+        if len(grupo) < 2: continue
+        
+        # Validar suma cero en Dólares
+        if np.isclose(grupo['Monto_USD'].sum(), 0, atol=TOLERANCIA_MAX_USD):
+            indices = grupo.index
+            df.loc[indices, 'Conciliado'] = True
+            df.loc[indices, 'Grupo_Conciliado'] = f"FACT_{nit}_{contrato}"
+            total_conciliados += len(indices)
+
+    if total_conciliados > 0:
+        log_messages.append(f"✔️ Conciliación Factoring: {total_conciliados} movimientos conciliados.")
+    
+    log_messages.append("\n--- PROCESO DE CONCILIACIÓN FINALIZADO ---")
+    return df
+
 # ==============================================================================
 # FUNCIONES MAESTRAS DE ESTRATEGIA
 # ==============================================================================
