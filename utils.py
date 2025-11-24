@@ -611,8 +611,8 @@ def _generar_hoja_pendientes_resumida(workbook, formatos, df_saldos, estrategia,
     
 def _generar_hoja_pendientes_cdc(workbook, formatos, df_saldos, estrategia, casa, fecha_maxima):
     """
-    Genera hoja de pendientes para Factoring agrupada por NIT/Proveedor.
-    CORREGIDO: Prioriza 'Descripción NIT' sobre 'Nombre del Proveedor' vacíos.
+    Genera hoja de pendientes para Factoring agrupada por NIT -> Contrato.
+    Muestra subtotales por contrato como se solicitó.
     """
     ws = workbook.add_worksheet(estrategia.get("nombre_hoja_excel", "Pendientes"))
     
@@ -628,7 +628,7 @@ def _generar_hoja_pendientes_cdc(workbook, formatos, df_saldos, estrategia, casa
     ws.merge_range('A2:H2', f"ESPECIFICACIÓN DE LA CUENTA {estrategia['nombre_hoja_excel']}", formatos['encabezado_sub'])
     ws.merge_range('A3:H3', txt_fecha, formatos['encabezado_sub'])
 
-    # 2. Encabezados de la Tabla
+    # Encabezados de la Tabla (Sin títulos en A y B para limpieza visual en filas de datos)
     headers = ['NIT', 'Descripción NIT', 'FECHA', 'CONTRATO', 'DOCUMENTO', 'MONEDA ($)', 'TASA', 'MONTO (Bs)']
     ws.write_row('A5', headers, formatos['header_tabla'])
 
@@ -640,103 +640,88 @@ def _generar_hoja_pendientes_cdc(workbook, formatos, df_saldos, estrategia, casa
     df['Monto_USD'] = pd.to_numeric(df['Monto_USD'], errors='coerce').fillna(0)
     df['Tasa_Impl'] = np.where(df['Monto_USD'].abs() > 0.01, (df['Monto_BS'] / df['Monto_USD']).abs(), 0)
     
-    # --- CAMBIO AQUÍ: ORDEN DE PRIORIDAD MODIFICADO ---
+    # Detección de columnas
     col_nombre = None
-    # Ponemos primero las variaciones de NIT porque esas son las que traen datos en tu archivo
-    posibles_nombres = [
-        'Descripcion NIT', 'Descripción Nit', 'Descripción NIT', 'Descripcion Nit', 
-        'Nombre del Proveedor', 'NOMBRE DEL PROVEEDOR', 'Nombre', 'Proveedor'
-    ]
-    
-    for col in posibles_nombres:
-        if col in df.columns:
-            col_nombre = col
-            break
-            
-    if col_nombre is None:
-        df['Nombre_Final'] = 'NO DEFINIDO'
-        col_nombre = 'Nombre_Final'
+    for col in ['Descripcion NIT', 'Descripción Nit', 'Nombre del Proveedor', 'Nombre']:
+        if col in df.columns: col_nombre = col; break
+    if not col_nombre: df['N'] = 'NO DEFINIDO'; col_nombre = 'N'
         
     col_nit = None
-    posibles_nits = ['NIT', 'Nit', 'nit', 'NIT_Normalizado', 'RIF', 'Rif']
-    for col in posibles_nits:
-        if col in df.columns:
-            col_nit = col
-            break
-    if col_nit is None:
-        df['NIT_Final'] = 'SIN_NIT'
-        col_nit = 'NIT_Final'
+    for col in ['NIT', 'Nit', 'NIT_Normalizado']:
+        if col in df.columns: col_nit = col; break
+    if not col_nit: df['I'] = 'SIN_NIT'; col_nit = 'I'
 
-    # Limpieza de datos
-    df[col_nombre] = df[col_nombre].astype(str)
-    df[col_nit] = df[col_nit].astype(str)
-
-    # Convertir vacíos a NO DEFINIDO
-    df[col_nombre] = df[col_nombre].replace(r'^\s*$', np.nan, regex=True).replace(['nan', 'None', 'NAN'], np.nan).fillna('NO DEFINIDO')
-    df[col_nit] = df[col_nit].replace(r'^\s*$', np.nan, regex=True).replace(['nan', 'None', 'NAN'], np.nan).fillna('SIN_NIT')
-
-    # Ordenar
+    # Limpieza y Orden
+    df[col_nombre] = df[col_nombre].astype(str).replace(r'^\s*$', 'NO DEFINIDO', regex=True).fillna('NO DEFINIDO')
+    df[col_nit] = df[col_nit].astype(str).replace(r'^\s*$', 'SIN_NIT', regex=True).fillna('SIN_NIT')
+    
+    # Ordenamos por Proveedor, luego por Contrato y luego por Fecha
     df = df.sort_values(by=[col_nombre, 'Contrato', 'Fecha'])
     
     current_row = 5 
     grand_total_usd = 0
     grand_total_bs = 0
 
-    # 4. Iteración por Grupos
-    for (nombre_prov, nit_prov), grupo in df.groupby([col_nombre, col_nit]):
+    # 4. BUCLE PRINCIPAL: Por Proveedor
+    for (nombre_prov, nit_prov), grupo_prov in df.groupby([col_nombre, col_nit]):
         
-        # Encabezado visual
-        display_header = f"{nit_prov} - {nombre_prov}"
-        ws.merge_range(current_row, 0, current_row, 7, display_header, formatos['proveedor_header'])
+        # Encabezado visual del PROVEEDOR
+        ws.merge_range(current_row, 0, current_row, 7, f"{nit_prov} - {nombre_prov}", formatos['proveedor_header'])
         current_row += 1
         
-        subtotal_usd = 0
-        subtotal_bs = 0
-
-        for _, row in grupo.iterrows():
-            contrato = row.get('Contrato', 'SIN_CONTRATO')
-            fuente = row.get('Fuente', '')
-            fecha = row['Fecha']
-            monto_usd = row['Monto_USD']
-            monto_bs = row['Monto_BS']
-            tasa = row['Tasa_Impl']
-
-            subtotal_usd += monto_usd
-            subtotal_bs += monto_bs
-
-            # Escribir datos
-            ws.write(current_row, 0, nit_prov)          
-            ws.write(current_row, 1, nombre_prov)       
+        # 5. BUCLE ANIDADO: Por Contrato
+        for contrato, grupo_contrato in grupo_prov.groupby('Contrato'):
             
-            if pd.notna(fecha): ws.write_datetime(current_row, 2, fecha, formatos['fecha'])
-            else: ws.write(current_row, 2, '-')
+            subtotal_contrato_usd = 0
+            subtotal_contrato_bs = 0
             
-            ws.write(current_row, 3, contrato)
-            ws.write(current_row, 4, fuente)
-            ws.write_number(current_row, 5, monto_usd, formatos['usd'])
-            ws.write_number(current_row, 6, tasa, formatos['tasa'])
-            ws.write_number(current_row, 7, monto_bs, formatos['bs'])
-            
-            current_row += 1
-        
-        # Subtotal
-        ws.write(current_row, 4, "Subtotal", formatos['subtotal_label'])
-        ws.write_number(current_row, 5, subtotal_usd, formatos['subtotal_usd'])
-        ws.write_number(current_row, 7, subtotal_bs, formatos['subtotal_bs'])
-        
-        grand_total_usd += subtotal_usd
-        grand_total_bs += subtotal_bs
-        current_row += 2 
+            for _, row in grupo_contrato.iterrows():
+                fecha = row['Fecha']
+                fuente = row.get('Fuente', '') # Documento
+                monto_usd = row['Monto_USD']
+                monto_bs = row['Monto_BS']
+                
+                subtotal_contrato_usd += monto_usd
+                subtotal_contrato_bs += monto_bs
 
-    # 5. Gran Total
+                # Escribir fila
+                ws.write(current_row, 0, nit_prov)
+                ws.write(current_row, 1, nombre_prov)
+                
+                if pd.notna(fecha): ws.write_datetime(current_row, 2, fecha, formatos['fecha'])
+                else: ws.write(current_row, 2, '-')
+                
+                ws.write(current_row, 3, contrato)
+                ws.write(current_row, 4, fuente)
+                ws.write_number(current_row, 5, monto_usd, formatos['usd'])
+                ws.write_number(current_row, 6, row['Tasa_Impl'], formatos['tasa'])
+                ws.write_number(current_row, 7, monto_bs, formatos['bs'])
+                
+                current_row += 1
+            
+            # TOTAL CONTRATO (Justo debajo del bloque)
+            ws.write(current_row, 4, "Total Contrato", formatos['subtotal_label'])
+            ws.write_number(current_row, 5, subtotal_contrato_usd, formatos['subtotal_usd'])
+            # Opcional: Mostrar total Bs si se desea
+            # ws.write_number(current_row, 7, subtotal_contrato_bs, formatos['subtotal_bs'])
+            
+            current_row += 2 # Espacio entre contratos
+            
+            # Acumulamos para el gran total
+            grand_total_usd += subtotal_contrato_usd
+            grand_total_bs += subtotal_contrato_bs
+
+    # 6. Gran Total Final
     ws.write(current_row, 4, "TOTAL GENERAL", formatos['total_label'])
     ws.write_number(current_row, 5, grand_total_usd, formatos['total_usd'])
     ws.write_number(current_row, 7, grand_total_bs, formatos['total_bs'])
     
+    # 7. Ajuste de Anchos
     ws.set_column('A:A', 15)
-    ws.set_column('B:B', 45)
+    ws.set_column('B:B', 40)
     ws.set_column('C:C', 12)
-    ws.set_column('D:E', 15)
+    ws.set_column('D:D', 18) # Contrato
+    ws.set_column('E:E', 15) # Documento
     ws.set_column('F:H', 18)
 
 #@st.cache_data
