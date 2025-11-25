@@ -1993,10 +1993,6 @@ CUENTAS_BANCO = {normalize_account(acc) for acc in [
 ]}
 
 def _get_base_classification(asiento_group, cuentas_del_asiento, referencia_completa, fuente_completa, referencia_limpia_palabras, is_reverso_check=False):
-    """
-    Clasifica el asiento basándose en reglas de jerarquía.
-    IMPORTANTE: El orden de los 'if' determina la prioridad.
-    """
     
     # --- PRIORIDAD 1: Notas de Crédito (Grupo 3) ---
     es_fuente_nc = 'N/C' in fuente_completa
@@ -2014,25 +2010,28 @@ def _get_base_classification(asiento_group, cuentas_del_asiento, referencia_comp
             if referencia_limpia_palabras.intersection({'DESCUENTO', 'DESCUENTOS', 'DSCTO', 'DESC', 'DESTO'}): return "Grupo 3: N/C - Descuentos"
             return "Grupo 3: N/C - Otros"
 
-    # --- PRIORIDAD 2: Retenciones (Grupo 9) ---
+    # --- PRIORIDAD 2: Diferencial Cambiario PURO (Grupo 2) ---
+    # CORRECCIÓN CLAVE: Solo entra aquí si NO toca el Banco.
+    # Si toca el Banco, es una Cobranza con Diferencial y debe ir al Grupo 8.
+    tiene_diferencial = normalize_account('6.1.1.12.1.001') in cuentas_del_asiento
+    tiene_banco = not CUENTAS_BANCO.isdisjoint(cuentas_del_asiento)
+    
+    if tiene_diferencial and not tiene_banco:
+        return "Grupo 2: Diferencial Cambiario"
+
+    # --- PRIORIDAD 3: Retenciones (Grupo 9) ---
     if normalize_account('2.1.3.04.1.006') in cuentas_del_asiento: return "Grupo 9: Retenciones - IVA"
     if normalize_account('2.1.3.01.1.012') in cuentas_del_asiento: return "Grupo 9: Retenciones - ISLR"
     if normalize_account('7.1.3.04.1.004') in cuentas_del_asiento: return "Grupo 9: Retenciones - Municipal"
 
-    # --- PRIORIDAD 3: Traspasos vs. Devoluciones (Grupo 10 y 7) ---
-    # (MOVIDO AQUÍ ARRIBA PARA GANARLE A COBRANZAS)
+    # --- PRIORIDAD 4: Traspasos vs. Devoluciones (Grupo 10 y 7) ---
     if normalize_account('4.1.1.21.4.001') in cuentas_del_asiento:
-        # Sub-regla: Si es un traspaso explícito
         if 'TRASPASO' in referencia_completa and abs(asiento_group['Monto_USD'].sum()) <= TOLERANCIA_MAX_USD: 
             return "Grupo 10: Traspasos"
-        
         if is_reverso_check: return "Grupo 7: Devoluciones y Rebajas"
         
-        # Palabras clave para subtipos de devoluciones
         keywords_limpieza_dev = {'LIMPIEZA', 'LIMPIEZAS', 'SALDO', 'SALDOS', 'HISTORICO', 'AJUSTE', 'APLICAR', 'CRUCE', 'FAVOR'}
-        
         if not keywords_limpieza_dev.isdisjoint(referencia_limpia_palabras):
-            # Nota: Límite de $5 o $25 según tu configuración.
             if (asiento_group['Monto_USD'].abs() <= 25).all(): 
                 return "Grupo 7: Devoluciones y Rebajas - Limpieza (<= $25)"
             else: 
@@ -2040,18 +2039,22 @@ def _get_base_classification(asiento_group, cuentas_del_asiento, referencia_comp
         else: 
             return "Grupo 7: Devoluciones y Rebajas - Otros Ajustes"
 
-    # --- PRIORIDAD 4: Cobranzas (Grupo 8) ---
+    # --- PRIORIDAD 5: Cobranzas (Grupo 8) ---
     is_cobranza = 'RECIBO DE COBRANZA' in referencia_completa or 'TEF' in fuente_completa
     if is_cobranza:
         if is_reverso_check: return "Grupo 8: Cobranzas"
+        
+        # Aquí caerá tu asiento de la imagen:
+        # Tiene Banco (por eso pasó el filtro de arriba) y tiene Diferencial.
         if normalize_account('6.1.1.12.1.001') in cuentas_del_asiento: return "Grupo 8: Cobranzas - Con Diferencial Cambiario"
+        
         if normalize_account('1.1.1.04.6.003') in cuentas_del_asiento: return "Grupo 8: Cobranzas - Fondos por Depositar"
         if not CUENTAS_BANCO.isdisjoint(cuentas_del_asiento):
             if 'TEF' in fuente_completa: return "Grupo 8: Cobranzas - TEF (Bancos)"
             else: return "Grupo 8: Cobranzas - Recibos (Bancos)"
         return "Grupo 8: Cobranzas - Otros"
 
-    # --- PRIORIDAD 5: Ingresos Varios (Grupo 6) ---
+    # --- PRIORIDAD 6: Ingresos Varios (Grupo 6) ---
     if normalize_account('6.1.1.19.1.001') in cuentas_del_asiento:
         if is_reverso_check: return "Grupo 6: Ingresos Varios"
         keywords_limpieza = {'LIMPIEZA', 'LIMPIEZAS', 'SALDO', 'SALDOS', 'HISTORICO'}
@@ -2063,7 +2066,6 @@ def _get_base_classification(asiento_group, cuentas_del_asiento, referencia_comp
     # --- RESTO DE PRIORIDADES ---
     if normalize_account('7.1.3.06.1.998') in cuentas_del_asiento: return "Grupo 12: Perdida p/Venta o Retiro Activo ND"
     if normalize_account('7.1.3.45.1.997') in cuentas_del_asiento: return "Grupo 1: Acarreos y Fletes Recuperados"
-    if normalize_account('6.1.1.12.1.001') in cuentas_del_asiento: return "Grupo 2: Diferencial Cambiario"
     if normalize_account('7.1.3.19.1.012') in cuentas_del_asiento: return "Grupo 4: Gastos de Ventas"
     if normalize_account('2.1.2.05.1.108') in cuentas_del_asiento: return "Grupo 5: Haberes de Clientes"
 
