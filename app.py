@@ -21,6 +21,7 @@ from logic import (
     run_conciliation_otras_cxp,
     run_conciliation_haberes_clientes,
     run_conciliation_cdc_factoring,
+    run_conciliation_asientos_por_clasificar,
     run_conciliation_deudores_empleados_me
 )
 from utils import (
@@ -193,6 +194,15 @@ ESTRATEGIAS = {
         "columnas_reporte": ['Contrato', 'Documento', 'Saldo USD', 'Tasa', 'Saldo Bs'], 
         "nombre_hoja_excel": "212.07.9001",
         "columnas_requeridas": ['Fecha', 'Asiento', 'Referencia', 'Nit', 'Fuente', 'Débito Dolar', 'Crédito Dolar', 'Débito Bolivar', 'Crédito Bolivar']
+    },
+    "212.05.1005 - Asientos por clasificar": {
+        "id": "asientos_por_clasificar",
+        "funcion_principal": run_conciliation_asientos_por_clasificar,
+        "label_actual": "Movimientos del mes (Por Clasificar)",
+        "label_anterior": "Saldos anteriores (Por Clasificar)",
+        "columnas_reporte": ['NIT', 'Descripcion NIT', 'Fecha', 'Asiento', 'Referencia', 'Monto Bolivar'],
+        "nombre_hoja_excel": "212.05.1005",
+        "columnas_requeridas": ['Fecha', 'Asiento', 'Referencia', 'Nit', 'Descripción Nit', 'Débito Bolivar', 'Crédito Bolivar']
     }
     
 }
