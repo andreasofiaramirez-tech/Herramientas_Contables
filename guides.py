@@ -172,6 +172,22 @@ LOGICA_POR_CUENTA = {
         2.  **Conciliación por Grupo:**
             *   Agrupa por **NIT** y **Contrato**.
             *   Si la suma en Dólares de ese contrato es cero, se marca como conciliado.
+        """,
+    "212.05.1005 - Asientos por clasificar": """
+        #### 🔎 Lógica de Conciliación Automática (Bolívares - Bs.)
+
+        Esta cuenta agrupa partidas pendientes de clasificación definitiva.
+        
+        1.  **Limpieza Automática:**
+            *   Se concilian automáticamente las líneas de "Diferencial Cambiario" o "Ajustes".
+        
+        2.  **Cruce por NIT:**
+            *   Se agrupan los movimientos por **NIT**.
+            *   Se buscan pares exactos (Débito vs Crédito) dentro del NIT.
+            *   Si no hay pares, se verifica si la suma total del NIT es **0.00**.
+            
+        3.  **Cruce Global:**
+            *   Finalmente, se buscan partidas sueltas que tengan el mismo monto absoluto (cruce por importe) para cerrar casos donde el NIT no coincida.
         """
 }
 
