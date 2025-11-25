@@ -1245,7 +1245,7 @@ def run_conciliation_cdc_factoring(df, log_messages, progress_bar=None):
 def run_conciliation_asientos_por_clasificar(df, log_messages, progress_bar=None):
     """
     Conciliación de Asientos por Clasificar (BS).
-    Fases: Auto Diferencial -> Por NIT -> Global por Monto -> Barrido Final.
+    Incluye diagnóstico de saldo final y redondeo forzado.
     """
     log_messages.append("\n--- INICIANDO LÓGICA DE ASIENTOS POR CLASIFICAR (BS) ---")
     TOLERANCIA_ESTRICTA_BS = 0.00
@@ -1285,7 +1285,7 @@ def run_conciliation_asientos_por_clasificar(df, log_messages, progress_bar=None
     for nit, grupo in grupos_nit:
         if nit == 'SIN_NIT' or len(grupo) < 2: continue
         
-        # A. Pares Exactos
+        # A. Pares Exactos (1 a 1)
         debitos = grupo[grupo['Monto_BS'] > 0].index.tolist()
         creditos = grupo[grupo['Monto_BS'] < 0].index.tolist()
         usados_local = set()
@@ -1302,10 +1302,11 @@ def run_conciliation_asientos_por_clasificar(df, log_messages, progress_bar=None
                     usados_local.add(idx_d); usados_local.add(idx_c)
                     break
         
-        # B. Grupo Completo
+        # B. Grupo Completo (N a N)
         remanente = grupo[~grupo.index.isin(usados_local)]
         if len(remanente) > 1:
-            if np.isclose(remanente['Monto_BS'].sum(), 0, atol=TOLERANCIA_ESTRICTA_BS):
+            # Usamos round para evitar errores de flotante
+            if round(remanente['Monto_BS'].sum(), 2) == 0.00:
                 indices = remanente.index
                 df.loc[indices, 'Conciliado'] = True
                 df.loc[indices, 'Grupo_Conciliado'] = f"GRUPO_NIT_{nit}"
@@ -1313,7 +1314,7 @@ def run_conciliation_asientos_por_clasificar(df, log_messages, progress_bar=None
 
     if progress_bar: progress_bar.progress(0.6, text="Fase por NIT completada.")
 
-    # --- FASE 2: CRUCE GLOBAL POR MONTO (Recuperación) ---
+    # --- FASE 2: CRUCE GLOBAL POR MONTO ---
     df_pendientes_final = df[~df['Conciliado']].copy()
     df_pendientes_final['Monto_Abs'] = df_pendientes_final['Monto_BS'].abs()
     
@@ -1331,23 +1332,30 @@ def run_conciliation_asientos_por_clasificar(df, log_messages, progress_bar=None
                 df.loc[[idx_d, idx_c], 'Grupo_Conciliado'] = f"GLOBAL_MONTO_{int(monto)}"
                 total_conciliados += 2
 
-    # --- FASE 3: BARRIDO FINAL (SI EL TOTAL REMANENTE ES 0) ---
-    # Esta es la lógica que solicitaste para cerrar el saldo final
+    # --- FASE 3: BARRIDO FINAL (DIAGNÓSTICO Y CORRECCIÓN) ---
     df_remanente = df[~df['Conciliado']]
     
     if not df_remanente.empty:
-        suma_final = df_remanente['Monto_BS'].sum()
+        suma_final_real = df_remanente['Monto_BS'].sum()
+        suma_final_redondeada = round(suma_final_real, 2)
         
-        # Si la suma de TODO lo que queda es 0.00
-        if np.isclose(suma_final, 0, atol=TOLERANCIA_ESTRICTA_BS):
+        # MENSAJE DE DIAGNÓSTICO (Aparecerá en el Log de la web)
+        log_messages.append(f"🔎 DIAGNÓSTICO FASE FINAL:")
+        log_messages.append(f"   > Movimientos pendientes: {len(df_remanente)}")
+        log_messages.append(f"   > Suma Real (Python): {suma_final_real:.10f}")
+        log_messages.append(f"   > Suma Redondeada (2 dec): {suma_final_redondeada}")
+
+        # Si la suma redondeada es cero (o casi cero, permitiendo 1 centimo de basura)
+        if abs(suma_final_redondeada) <= 0.01:
             indices = df_remanente.index
             df.loc[indices, 'Conciliado'] = True
-            # Usamos una etiqueta especial para identificar este lote
             df.loc[indices, 'Grupo_Conciliado'] = 'LOTE_FINAL_REMANENTE'
             
             cantidad_final = len(indices)
             total_conciliados += cantidad_final
-            log_messages.append(f"✔️ Fase 3: Se conciliaron {cantidad_final} movimientos finales por saldo cero global.")
+            log_messages.append(f"✔️ Fase 3: ÉXITO. Se conciliaron {cantidad_final} movimientos finales.")
+        else:
+            log_messages.append("⚠️ Fase 3: NO se concilió el remanente porque la suma no es 0.00.")
 
     if progress_bar: progress_bar.progress(1.0, text="Proceso finalizado.")
     log_messages.append(f"✔️ Conciliación finalizada: {total_conciliados} movimientos cerrados.")
