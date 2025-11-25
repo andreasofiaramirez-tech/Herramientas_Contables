@@ -1241,6 +1241,114 @@ def run_conciliation_cdc_factoring(df, log_messages, progress_bar=None):
     log_messages.append("\n--- PROCESO DE CONCILIACIÓN FINALIZADO ---")
     return df
 
+# --- (J) Módulo: Asientos por Clasificar (VES) ---
+def run_conciliation_asientos_por_clasificar(df, log_messages, progress_bar=None):
+    """
+    Conciliación de Asientos por Clasificar (BS).
+    Tolerancia: 0.00.
+    Fases: Auto Diferencial -> Por NIT (Pares y Global) -> Global por Monto.
+    """
+    log_messages.append("\n--- INICIANDO LÓGICA DE ASIENTOS POR CLASIFICAR (BS) ---")
+    TOLERANCIA_ESTRICTA_BS = 0.00
+    
+    # 1. Normalización de NIT
+    # Reutilizamos la lógica de limpieza de NIT que ya tenemos
+    df_copy = df.copy()
+    nit_col_name = next((col for col in df_copy.columns if str(col).strip().upper() in ['NIT', 'RIF']), None)
+    if nit_col_name:
+        df['NIT_Normalizado'] = df_copy[nit_col_name].astype(str).str.upper().str.replace(r'[^A-Z0-9]', '', regex=True)
+    else:
+        df['NIT_Normalizado'] = 'SIN_NIT'
+        log_messages.append("⚠️ No se encontró columna NIT, se usará agrupación global.")
+
+    if progress_bar: progress_bar.progress(0.1, text="Fase de Normalización completada.")
+    
+    total_conciliados = 0
+
+    # --- FASE 0: LIMPIEZA AUTOMÁTICA (DIFERENCIAL CAMBIARIO) ---
+    def es_ajuste_cambiario(texto):
+        t = str(texto).upper()
+        if 'DIFF' in t: return True
+        if 'CAMBIO' in t and ('DIFERENCIA' in t or 'DIF' in t or 'AJUSTE' in t): return True
+        return False
+
+    mask_dif = df['Referencia'].apply(es_ajuste_cambiario) | df['Fuente'].apply(es_ajuste_cambiario)
+    indices_dif = df[mask_dif & (~df['Conciliado'])].index
+
+    if not indices_dif.empty:
+        df.loc[indices_dif, 'Conciliado'] = True
+        df.loc[indices_dif, 'Grupo_Conciliado'] = 'AUTOMATICO_DIF_CAMBIO_BS'
+        total_conciliados += len(indices_dif)
+        log_messages.append(f"✔️ Fase Auto: {len(indices_dif)} movimientos de Diferencial Cambiario conciliados.")
+
+    # --- FASE 1: CRUCE POR NIT (1 a 1 y N a N) ---
+    df_pendientes = df[~df['Conciliado']]
+    grupos_nit = df_pendientes.groupby('NIT_Normalizado')
+    
+    for nit, grupo in grupos_nit:
+        if nit == 'SIN_NIT' or len(grupo) < 2: continue
+        
+        # A. Buscar Pares Exactos dentro del NIT (1 a 1)
+        # Esto ayuda a que el reporte sea más limpio "1 a 1" en lugar de un grupo gigante
+        debitos = grupo[grupo['Monto_BS'] > 0].index.tolist()
+        creditos = grupo[grupo['Monto_BS'] < 0].index.tolist()
+        usados_local = set()
+        
+        for idx_d in debitos:
+            if idx_d in usados_local: continue
+            monto_d = df.loc[idx_d, 'Monto_BS']
+            
+            for idx_c in creditos:
+                if idx_c in usados_local: continue
+                # Suma exacta cero
+                if np.isclose(monto_d + df.loc[idx_c, 'Monto_BS'], 0, atol=TOLERANCIA_ESTRICTA_BS):
+                    df.loc[[idx_d, idx_c], 'Conciliado'] = True
+                    df.loc[[idx_d, idx_c], 'Grupo_Conciliado'] = f"PAR_NIT_{nit}_{int(abs(monto_d))}"
+                    total_conciliados += 2
+                    usados_local.add(idx_d)
+                    usados_local.add(idx_c)
+                    break
+        
+        # B. Buscar Grupo Completo (N a N) con lo que sobró del NIT
+        remanente = grupo[~grupo.index.isin(usados_local)]
+        if len(remanente) > 1:
+            if np.isclose(remanente['Monto_BS'].sum(), 0, atol=TOLERANCIA_ESTRICTA_BS):
+                indices = remanente.index
+                df.loc[indices, 'Conciliado'] = True
+                df.loc[indices, 'Grupo_Conciliado'] = f"GRUPO_NIT_{nit}"
+                total_conciliados += len(indices)
+
+    if progress_bar: progress_bar.progress(0.6, text="Fase por NIT completada.")
+
+    # --- FASE 2: CRUCE GLOBAL POR MONTO (Recuperación de Sin NIT) ---
+    # Busca débitos y créditos iguales que no se cruzaron antes (posible error de NIT en uno de los dos)
+    df_pendientes_final = df[~df['Conciliado']].copy()
+    df_pendientes_final['Monto_Abs'] = df_pendientes_final['Monto_BS'].abs()
+    
+    grupos_monto = df_pendientes_final.groupby('Monto_Abs')
+    
+    for monto, grupo in grupos_monto:
+        if len(grupo) < 2 or monto <= 0.01: continue
+        
+        debitos = grupo[grupo['Monto_BS'] > 0].index.tolist()
+        creditos = grupo[grupo['Monto_BS'] < 0].index.tolist()
+        
+        pares = min(len(debitos), len(creditos))
+        for i in range(pares):
+            idx_d = debitos[i]
+            idx_c = creditos[i]
+            
+            if np.isclose(df.loc[idx_d, 'Monto_BS'] + df.loc[idx_c, 'Monto_BS'], 0, atol=TOLERANCIA_ESTRICTA_BS):
+                df.loc[[idx_d, idx_c], 'Conciliado'] = True
+                df.loc[[idx_d, idx_c], 'Grupo_Conciliado'] = f"GLOBAL_MONTO_{int(monto)}"
+                total_conciliados += 2
+
+    if progress_bar: progress_bar.progress(1.0, text="Proceso finalizado.")
+    log_messages.append(f"✔️ Conciliación finalizada: {total_conciliados} movimientos cerrados.")
+    log_messages.append("\n--- PROCESO DE CONCILIACIÓN FINALIZADO ---")
+    
+    return df
+
 # ==============================================================================
 # FUNCIONES MAESTRAS DE ESTRATEGIA
 # ==============================================================================
