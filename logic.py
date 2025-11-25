@@ -2182,6 +2182,7 @@ def _validar_asiento(asiento_group):
 def run_analysis_paquete_cc(df_diario, log_messages):
     """
     Función principal que orquesta la clasificación Y la validación de asientos.
+    Mantiene regla de cuentas conocidas y reporta cuáles faltan.
     """
     log_messages.append("--- INICIANDO ANÁLISIS Y VALIDACIÓN DE PAQUETE CC ---")
     df = df_diario.copy()
@@ -2191,13 +2192,23 @@ def run_analysis_paquete_cc(df_diario, log_messages):
     resultados_clasificacion = {}
     grupos_de_asientos = df.groupby('Asiento')
     asientos_con_cuentas_nuevas = 0
+    
     for asiento_id, asiento_group in grupos_de_asientos:
         cuentas_del_asiento_norm = set(asiento_group['Cuenta Contable Norm'])
-        if not cuentas_del_asiento_norm.issubset(CUENTAS_CONOCIDAS):
-            grupo_asignado = "Grupo 11: Cuentas No Identificadas"
+        
+        # --- PASO 1: Verificar si hay cuentas desconocidas ---
+        cuentas_desconocidas = cuentas_del_asiento_norm - CUENTAS_CONOCIDAS
+        
+        if cuentas_desconocidas:
+            # Si hay cuentas que no están en el directorio, creamos un subgrupo específico
+            # Esto te dirá en el Excel exactamente qué cuenta falta agregar.
+            lista_faltantes = ", ".join(sorted(cuentas_desconocidas))
+            grupo_asignado = f"Grupo 11: Cuentas No Identificadas ({lista_faltantes})"
             asientos_con_cuentas_nuevas += 1
         else:
+            # --- PASO 2: Si todas son conocidas, clasificamos normalmente ---
             grupo_asignado = _clasificar_asiento_paquete_cc(asiento_group)
+            
         resultados_clasificacion[asiento_id] = grupo_asignado
         
     df['Grupo'] = df['Asiento'].map(resultados_clasificacion)
@@ -2213,7 +2224,7 @@ def run_analysis_paquete_cc(df_diario, log_messages):
     log_messages.append("✔️ Validación de reglas de negocio completada.")
 
     if asientos_con_cuentas_nuevas > 0:
-        log_messages.append(f"⚠️ Se encontraron {asientos_con_cuentas_nuevas} asientos con cuentas no registradas.")
+        log_messages.append(f"⚠️ Se encontraron {asientos_con_cuentas_nuevas} asientos con cuentas no registradas en el sistema.")
     
     df_final = df.drop(columns=['Cuenta Contable Norm']).sort_values(by=['Grupo', 'Asiento', 'Monto_USD'], ascending=[True, True, False])
     log_messages.append("--- ANÁLISIS FINALIZADO CON ÉXITO ---")
