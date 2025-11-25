@@ -134,24 +134,22 @@ LOGICA_POR_CUENTA = {
     "111.04.6003 - Fondos por Depositar - Cobros Viajeros - ME": """
         #### 🔎 Lógica de Conciliación Automática (Dólares - USD)
 
-        Esta cuenta gestiona la liquidación de cobros de viajeros, enfocándose en cruzar la cobranza (CC) con su depósito o registro bancario (CB).
+        Gestión de liquidación de cobros de viajeros (Cruce CC vs CB). **Nota:** Esta cuenta usa una tolerancia estricta de **0.00 USD**.
 
-        1.  **Agrupación Principal por NIT:**
-            *   🔑 El **NIT** del viajero es la clave fundamental. La herramienta nunca mezclará movimientos de clientes diferentes.
+        1.  **Limpieza Automática:**
+            *   Se cierran automáticamente los ajustes por Diferencial Cambiario para no ensuciar los saldos.
 
-        2.  **Fase 1: Detección Inteligente de Reversos:**
-            *   La herramienta busca movimientos marcados como **"REVERSO"**.
-            *   Utiliza una lógica de **coincidencia parcial**: si un reverso tiene la referencia "REV-12345" y existe un movimiento original "12345" (o viceversa) para el mismo NIT, y sus montos se anulan, los concilia automáticamente.
+        2.  **Conciliación de Reversos:**
+            *   Detecta movimientos marcados como "REVERSO". Usa coincidencia parcial de referencias (ej: "REV-123" vs "123") para anularlos.
 
-        3.  **Fase 2: Cruce Estándar (N-a-N):**
-            *   Para el resto de movimientos, la herramienta construye una **"Clave de Vínculo"** extrayendo solo los números de la Referencia o la Fuente, dependiendo del tipo de asiento (CC vs CB).
-            *   Agrupa todos los movimientos de un mismo NIT que compartan ese número de vínculo (ej. un número de planilla o recibo).
-            *   Si la suma total del grupo es **cero (0.00 USD)**, se marcan todos como conciliados.
+        3.  **Cruce Estándar (N-a-N):**
+            *   Agrupa por **NIT** y construye una **Clave de Vínculo** (números extraídos de la referencia/fuente).
+            *   Si la suma del grupo es 0.00, se concilia.
         """,
     "212.05.1108 - Haberes de Clientes": """
         #### 🔎 Lógica de Conciliación Automática (Bolívares - Bs.)
 
-        Esta cuenta maneja los anticipos o saldos a favor de clientes.
+        Manejo de anticipos o saldos a favor de clientes.
         
         1.  **Fase 1: Cruce por NIT:**
             *   Agrupa todos los movimientos de un mismo cliente (NIT). Si la suma de débitos y créditos es cero, se concilia.
@@ -163,31 +161,36 @@ LOGICA_POR_CUENTA = {
     "212.07.9001 - CDC - Factoring": """
         #### 🔎 Lógica de Conciliación Automática (Dólares - USD)
 
-        Conciliación de contratos de factoring basada en la referencia del documento.
+        Conciliación de contratos de factoring. El reporte de salida se agrupa por **Proveedor > Contrato**.
         
         1.  **Extracción de Contrato:**
-            *   Busca en la referencia el patrón `FACTORING [CODIGO] $`.
-            *   Extrae el código que se encuentra entre la palabra "FACTORING" y el signo de dólar.
+            *   La herramienta analiza la Referencia y la Fuente buscando el código del contrato.
+            *   Soporta formatos como: `FQ-xxxx`, `O/Cxxxx`, o números directos (ej: `6016301`) después de la palabra FACTORING.
         
-        2.  **Conciliación por Grupo:**
-            *   Agrupa por **NIT** y **Contrato**.
-            *   Si la suma en Dólares de ese contrato es cero, se marca como conciliado.
+        2.  **Limpieza Automática:**
+            *   Elimina automáticamente las líneas de "Diferencia en Cambio".
+            
+        3.  **Conciliación:**
+            *   Agrupa por **NIT** y **Contrato**. Si la suma en Dólares del contrato es cero, se marca como conciliado.
         """,
     "212.05.1005 - Asientos por clasificar": """
         #### 🔎 Lógica de Conciliación Automática (Bolívares - Bs.)
 
-        Esta cuenta agrupa partidas pendientes de clasificación definitiva.
+        Esta cuenta transitoria agrupa partidas pendientes de clasificación definitiva. La herramienta aplica una estrategia de 4 fases para limpiarla:
         
         1.  **Limpieza Automática:**
-            *   Se concilian automáticamente las líneas de "Diferencial Cambiario" o "Ajustes".
+            *   Se detectan y concilian automáticamente las líneas de "Diferencial Cambiario", "Ajustes" o "Diff".
         
-        2.  **Cruce por NIT:**
-            *   Se agrupan los movimientos por **NIT**.
-            *   Se buscan pares exactos (Débito vs Crédito) dentro del NIT.
-            *   Si no hay pares, se verifica si la suma total del NIT es **0.00**.
+        2.  **Cruce por NIT (Fase Principal):**
+            *   Agrupa los movimientos por NIT.
+            *   Busca pares exactos (1 a 1) que sumen 0.00.
+            *   Busca grupos completos (N a N) dentro del mismo NIT que sumen 0.00.
             
-        3.  **Cruce Global:**
-            *   Finalmente, se buscan partidas sueltas que tengan el mismo monto absoluto (cruce por importe) para cerrar casos donde el NIT no coincida.
+        3.  **Cruce Global (Recuperación):**
+            *   Busca partidas sueltas que tengan el mismo monto absoluto (cruce por importe) para cerrar casos donde el NIT falte o no coincida.
+            
+        4.  **Barrido Final:**
+            *   Si la suma total de **todos** los movimientos restantes es exactamente **0.00 Bs**, la herramienta asume que son contrapartidas globales y cierra todo el remanente en un solo lote.
         """
 }
 
