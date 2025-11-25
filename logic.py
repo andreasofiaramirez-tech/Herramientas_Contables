@@ -1245,21 +1245,18 @@ def run_conciliation_cdc_factoring(df, log_messages, progress_bar=None):
 def run_conciliation_asientos_por_clasificar(df, log_messages, progress_bar=None):
     """
     Conciliación de Asientos por Clasificar (BS).
-    Tolerancia: 0.00.
-    Fases: Auto Diferencial -> Por NIT (Pares y Global) -> Global por Monto.
+    Fases: Auto Diferencial -> Por NIT -> Global por Monto -> Barrido Final.
     """
     log_messages.append("\n--- INICIANDO LÓGICA DE ASIENTOS POR CLASIFICAR (BS) ---")
     TOLERANCIA_ESTRICTA_BS = 0.00
     
-    # 1. Normalización de NIT
-    # Reutilizamos la lógica de limpieza de NIT que ya tenemos
+    # 1. Normalización
     df_copy = df.copy()
     nit_col_name = next((col for col in df_copy.columns if str(col).strip().upper() in ['NIT', 'RIF']), None)
     if nit_col_name:
         df['NIT_Normalizado'] = df_copy[nit_col_name].astype(str).str.upper().str.replace(r'[^A-Z0-9]', '', regex=True)
     else:
         df['NIT_Normalizado'] = 'SIN_NIT'
-        log_messages.append("⚠️ No se encontró columna NIT, se usará agrupación global.")
 
     if progress_bar: progress_bar.progress(0.1, text="Fase de Normalización completada.")
     
@@ -1288,8 +1285,7 @@ def run_conciliation_asientos_por_clasificar(df, log_messages, progress_bar=None
     for nit, grupo in grupos_nit:
         if nit == 'SIN_NIT' or len(grupo) < 2: continue
         
-        # A. Buscar Pares Exactos dentro del NIT (1 a 1)
-        # Esto ayuda a que el reporte sea más limpio "1 a 1" en lugar de un grupo gigante
+        # A. Pares Exactos
         debitos = grupo[grupo['Monto_BS'] > 0].index.tolist()
         creditos = grupo[grupo['Monto_BS'] < 0].index.tolist()
         usados_local = set()
@@ -1297,19 +1293,16 @@ def run_conciliation_asientos_por_clasificar(df, log_messages, progress_bar=None
         for idx_d in debitos:
             if idx_d in usados_local: continue
             monto_d = df.loc[idx_d, 'Monto_BS']
-            
             for idx_c in creditos:
                 if idx_c in usados_local: continue
-                # Suma exacta cero
                 if np.isclose(monto_d + df.loc[idx_c, 'Monto_BS'], 0, atol=TOLERANCIA_ESTRICTA_BS):
                     df.loc[[idx_d, idx_c], 'Conciliado'] = True
-                    df.loc[[idx_d, idx_c], 'Grupo_Conciliado'] = f"PAR_NIT_{nit}_{int(abs(monto_d))}"
+                    df.loc[[idx_d, idx_c], 'Grupo_Conciliado'] = f"PAR_NIT_{nit}"
                     total_conciliados += 2
-                    usados_local.add(idx_d)
-                    usados_local.add(idx_c)
+                    usados_local.add(idx_d); usados_local.add(idx_c)
                     break
         
-        # B. Buscar Grupo Completo (N a N) con lo que sobró del NIT
+        # B. Grupo Completo
         remanente = grupo[~grupo.index.isin(usados_local)]
         if len(remanente) > 1:
             if np.isclose(remanente['Monto_BS'].sum(), 0, atol=TOLERANCIA_ESTRICTA_BS):
@@ -1320,14 +1313,11 @@ def run_conciliation_asientos_por_clasificar(df, log_messages, progress_bar=None
 
     if progress_bar: progress_bar.progress(0.6, text="Fase por NIT completada.")
 
-    # --- FASE 2: CRUCE GLOBAL POR MONTO (Recuperación de Sin NIT) ---
-    # Busca débitos y créditos iguales que no se cruzaron antes (posible error de NIT en uno de los dos)
+    # --- FASE 2: CRUCE GLOBAL POR MONTO (Recuperación) ---
     df_pendientes_final = df[~df['Conciliado']].copy()
     df_pendientes_final['Monto_Abs'] = df_pendientes_final['Monto_BS'].abs()
     
-    grupos_monto = df_pendientes_final.groupby('Monto_Abs')
-    
-    for monto, grupo in grupos_monto:
+    for monto, grupo in df_pendientes_final.groupby('Monto_Abs'):
         if len(grupo) < 2 or monto <= 0.01: continue
         
         debitos = grupo[grupo['Monto_BS'] > 0].index.tolist()
@@ -1335,13 +1325,29 @@ def run_conciliation_asientos_por_clasificar(df, log_messages, progress_bar=None
         
         pares = min(len(debitos), len(creditos))
         for i in range(pares):
-            idx_d = debitos[i]
-            idx_c = creditos[i]
-            
+            idx_d, idx_c = debitos[i], creditos[i]
             if np.isclose(df.loc[idx_d, 'Monto_BS'] + df.loc[idx_c, 'Monto_BS'], 0, atol=TOLERANCIA_ESTRICTA_BS):
                 df.loc[[idx_d, idx_c], 'Conciliado'] = True
                 df.loc[[idx_d, idx_c], 'Grupo_Conciliado'] = f"GLOBAL_MONTO_{int(monto)}"
                 total_conciliados += 2
+
+    # --- FASE 3: BARRIDO FINAL (SI EL TOTAL REMANENTE ES 0) ---
+    # Esta es la lógica que solicitaste para cerrar el saldo final
+    df_remanente = df[~df['Conciliado']]
+    
+    if not df_remanente.empty:
+        suma_final = df_remanente['Monto_BS'].sum()
+        
+        # Si la suma de TODO lo que queda es 0.00
+        if np.isclose(suma_final, 0, atol=TOLERANCIA_ESTRICTA_BS):
+            indices = df_remanente.index
+            df.loc[indices, 'Conciliado'] = True
+            # Usamos una etiqueta especial para identificar este lote
+            df.loc[indices, 'Grupo_Conciliado'] = 'LOTE_FINAL_REMANENTE'
+            
+            cantidad_final = len(indices)
+            total_conciliados += cantidad_final
+            log_messages.append(f"✔️ Fase 3: Se conciliaron {cantidad_final} movimientos finales por saldo cero global.")
 
     if progress_bar: progress_bar.progress(1.0, text="Proceso finalizado.")
     log_messages.append(f"✔️ Conciliación finalizada: {total_conciliados} movimientos cerrados.")
