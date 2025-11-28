@@ -1519,15 +1519,69 @@ def _extraer_factura_cp(aplicacion):
 # --- NUEVAS FUNCIONES DE CARGA Y PREPARACIÓN ---
 
 def preparar_df_cp(file_cp):
-    df = pd.read_excel(file_cp, header=4, dtype=str).rename(columns={
-        'Asiento Contable': 'Asiento', 'Proveedor': 'RIF', 'Tipo': 'Tipo', 
-        'Fecha': 'Fecha', 'Número': 'Comprobante', 'Monto': 'Monto',
-        'Aplicación': 'Aplicacion', 'Subtipo': 'Subtipo'
-    })
+    """
+    Carga y prepara el archivo CP. 
+    Versión Robusta: Busca columnas insensible a espacios y mayúsculas.
+    """
+    # 1. Leemos el archivo asumiendo encabezado en fila 5 (índice 4)
+    df = pd.read_excel(file_cp, header=4, dtype=str)
+    
+    # 2. Limpieza de nombres de columnas (Trim y Mayúsculas) para evitar errores por espacios
+    df.columns = [str(col).strip() for col in df.columns]
+    
+    # 3. Mapeo inteligente de columnas
+    rename_map = {}
+    for col in df.columns:
+        c_upper = col.upper()
+        
+        if c_upper in ['PROVEEDOR', 'RIF', 'BENEFICIARIO', 'NOMBRE']:
+            rename_map[col] = 'RIF'
+        elif 'ASIENTO' in c_upper:
+            rename_map[col] = 'Asiento'
+        elif c_upper in ['TIPO']:
+            rename_map[col] = 'Tipo'
+        elif 'FECHA' in c_upper:
+            rename_map[col] = 'Fecha'
+        elif c_upper in ['NÚMERO', 'NUMERO', 'COMPROBANTE', 'NO. COMPROBANTE']:
+            rename_map[col] = 'Comprobante'
+        elif 'MONTO' in c_upper or 'IMPORTE' in c_upper:
+            rename_map[col] = 'Monto'
+        elif 'APLICACIÓN' in c_upper or 'APLICACION' in c_upper:
+            rename_map[col] = 'Aplicacion'
+        elif 'SUBTIPO' in c_upper:
+            rename_map[col] = 'Subtipo'
+
+    # Aplicar renombrado
+    df.rename(columns=rename_map, inplace=True)
+
+    # 4. Verificación de Seguridad
+    if 'RIF' not in df.columns:
+        # Si no se encontró, listamos las columnas detectadas para ayudar a depurar
+        cols_encontradas = ", ".join(df.columns)
+        # Intentamos un fallback: si hay alguna columna que empiece por J- o V-, usar esa? 
+        # Mejor lanzar un error descriptivo.
+        raise KeyError(f"No se encontró la columna 'Proveedor' o 'RIF' en la fila 5 del archivo CP. Columnas detectadas: [{cols_encontradas}]")
+
+    # 5. Normalización de datos
     df['RIF_norm'] = df['RIF'].apply(_normalizar_rif)
-    df['Comprobante_norm'] = df['Comprobante'].apply(_normalizar_numerico)
-    df['Factura_norm'] = df['Aplicacion'].apply(_extraer_factura_cp)
-    df['Monto'] = df['Monto'].str.replace(',', '.', regex=False).astype(float)
+    
+    if 'Comprobante' in df.columns:
+        df['Comprobante_norm'] = df['Comprobante'].apply(_normalizar_numerico)
+    else:
+        df['Comprobante_norm'] = '' # Evitar error si falta
+        
+    if 'Aplicacion' in df.columns:
+        df['Factura_norm'] = df['Aplicacion'].apply(_extraer_factura_cp)
+    else:
+        df['Factura_norm'] = ''
+
+    # Limpieza de montos
+    if 'Monto' in df.columns:
+        df['Monto'] = df['Monto'].astype(str).str.replace(',', '.', regex=False)
+        df['Monto'] = pd.to_numeric(df['Monto'], errors='coerce').fillna(0)
+    else:
+        df['Monto'] = 0.0
+
     return df
 
 def preparar_df_iva(file_iva):
