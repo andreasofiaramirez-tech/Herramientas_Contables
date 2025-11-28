@@ -1520,22 +1520,36 @@ def _extraer_factura_cp(aplicacion):
 
 def preparar_df_cp(file_cp):
     """
-    Carga y prepara el archivo CP. 
-    Versión Robusta: Busca columnas insensible a espacios y mayúsculas.
+    Carga y prepara el archivo CP.
+    CORREGIDO: Mapea 'Proveedor' como RIF y 'Nombre' como Nombre_Proveedor.
     """
     # 1. Leemos el archivo asumiendo encabezado en fila 5 (índice 4)
     df = pd.read_excel(file_cp, header=4, dtype=str)
     
-    # 2. Limpieza de nombres de columnas (Trim y Mayúsculas) para evitar errores por espacios
+    # 2. Limpieza de nombres de columnas
     df.columns = [str(col).strip() for col in df.columns]
     
-    # 3. Mapeo inteligente de columnas
+    # 3. Mapeo específico según tu aclaratoria
     rename_map = {}
+    
     for col in df.columns:
         c_upper = col.upper()
         
-        if c_upper in ['PROVEEDOR', 'RIF', 'BENEFICIARIO', 'NOMBRE']:
+        # --- LÓGICA DE IDENTIFICACIÓN ---
+        
+        # Si la columna se llama explícitamente PROVEEDOR, el usuario indicó que ese es el RIF.
+        if c_upper == 'PROVEEDOR':
             rename_map[col] = 'RIF'
+            
+        # Si la columna se llama RIF o NIT, obviamente es el RIF.
+        elif c_upper in ['RIF', 'NIT', 'R.I.F.']:
+            rename_map[col] = 'RIF'
+            
+        # Si la columna es NOMBRE o BENEFICIARIO, la guardamos aparte, NO como RIF.
+        elif c_upper in ['NOMBRE', 'BENEFICIARIO', 'NOMBRE PROVEEDOR']:
+            rename_map[col] = 'Nombre_Proveedor'
+            
+        # --- OTROS CAMPOS ---
         elif 'ASIENTO' in c_upper:
             rename_map[col] = 'Asiento'
         elif c_upper in ['TIPO']:
@@ -1554,21 +1568,22 @@ def preparar_df_cp(file_cp):
     # Aplicar renombrado
     df.rename(columns=rename_map, inplace=True)
 
-    # 4. Verificación de Seguridad
-    if 'RIF' not in df.columns:
-        # Si no se encontró, listamos las columnas detectadas para ayudar a depurar
-        cols_encontradas = ", ".join(df.columns)
-        # Intentamos un fallback: si hay alguna columna que empiece por J- o V-, usar esa? 
-        # Mejor lanzar un error descriptivo.
-        raise KeyError(f"No se encontró la columna 'Proveedor' o 'RIF' en la fila 5 del archivo CP. Columnas detectadas: [{cols_encontradas}]")
+    # --- LIMPIEZA DE DUPLICADOS (SEGURIDAD) ---
+    # Si por casualidad el archivo traía "Proveedor" Y "RIF", nos quedamos con la primera 'RIF' que aparezca
+    df = df.loc[:, ~df.columns.duplicated()]
 
-    # 5. Normalización de datos
+    # 4. Verificación
+    if 'RIF' not in df.columns:
+        cols_encontradas = ", ".join(df.columns)
+        raise KeyError(f"No se encontró la columna 'Proveedor' (o RIF) en el archivo CP. Columnas detectadas: [{cols_encontradas}]")
+
+    # 5. Normalización
     df['RIF_norm'] = df['RIF'].apply(_normalizar_rif)
     
     if 'Comprobante' in df.columns:
         df['Comprobante_norm'] = df['Comprobante'].apply(_normalizar_numerico)
     else:
-        df['Comprobante_norm'] = '' # Evitar error si falta
+        df['Comprobante_norm'] = ''
         
     if 'Aplicacion' in df.columns:
         df['Factura_norm'] = df['Aplicacion'].apply(_extraer_factura_cp)
