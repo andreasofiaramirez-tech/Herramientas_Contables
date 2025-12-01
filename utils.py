@@ -1006,46 +1006,72 @@ def generar_reporte_paquete_cc(df_analizado):
         ws_dir.set_column('A:A', 25); ws_dir.set_column('B:B', 60); ws_dir.set_column('C:C', 25)
 
         # ==========================================
-        # HOJA 2: LISTADO CORRELATIVO (NUEVA)
+        # HOJA 2: LISTADO CORRELATIVO (RESUMIDO)
         # ==========================================
         ws_corr = workbook.add_worksheet("Listado Correlativo")
-        ws_corr.merge_range('A1:K1', 'Listado Maestro de Asientos (Para Mayorización en Lote)', main_title_format)
+        ws_corr.merge_range('A1:G1', 'Resumen Maestro de Asientos (Semáforo de Carga)', main_title_format)
         
-        # Columnas incluyendo "ESTADO" y "GRUPO" para referencia rápida
-        cols_corr = ['Asiento', 'Estado', 'Grupo', 'Fecha', 'Referencia', 'Fuente', 'Cuenta', 'Desc. Cuenta', 'Débito $', 'Crédito $', 'Débito Bs']
+        # Columnas resumidas
+        cols_corr = ['Asiento', 'Estado Global', 'Grupo', 'Fecha', 'Fuente', 'Total Asiento ($)', 'Total Asiento (Bs)']
         ws_corr.write_row('A2', cols_corr, header_corr_format)
-        ws_corr.freeze_panes(2, 0) # Congelar encabezados
+        ws_corr.freeze_panes(2, 0)
 
-        # Ordenar estrictamente por Asiento para que salgan consecutivos
-        df_sorted = df_analizado.sort_values(by=['Asiento', 'Fecha'])
+        # Lógica de Agrupación (1 línea por asiento)
+        resumen_data = []
+        
+        # Agrupamos el DataFrame original por Asiento
+        for asiento, grupo in df_analizado.groupby('Asiento'):
+            # Si ALGUNA línea del asiento tiene error, todo el asiento es Incidencia
+            tiene_incidencia = (grupo['Estado'] != 'Conciliado').any()
+            estado_final = "Incidencia (Revisar)" if tiene_incidencia else "Conciliado"
+            
+            # Tomamos datos generales de la primera fila del grupo
+            primera_fila = grupo.iloc[0]
+            
+            # Sumamos los débitos para saber la magnitud del asiento
+            total_usd = grupo['Débito Dolar'].sum()
+            total_ves = grupo['Débito VES'].sum()
+            
+            resumen_data.append({
+                'Asiento': asiento,
+                'Estado Global': estado_final,
+                'Grupo': primera_fila['Grupo'].split(':')[0], # Solo el nombre corto del grupo
+                'Fecha': primera_fila['Fecha'],
+                'Fuente': primera_fila['Fuente'],
+                'Total Asiento ($)': total_usd,
+                'Total Asiento (Bs)': total_ves
+            })
+            
+        # Creamos DataFrame temporal y ordenamos por Asiento
+        df_resumen = pd.DataFrame(resumen_data)
+        # Ordenamos por Asiento (asumiendo formato texto que se ordena bien, o alfanumérico)
+        df_resumen = df_resumen.sort_values('Asiento')
         
         curr_row = 2
-        for _, row in df_sorted.iterrows():
-            # Determinar color según el estado (Rojo = Incidencia, Blanco = Conciliado)
-            is_incidencia = row.get('Estado', 'Conciliado') != 'Conciliado'
+        for _, row in df_resumen.iterrows():
+            # Color rojo si hay incidencia
+            is_incidencia = row['Estado Global'] != 'Conciliado'
+            
             fmt_txt = incidencia_text_format if is_incidencia else text_format
             fmt_num = incidencia_money_format if is_incidencia else money_format
             fmt_date = incidencia_date_format if is_incidencia else date_format
             
             ws_corr.write(curr_row, 0, row['Asiento'], fmt_txt)
-            ws_corr.write(curr_row, 1, row['Estado'], fmt_txt) # Columna clave para ver dónde parar
+            ws_corr.write(curr_row, 1, row['Estado Global'], fmt_txt)
             ws_corr.write(curr_row, 2, row['Grupo'], fmt_txt)
             ws_corr.write_datetime(curr_row, 3, row['Fecha'], fmt_date)
-            ws_corr.write(curr_row, 4, row['Referencia'], fmt_txt)
-            ws_corr.write(curr_row, 5, row['Fuente'], fmt_txt)
-            ws_corr.write(curr_row, 6, row['Cuenta Contable'], fmt_txt)
-            ws_corr.write(curr_row, 7, row['Descripción de Cuenta'], fmt_txt)
-            ws_corr.write_number(curr_row, 8, row.get('Débito Dolar', 0), fmt_num)
-            ws_corr.write_number(curr_row, 9, row.get('Crédito Dolar', 0), fmt_num)
-            ws_corr.write_number(curr_row, 10, row.get('Débito VES', 0), fmt_num)
+            ws_corr.write(curr_row, 4, row['Fuente'], fmt_txt)
+            ws_corr.write_number(curr_row, 5, row['Total Asiento ($)'], fmt_num)
+            ws_corr.write_number(curr_row, 6, row['Total Asiento (Bs)'], fmt_num)
             curr_row += 1
             
         # Ajuste anchos
         ws_corr.set_column('A:A', 15) # Asiento
-        ws_corr.set_column('B:B', 15) # Estado (Importante)
-        ws_corr.set_column('C:C', 30) # Grupo
-        ws_corr.set_column('E:E', 40) # Referencia
-        ws_corr.set_column('F:K', 15)
+        ws_corr.set_column('B:B', 20) # Estado
+        ws_corr.set_column('C:C', 15) # Grupo
+        ws_corr.set_column('D:E', 12) # Fecha/Fuente
+        ws_corr.set_column('F:G', 18) # Totales
+
 
         # ==========================================
         # HOJAS 3...N: DETALLE POR GRUPOS
