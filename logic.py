@@ -2188,13 +2188,43 @@ def _validar_asiento(asiento_group):
         if not fletes_lines['Referencia'].str.contains('FLETE', case=False, na=False).all():
             return "Incidencia: Referencia sin 'FLETE' encontrada."
             
-    # --- GRUPO 2: DIFERENCIAL CAMBIARIO ---
+    # --- GRUPO 2: DIFERENCIAL CAMBIARIO (CON DETECTOR DE TYPOS) ---
     elif grupo.startswith("Grupo 2:"):
         diff_lines = asiento_group[asiento_group['Cuenta Contable Norm'] == normalize_account('6.1.1.12.1.001')]
-        keywords = ['DIFERENCIAL', 'DIFERENCIA', 'DIF CAMBIARIO', 'DIF. CAMBIARIO', 'DIF.', 'TASA', 'DC']
-        patron_regex = '|'.join([re.escape(k) if '.' in k else k for k in keywords])
-        if not diff_lines['Referencia'].str.contains(patron_regex, case=False, na=False, regex=True).all():
-            return "Incidencia: Referencia sin palabra clave de diferencial (DIF, TASA, ETC)."
+        
+        # 1. Validación Estricta (Regex)
+        keywords_estrictas = ['DIFERENCIAL', 'DIFERENCIA', 'DIF CAMBIARIO', 'DIF. CAMBIARIO', 'DIF.', 'TASA']
+        patron_regex = '|'.join([re.escape(k) if '.' in k else k for k in keywords_estrictas])
+        
+        # Revisamos línea por línea
+        for ref in diff_lines['Referencia']:
+            ref_str = str(ref).upper()
+            
+            # Si pasa la prueba estricta, continuamos con la siguiente línea
+            if re.search(patron_regex, ref_str):
+                continue
+                
+            # 2. Validación de Similitud (Detector de Typos)
+            # Si falló la estricta, comprobamos si se parece a las palabras clave
+            palabras_referencia = ref_str.split()
+            objetivos = ['DIFERENCIAL', 'CAMBIARIO', 'DIFERENCIA', 'AJUSTE']
+            es_typo_aceptable = False
+            
+            for palabra in palabras_referencia:
+                # Limpiamos puntos o caracteres extraños de la palabra
+                p_clean = re.sub(r'[^A-Z]', '', palabra)
+                
+                for objetivo in objetivos:
+                    # Calculamos similitud (0.0 a 1.0)
+                    ratio = SequenceMatcher(None, p_clean, objetivo).ratio()
+                    # Si se parece más del 80% (ej: DIUFERENCIAL vs DIFERENCIAL es > 0.9)
+                    if ratio > 0.80: 
+                        es_typo_aceptable = True
+                        break
+                if es_typo_aceptable: break
+            
+            if not es_typo_aceptable:
+                return f"Incidencia: Referencia '{ref}' no parece indicar Diferencial Cambiario."
             
     # --- GRUPO 6: INGRESOS VARIOS ---
     elif grupo.startswith("Grupo 6:"):
