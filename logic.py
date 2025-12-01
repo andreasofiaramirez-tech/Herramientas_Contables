@@ -7,6 +7,7 @@ from itertools import combinations
 from io import BytesIO
 import unicodedata
 import xlsxwriter
+from difflib import SequenceMatcher
 from utils import generar_reporte_retenciones
 
 # --- Constantes de Tolerancia ---
