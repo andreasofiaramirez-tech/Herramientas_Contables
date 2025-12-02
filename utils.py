@@ -1049,8 +1049,8 @@ def generar_reporte_paquete_cc(df_analizado):
         
         curr_row = 2
         for _, row in df_resumen.iterrows():
-            # Color rojo si hay incidencia
-            is_incidencia = row['Estado Global'] != 'Conciliado'
+            # Si no empieza por "Conciliado", es rojo.
+            is_incidencia = not str(row['Estado Global']).startswith('Conciliado')
             
             fmt_txt = incidencia_text_format if is_incidencia else text_format
             fmt_num = incidencia_money_format if is_incidencia else money_format
