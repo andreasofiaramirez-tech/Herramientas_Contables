@@ -2284,49 +2284,113 @@ def _validar_asiento(asiento_group):
 def run_analysis_paquete_cc(df_diario, log_messages):
     """
     Función principal que orquesta la clasificación Y la validación de asientos.
-    Mantiene regla de cuentas conocidas y reporta cuáles faltan.
+    Incluye Inteligencia de Reversos Cruzados (Referencia y Monto).
     """
     log_messages.append("--- INICIANDO ANÁLISIS Y VALIDACIÓN DE PAQUETE CC ---")
     df = df_diario.copy()
     df['Cuenta Contable Norm'] = df['Cuenta Contable'].apply(normalize_account)
     df['Monto_USD'] = (df['Débito Dolar'] - df['Crédito Dolar']).round(2)
     
+    # --- FASE 1: CLASIFICACIÓN INICIAL ---
     resultados_clasificacion = {}
     grupos_de_asientos = df.groupby('Asiento')
     asientos_con_cuentas_nuevas = 0
     
     for asiento_id, asiento_group in grupos_de_asientos:
         cuentas_del_asiento_norm = set(asiento_group['Cuenta Contable Norm'])
-        
-        # --- PASO 1: Verificar si hay cuentas desconocidas ---
         cuentas_desconocidas = cuentas_del_asiento_norm - CUENTAS_CONOCIDAS
         
         if cuentas_desconocidas:
-            # Si hay cuentas que no están en el directorio, creamos un subgrupo específico
-            # Esto te dirá en el Excel exactamente qué cuenta falta agregar.
             lista_faltantes = ", ".join(sorted(cuentas_desconocidas))
             grupo_asignado = f"Grupo 11: Cuentas No Identificadas ({lista_faltantes})"
             asientos_con_cuentas_nuevas += 1
         else:
-            # --- PASO 2: Si todas son conocidas, clasificamos normalmente ---
             grupo_asignado = _clasificar_asiento_paquete_cc(asiento_group)
             
         resultados_clasificacion[asiento_id] = grupo_asignado
         
     df['Grupo'] = df['Asiento'].map(resultados_clasificacion)
-    log_messages.append("✔️ Clasificación de asientos completada.")
     
+    # --- FASE 2: INTELIGENCIA DE REVERSOS CRUZADOS (V2 - Por Monto y Referencia) ---
+    log_messages.append("🧠 Ejecutando cruce inteligente de reversos...")
+    
+    asientos_reverso = df[df['Grupo'].astype(str).str.contains("Reverso", case=False, na=False)]['Asiento'].unique()
+    asientos_ya_procesados = set()
+    mapa_reversos = {}
+    
+    # Lista de todos los asientos candidatos (que no son reversos en sí mismos)
+    all_candidatos = df[~df['Asiento'].isin(asientos_reverso)]['Asiento'].unique()
+    
+    for id_reverso in asientos_reverso:
+        if id_reverso in asientos_ya_procesados: continue
+        
+        # Datos del reverso
+        filas_reverso = df[df['Asiento'] == id_reverso]
+        ref_reverso = str(filas_reverso.iloc[0]['Referencia']) + " " + str(filas_reverso.iloc[0]['Fuente'])
+        monto_reverso = filas_reverso['Monto_USD'].sum()
+        
+        # Extraer números para intentar match por referencia
+        numeros_clave = re.findall(r'\d+', ref_reverso)
+        
+        # 1. Buscar candidatos por MONTO (Suma Cero)
+        candidatos_monto = []
+        for id_orig in all_candidatos:
+            if id_orig in asientos_ya_procesados: continue
+            
+            # Calculamos monto del candidato (optimizable, pero funcional)
+            monto_orig = df[df['Asiento'] == id_orig]['Monto_USD'].sum()
+            
+            if np.isclose(monto_reverso + monto_orig, 0, atol=0.01):
+                candidatos_monto.append(id_orig)
+        
+        # 2. Elegir el mejor candidato
+        match_final = None
+        tipo_match = ""
+        
+        # ESTRATEGIA A: Match por Referencia (Prioridad Alta)
+        for cand_id in candidatos_monto:
+            filas_cand = df[df['Asiento'] == cand_id]
+            ref_cand = str(filas_cand.iloc[0]['Fuente']) + " " + str(filas_cand.iloc[0]['Referencia'])
+            
+            for num in numeros_clave:
+                if len(num) > 3 and num in ref_cand:
+                    match_final = cand_id
+                    tipo_match = "Referencia + Monto"
+                    break
+            if match_final: break
+            
+        # ESTRATEGIA B: Match por Monto Único (Si falló la referencia)
+        # Si no encontramos referencia, pero hay EXACTAMENTE UN asiento con ese monto inverso, lo tomamos.
+        if not match_final and len(candidatos_monto) == 1:
+            match_final = candidatos_monto[0]
+            tipo_match = "Monto Único (Inferencia)"
+            
+        # 3. Aplicar cruce si hubo éxito
+        if match_final:
+            mapa_reversos[id_reverso] = "Grupo 13: Operaciones Reversadas / Anuladas"
+            mapa_reversos[match_final] = "Grupo 13: Operaciones Reversadas / Anuladas"
+            asientos_ya_procesados.add(id_reverso)
+            asientos_ya_procesados.add(match_final)
+            log_messages.append(f"   🔗 Reverso Cruzado ({tipo_match}): {id_reverso} anula a {match_final}.")
+
+    if mapa_reversos:
+        df['Grupo'] = df['Asiento'].map(mapa_reversos).fillna(df['Grupo'])
+
+    # --- FASE 3: VALIDACIÓN DE REGLAS ---
     resultados_validacion = {}
     grupos_de_asientos_clasificados = df.groupby('Asiento')
     for asiento_id, asiento_group in grupos_de_asientos_clasificados:
-        estado_validacion = _validar_asiento(asiento_group)
+        if asiento_group['Grupo'].iloc[0].startswith("Grupo 13"):
+            estado_validacion = "Conciliado (Anulado)"
+        else:
+            estado_validacion = _validar_asiento(asiento_group)
         resultados_validacion[asiento_id] = estado_validacion
         
     df['Estado'] = df['Asiento'].map(resultados_validacion)
     log_messages.append("✔️ Validación de reglas de negocio completada.")
 
     if asientos_con_cuentas_nuevas > 0:
-        log_messages.append(f"⚠️ Se encontraron {asientos_con_cuentas_nuevas} asientos con cuentas no registradas en el sistema.")
+        log_messages.append(f"⚠️ Se encontraron {asientos_con_cuentas_nuevas} asientos con cuentas no registradas.")
     
     df_final = df.drop(columns=['Cuenta Contable Norm']).sort_values(by=['Grupo', 'Asiento', 'Monto_USD'], ascending=[True, True, False])
     log_messages.append("--- ANÁLISIS FINALIZADO CON ÉXITO ---")
