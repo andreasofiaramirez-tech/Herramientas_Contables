@@ -1093,10 +1093,13 @@ def generar_reporte_paquete_cc(df_analizado):
                 ws.write_row(current_row, 0, columnas_reporte, header_format); current_row += 1
                 start_data_row = current_row
                 for _, row_data in df_subgrupo.iterrows():
-                    is_incidencia = row_data.get('Estado', 'Conciliado') != 'Conciliado'
+                    estado_fila = str(row_data.get('Estado', 'Conciliado'))
+                    is_incidencia = not estado_fila.startswith('Conciliado')
+                    
                     fmt_txt = incidencia_text_format if is_incidencia else text_format
                     fmt_num = incidencia_money_format if is_incidencia else money_format
                     fmt_date = incidencia_date_format if is_incidencia else date_format
+                    
                     ws.write(current_row, 0, row_data.get('Asiento', ''), fmt_txt)
                     ws.write_datetime(current_row, 1, row_data.get('Fecha', None), fmt_date)
                     ws.write(current_row, 2, row_data.get('Fuente', ''), fmt_txt)
