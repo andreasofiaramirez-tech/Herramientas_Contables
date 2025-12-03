@@ -2301,19 +2301,23 @@ def _validar_asiento(asiento_group):
 
 def run_analysis_paquete_cc(df_diario, log_messages):
     """
-    Función principal que orquesta la clasificación Y la validación de asientos.
-    Incluye Inteligencia de Reversos Cruzados (Referencia y Monto).
+    Función principal optimizada para alto rendimiento.
+    Utiliza búsqueda indexada por monto para los reversos (O(1) vs O(N^2)).
     """
-    log_messages.append("--- INICIANDO ANÁLISIS Y VALIDACIÓN DE PAQUETE CC ---")
+    log_messages.append("--- INICIANDO ANÁLISIS Y VALIDACIÓN DE PAQUETE CC (OPTIMIZADO) ---")
+    
+    # 1. Pre-cálculos vectorizados (Mucho más rápido que hacerlo fila por fila)
     df = df_diario.copy()
-    df['Cuenta Contable Norm'] = df['Cuenta Contable'].apply(normalize_account)
+    df['Cuenta Contable Norm'] = df['Cuenta Contable'].astype(str).str.replace(r'\D', '', regex=True)
     df['Monto_USD'] = (df['Débito Dolar'] - df['Crédito Dolar']).round(2)
     
-    # --- FASE 1: CLASIFICACIÓN INICIAL ---
+    # --- FASE 1: CLASIFICACIÓN (Optimizada) ---
     resultados_clasificacion = {}
     grupos_de_asientos = df.groupby('Asiento')
     asientos_con_cuentas_nuevas = 0
     
+    # Esta fase es lineal, no se puede vectorizar fácilmente por la lógica compleja, 
+    # pero es rápida si no hay bucles internos.
     for asiento_id, asiento_group in grupos_de_asientos:
         cuentas_del_asiento_norm = set(asiento_group['Cuenta Contable Norm'])
         cuentas_desconocidas = cuentas_del_asiento_norm - CUENTAS_CONOCIDAS
@@ -2329,46 +2333,61 @@ def run_analysis_paquete_cc(df_diario, log_messages):
         
     df['Grupo'] = df['Asiento'].map(resultados_clasificacion)
     
-    # --- FASE 2: INTELIGENCIA DE REVERSOS CRUZADOS (V2 - Por Monto y Referencia) ---
-    log_messages.append("🧠 Ejecutando cruce inteligente de reversos...")
+    # --- FASE 2: INTELIGENCIA DE REVERSOS (ULTRA RÁPIDA) ---
+    log_messages.append("🧠 Ejecutando cruce inteligente de reversos (Indexado)...")
     
-    asientos_reverso = df[df['Grupo'].astype(str).str.contains("Reverso", case=False, na=False)]['Asiento'].unique()
-    asientos_ya_procesados = set()
+    # Identificar IDs de reversos y candidatos
+    mask_reverso = df['Grupo'].astype(str).str.contains("Reverso", case=False, na=False)
+    ids_reversos = df[mask_reverso]['Asiento'].unique()
+    
+    # DataFrame solo con los candidatos (No reversos)
+    df_candidatos = df[~df['Asiento'].isin(ids_reversos)].copy()
+    
+    # --- TRUCO DE VELOCIDAD: Agrupar candidatos por Monto ---
+    # Creamos un diccionario: { Monto: [Lista de Asientos con ese monto] }
+    # Esto elimina la necesidad de recorrer todo el dataframe buscando coincidencias.
+    df_candidatos_agrupados = df_candidatos.groupby('Asiento')['Monto_USD'].sum().round(2).reset_index()
+    mapa_montos = df_candidatos_agrupados.groupby('Monto_USD')['Asiento'].apply(list).to_dict()
+    
     mapa_reversos = {}
+    asientos_ya_procesados = set()
     
-    # Lista de todos los asientos candidatos (que no son reversos en sí mismos)
-    all_candidatos = df[~df['Asiento'].isin(asientos_reverso)]['Asiento'].unique()
+    # Pre-calcular montos de reversos para no hacerlo en el bucle
+    montos_reversos = df[df['Asiento'].isin(ids_reversos)].groupby('Asiento')['Monto_USD'].sum().round(2)
     
-    for id_reverso in asientos_reverso:
+    for id_reverso in ids_reversos:
         if id_reverso in asientos_ya_procesados: continue
         
-        # Datos del reverso
+        # 1. Obtener monto objetivo (El inverso)
+        # Si el reverso suma 50, buscamos -50.
+        monto_rev = montos_reversos.get(id_reverso, 0)
+        monto_objetivo = -monto_rev
+        monto_objetivo = round(monto_objetivo, 2) # Evitar errores de flotante
+        
+        # 2. Buscar en el diccionario (Búsqueda inmediata O(1))
+        posibles_candidatos = mapa_montos.get(monto_objetivo, [])
+        
+        if not posibles_candidatos:
+            continue
+            
+        # 3. Solo si hay candidatos por monto, verificamos referencia
+        # (Esto reduce drásticamente las comparaciones de texto)
         filas_reverso = df[df['Asiento'] == id_reverso]
-        ref_reverso = str(filas_reverso.iloc[0]['Referencia']) + " " + str(filas_reverso.iloc[0]['Fuente'])
-        monto_reverso = filas_reverso['Monto_USD'].sum()
+        ref_reverso_str = str(filas_reverso.iloc[0]['Referencia']) + " " + str(filas_reverso.iloc[0]['Fuente'])
+        numeros_clave = re.findall(r'\d+', ref_reverso_str)
         
-        # Extraer números para intentar match por referencia
-        numeros_clave = re.findall(r'\d+', ref_reverso)
-        
-        # 1. Buscar candidatos por MONTO (Suma Cero)
-        candidatos_monto = []
-        for id_orig in all_candidatos:
-            if id_orig in asientos_ya_procesados: continue
-            
-            # Calculamos monto del candidato (optimizable, pero funcional)
-            monto_orig = df[df['Asiento'] == id_orig]['Monto_USD'].sum()
-            
-            if np.isclose(monto_reverso + monto_orig, 0, atol=0.01):
-                candidatos_monto.append(id_orig)
-        
-        # 2. Elegir el mejor candidato
         match_final = None
         tipo_match = ""
         
-        # ESTRATEGIA A: Match por Referencia (Prioridad Alta)
-        for cand_id in candidatos_monto:
-            filas_cand = df[df['Asiento'] == cand_id]
-            ref_cand = str(filas_cand.iloc[0]['Fuente']) + " " + str(filas_cand.iloc[0]['Referencia'])
+        # A. Filtramos candidatos ya usados
+        candidatos_limpios = [c for c in posibles_candidatos if c not in asientos_ya_procesados]
+        
+        # B. Match por Referencia
+        for cand_id in candidatos_limpios:
+            # Obtenemos referencia del candidato (Optimización: solo leer primera fila)
+            # Usamos df_diario original o filtrado para no recargar
+            row_cand = df[df['Asiento'] == cand_id].iloc[0]
+            ref_cand = str(row_cand['Fuente']) + " " + str(row_cand['Referencia'])
             
             for num in numeros_clave:
                 if len(num) > 3 and num in ref_cand:
@@ -2377,26 +2396,27 @@ def run_analysis_paquete_cc(df_diario, log_messages):
                     break
             if match_final: break
             
-        # ESTRATEGIA B: Match por Monto Único (Si falló la referencia)
-        # Si no encontramos referencia, pero hay EXACTAMENTE UN asiento con ese monto inverso, lo tomamos.
-        if not match_final and len(candidatos_monto) == 1:
-            match_final = candidatos_monto[0]
+        # C. Match por Monto Único
+        if not match_final and len(candidatos_limpios) == 1:
+            match_final = candidatos_limpios[0]
             tipo_match = "Monto Único (Inferencia)"
             
-        # 3. Aplicar cruce si hubo éxito
         if match_final:
             mapa_reversos[id_reverso] = "Grupo 13: Operaciones Reversadas / Anuladas"
             mapa_reversos[match_final] = "Grupo 13: Operaciones Reversadas / Anuladas"
             asientos_ya_procesados.add(id_reverso)
             asientos_ya_procesados.add(match_final)
-            log_messages.append(f"   🔗 Reverso Cruzado ({tipo_match}): {id_reverso} anula a {match_final}.")
+            # Removemos el candidato usado del mapa para no volver a usarlo
+            # (Aunque la lista original no cambia, el set 'asientos_ya_procesados' nos protege)
 
     if mapa_reversos:
         df['Grupo'] = df['Asiento'].map(mapa_reversos).fillna(df['Grupo'])
 
-    # --- FASE 3: VALIDACIÓN DE REGLAS ---
+    # --- FASE 3: VALIDACIÓN (Vectorizada donde sea posible) ---
+    # La validación sigue siendo por grupo, es rápida.
     resultados_validacion = {}
     grupos_de_asientos_clasificados = df.groupby('Asiento')
+    
     for asiento_id, asiento_group in grupos_de_asientos_clasificados:
         if asiento_group['Grupo'].iloc[0].startswith("Grupo 13"):
             estado_validacion = "Conciliado (Anulado)"
@@ -2405,11 +2425,16 @@ def run_analysis_paquete_cc(df_diario, log_messages):
         resultados_validacion[asiento_id] = estado_validacion
         
     df['Estado'] = df['Asiento'].map(resultados_validacion)
+    
     log_messages.append("✔️ Validación de reglas de negocio completada.")
 
     if asientos_con_cuentas_nuevas > 0:
         log_messages.append(f"⚠️ Se encontraron {asientos_con_cuentas_nuevas} asientos con cuentas no registradas.")
     
-    df_final = df.drop(columns=['Cuenta Contable Norm']).sort_values(by=['Grupo', 'Asiento', 'Monto_USD'], ascending=[True, True, False])
+    # Orden final
+    df_final = df.drop(columns=['Cuenta Contable Norm', 'Monto_USD']).sort_values(by=['Grupo', 'Asiento'], ascending=[True, True])
+    
+    # Restaurar columnas originales de montos si se requieren o asegurarse que estén
+    
     log_messages.append("--- ANÁLISIS FINALIZADO CON ÉXITO ---")
     return df_final
