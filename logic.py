@@ -2295,6 +2295,12 @@ def _validar_asiento(asiento_group):
             if not tiene_descuento: faltante.append("Cta Descuentos")
             if not tiene_iva: faltante.append("Cta IVA")
             return f"Incidencia: Asiento de N/C incompleto. Falta: {', '.join(faltante)}."
+
+    # --- GRUPO 11: No identificados ---
+    elif grupo.startswith("Grupo 11") or grupo == "No Clasificado":
+        # Si falta la cuenta contable en el sistema o no encajó en ninguna regla,
+        # es IMPOSIBLE que esté conciliado automáticamente.
+        return f"Incidencia: Revisión requerida. {grupo}"
     
     # Si pasó todas las validaciones (o es un grupo sin reglas específicas como Cobranzas)
     return "Conciliado"
