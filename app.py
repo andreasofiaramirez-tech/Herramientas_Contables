@@ -414,9 +414,15 @@ def render_paquete_cc():
             del st.session_state['processing_paquete_complete']
         st.rerun()
     
-    st.markdown("Esta herramienta analiza el diario contable para clasificar y agrupar los asientos relacionados con las Cuentas por Cobrar según reglas de negocio predefinidas.")
+    st.markdown("Esta herramienta analiza el diario contable para clasificar y agrupar los asientos.")
     
-    st.subheader("1. Cargue el Archivo de Movimientos del Diario (.xlsx):", anchor=False)
+    # --- CAMBIO 1: AGREGAR SELECTOR DE CASA ---
+    CASA_OPTIONS = ["FEBECA, C.A", "MAYOR BEVAL, C.A", "PRISMA, C.A", "FEBECA, C.A (QUINCALLA)"]
+    st.subheader("1. Seleccione la Empresa (Casa):", anchor=False)
+    casa_seleccionada = st.selectbox("Empresa", CASA_OPTIONS, label_visibility="collapsed", key="casa_paquete_cc")
+    # ------------------------------------------
+    
+    st.subheader("2. Cargue el Archivo de Movimientos del Diario (.xlsx):", anchor=False)
     
     columnas_requeridas = ['Asiento', 'Fecha', 'Fuente', 'Cuenta Contable', 'Descripción de Cuenta', 'Referencia', 'Débito Dolar', 'Crédito Dolar', 'Débito VES', 'Crédito VES']
     texto_columnas = "**Columnas Esenciales Requeridas:**\n" + "\n".join([f"- `{col}`" for col in columnas_requeridas])
