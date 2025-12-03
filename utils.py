@@ -944,33 +944,40 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
 # 5. REPORTE PARA ANÁLISIS DE PAQUETE CC
 # ==============================================================================
 
-def generar_reporte_paquete_cc(df_analizado):
+def generar_reporte_paquete_cc(df_analizado, nombre_casa):
     """
-    Genera reporte de análisis de Paquete CC.
-    Incluye Directorio, Listado Correlativo (Semáforo) y Hojas por Grupo.
+    Genera reporte de análisis de Paquete CC con título personalizado.
+    Título: Análisis de Asientos de Cuentas por Cobrar [CASA] [MES] [AÑO]
     """
     output_buffer = BytesIO()
     with pd.ExcelWriter(output_buffer, engine='xlsxwriter') as writer:
         workbook = writer.book
         
+        # --- CÁLCULO DEL TÍTULO DINÁMICO ---
+        if 'Fecha' in df_analizado.columns and not df_analizado['Fecha'].empty:
+            fecha_max = pd.to_datetime(df_analizado['Fecha']).max()
+            meses_es = {1: "ENERO", 2: "FEBRERO", 3: "MARZO", 4: "ABRIL", 5: "MAYO", 6: "JUNIO", 7: "JULIO", 8: "AGOSTO", 9: "SEPTIEMBRE", 10: "OCTUBRE", 11: "NOVIEMBRE", 12: "DICIEMBRE"}
+            texto_fecha = f"{meses_es[fecha_max.month]} {fecha_max.year}"
+        else:
+            texto_fecha = "PERIODO NO DEFINIDO"
+            
+        titulo_reporte = f"Análisis de Asientos de Cuentas por Cobrar {nombre_casa} {texto_fecha}"
+        # -----------------------------------
+
         # --- ESTILOS ---
         main_title_format = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'font_size': 16})
         header_format = workbook.add_format({'bold': True, 'text_wrap': True, 'valign': 'top', 'fg_color': '#D9EAD3', 'border': 1, 'align': 'center'})
         
-        # Estilos estándar
         text_format = workbook.add_format({'border': 1})
         money_format = workbook.add_format({'num_format': '#,##0.00', 'border': 1})
         date_format = workbook.add_format({'num_format': 'dd/mm/yyyy', 'border': 1})
         
-        # Estilos de Incidencia (Rojo)
         incidencia_text_format = workbook.add_format({'bg_color': '#FFC7CE', 'font_color': '#9C0006', 'border': 1})
         incidencia_money_format = workbook.add_format({'bg_color': '#FFC7CE', 'font_color': '#9C0006', 'num_format': '#,##0.00', 'border': 1})
         incidencia_date_format = workbook.add_format({'bg_color': '#FFC7CE', 'font_color': '#9C0006', 'num_format': 'dd/mm/yyyy', 'border': 1})
 
-        # Estilos específicos para la hoja correlativa
-        header_corr_format = workbook.add_format({'bold': True, 'text_wrap': True, 'valign': 'top', 'fg_color': '#BDD7EE', 'border': 1, 'align': 'center'}) # Azulito
+        header_corr_format = workbook.add_format({'bold': True, 'text_wrap': True, 'valign': 'top', 'fg_color': '#BDD7EE', 'border': 1, 'align': 'center'})
         
-        # Estilos de Totales (para las hojas de grupo)
         descriptive_title_format = workbook.add_format({'bold': True, 'font_size': 14, 'fg_color': '#FFFF00', 'border': 1, 'align': 'center'})
         subgroup_title_format = workbook.add_format({'bold': True, 'font_size': 11, 'fg_color': '#E0E0E0', 'border': 1})
         total_label_format = workbook.add_format({'bold': True, 'align': 'right', 'top': 2, 'font_color': '#003366'})
@@ -978,7 +985,6 @@ def generar_reporte_paquete_cc(df_analizado):
 
         columnas_reporte = ['Asiento', 'Fecha', 'Fuente', 'Cuenta Contable', 'Descripción de Cuenta', 'Referencia', 'Débito Dolar', 'Crédito Dolar', 'Débito VES', 'Crédito VES']
         
-        # Preparar orden de grupos para el directorio
         df_analizado['Grupo Principal'] = df_analizado['Grupo'].apply(lambda x: x.split(':')[0].strip())
         grupos_principales_ordenados = sorted(df_analizado['Grupo Principal'].unique(), key=lambda x: (0, int(x.split()[1])) if x.startswith('Grupo') else (1, x))
         
@@ -986,7 +992,8 @@ def generar_reporte_paquete_cc(df_analizado):
         # HOJA 1: DIRECTORIO
         # ==========================================
         ws_dir = workbook.add_worksheet("Directorio")
-        ws_dir.merge_range('A1:C1', 'Directorio de Grupos y Resumen de Auditoría', main_title_format)
+        # Usamos el título dinámico aquí
+        ws_dir.merge_range('A1:C1', titulo_reporte, main_title_format) 
         ws_dir.write('A2', 'Nombre de la Hoja', header_format)
         ws_dir.write('B2', 'Descripción del Contenido', header_format)
         ws_dir.write('C2', 'Observaciones', header_format)
@@ -998,7 +1005,14 @@ def generar_reporte_paquete_cc(df_analizado):
             full_name_example = df_grupo_dir['Grupo'].iloc[0]
             description = full_name_example.split(':', 1)[-1].strip() if ':' in full_name_example else full_name_example
             if grupo_principal in ["Grupo 3", "Grupo 9", "Grupo 8", "Grupo 6", "Grupo 7"]: description = f"{description.split('-')[0].strip()} (Varios Subgrupos)"
-            observacion = "Incidencia Encontrada" if (df_grupo_dir['Estado'] != 'Conciliado').any() else "Conciliado"
+            
+            tiene_error = False
+            for est in df_grupo_dir['Estado']:
+                if not str(est).startswith('Conciliado'):
+                    tiene_error = True
+                    break
+            observacion = "Incidencia Encontrada" if tiene_error else "Conciliado"
+            
             ws_dir.write(dir_row, 0, sheet_name, text_format)
             ws_dir.write(dir_row, 1, description, text_format)
             ws_dir.write(dir_row, 2, observacion, text_format)
@@ -1006,52 +1020,41 @@ def generar_reporte_paquete_cc(df_analizado):
         ws_dir.set_column('A:A', 25); ws_dir.set_column('B:B', 60); ws_dir.set_column('C:C', 25)
 
         # ==========================================
-        # HOJA 2: LISTADO CORRELATIVO (RESUMIDO)
+        # HOJA 2: LISTADO CORRELATIVO
         # ==========================================
         ws_corr = workbook.add_worksheet("Listado Correlativo")
-        ws_corr.merge_range('A1:G1', 'Resumen Maestro de Asientos (Semáforo de Carga)', main_title_format)
+        # Usamos el título dinámico aquí también
+        ws_corr.merge_range('A1:G1', titulo_reporte, main_title_format) 
         
-        # Columnas resumidas
         cols_corr = ['Asiento', 'Estado Global', 'Grupo', 'Fecha', 'Fuente', 'Total Asiento ($)', 'Total Asiento (Bs)']
         ws_corr.write_row('A2', cols_corr, header_corr_format)
         ws_corr.freeze_panes(2, 0)
 
-        # Lógica de Agrupación (1 línea por asiento)
         resumen_data = []
-        
-        # Agrupamos el DataFrame original por Asiento
         for asiento, grupo in df_analizado.groupby('Asiento'):
-            # Si ALGUNA línea del asiento tiene error, todo el asiento es Incidencia
-            tiene_incidencia = (grupo['Estado'] != 'Conciliado').any()
-            estado_final = "Incidencia (Revisar)" if tiene_incidencia else "Conciliado"
+            tiene_incidencia = False
+            for est in grupo['Estado']:
+                if not str(est).startswith('Conciliado'):
+                    tiene_incidencia = True
+                    break
+            estado_final = "Incidencia (Revisar)" if tiene_incidencia else grupo['Estado'].iloc[0]
             
-            # Tomamos datos generales de la primera fila del grupo
             primera_fila = grupo.iloc[0]
-            
-            # Sumamos los débitos para saber la magnitud del asiento
-            total_usd = grupo['Débito Dolar'].sum()
-            total_ves = grupo['Débito VES'].sum()
-            
             resumen_data.append({
                 'Asiento': asiento,
                 'Estado Global': estado_final,
-                'Grupo': primera_fila['Grupo'].split(':')[0], # Solo el nombre corto del grupo
+                'Grupo': primera_fila['Grupo'].split(':')[0],
                 'Fecha': primera_fila['Fecha'],
                 'Fuente': primera_fila['Fuente'],
-                'Total Asiento ($)': total_usd,
-                'Total Asiento (Bs)': total_ves
+                'Total Asiento ($)': grupo['Débito Dolar'].sum(),
+                'Total Asiento (Bs)': grupo['Débito VES'].sum()
             })
             
-        # Creamos DataFrame temporal y ordenamos por Asiento
-        df_resumen = pd.DataFrame(resumen_data)
-        # Ordenamos por Asiento (asumiendo formato texto que se ordena bien, o alfanumérico)
-        df_resumen = df_resumen.sort_values('Asiento')
+        df_resumen = pd.DataFrame(resumen_data).sort_values('Asiento')
         
         curr_row = 2
         for _, row in df_resumen.iterrows():
-            # Si no empieza por "Conciliado", es rojo.
             is_incidencia = not str(row['Estado Global']).startswith('Conciliado')
-            
             fmt_txt = incidencia_text_format if is_incidencia else text_format
             fmt_num = incidencia_money_format if is_incidencia else money_format
             fmt_date = incidencia_date_format if is_incidencia else date_format
@@ -1080,7 +1083,10 @@ def generar_reporte_paquete_cc(df_analizado):
             sheet_name = re.sub(r'[\\/*?:"\[\]]', '', grupo_principal_nombre)[:31]
             ws = workbook.add_worksheet(sheet_name)
             ws.hide_gridlines(2)
-            ws.merge_range('A1:J1', 'Análisis de Asientos de Cuentas por Cobrar', main_title_format)
+            
+            # Usamos el título dinámico aquí también
+            ws.merge_range('A1:J1', titulo_reporte, main_title_format)
+            
             df_grupo_completo = df_analizado[df_analizado['Grupo Principal'] == grupo_principal_nombre]
             subgrupos = sorted(df_grupo_completo['Grupo'].unique())
             full_descriptive_title = subgrupos[0]
