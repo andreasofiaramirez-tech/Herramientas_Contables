@@ -2069,7 +2069,10 @@ CUENTAS_BANCO = {normalize_account(acc) for acc in [
     '1.1.1.02.1.018','1.1.1.02.6.013', '1.1.1.06.6.003', '1.1.1.03.6.002'
 ]}
 
-def _get_base_classification(asiento_group, cuentas_del_asiento, referencia_completa, fuente_completa, referencia_limpia_palabras, is_reverso_check=False):
+def _get_base_classification(cuentas_del_asiento, referencia_completa, fuente_completa, referencia_limpia_palabras, monto_suma, monto_max_abs, is_reverso_check=False):
+    """
+    Versión Optimizada: Recibe valores pre-calculados en lugar de DataFrames.
+    """
     
     # --- PRIORIDAD 1: Notas de Crédito (Grupo 3) ---
     es_fuente_nc = 'N/C' in fuente_completa
@@ -2088,8 +2091,6 @@ def _get_base_classification(asiento_group, cuentas_del_asiento, referencia_comp
             return "Grupo 3: N/C - Otros"
 
     # --- PRIORIDAD 2: Diferencial Cambiario PURO (Grupo 2) ---
-    # CORRECCIÓN CLAVE: Solo entra aquí si NO toca el Banco.
-    # Si toca el Banco, es una Cobranza con Diferencial y debe ir al Grupo 8.
     tiene_diferencial = normalize_account('6.1.1.12.1.001') in cuentas_del_asiento
     tiene_banco = not CUENTAS_BANCO.isdisjoint(cuentas_del_asiento)
     
@@ -2103,15 +2104,20 @@ def _get_base_classification(asiento_group, cuentas_del_asiento, referencia_comp
 
     # --- PRIORIDAD 4: Traspasos vs. Devoluciones (Grupo 10 y 7) ---
     if normalize_account('4.1.1.21.4.001') in cuentas_del_asiento:
-        if 'TRASPASO' in referencia_completa and abs(asiento_group['Monto_USD'].sum()) <= TOLERANCIA_MAX_USD: 
+        if 'TRASPASO' in referencia_completa and abs(monto_suma) <= TOLERANCIA_MAX_USD: 
             return "Grupo 10: Traspasos"
+        
         if is_reverso_check: return "Grupo 7: Devoluciones y Rebajas"
         
-        keywords_limpieza_dev = {'LIMPIEZA', 'LIMPIEZAS', 'SALDO', 'SALDOS', 'HISTORICO', 'AJUSTE', 'APLICAR', 'CRUCE', 'FAVOR'}
+        keywords_limpieza_dev = {'LIMPIEZA', 'LIMPIEZAS', 'SALDO', 'SALDOS', 'HISTORICO', 'AJUSTE', 'APLICAR', 'CRUCE', 'FAVOR', 'TRASLADO'}
         if not keywords_limpieza_dev.isdisjoint(referencia_limpia_palabras):
-            if (asiento_group['Monto_USD'].abs() <= 25).all(): 
+            # Usamos el valor pre-calculado monto_max_abs
+            if monto_max_abs <= 25: 
                 return "Grupo 7: Devoluciones y Rebajas - Limpieza (<= $25)"
             else: 
+                keywords_autorizadas = ['TRASLADO', 'APLICAR', 'CRUCE', 'RECLASIFICACION', 'CORRECCION']
+                if any(k in referencia_completa for k in keywords_autorizadas):
+                     return "Grupo 7: Devoluciones y Rebajas - Traslados/Cruce"
                 return "Grupo 7: Devoluciones y Rebajas - Limpieza (> $25)"
         else: 
             return "Grupo 7: Devoluciones y Rebajas - Otros Ajustes"
@@ -2121,22 +2127,17 @@ def _get_base_classification(asiento_group, cuentas_del_asiento, referencia_comp
         return "Grupo 4: Gastos de Ventas"
 
     # --- PRIORIDAD 6: Cobranzas (Grupo 8) ---
-    # MODIFICACIÓN: Ahora consideramos Cobranza si dice "RECIBO...", "TEF" O SI TIENE BANCO.
     is_cobranza_texto = 'RECIBO DE COBRANZA' in referencia_completa or 'TEF' in fuente_completa or 'DEPR' in fuente_completa
     
-    # La variable tiene_banco ya la calculamos arriba (Prioridad 2)
     if is_cobranza_texto or tiene_banco:
         if is_reverso_check: return "Grupo 8: Cobranzas"
         
         if normalize_account('6.1.1.12.1.001') in cuentas_del_asiento: return "Grupo 8: Cobranzas - Con Diferencial Cambiario"
         if normalize_account('1.1.1.04.6.003') in cuentas_del_asiento: return "Grupo 8: Cobranzas - Fondos por Depositar"
         
-        # Si tiene banco, intentamos especificar qué tipo es
         if tiene_banco:
             if 'TEF' in fuente_completa: return "Grupo 8: Cobranzas - TEF (Bancos)"
-            # Atrapamos los DEPR y otros aquí
             return "Grupo 8: Cobranzas - Recibos (Bancos)"
-            
         return "Grupo 8: Cobranzas - Otros"
 
     # --- PRIORIDAD 7: Ingresos Varios (Grupo 6) ---
@@ -2144,7 +2145,7 @@ def _get_base_classification(asiento_group, cuentas_del_asiento, referencia_comp
         if is_reverso_check: return "Grupo 6: Ingresos Varios"
         keywords_limpieza = {'LIMPIEZA', 'LIMPIEZAS', 'SALDO', 'SALDOS', 'HISTORICO'}
         if not keywords_limpieza.isdisjoint(referencia_limpia_palabras):
-            if (asiento_group['Monto_USD'].abs() <= 25).all(): return "Grupo 6: Ingresos Varios - Limpieza (<= $25)"
+            if monto_max_abs <= 25: return "Grupo 6: Ingresos Varios - Limpieza (<= $25)"
             else: return "Grupo 6: Ingresos Varios - Limpieza (> $25)"
         else: return "Grupo 6: Ingresos Varios - Otros"
             
@@ -2155,31 +2156,26 @@ def _get_base_classification(asiento_group, cuentas_del_asiento, referencia_comp
 
     return "No Clasificado"
 
-def _clasificar_asiento_paquete_cc(asiento_group):
+def _clasificar_asiento_paquete_cc(cuentas_del_asiento, referencia_completa, fuente_completa, monto_suma, monto_max_abs):
     """
-    Función principal de clasificación que implementa una capa global para manejar Reversos.
+    Función adaptada para recibir parámetros pre-calculados.
     """
-    cuentas_del_asiento = set(asiento_group['Cuenta Contable Norm'])
-    referencia_completa = ' '.join(asiento_group['Referencia'].astype(str).unique()).upper()
-    fuente_completa = ' '.join(asiento_group['Fuente'].astype(str).unique()).upper()
     referencia_limpia_palabras = set(re.sub(r'[^\w\s]', '', referencia_completa).split())
 
     # CAPA 1: Detección de Reversos
     if 'REVERSO' in referencia_completa or 'REV' in referencia_limpia_palabras:
-        # Si es un reverso, llamamos a la lógica base en modo "reverso" para saber de qué tipo es
-        base_group = _get_base_classification(asiento_group, cuentas_del_asiento, referencia_completa, fuente_completa, referencia_limpia_palabras, is_reverso_check=True)
+        base_group = _get_base_classification(cuentas_del_asiento, referencia_completa, fuente_completa, referencia_limpia_palabras, monto_suma, monto_max_abs, is_reverso_check=True)
         
         if base_group != "No Clasificado":
-            # Formateamos el resultado como un subgrupo de Reverso
             parts = base_group.split(':', 1)
             group_number = parts[0].strip()
-            description = parts[1].split('-')[0].strip() # Tomamos la descripción principal (ej: "N/C", "Acarreos y Fletes")
+            description = parts[1].split('-')[0].strip()
             return f"{group_number}: Reversos - {description}"
         else:
             return "Grupo 11: Reversos No Identificados"
             
-    # CAPA 2: Si no es un reverso, aplicar la lógica de clasificación estándar
-    return _get_base_classification(asiento_group, cuentas_del_asiento, referencia_completa, fuente_completa, referencia_limpia_palabras, is_reverso_check=False)
+    # CAPA 2: Estándar
+    return _get_base_classification(cuentas_del_asiento, referencia_completa, fuente_completa, referencia_limpia_palabras, monto_suma, monto_max_abs, is_reverso_check=False)
 
 
 def _validar_asiento(asiento_group):
@@ -2301,140 +2297,157 @@ def _validar_asiento(asiento_group):
 
 def run_analysis_paquete_cc(df_diario, log_messages):
     """
-    Función principal optimizada para alto rendimiento.
-    Utiliza búsqueda indexada por monto para los reversos (O(1) vs O(N^2)).
+    Función principal optimizada con VECTORIZACIÓN y AGREGACIÓN PREVIA.
+    Reduce drásticamente el tiempo de ejecución en archivos grandes.
     """
-    log_messages.append("--- INICIANDO ANÁLISIS Y VALIDACIÓN DE PAQUETE CC (OPTIMIZADO) ---")
+    log_messages.append("--- INICIANDO ANÁLISIS Y VALIDACIÓN DE PAQUETE CC (ULTRA RÁPIDO) ---")
     
-    # 1. Pre-cálculos vectorizados (Mucho más rápido que hacerlo fila por fila)
     df = df_diario.copy()
+    # Limpieza vectorizada
     df['Cuenta Contable Norm'] = df['Cuenta Contable'].astype(str).str.replace(r'\D', '', regex=True)
     df['Monto_USD'] = (df['Débito Dolar'] - df['Crédito Dolar']).round(2)
     
-    # --- FASE 1: CLASIFICACIÓN (Optimizada) ---
-    resultados_clasificacion = {}
-    grupos_de_asientos = df.groupby('Asiento')
+    # Preparar columnas de texto para agrupación eficiente
+    df['Ref_Str'] = df['Referencia'].astype(str).fillna('').str.upper()
+    df['Fuente_Str'] = df['Fuente'].astype(str).fillna('').str.upper()
+    
+    log_messages.append("⚙️ Pre-calculando metadatos por asiento...")
+    
+    # --- FASE 1: AGREGACIÓN MASIVA (El secreto de la velocidad) ---
+    # En lugar de iterar 31.000 filas, agrupamos la información por asiento en un solo paso.
+    df_grouped = df.groupby('Asiento')
+    
+    # 1. Obtenemos el conjunto de cuentas por asiento
+    s_cuentas = df_grouped['Cuenta Contable Norm'].apply(set)
+    
+    # 2. Obtenemos el texto completo de referencia y fuente por asiento
+    # (Unimos los textos únicos para formar una "super cadena" del asiento)
+    s_ref = df_grouped['Ref_Str'].apply(lambda x: ' '.join(x.unique()))
+    s_fuente = df_grouped['Fuente_Str'].apply(lambda x: ' '.join(x.unique()))
+    
+    # 3. Obtenemos métricas de montos por asiento
+    s_suma = df_grouped['Monto_USD'].sum()
+    s_max_abs = df_grouped['Monto_USD'].apply(lambda x: x.abs().max())
+    
+    # Consolidamos todo en un DataFrame de "Metadatos de Asientos" (1 fila por Asiento)
+    df_meta = pd.DataFrame({
+        'Cuentas': s_cuentas,
+        'Ref': s_ref,
+        'Fuente': s_fuente,
+        'Suma': s_suma,
+        'Max_Abs': s_max_abs
+    })
+    
+    log_messages.append(f"⚙️ Analizando {len(df_meta)} asientos únicos...")
+    
+    # --- FASE 2: CLASIFICACIÓN ITERATIVA SOBRE METADATOS ---
+    # Ahora iteramos sobre ~5.000 asientos en lugar de 31.000 filas.
+    # Y no hacemos operaciones de DataFrame dentro del bucle.
+    
+    mapa_grupos = {}
     asientos_con_cuentas_nuevas = 0
     
-    # Esta fase es lineal, no se puede vectorizar fácilmente por la lógica compleja, 
-    # pero es rápida si no hay bucles internos.
-    for asiento_id, asiento_group in grupos_de_asientos:
-        cuentas_del_asiento_norm = set(asiento_group['Cuenta Contable Norm'])
-        cuentas_desconocidas = cuentas_del_asiento_norm - CUENTAS_CONOCIDAS
+    for asiento_id, row in df_meta.iterrows():
+        cuentas_del_asiento = row['Cuentas']
         
+        # Validación de cuentas conocidas
+        cuentas_desconocidas = cuentas_del_asiento - CUENTAS_CONOCIDAS
         if cuentas_desconocidas:
             lista_faltantes = ", ".join(sorted(cuentas_desconocidas))
             grupo_asignado = f"Grupo 11: Cuentas No Identificadas ({lista_faltantes})"
             asientos_con_cuentas_nuevas += 1
         else:
-            grupo_asignado = _clasificar_asiento_paquete_cc(asiento_group)
-            
-        resultados_clasificacion[asiento_id] = grupo_asignado
+            # Llamamos a la función optimizada pasando valores directos
+            grupo_asignado = _clasificar_asiento_paquete_cc(
+                cuentas_del_asiento, 
+                row['Ref'], 
+                row['Fuente'], 
+                row['Suma'], 
+                row['Max_Abs']
+            )
         
-    df['Grupo'] = df['Asiento'].map(resultados_clasificacion)
+        mapa_grupos[asiento_id] = grupo_asignado
+
+    # Mapeamos el resultado al DataFrame original
+    df['Grupo'] = df['Asiento'].map(mapa_grupos)
     
-    # --- FASE 2: INTELIGENCIA DE REVERSOS (ULTRA RÁPIDA) ---
-    log_messages.append("🧠 Ejecutando cruce inteligente de reversos (Indexado)...")
+    # --- FASE 3: INTELIGENCIA DE REVERSOS (OPTIMIZADA) ---
+    # Usamos el mapa de montos (Hash Map) para evitar O(N^2)
+    log_messages.append("🧠 Ejecutando cruce inteligente de reversos...")
     
-    # Identificar IDs de reversos y candidatos
     mask_reverso = df['Grupo'].astype(str).str.contains("Reverso", case=False, na=False)
     ids_reversos = df[mask_reverso]['Asiento'].unique()
     
-    # DataFrame solo con los candidatos (No reversos)
-    df_candidatos = df[~df['Asiento'].isin(ids_reversos)].copy()
+    # Diccionario de candidatos por monto {Monto: [Lista de Asientos]}
+    df_candidatos = df[~df['Asiento'].isin(ids_reversos)]
+    candidatos_agrupados = df_candidatos.groupby(['Asiento'])['Monto_USD'].sum().round(2).reset_index()
     
-    # --- TRUCO DE VELOCIDAD: Agrupar candidatos por Monto ---
-    # Creamos un diccionario: { Monto: [Lista de Asientos con ese monto] }
-    # Esto elimina la necesidad de recorrer todo el dataframe buscando coincidencias.
-    df_candidatos_agrupados = df_candidatos.groupby('Asiento')['Monto_USD'].sum().round(2).reset_index()
-    mapa_montos = df_candidatos_agrupados.groupby('Monto_USD')['Asiento'].apply(list).to_dict()
+    mapa_montos = {}
+    for _, row in candidatos_agrupados.iterrows():
+        m = row['Monto_USD']
+        aid = row['Asiento']
+        if m not in mapa_montos: mapa_montos[m] = []
+        mapa_montos[m].append(aid)
     
-    mapa_reversos = {}
-    asientos_ya_procesados = set()
+    mapa_cambio_grupo = {}
+    procesados = set()
     
-    # Pre-calcular montos de reversos para no hacerlo en el bucle
-    montos_reversos = df[df['Asiento'].isin(ids_reversos)].groupby('Asiento')['Monto_USD'].sum().round(2)
-    
-    for id_reverso in ids_reversos:
-        if id_reverso in asientos_ya_procesados: continue
+    # Obtenemos montos de reversos directo de los metadatos
+    for id_rev in ids_reversos:
+        if id_rev in procesados: continue
         
-        # 1. Obtener monto objetivo (El inverso)
-        # Si el reverso suma 50, buscamos -50.
-        monto_rev = montos_reversos.get(id_reverso, 0)
-        monto_objetivo = -monto_rev
-        monto_objetivo = round(monto_objetivo, 2) # Evitar errores de flotante
+        monto_rev = df_meta.loc[id_rev, 'Suma']
+        monto_target = round(-monto_rev, 2)
         
-        # 2. Buscar en el diccionario (Búsqueda inmediata O(1))
-        posibles_candidatos = mapa_montos.get(monto_objetivo, [])
+        # Búsqueda O(1)
+        posibles = mapa_montos.get(monto_target, [])
+        posibles = [p for p in posibles if p not in procesados]
         
-        if not posibles_candidatos:
-            continue
-            
-        # 3. Solo si hay candidatos por monto, verificamos referencia
-        # (Esto reduce drásticamente las comparaciones de texto)
-        filas_reverso = df[df['Asiento'] == id_reverso]
-        ref_reverso_str = str(filas_reverso.iloc[0]['Referencia']) + " " + str(filas_reverso.iloc[0]['Fuente'])
-        numeros_clave = re.findall(r'\d+', ref_reverso_str)
+        if not posibles: continue
+        
+        # Búsqueda fina
+        ref_rev = df_meta.loc[id_rev, 'Ref'] + " " + df_meta.loc[id_rev, 'Fuente']
+        numeros_clave = re.findall(r'\d+', ref_rev)
         
         match_final = None
-        tipo_match = ""
         
-        # A. Filtramos candidatos ya usados
-        candidatos_limpios = [c for c in posibles_candidatos if c not in asientos_ya_procesados]
-        
-        # B. Match por Referencia
-        for cand_id in candidatos_limpios:
-            # Obtenemos referencia del candidato (Optimización: solo leer primera fila)
-            # Usamos df_diario original o filtrado para no recargar
-            row_cand = df[df['Asiento'] == cand_id].iloc[0]
-            ref_cand = str(row_cand['Fuente']) + " " + str(row_cand['Referencia'])
-            
+        for cand_id in posibles:
+            ref_cand = df_meta.loc[cand_id, 'Ref'] + " " + df_meta.loc[cand_id, 'Fuente']
             for num in numeros_clave:
                 if len(num) > 3 and num in ref_cand:
                     match_final = cand_id
-                    tipo_match = "Referencia + Monto"
                     break
             if match_final: break
             
-        # C. Match por Monto Único
-        if not match_final and len(candidatos_limpios) == 1:
-            match_final = candidatos_limpios[0]
-            tipo_match = "Monto Único (Inferencia)"
+        if not match_final and len(posibles) == 1:
+            match_final = posibles[0]
             
         if match_final:
-            mapa_reversos[id_reverso] = "Grupo 13: Operaciones Reversadas / Anuladas"
-            mapa_reversos[match_final] = "Grupo 13: Operaciones Reversadas / Anuladas"
-            asientos_ya_procesados.add(id_reverso)
-            asientos_ya_procesados.add(match_final)
-            # Removemos el candidato usado del mapa para no volver a usarlo
-            # (Aunque la lista original no cambia, el set 'asientos_ya_procesados' nos protege)
+            mapa_cambio_grupo[id_rev] = "Grupo 13: Operaciones Reversadas / Anuladas"
+            mapa_cambio_grupo[match_final] = "Grupo 13: Operaciones Reversadas / Anuladas"
+            procesados.update([id_rev, match_final])
 
-    if mapa_reversos:
-        df['Grupo'] = df['Asiento'].map(mapa_reversos).fillna(df['Grupo'])
+    if mapa_cambio_grupo:
+        df['Grupo'] = df['Asiento'].map(mapa_cambio_grupo).fillna(df['Grupo'])
 
-    # --- FASE 3: VALIDACIÓN (Vectorizada donde sea posible) ---
-    # La validación sigue siendo por grupo, es rápida.
+    # --- FASE 4: VALIDACIÓN ---
+    # La validación se hace asiento por asiento, pero es rápida
     resultados_validacion = {}
-    grupos_de_asientos_clasificados = df.groupby('Asiento')
-    
-    for asiento_id, asiento_group in grupos_de_asientos_clasificados:
+    for asiento_id, asiento_group in df.groupby('Asiento'):
         if asiento_group['Grupo'].iloc[0].startswith("Grupo 13"):
-            estado_validacion = "Conciliado (Anulado)"
+            val = "Conciliado (Anulado)"
         else:
-            estado_validacion = _validar_asiento(asiento_group)
-        resultados_validacion[asiento_id] = estado_validacion
+            val = _validar_asiento(asiento_group)
+        resultados_validacion[asiento_id] = val
         
     df['Estado'] = df['Asiento'].map(resultados_validacion)
     
-    log_messages.append("✔️ Validación de reglas de negocio completada.")
-
     if asientos_con_cuentas_nuevas > 0:
         log_messages.append(f"⚠️ Se encontraron {asientos_con_cuentas_nuevas} asientos con cuentas no registradas.")
-    
-    # Orden final
-    df_final = df.drop(columns=['Cuenta Contable Norm', 'Monto_USD']).sort_values(by=['Grupo', 'Asiento'], ascending=[True, True])
-    
-    # Restaurar columnas originales de montos si se requieren o asegurarse que estén
+
+    # Limpieza final y orden
+    cols_drop = ['Ref_Str', 'Fuente_Str', 'Cuenta Contable Norm', 'Monto_USD']
+    df_final = df.drop(columns=cols_drop, errors='ignore').sort_values(by=['Grupo', 'Asiento'], ascending=[True, True])
     
     log_messages.append("--- ANÁLISIS FINALIZADO CON ÉXITO ---")
     return df_final
