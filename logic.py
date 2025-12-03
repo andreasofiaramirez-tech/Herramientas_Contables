@@ -2191,24 +2191,26 @@ def _validar_asiento(asiento_group):
         if not fletes_lines['Referencia'].str.contains('FLETE', case=False, na=False).all():
             return "Incidencia: Referencia sin 'FLETE' encontrada."
             
-    # --- GRUPO 2: DIFERENCIAL CAMBIARIO (CON DETECTOR DE TYPOS Y CASOS IVA) ---
+    # --- GRUPO 2: DIFERENCIAL CAMBIARIO (CORREGIDO) ---
     elif grupo.startswith("Grupo 2:"):
         diff_lines = asiento_group[asiento_group['Cuenta Contable Norm'] == normalize_account('6.1.1.12.1.001')]
         
         # 1. Validación Estricta (Regex)
-        # --- CAMBIO AQUÍ: AGREGAMOS 'IVA' A LA LISTA ---
+        # --- CAMBIO AQUÍ: AGREGAMOS 'DC' A LA LISTA ---
         keywords_estrictas = [
             'DIFERENCIAL', 'DIFERENCIA', 'DIF CAMBIARIO', 'DIF.', 
-            'TASA', 'AJUSTE', 'IVA'  # <--- NUEVO: Acepta ajustes por pago de IVA
+            'TASA', 'AJUSTE', 'IVA', 'DC'  # <--- NUEVO: Acepta abreviatura DC
         ]
         
+        # Nota: re.escape es útil para puntos, pero para palabras normales no afecta.
+        # Aseguramos que busque la palabra completa o parte significativa.
         patron_regex = '|'.join([re.escape(k) if '.' in k else k for k in keywords_estrictas])
         
         # Revisamos línea por línea
         for ref in diff_lines['Referencia']:
             ref_str = str(ref).upper()
             
-            # Si pasa la prueba estricta (tiene DIF, TASA o IVA), continuamos
+            # Si pasa la prueba estricta (tiene DIF, DC, TASA...), continuamos
             if re.search(patron_regex, ref_str):
                 continue
                 
