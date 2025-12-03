@@ -2116,13 +2116,15 @@ def _get_base_classification(asiento_group, cuentas_del_asiento, referencia_comp
         else: 
             return "Grupo 7: Devoluciones y Rebajas - Otros Ajustes"
 
-    # --- PRIORIDAD 5: Cobranzas (Grupo 8) ---
+    # --- PRIORIDAD 5: Gastos de Ventas (Grupo 4) ---
+    if normalize_account('7.1.3.19.1.012') in cuentas_del_asiento: 
+        return "Grupo 4: Gastos de Ventas"
+
+    # --- PRIORIDAD 6: Cobranzas (Grupo 8) ---
     is_cobranza = 'RECIBO DE COBRANZA' in referencia_completa or 'TEF' in fuente_completa
     if is_cobranza:
         if is_reverso_check: return "Grupo 8: Cobranzas"
         
-        # Aquí caerá tu asiento de la imagen:
-        # Tiene Banco (por eso pasó el filtro de arriba) y tiene Diferencial.
         if normalize_account('6.1.1.12.1.001') in cuentas_del_asiento: return "Grupo 8: Cobranzas - Con Diferencial Cambiario"
         
         if normalize_account('1.1.1.04.6.003') in cuentas_del_asiento: return "Grupo 8: Cobranzas - Fondos por Depositar"
@@ -2131,7 +2133,7 @@ def _get_base_classification(asiento_group, cuentas_del_asiento, referencia_comp
             else: return "Grupo 8: Cobranzas - Recibos (Bancos)"
         return "Grupo 8: Cobranzas - Otros"
 
-    # --- PRIORIDAD 6: Ingresos Varios (Grupo 6) ---
+    # --- PRIORIDAD 7: Ingresos Varios (Grupo 6) ---
     if normalize_account('6.1.1.19.1.001') in cuentas_del_asiento:
         if is_reverso_check: return "Grupo 6: Ingresos Varios"
         keywords_limpieza = {'LIMPIEZA', 'LIMPIEZAS', 'SALDO', 'SALDOS', 'HISTORICO'}
@@ -2143,7 +2145,6 @@ def _get_base_classification(asiento_group, cuentas_del_asiento, referencia_comp
     # --- RESTO DE PRIORIDADES ---
     if normalize_account('7.1.3.06.1.998') in cuentas_del_asiento: return "Grupo 12: Perdida p/Venta o Retiro Activo ND"
     if normalize_account('7.1.3.45.1.997') in cuentas_del_asiento: return "Grupo 1: Acarreos y Fletes Recuperados"
-    if normalize_account('7.1.3.19.1.012') in cuentas_del_asiento: return "Grupo 4: Gastos de Ventas"
     if normalize_account('2.1.2.05.1.108') in cuentas_del_asiento: return "Grupo 5: Haberes de Clientes"
 
     return "No Clasificado"
