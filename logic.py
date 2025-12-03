@@ -2231,12 +2231,23 @@ def _validar_asiento(asiento_group):
         if (asiento_group['Monto_USD'].abs() > 25).any():
             return "Incidencia: Movimiento mayor al límite permitido ($25)."
             
-    # --- GRUPO 7: DEVOLUCIONES ---
+    # --- GRUPO 7: DEVOLUCIONES Y REBAJAS (Logica Inteligente) ---
     elif grupo.startswith("Grupo 7:"):
-        if (asiento_group['Monto_USD'].abs() > 5).any():
-            return "Incidencia: Movimiento mayor a $5 encontrado."
+        # Regla Base: Si supera los $25, es sospechoso...
+        if (asiento_group['Monto_USD'].abs() > 25).any():
+            
+            # ...PERO si es un movimiento administrativo de saldo, se permite.
+            referencia_upper = str(asiento_group['Referencia'].iloc[0]).upper()
+            
+            # Palabras clave que autorizan montos altos
+            keywords_autorizadas = ['TRASLADO', 'APLICAR', 'CRUCE', 'RECLASIFICACION', 'CORRECCION']
+            
+            es_movimiento_autorizado = any(k in referencia_upper for k in keywords_autorizadas)
+            
+            if not es_movimiento_autorizado:
+                return "Incidencia: Movimiento mayor a $25 (y no indica ser Traslado/Cruce)."
 
-    # --- GRUPO 9: RETENCIONES (CORREGIDO) ---
+    # --- GRUPO 9: RETENCIONES ---
     elif grupo.startswith("Grupo 9:"):
         # Tomamos la referencia como texto y mayúsculas
         referencia_str = str(asiento_group['Referencia'].iloc[0]).upper().strip()
