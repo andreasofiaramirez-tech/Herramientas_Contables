@@ -2121,16 +2121,22 @@ def _get_base_classification(asiento_group, cuentas_del_asiento, referencia_comp
         return "Grupo 4: Gastos de Ventas"
 
     # --- PRIORIDAD 6: Cobranzas (Grupo 8) ---
-    is_cobranza = 'RECIBO DE COBRANZA' in referencia_completa or 'TEF' in fuente_completa
-    if is_cobranza:
+    # MODIFICACIÓN: Ahora consideramos Cobranza si dice "RECIBO...", "TEF" O SI TIENE BANCO.
+    is_cobranza_texto = 'RECIBO DE COBRANZA' in referencia_completa or 'TEF' in fuente_completa or 'DEPR' in fuente_completa
+    
+    # La variable tiene_banco ya la calculamos arriba (Prioridad 2)
+    if is_cobranza_texto or tiene_banco:
         if is_reverso_check: return "Grupo 8: Cobranzas"
         
         if normalize_account('6.1.1.12.1.001') in cuentas_del_asiento: return "Grupo 8: Cobranzas - Con Diferencial Cambiario"
-        
         if normalize_account('1.1.1.04.6.003') in cuentas_del_asiento: return "Grupo 8: Cobranzas - Fondos por Depositar"
-        if not CUENTAS_BANCO.isdisjoint(cuentas_del_asiento):
+        
+        # Si tiene banco, intentamos especificar qué tipo es
+        if tiene_banco:
             if 'TEF' in fuente_completa: return "Grupo 8: Cobranzas - TEF (Bancos)"
-            else: return "Grupo 8: Cobranzas - Recibos (Bancos)"
+            # Atrapamos los DEPR y otros aquí
+            return "Grupo 8: Cobranzas - Recibos (Bancos)"
+            
         return "Grupo 8: Cobranzas - Otros"
 
     # --- PRIORIDAD 7: Ingresos Varios (Grupo 6) ---
