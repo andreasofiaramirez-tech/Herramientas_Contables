@@ -2480,18 +2480,22 @@ def run_analysis_paquete_cc(df_diario, log_messages):
 # ==============================================================================
 import pdfplumber
 
-# 1. DICCIONARIO MAESTRO DE NOMBRES
+# 1. DICCIONARIO MAESTRO DE NOMBRES (Unificado BEVAL + FEBECA)
 NOMBRES_CUENTAS_OFICIALES = {
+    # ... (Cuentas previas de Beval) ...
     '1.1.1.02.1.000': 'Bancos del País',
     '1.1.1.02.1.002': 'Banco Venezolano de Credito, S.A.',
     '1.1.1.02.1.003': 'Banco de Venezuela, S.A. Banco Universal',
     '1.1.1.02.1.004': 'Banco Provincial, S.A. Banco Universal',
     '1.1.1.02.1.005': 'Banesco, C.A. Banco Universal',
-    '1.1.1.02.1.006': 'Banco Provincial S.A. Banco Universal',
+    '1.1.1.02.1.006': 'Bancaribe',
+    '1.1.1.02.1.007': 'Banesco, C.A. Banco Universal', # Febeca
     '1.1.1.02.1.008': 'Banco Bicentenario, Banco Universal',
     '1.1.1.02.1.009': 'Banco Mercantil C.A. Banco Universal',
     '1.1.1.02.1.010': 'Banco del Caribe C.A. Banco Universal',
+    '1.1.1.02.1.011': 'Banco del Caribe C.A. Banca Universal', # Febeca
     '1.1.1.02.1.015': 'Banco Exterior S.A. Banco Universal',
+    '1.1.1.02.1.016': 'Banco de Venezuela, S.A. Banco Universal', # Febeca
     '1.1.1.02.1.018': 'Banco Nacional de Cdto.C.A. Bco.Univer.',
     '1.1.1.02.1.019': 'Banco Caroní, C.A. Banco Universal',
     '1.1.1.02.1.021': 'Bancamiga Banco Universal, C.A.',
@@ -2503,6 +2507,8 @@ NOMBRES_CUENTAS_OFICIALES = {
     '1.1.1.02.1.124': 'Banco Nacional de Cdto.C.A. Bco.Univer.',
     '1.1.1.02.1.126': 'Del Sur Banco Universal, C.A.',
     '1.1.1.02.1.132': 'Banplus, C.A Banco Universal',
+    
+    # Monedas Extranjeras
     '1.1.1.02.6.000': 'Bancos del Pais en Monedas Extranjeras',
     '1.1.1.02.6.001': 'Banco Mercantil Banco Universal',
     '1.1.1.02.6.002': 'Banco Nacional de Crédito C.A.',
@@ -2517,8 +2523,8 @@ NOMBRES_CUENTAS_OFICIALES = {
     '1.1.1.02.6.210': 'Banplus (EUR)',
     '1.1.1.02.6.213': 'Banco de Venezuela (EUR)',
     '1.1.1.02.6.214': 'Banco Sofitasa, Banco Universal C.A(COP)',
-    '1.1.1.02.6.995': 'Bancos del País - Dif.en Cambio No Reali',
-    '1.1.1.03.0.000': 'Bancos del Exterior',
+    
+    # Bancos Exterior / Otros
     '1.1.1.03.6.000': 'Bancos del Exterior',
     '1.1.1.03.6.002': 'Amerant Bank, N.A.',
     '1.1.1.03.6.012': 'Banesco, S.A. Panamá',
@@ -2526,7 +2532,7 @@ NOMBRES_CUENTAS_OFICIALES = {
     '1.1.1.03.6.024': 'Venezolano de Crédito Cayman Branch',
     '1.1.1.03.6.026': 'Banco Mercantil Panamá',
     '1.1.1.03.6.028': 'FACEBANK International',
-    '1.1.1.06.6.000': 'Monedero Electrónico - Moneda Extranjera',
+    '1.1.1.03.6.031': 'Banesco USA', # Febeca
     '1.1.1.06.6.001': 'PayPal',
     '1.1.1.06.6.002': 'Creska',
     '1.1.1.06.6.003': 'Zinli',
@@ -2536,7 +2542,7 @@ NOMBRES_CUENTAS_OFICIALES = {
     '1.1.1.01.6.002': 'Cuenta Euros'
 }
 
-# 2. MAPEO DE CÓDIGOS
+# 2. MAPEO BEVAL
 MAPEO_CB_CG_BEVAL = {
     "0102E":  {"cta": "1.1.1.02.6.003", "moneda": "USD"},
     "0102EU": {"cta": "1.1.1.02.6.213", "moneda": "EUR"},
@@ -2577,26 +2583,55 @@ MAPEO_CB_CG_BEVAL = {
     "2407E":  {"cta": "1.1.1.06.6.003", "moneda": "USD"},
 }
 
+# 3. MAPEO FEBECA (NUEVO)
+MAPEO_CB_CG_FEBECA = {
+    "0102EU": {"cta": "1.1.1.02.6.213", "moneda": "EUR"},
+    "0102L":  {"cta": "1.1.1.02.1.016", "moneda": "VES"},
+    "0104L":  {"cta": "1.1.1.02.1.112", "moneda": "VES"},
+    "0104LP": {"cta": "1.1.1.02.1.116", "moneda": "VES"}, # Vencredito Pref
+    "0105E":  {"cta": "1.1.1.02.6.001", "moneda": "USD"},
+    "0105L":  {"cta": "1.1.1.02.1.009", "moneda": "VES"},
+    "0108E":  {"cta": "1.1.1.02.6.013", "moneda": "USD"},
+    "0108L":  {"cta": "1.1.1.02.1.004", "moneda": "VES"},
+    "0114E":  {"cta": "1.1.1.02.6.006", "moneda": "USD"},
+    "0114L":  {"cta": "1.1.1.02.1.011", "moneda": "VES"},
+    "0115L":  {"cta": "1.1.1.02.1.111", "moneda": "VES"},
+    "0134E2": {"cta": "1.1.1.02.6.005", "moneda": "USD"},
+    "0134EC": {"cta": "1.1.1.02.6.005", "moneda": "USD"},
+    "0134L":  {"cta": "1.1.1.02.1.007", "moneda": "VES"},
+    "0134L2": {"cta": "1.1.1.02.1.007", "moneda": "VES"}, # Duplicado, apunta a la misma
+    "0137CP": {"cta": "1.1.1.02.6.214", "moneda": "COP"},
+    "0137E":  {"cta": "1.1.1.02.6.015", "moneda": "USD"},
+    "0137L":  {"cta": "1.1.1.02.1.022", "moneda": "VES"},
+    "0172E":  {"cta": "1.1.1.02.6.011", "moneda": "USD"},
+    "0172L":  {"cta": "1.1.1.02.1.021", "moneda": "VES"},
+    "0174E":  {"cta": "1.1.1.02.6.010", "moneda": "USD"},
+    "0174EU": {"cta": "1.1.1.02.6.210", "moneda": "EUR"},
+    "0174L":  {"cta": "1.1.1.02.1.132", "moneda": "VES"},
+    "0175L":  {"cta": "1.1.1.02.1.115", "moneda": "VES"},
+    "0191E":  {"cta": "1.1.1.02.6.002", "moneda": "USD"},
+    "0191L":  {"cta": "1.1.1.02.1.124", "moneda": "VES"},
+    "0201E":  {"cta": "1.1.1.03.6.012", "moneda": "USD"},
+    "0202E":  {"cta": "1.1.1.03.6.002", "moneda": "USD"},
+    "0202E2": {"cta": "1.1.1.03.6.002", "moneda": "USD"},
+    "0202E3": {"cta": "1.1.1.03.6.002", "moneda": "USD"},
+    "0203E":  {"cta": "1.1.4.01.7.020", "moneda": "USD"},
+    "0204E":  {"cta": "1.1.1.03.6.028", "moneda": "USD"},
+    "0205E":  {"cta": "1.1.1.03.6.026", "moneda": "USD"},
+    "0206E":  {"cta": "1.1.1.06.6.001", "moneda": "USD"},
+    "0207E":  {"cta": "1.1.4.01.7.021", "moneda": "USD"},
+    "0211E":  {"cta": "1.1.1.03.6.015", "moneda": "USD"},
+    "0212E":  {"cta": "1.1.1.03.6.031", "moneda": "USD"},
+    "0501E":  {"cta": "1.1.1.03.6.024", "moneda": "USD"},
+    "2407E":  {"cta": "1.1.1.06.6.003", "moneda": "USD"},
+}
+
 def limpiar_monto_pdf(texto):
-    """
-    Limpia texto numérico de PDFs (maneja negativos y formatos venezolanos).
-    """
+    """Convierte texto de moneda a float."""
     if not texto: return 0.0
-    # Eliminar espacios (común en negativos: "- 2.000")
-    texto = texto.replace(' ', '')
-    # Eliminar puntos de miles
-    texto = texto.replace('.', '')
-    # Reemplazar coma decimal por punto
-    texto = texto.replace(',', '.')
-    
-    # Manejo de negativos entre paréntesis (opcional, pero común en contabilidad)
-    if '(' in texto and ')' in texto:
-        texto = '-' + texto.replace('(', '').replace(')', '')
-        
-    try:
-        return float(texto)
-    except ValueError:
-        return 0.0
+    limpio = texto.replace('.', '').replace(',', '.')
+    try: return float(limpio)
+    except ValueError: return 0.0
 
 def extraer_saldos_cb(archivo, log_messages):
     datos = {} 
@@ -2723,14 +2758,26 @@ def extraer_saldos_cg(archivo, log_messages):
         pass
     return datos_cg
 
-def run_cuadre_cb_cg_beval(file_cb, file_cg, log_messages):
-    """Función Principal."""
+def run_cuadre_cb_cg(file_cb, file_cg, nombre_empresa, log_messages):
+    """
+    Función Principal MULTI-EMPRESA.
+    Selecciona el diccionario correcto según la empresa elegida en la App.
+    """
     data_cb = extraer_saldos_cb(file_cb, log_messages)
     data_cg = extraer_saldos_cg(file_cg, log_messages)
     
+    # --- SELECCIÓN DE DICCIONARIO ---
+    if "FEBECA" in nombre_empresa.upper():
+        mapeo_actual = MAPEO_CB_CG_FEBECA
+        log_messages.append("🏢 Usando configuración de cuentas: FEBECA")
+    else:
+        mapeo_actual = MAPEO_CB_CG_BEVAL
+        log_messages.append("🏢 Usando configuración de cuentas: BEVAL")
+    # --------------------------------
+    
     resultados = []
     
-    for codigo_cb, config in MAPEO_CB_CG_BEVAL.items():
+    for codigo_cb, config in mapeo_actual.items():
         cuenta_cg = config['cta']
         moneda = config['moneda']
         
@@ -2739,7 +2786,6 @@ def run_cuadre_cb_cg_beval(file_cb, file_cg, log_messages):
         clave_cg = 'VES' if moneda == 'VES' else 'USD'
         info_cg_full = data_cg.get(cuenta_cg, {})
         info_cg = info_cg_full.get(clave_cg, {'inicial':0, 'debitos':0, 'creditos':0, 'final':0})
-        
         desc_cg = info_cg_full.get('descripcion', NOMBRES_CUENTAS_OFICIALES.get(cuenta_cg, 'NO DEFINIDO'))
         
         saldo_cb = info_cb.get('final', 0)
@@ -2748,11 +2794,6 @@ def run_cuadre_cb_cg_beval(file_cb, file_cg, log_messages):
         dif_final = round(saldo_cb - saldo_cg, 2)
         estado = "OK" if dif_final == 0 else "DESCUADRE"
         
-        # --- CAMBIO: COMENTADO EL FILTRO PARA MOSTRAR TODO ---
-        # if saldo_cb == 0 and saldo_cg == 0 and info_cb.get('debitos', 0) == 0:
-        #     continue
-        # -----------------------------------------------------
-
         resultados.append({
             'Moneda': moneda,
             'Banco (Tesorería)': codigo_cb, 
