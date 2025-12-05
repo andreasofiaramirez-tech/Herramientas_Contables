@@ -6,10 +6,16 @@
 # ==============================================================================
 import streamlit as st
 import pandas as pd
-from guides import GUIA_GENERAL_ESPECIFICACIONES, LOGICA_POR_CUENTA, GUIA_COMPLETA_RETENCIONES
+from guides import (
+    GUIA_GENERAL_ESPECIFICACIONES, 
+    LOGICA_POR_CUENTA, 
+    GUIA_COMPLETA_RETENCIONES,
+    GUIA_PAQUETE_CC
+)
+
 from functools import partial
 
-# --- Importaciones desde nuestros módulos (CORREGIDO Y CONSOLIDADO) ---
+# --- Importaciones desde nuestros módulos ---
 from logic import (
     run_conciliation_fondos_en_transito,
     run_conciliation_fondos_por_depositar,
