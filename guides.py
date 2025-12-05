@@ -278,3 +278,68 @@ Se asegura que lo preparado en la **Contabilidad Preparada (CP)** coincida con l
 #### **Fase 2: Verificación Contable Final (CP vs. CG)**
 Una vez validado contra GALAC, se asegura que el registro fue correctamente asentado en la **Contabilidad General (CG)**, usando el **Número de Asiento** como llave para verificar la **Cuenta Contable** y el **Monto** correctos.
 """
+
+# ==============================================================================
+# GUÍA PARA EL ANÁLISIS DE PAQUETE CC
+# ==============================================================================
+
+GUIA_PAQUETE_CC = """
+### 📘 Manual de Operaciones: Análisis de Paquete CC
+
+Esta herramienta clasifica automáticamente los miles de asientos del diario en **Grupos Lógicos** y audita su contenido. Su objetivo es detectar errores antes de la mayorización.
+
+#### 🚥 ¿Cómo leer el reporte? (El Semáforo)
+
+*   ⚪ **Filas Blancas (Conciliado):** El asiento cumple con todas las reglas contables. Está listo para mayorizar.
+*   🔴 **Filas Rojas (Incidencia):** El asiento tiene un error o algo inusual. **REQUIERE REVISIÓN MANUAL.**
+
+---
+
+#### 🔍 Qué revisar en cada Grupo (Lógica de Auditoría)
+
+**1. Grupo 1: Acarreos y Fletes Recuperados**
+*   **Regla:** La referencia debe contener la palabra "FLETE".
+*   **Acción:** Si sale en rojo, verifique por qué se usó la cuenta de fletes sin mencionar fletes en la descripción.
+
+**2. Grupo 2: Diferencial Cambiario**
+*   **Qué es:** Ajustes por valoración de moneda (no son cobros reales).
+*   **Regla:** Debe contener palabras como `DIFERENCIA`, `CAMBIO`, `TASA`, `AJUSTE`, `DC` o `IVA` (pago diferido).
+*   **Ojo:** Si un cobro bancario cae aquí, es un error (debería ir al Grupo 8).
+
+**3. Grupo 3: Notas de Crédito (N/C)**
+*   **Estructura Correcta:** Un asiento de N/C por descuento debe tocar dos cuentas: **Descuentos sobre Ventas** + **I.V.A. Débitos Fiscales**.
+*   **Error Común (Rojo):** Si falta la cuenta de IVA, la herramienta marcará "Asiento incompleto". Revise si la bonificación fue exenta erróneamente.
+
+**6. Grupo 6: Ingresos Varios (Limpieza)**
+*   **Regla del Monto:** Se usa para limpiar centavos o saldos basura.
+*   **Límite:** Máximo **$25.00**.
+*   **Acción:** Si un asiento supera los $25, saldrá en rojo. Debe reclasificarse o justificarse.
+
+**7. Grupo 7: Devoluciones y Rebajas**
+*   **Regla del Monto:** Límite estricto de **$5.00** para ajustes pequeños.
+*   **Excepción:** Se permiten montos grandes (millonarios) SOLO SI la referencia indica que es un **TRASLADO**, **CRUCE** o **APLICACIÓN** de saldo entre clientes.
+*   **Acción:** Si ve un monto alto en rojo, verifique si falta la palabra "TRASLADO" en la referencia.
+
+**8. Grupo 8: Cobranzas**
+*   **Qué es:** Dinero real entrando al banco (TEF, Depósitos) o Recibos de Cobranza.
+*   **Validación:** La herramienta agrupa aquí todo lo que toque cuentas de Banco (Mercantil, Banesco, etc.).
+
+**9. Grupo 9: Retenciones (IVA/ISLR)**
+*   **Regla:** La referencia debe contener un Número de Comprobante o palabras como `RET` o `IMP`.
+*   **Acción:** Si sale en rojo, es porque la referencia está vacía o ilegible.
+
+**11. Grupo 11: Cuentas No Identificadas**
+*   **¡ALERTA!** Aquí caen los asientos que usan cuentas contables nuevas o erradas que no están en el sistema.
+*   **Acción:** Avise al administrador del sistema para agregar la cuenta al "Directorio de Cuentas" si es correcta.
+
+**13. Grupo 13: Operaciones Reversadas / Anuladas**
+*   **Inteligencia Artificial:** La herramienta detectó que hubo un error (ej. una N/C mal hecha) y luego un Reverso que la anuló por el mismo monto.
+*   **Estado:** Ambos movimientos se marcan como "Conciliado (Anulado)" y se sacan de los otros grupos para no ensuciar el análisis.
+
+---
+
+#### 💡 Tip de Flujo de Trabajo
+Vaya a la hoja **"Listado Correlativo"**. Verá los asientos en orden numérico. Mayorice en lotes hasta que encuentre una **Línea Roja**. Deténgase, corrija ese asiento en el sistema contable, y continúe con el siguiente lote.
+"""
+
+
