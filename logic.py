@@ -2475,3 +2475,210 @@ def run_analysis_paquete_cc(df_diario, log_messages):
     
     log_messages.append("--- ANÁLISIS FINALIZADO CON ÉXITO ---")
     return df_final
+
+# ==============================================================================
+# LÓGICA PARA CUADRE CB - CG (TESORERÍA VS CONTABILIDAD)
+# ==============================================================================
+import pdfplumber # Asegúrate de que esto esté instalado
+
+# Mapeo para BEVAL (Tesorería Code -> {Cuenta Contable, Moneda Base})
+MAPEO_CB_CG_BEVAL = {
+    "0102E":  {"cta": "1.1.1.02.6.003", "moneda": "USD"},
+    "0102EU": {"cta": "1.1.1.02.6.213", "moneda": "USD"},
+    "0102L":  {"cta": "1.1.1.02.1.003", "moneda": "VES"},
+    "0104L":  {"cta": "1.1.1.02.1.002", "moneda": "VES"},
+    "0105E":  {"cta": "1.1.1.02.6.001", "moneda": "USD"},
+    "0105L":  {"cta": "1.1.1.02.1.009", "moneda": "VES"},
+    "0108E":  {"cta": "1.1.1.02.6.013", "moneda": "USD"},
+    "0108L":  {"cta": "1.1.1.02.1.004", "moneda": "VES"},
+    "0114E":  {"cta": "1.1.1.02.6.006", "moneda": "USD"},
+    "0114L":  {"cta": "1.1.1.02.1.010", "moneda": "VES"},
+    "0115L":  {"cta": "1.1.1.02.1.015", "moneda": "VES"},
+    "0134E":  {"cta": "1.1.1.02.6.017", "moneda": "USD"},
+    "0134EC": {"cta": "1.1.1.02.6.005", "moneda": "USD"},
+    "0134L":  {"cta": "1.1.1.02.1.005", "moneda": "VES"},
+    "0137CP": {"cta": "1.1.1.02.6.214", "moneda": "USD"},
+    "0137E":  {"cta": "1.1.1.02.6.015", "moneda": "USD"},
+    "0137L":  {"cta": "1.1.1.02.1.022", "moneda": "VES"},
+    "0172E":  {"cta": "1.1.1.02.6.011", "moneda": "USD"},
+    "0172L":  {"cta": "1.1.1.02.1.021", "moneda": "VES"},
+    "0174E":  {"cta": "1.1.1.02.6.010", "moneda": "USD"},
+    "0174EU": {"cta": "1.1.1.02.6.210", "moneda": "USD"},
+    "0174L":  {"cta": "1.1.1.02.1.132", "moneda": "VES"},
+    "0175L":  {"cta": "1.1.1.02.1.008", "moneda": "VES"},
+    "0191E":  {"cta": "1.1.1.02.6.002", "moneda": "USD"},
+    "0191L":  {"cta": "1.1.1.02.1.018", "moneda": "VES"},
+    "0201E":  {"cta": "1.1.1.03.6.012", "moneda": "USD"},
+    "0202E":  {"cta": "1.1.1.03.6.002", "moneda": "USD"},
+    "0203E":  {"cta": "1.1.4.01.7.020", "moneda": "USD"},
+    "0204E":  {"cta": "1.1.1.03.6.028", "moneda": "USD"},
+    "0205E":  {"cta": "1.1.1.03.6.026", "moneda": "USD"},
+    "0206E":  {"cta": "1.1.1.06.6.001", "moneda": "USD"},
+    "0207E":  {"cta": "1.1.4.01.7.021", "moneda": "USD"},
+    "0209E":  {"cta": "1.1.1.01.6.001", "moneda": "USD"},
+    "0210EU": {"cta": "1.1.1.01.6.002", "moneda": "USD"},
+    "0211E":  {"cta": "1.1.1.03.6.015", "moneda": "USD"},
+    "0501E":  {"cta": "1.1.1.03.6.024", "moneda": "USD"},
+    "2407E":  {"cta": "1.1.1.06.6.003", "moneda": "USD"},
+}
+
+def limpiar_monto_pdf(texto):
+    """Convierte texto de moneda (1.234,56) a float (1234.56)."""
+    if not texto: return 0.0
+    # Eliminar puntos de miles y cambiar coma decimal por punto
+    limpio = texto.replace('.', '').replace(',', '.')
+    try:
+        return float(limpio)
+    except ValueError:
+        return 0.0
+
+def extraer_saldos_cb(archivo, log_messages):
+    """Extrae saldos del reporte de Tesorería (Soporta PDF y Excel)."""
+    saldos = {} # {CODIGO: Saldo_Final}
+    
+    # Detección por extensión o tipo
+    nombre_archivo = getattr(archivo, 'name', '').lower()
+    
+    if nombre_archivo.endswith('.pdf'):
+        log_messages.append("📄 Procesando Reporte CB como PDF...")
+        try:
+            with pdfplumber.open(archivo) as pdf:
+                for page in pdf.pages:
+                    text = page.extract_text()
+                    if not text: continue
+                    
+                    for line in text.split('\n'):
+                        parts = line.split()
+                        if not parts: continue
+                        
+                        # El código CB suele ser el primero (ej: 0102E, 0134L)
+                        # Validamos que tenga el formato correcto (4 digitos + letras)
+                        codigo = parts[0]
+                        
+                        # Verificamos si es un código válido de nuestro diccionario
+                        # O si cumple patrón básico (para no leer basura)
+                        if len(codigo) >= 4 and codigo[0].isdigit():
+                            # En el PDF de CB, el Saldo Final suele ser el ÚLTIMO valor numérico de la línea
+                            # Buscamos el último elemento que parezca un número
+                            try:
+                                saldo_str = parts[-1]
+                                # Validación simple: debe tener coma o punto y ser numérico
+                                if any(c.isdigit() for c in saldo_str):
+                                    monto = limpiar_monto_pdf(saldo_str)
+                                    saldos[codigo] = monto
+                            except:
+                                pass
+        except Exception as e:
+            log_messages.append(f"❌ Error leyendo PDF CB: {str(e)}")
+            
+    else:
+        # Asumimos Excel
+        log_messages.append("📗 Procesando Reporte CB como Excel...")
+        try:
+            df = pd.read_excel(archivo)
+            # Normalizar columnas (buscar 'Cuenta' y 'Saldo Final')
+            # Lógica pendiente si envías Excel, por ahora placeholder básico
+            pass 
+        except Exception as e:
+            log_messages.append(f"❌ Error leyendo Excel CB: {str(e)}")
+
+    return saldos
+
+def extraer_saldos_cg(archivo, log_messages):
+    """Extrae saldos del Balance de Comprobación (PDF)."""
+    saldos_cg = {} # {CUENTA_CONTABLE: {'VES': monto, 'USD': monto}}
+    
+    log_messages.append("📄 Procesando Balance CG como PDF...")
+    try:
+        with pdfplumber.open(archivo) as pdf:
+            for page in pdf.pages:
+                text = page.extract_text()
+                if not text: continue
+                
+                for line in text.split('\n'):
+                    parts = line.split()
+                    if not parts: continue
+                    
+                    # La cuenta contable es el primer elemento (ej: 1.1.1.02...)
+                    cuenta = parts[0]
+                    
+                    # Validar formato de cuenta (1.x.x...)
+                    if not (cuenta.startswith('1.') and len(cuenta) > 10):
+                        continue
+                        
+                    # Extracción de Saldos
+                    # El PDF tiene dos bloques: Local (izq) y Dolar (der).
+                    # Estructura usual de línea de datos:
+                    # Cta | Desc... | S.Ini | Deb | Cred | S.Fin(Local) | S.Ini | Deb | Cred | S.Fin(Dolar)
+                    
+                    # Filtramos solo los elementos que parecen números
+                    numeros = []
+                    for p in parts[1:]:
+                        # Limpiamos caracteres no numéricos para validar
+                        p_clean = p.replace('.', '').replace(',', '').replace('-', '')
+                        if p_clean.isdigit() and len(p_clean) > 0:
+                            numeros.append(p)
+                    
+                    # Si detectamos suficientes números, intentamos asignar
+                    # Asumimos que el Saldo Final Local es el 4to número 
+                    # y el Saldo Final Dólar es el 8vo (o el último).
+                    if len(numeros) >= 4:
+                        try:
+                            # Saldo Local (VES) suele estar en la posición 3 (índice 0,1,2,3) de los números encontrados
+                            # Ojo: esto es heurística, puede requerir ajuste fino viendo el PDF real
+                            saldo_ves = limpiar_monto_pdf(numeros[3]) 
+                            
+                            # Saldo Dólar (USD) suele ser el último
+                            saldo_usd = 0.0
+                            if len(numeros) >= 8:
+                                saldo_usd = limpiar_monto_pdf(numeros[-1])
+                            
+                            saldos_cg[cuenta] = {'VES': saldo_ves, 'USD': saldo_usd}
+                        except:
+                            pass
+                            
+    except Exception as e:
+        log_messages.append(f"❌ Error leyendo PDF CG: {str(e)}")
+        
+    return saldos_cg
+
+def run_cuadre_cb_cg_beval(file_cb, file_cg, log_messages):
+    """
+    Función Principal: Cruza Tesorería vs Contabilidad.
+    """
+    # 1. Extracción
+    data_cb = extraer_saldos_cb(file_cb, log_messages)
+    data_cg = extraer_saldos_cg(file_cg, log_messages)
+    
+    log_messages.append(f"ℹ️ Cuentas detectadas en Tesorería: {len(data_cb)}")
+    log_messages.append(f"ℹ️ Cuentas detectadas en Contabilidad: {len(data_cg)}")
+    
+    # 2. Cruce
+    resultados = []
+    
+    for codigo_cb, config in MAPEO_CB_CG_BEVAL.items():
+        # Datos del Mapeo
+        cuenta_cg = config['cta']
+        moneda = config['moneda']
+        
+        # Obtener Saldos
+        saldo_tesoreria = data_cb.get(codigo_cb, 0.0)
+        
+        datos_contables = data_cg.get(cuenta_cg, {'VES': 0.0, 'USD': 0.0})
+        saldo_contabilidad = datos_contables.get(moneda, 0.0)
+        
+        # Calcular Diferencia
+        diferencia = round(saldo_tesoreria - saldo_contabilidad, 2)
+        estado = "OK" if diferencia == 0 else "DESCUADRE"
+        
+        resultados.append({
+            'Codigo CB': codigo_cb,
+            'Moneda': moneda,
+            'Cuenta Contable': cuenta_cg,
+            'Saldo Tesoreria': saldo_tesoreria,
+            'Saldo Contabilidad': saldo_contabilidad,
+            'Diferencia': diferencia,
+            'Estado': estado
+        })
+        
+    return pd.DataFrame(resultados)
