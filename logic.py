@@ -2104,7 +2104,7 @@ def _get_base_classification(cuentas_del_asiento, referencia_completa, fuente_co
     if normalize_account('2.1.3.01.1.012') in cuentas_del_asiento: return "Grupo 9: Retenciones - ISLR"
     if normalize_account('7.1.3.04.1.004') in cuentas_del_asiento: return "Grupo 9: Retenciones - Municipal"
 
-    # --- PRIORIDAD 4: Traspasos vs. Devoluciones (Grupo 10 y 7) ---
+    # --- PRIORIDAD 4: Traspasos vs. Devoluciones (CORREGIDO LÍMITE $5) ---
     if normalize_account('4.1.1.21.4.001') in cuentas_del_asiento:
         if 'TRASPASO' in referencia_completa and abs(monto_suma) <= TOLERANCIA_MAX_USD: 
             return "Grupo 10: Traspasos"
@@ -2113,14 +2113,14 @@ def _get_base_classification(cuentas_del_asiento, referencia_completa, fuente_co
         
         keywords_limpieza_dev = {'LIMPIEZA', 'LIMPIEZAS', 'SALDO', 'SALDOS', 'HISTORICO', 'AJUSTE', 'APLICAR', 'CRUCE', 'FAVOR', 'TRASLADO'}
         if not keywords_limpieza_dev.isdisjoint(referencia_limpia_palabras):
-            # Usamos el valor pre-calculado monto_max_abs
-            if monto_max_abs <= 25: 
-                return "Grupo 7: Devoluciones y Rebajas - Limpieza (<= $25)"
+            # LÍMITE CORREGIDO A $5
+            if monto_max_abs <= 5: 
+                return "Grupo 7: Devoluciones y Rebajas - Limpieza (<= $5)"
             else: 
                 keywords_autorizadas = ['TRASLADO', 'APLICAR', 'CRUCE', 'RECLASIFICACION', 'CORRECCION']
                 if any(k in referencia_completa for k in keywords_autorizadas):
                      return "Grupo 7: Devoluciones y Rebajas - Traslados/Cruce"
-                return "Grupo 7: Devoluciones y Rebajas - Limpieza (> $25)"
+                return "Grupo 7: Devoluciones y Rebajas - Limpieza (> $5)"
         else: 
             return "Grupo 7: Devoluciones y Rebajas - Otros Ajustes"
 
@@ -2142,14 +2142,18 @@ def _get_base_classification(cuentas_del_asiento, referencia_completa, fuente_co
             return "Grupo 8: Cobranzas - Recibos (Bancos)"
         return "Grupo 8: Cobranzas - Otros"
 
-    # --- PRIORIDAD 7: Ingresos Varios (Grupo 6) ---
+    # --- PRIORIDAD 7: Ingresos Varios (CORREGIDO PALABRAS CLAVE) ---
     if normalize_account('6.1.1.19.1.001') in cuentas_del_asiento:
         if is_reverso_check: return "Grupo 6: Ingresos Varios"
-        keywords_limpieza = {'LIMPIEZA', 'LIMPIEZAS', 'SALDO', 'SALDOS', 'HISTORICO'}
+        keywords_limpieza = {'LIMPIEZA', 'LIMPIEZAS', 'SALDO', 'SALDOS', 'HISTORICO', 'INGRESOS', 'INGRESO', 'AJUSTE'}
+        
         if not keywords_limpieza.isdisjoint(referencia_limpia_palabras):
-            if monto_max_abs <= 25: return "Grupo 6: Ingresos Varios - Limpieza (<= $25)"
-            else: return "Grupo 6: Ingresos Varios - Limpieza (> $25)"
-        else: return "Grupo 6: Ingresos Varios - Otros"
+            if monto_max_abs <= 25: 
+                return "Grupo 6: Ingresos Varios - Limpieza (<= $25)"
+            else: 
+                return "Grupo 6: Ingresos Varios - Limpieza (> $25)"
+        else: 
+            return "Grupo 6: Ingresos Varios - Otros"
             
     # --- RESTO DE PRIORIDADES ---
     if normalize_account('7.1.3.06.1.998') in cuentas_del_asiento: return "Grupo 12: Perdida p/Venta o Retiro Activo ND"
@@ -2239,20 +2243,16 @@ def _validar_asiento(asiento_group):
             return "Incidencia: Movimiento mayor al límite permitido ($25)."
             
     # --- GRUPO 7: DEVOLUCIONES Y REBAJAS (Logica Inteligente) ---
-    elif grupo.startswith("Grupo 7:"):
-        # Regla Base: Si supera los $25, es sospechoso...
-        if (asiento_group['Monto_USD'].abs() > 25).any():
+     elif grupo.startswith("Grupo 7:"):
+        # Límite corregido a $5
+        if (asiento_group['Monto_USD'].abs() > 5).any():
             
-            # ...PERO si es un movimiento administrativo de saldo, se permite.
+            # Excepción para traslados autorizados
             referencia_upper = str(asiento_group['Referencia'].iloc[0]).upper()
-            
-            # Palabras clave que autorizan montos altos
             keywords_autorizadas = ['TRASLADO', 'APLICAR', 'CRUCE', 'RECLASIFICACION', 'CORRECCION']
             
-            es_movimiento_autorizado = any(k in referencia_upper for k in keywords_autorizadas)
-            
-            if not es_movimiento_autorizado:
-                return "Incidencia: Movimiento mayor a $25 (y no indica ser Traslado/Cruce)."
+            if not any(k in referencia_upper for k in keywords_autorizadas):
+                return "Incidencia: Movimiento mayor a $5 (y no indica ser Traslado/Cruce)."
 
     # --- GRUPO 9: RETENCIONES ---
     elif grupo.startswith("Grupo 9:"):
