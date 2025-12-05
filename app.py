@@ -415,6 +415,9 @@ def render_paquete_cc():
         st.rerun()
     
     st.markdown("Esta herramienta analiza el diario contable para clasificar y agrupar los asientos.")
+
+    with st.expander("📖 Manual de Usuario: Criterios de Análisis y Errores Comunes", expanded=False):
+        st.markdown(GUIA_PAQUETE_CC)
     
     # --- CAMBIO 1: AGREGAR SELECTOR DE CASA ---
     CASA_OPTIONS = ["FEBECA, C.A", "MAYOR BEVAL, C.A", "PRISMA, C.A", "FEBECA, C.A (QUINCALLA)"]
