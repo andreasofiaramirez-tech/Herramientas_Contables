@@ -2621,48 +2621,68 @@ MAPEO_CB_CG_FEBECA = {
 }
 
 def limpiar_monto_pdf(texto):
-    """Convierte texto de moneda a float."""
+    """
+    Convierte texto a float. Maneja formatos US/VE, paréntesis y guiones (-).
+    """
     if not texto: return 0.0
-    # Lógica inteligente de limpieza (US vs VE)
-    t = str(texto).replace(' ', '').replace('$', '').replace('Bs', '').strip()
-    if '(' in t and ')' in t:
-        t = '-' + t.replace('(', '').replace(')', '')
-    elif '-' in t: 
-        t = '-' + t.replace('-', '')
+    t = str(texto).strip()
     
+    # CASO: Guion solo (Cero contable)
+    if t == '-': return 0.0
+    
+    # Limpieza general
+    t = t.replace(' ', '').replace('$', '').replace('Bs', '')
+    
+    # Manejo de negativos (1.00) -> -1.00
+    signo = 1
+    if '(' in t and ')' in t:
+        signo = -1
+        t = t.replace('(', '').replace(')', '')
+    elif '-' in t:
+        signo = -1
+        t = t.replace('-', '') # Quitamos el menos para procesar el número
+        
+    # Detección de formato decimal (Inteligente)
     idx_punto = t.rfind('.')
     idx_coma = t.rfind(',')
 
     if idx_punto > idx_coma:
-        t = t.replace(',', '') # US
+        t = t.replace(',', '') # US: 1,234.56 -> 1234.56
     elif idx_coma > idx_punto:
-        t = t.replace('.', '').replace(',', '.') # VE
+        t = t.replace('.', '').replace(',', '.') # VE: 1.234,56 -> 1234.56
     elif idx_coma != -1 and idx_punto == -1:
-        t = t.replace(',', '.') # Solo comas (probablemente decimal VE)
+        t = t.replace(',', '.') # Solo comas
         
-    try: return float(t)
-    except ValueError: return 0.0
+    try:
+        return float(t) * signo
+    except ValueError:
+        return 0.0
 
 def es_texto_numerico(texto):
     """
-    Determina si un string es un candidato a número financiero.
-    Acepta: '1.000,00', '-500', '(200.00)', '0.00'.
+    Detecta si un string es un número válido en un reporte contable.
+    Acepta: '1.000,00', '-500', '(200.00)', '0.00', '-'.
     """
     if not texto: return False
-    # Limpiamos caracteres que no sean dígitos
-    # Permitimos: dígitos, coma, punto, guion, paréntesis
-    t_clean = re.sub(r'[^\d]', '', texto)
+    t = texto.strip()
     
-    # Debe tener al menos un dígito
-    if not t_clean: return False
+    # El guion solo es un número válido (cero)
+    if t == '-': return True
     
-    # Debe tener algún indicador de formato financiero o ser un 0
-    indicadores = ['.', ',', '-', '(', ')']
-    if any(i in texto for i in indicadores):
+    # Limpiamos para verificar contenido numérico
+    # Permitimos dígitos, comas, puntos, paréntesis y signo menos
+    t_clean = re.sub(r'[^\d]', '', t)
+    
+    # Debe tener al menos un dígito para ser considerado número (si no fue guion)
+    if len(t_clean) > 0:
+        # Verificamos que no sea una fecha (ej: 01/01/2025)
+        if '/' in t: return False
+        # Verificamos que no sea un código de cuenta (ej: 1.1.1.02)
+        # Los montos no suelen tener más de 2 puntos, las cuentas sí.
+        if t.count('.') > 2: return False
         return True
-    
-    # Si es solo dígitos (ej: 1000), también vale
-    return True
+        
+    return False
 
 def extraer_saldos_cb(archivo, log_messages):
     """
@@ -2756,7 +2776,8 @@ def extraer_saldos_cb(archivo, log_messages):
 
 def extraer_saldos_cg(archivo, log_messages):
     """
-    Extrae saldos de CG con detección mejorada de números.
+    Extrae saldos COMPLETOS y NOMBRES del Balance (PDF/Excel).
+    MEJORA: Detecta guiones y paréntesis como números válidos.
     """
     datos_cg = {}
     nombre_archivo = getattr(archivo, 'name', '').lower()
@@ -2768,53 +2789,59 @@ def extraer_saldos_cg(archivo, log_messages):
                 for page in pdf.pages:
                     text = page.extract_text()
                     if not text: continue
+                    
                     for line in text.split('\n'):
                         parts = line.split()
                         if len(parts) < 3: continue
                         
                         cuenta = parts[0].strip()
-                        if not (cuenta.startswith('1.') and len(cuenta) > 10): continue
                         
-                        # Nombre
+                        # Validación básica de cuenta
+                        if not (cuenta.startswith('1.') and len(cuenta) > 10):
+                            continue
+                        
+                        # 1. Nombre Oficial
                         if cuenta in NOMBRES_CUENTAS_OFICIALES:
                             descripcion = NOMBRES_CUENTAS_OFICIALES[cuenta]
                         else:
-                            # Fallback para nombre
                             desc_parts = []
                             for p in parts[1:]:
-                                # Usamos la nueva función para saber dónde paran las letras
-                                if p.upper() in ['DEUDOR', 'ACREEDOR', 'SALDO'] or es_texto_numerico(p):
+                                # Paramos si encontramos algo que parece un número
+                                if es_texto_numerico(p) or p.upper() in ['DEUDOR', 'ACREEDOR']:
                                     break
                                 desc_parts.append(p)
                             descripcion = " ".join(desc_parts)
 
-                        # Saldos
+                        # 2. Extracción de Saldos (Usando la nueva detección)
                         numeros = []
                         for p in parts[1:]:
-                            # USAMOS LA NUEVA FUNCIÓN DE DETECCIÓN
                             if es_texto_numerico(p):
                                 numeros.append(p)
                         
+                        # Inicializamos
                         vals_ves = {'inicial':0.0, 'debitos':0.0, 'creditos':0.0, 'final':0.0}
                         vals_usd = {'inicial':0.0, 'debitos':0.0, 'creditos':0.0, 'final':0.0}
                         
-                        # Mapeo inteligente
-                        # Si hay 8 números, son los 2 bloques completos
+                        # Mapeo según cantidad de columnas detectadas
+                        # Esperamos 8 columnas: 4 Local + 4 Dólar
                         if len(numeros) >= 8:
-                            vals_ves = {
-                                'inicial': limpiar_monto_pdf(numeros[0]),
-                                'debitos': limpiar_monto_pdf(numeros[1]),
-                                'creditos': limpiar_monto_pdf(numeros[2]),
-                                'final': limpiar_monto_pdf(numeros[3])
-                            }
+                            # Últimos 4 son Dólar, los 4 anteriores son Local
+                            # A veces hay columnas extra al inicio, tomamos relativo al final
                             vals_usd = {
-                                'inicial': limpiar_monto_pdf(numeros[4]),
-                                'debitos': limpiar_monto_pdf(numeros[5]),
-                                'creditos': limpiar_monto_pdf(numeros[6]),
-                                'final': limpiar_monto_pdf(numeros[7])
+                                'inicial': limpiar_monto_pdf(numeros[-4]),
+                                'debitos': limpiar_monto_pdf(numeros[-3]),
+                                'creditos': limpiar_monto_pdf(numeros[-2]),
+                                'final': limpiar_monto_pdf(numeros[-1])
                             }
-                        # Si hay 4 números, asumimos que son solo VES (Local)
+                            vals_ves = {
+                                'inicial': limpiar_monto_pdf(numeros[-8]),
+                                'debitos': limpiar_monto_pdf(numeros[-7]),
+                                'creditos': limpiar_monto_pdf(numeros[-6]),
+                                'final': limpiar_monto_pdf(numeros[-5])
+                            }
                         elif len(numeros) >= 4:
+                            # Solo detectó Local (o Dólar estaba vacío/sin guiones?)
+                            # Asumimos Local por defecto
                             vals_ves = {
                                 'inicial': limpiar_monto_pdf(numeros[0]),
                                 'debitos': limpiar_monto_pdf(numeros[1]),
@@ -2823,10 +2850,13 @@ def extraer_saldos_cg(archivo, log_messages):
                             }
                         
                         datos_cg[cuenta] = {'VES': vals_ves, 'USD': vals_usd, 'descripcion': descripcion}
+                            
         except Exception as e:
             log_messages.append(f"❌ Error leyendo PDF CG: {str(e)}")
+
+    # --- MODO EXCEL ---
     else:
-        pass
+        pass # (Mantener lógica Excel si existe)
             
     return datos_cg
 
