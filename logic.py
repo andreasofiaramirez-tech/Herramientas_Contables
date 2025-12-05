@@ -2477,12 +2477,12 @@ def run_analysis_paquete_cc(df_diario, log_messages):
     return df_final
 
 # ==============================================================================
-# LÓGICA PARA CUADRE CB - CG (TESORERÍA VS CONTABILIDAD) - VERSIÓN PRO
+# LÓGICA PARA CUADRE CB - CG (TESORERÍA VS CONTABILIDAD) - VERSIÓN FINAL
 # ==============================================================================
 import pdfplumber
+import re
 
-# 1. DICCIONARIO MAESTRO DE NOMBRES (Según tu imagen)
-# Esto garantiza que el nombre salga perfecto siempre.
+# 1. DICCIONARIO MAESTRO DE NOMBRES
 NOMBRES_CUENTAS_OFICIALES = {
     '1.1.1.02.1.000': 'Bancos del País',
     '1.1.1.02.1.002': 'Banco Venezolano de Credito, S.A.',
@@ -2538,10 +2538,10 @@ NOMBRES_CUENTAS_OFICIALES = {
     '1.1.1.01.6.002': 'Cuenta Euros'
 }
 
-# Mapeo de Códigos (Igual que antes)
+# 2. MAPEO DE CÓDIGOS TESORERÍA -> CONTABILIDAD
 MAPEO_CB_CG_BEVAL = {
     "0102E":  {"cta": "1.1.1.02.6.003", "moneda": "USD"},
-    "0102EU": {"cta": "1.1.1.02.6.213", "moneda": "EUR"}, # Ajustado a EUR
+    "0102EU": {"cta": "1.1.1.02.6.213", "moneda": "EUR"},
     "0102L":  {"cta": "1.1.1.02.1.003", "moneda": "VES"},
     "0104L":  {"cta": "1.1.1.02.1.002", "moneda": "VES"},
     "0105E":  {"cta": "1.1.1.02.6.001", "moneda": "USD"},
@@ -2554,13 +2554,13 @@ MAPEO_CB_CG_BEVAL = {
     "0134E":  {"cta": "1.1.1.02.6.017", "moneda": "USD"},
     "0134EC": {"cta": "1.1.1.02.6.005", "moneda": "USD"},
     "0134L":  {"cta": "1.1.1.02.1.005", "moneda": "VES"},
-    "0137CP": {"cta": "1.1.1.02.6.214", "moneda": "COP"}, # Ajustado a COP
+    "0137CP": {"cta": "1.1.1.02.6.214", "moneda": "COP"},
     "0137E":  {"cta": "1.1.1.02.6.015", "moneda": "USD"},
     "0137L":  {"cta": "1.1.1.02.1.022", "moneda": "VES"},
     "0172E":  {"cta": "1.1.1.02.6.011", "moneda": "USD"},
     "0172L":  {"cta": "1.1.1.02.1.021", "moneda": "VES"},
     "0174E":  {"cta": "1.1.1.02.6.010", "moneda": "USD"},
-    "0174EU": {"cta": "1.1.1.02.6.210", "moneda": "EUR"}, # Ajustado a EUR
+    "0174EU": {"cta": "1.1.1.02.6.210", "moneda": "EUR"},
     "0174L":  {"cta": "1.1.1.02.1.132", "moneda": "VES"},
     "0175L":  {"cta": "1.1.1.02.1.008", "moneda": "VES"},
     "0191E":  {"cta": "1.1.1.02.6.002", "moneda": "USD"},
@@ -2580,6 +2580,7 @@ MAPEO_CB_CG_BEVAL = {
 }
 
 def limpiar_monto_pdf(texto):
+    """Convierte texto de moneda a float."""
     if not texto: return 0.0
     limpio = texto.replace('.', '').replace(',', '.')
     try: return float(limpio)
@@ -2608,45 +2609,38 @@ def extraer_saldos_cb(archivo, log_messages):
                         
                         codigo = parts[0].strip()
                         
-                        # Filtro: Código debe tener al menos 4 chars y empezar por dígito (0102L)
+                        # Filtro: Código debe tener al menos 4 chars y empezar por dígito
                         if len(codigo) >= 4 and codigo[0].isdigit():
                             try:
-                                # 1. Extraer Saldos (Buscamos los 4 últimos números de la línea)
                                 numeros_encontrados = []
                                 indices_numeros = []
                                 
                                 for i, p in enumerate(parts):
-                                    # Limpieza para detección
                                     if any(c.isdigit() for c in p) and (',' in p or '.' in p or p=='0.00'):
                                         numeros_encontrados.append(p)
                                         indices_numeros.append(i)
                                 
-                                # Necesitamos al menos 4 números (Ini, Deb, Cre, Fin)
                                 if len(numeros_encontrados) >= 4:
                                     s_ini = limpiar_monto_pdf(numeros_encontrados[-4])
                                     s_deb = limpiar_monto_pdf(numeros_encontrados[-3])
                                     s_cre = limpiar_monto_pdf(numeros_encontrados[-2])
                                     s_fin = limpiar_monto_pdf(numeros_encontrados[-1])
                                     
-                                    # 2. Extraer Nombre
-                                    # El nombre está entre el código (idx 0) y el primer número de saldo
+                                    # Nombre entre código y números
                                     idx_inicio_nums = indices_numeros[-4]
                                     nombre_parts = parts[1:idx_inicio_nums]
                                     
-                                    # Limpieza extra del nombre (quitar fechas si se colaron)
+                                    # Limpieza de nombre
                                     nombre_limpio_parts = []
                                     for p in nombre_parts:
                                         if not re.search(r'\d{2}/\d{2}/\d{4}', p) and not (p.isdigit() and len(p)==4):
                                             nombre_limpio_parts.append(p)
-                                            
+                                    
                                     nombre_banco = " ".join(nombre_limpio_parts)
                                     
-                                    # Guardamos la estructura completa
                                     datos[codigo] = {
-                                        'inicial': s_ini, 
-                                        'debitos': s_deb, 
-                                        'creditos': s_cre, 
-                                        'final': s_fin, 
+                                        'inicial': s_ini, 'debitos': s_deb, 
+                                        'creditos': s_cre, 'final': s_fin, 
                                         'nombre': nombre_banco
                                     }
                             except Exception:
@@ -2661,11 +2655,9 @@ def extraer_saldos_cb(archivo, log_messages):
             df = pd.read_excel(archivo)
             df.columns = [str(c).strip().upper() for c in df.columns]
             
-            # Mapeo de columnas básico
             col_cta = next((c for c in df.columns if 'CUENTA' in c), None)
             col_nom = next((c for c in df.columns if 'NOMBRE' in c), None)
             col_fin = next((c for c in df.columns if 'FINAL' in c), None)
-            # Intentar buscar inicial/deb/cre si existen, sino 0
             col_ini = next((c for c in df.columns if 'INICIAL' in c), None)
             col_deb = next((c for c in df.columns if 'DEBITO' in c or 'DÉBITO' in c), None)
             col_cre = next((c for c in df.columns if 'CREDITO' in c or 'CRÉDITO' in c), None)
@@ -2674,18 +2666,12 @@ def extraer_saldos_cb(archivo, log_messages):
                 for _, row in df.iterrows():
                     codigo = str(row[col_cta]).strip()
                     nombre = str(row[col_nom]).strip() if col_nom else "SIN NOMBRE"
-                    
                     try:
                         s_fin = float(row[col_fin])
                         s_ini = float(row[col_ini]) if col_ini else 0.0
                         s_deb = float(row[col_deb]) if col_deb else 0.0
                         s_cre = float(row[col_cre]) if col_cre else 0.0
-                        
-                        datos[codigo] = {
-                            'inicial': s_ini, 'debitos': s_deb, 
-                            'creditos': s_cre, 'final': s_fin, 
-                            'nombre': nombre
-                        }
+                        datos[codigo] = {'inicial':s_ini, 'debitos':s_deb, 'creditos':s_cre, 'final':s_fin, 'nombre':nombre}
                     except: pass
         except Exception as e:
             log_messages.append(f"❌ Error leyendo Excel CB: {str(e)}")
@@ -2695,7 +2681,6 @@ def extraer_saldos_cb(archivo, log_messages):
 def extraer_saldos_cg(archivo, log_messages):
     """
     Extrae saldos COMPLETOS y NOMBRES OFICIALES del Balance.
-    Corrige el error de 'float not subscriptable'.
     """
     datos_cg = {}
     nombre_archivo = getattr(archivo, 'name', '').lower()
@@ -2718,11 +2703,11 @@ def extraer_saldos_cg(archivo, log_messages):
                         if not (cuenta.startswith('1.') and len(cuenta) > 10):
                             continue
                         
-                        # 1. Nombre Oficial (Prioridad 1)
+                        # 1. Nombre Oficial
                         if cuenta in NOMBRES_CUENTAS_OFICIALES:
                             descripcion = NOMBRES_CUENTAS_OFICIALES[cuenta]
                         else:
-                            # Fallback: Intentar leer del PDF si no está en la lista
+                            # Fallback
                             desc_parts = []
                             for p in parts[1:]:
                                 p_clean = p.replace('.', '').replace(',', '').replace('-', '')
@@ -2738,7 +2723,7 @@ def extraer_saldos_cg(archivo, log_messages):
                             if p_clean.isdigit() and len(p_clean) > 0:
                                 numeros.append(p)
                         
-                        # Estructuras por defecto (diccionarios, NO floats)
+                        # Estructuras por defecto
                         vals_ves = {'inicial':0.0, 'debitos':0.0, 'creditos':0.0, 'final':0.0}
                         vals_usd = {'inicial':0.0, 'debitos':0.0, 'creditos':0.0, 'final':0.0}
                         
@@ -2758,20 +2743,14 @@ def extraer_saldos_cg(archivo, log_messages):
                                 'final': limpiar_monto_pdf(numeros[7])
                             }
                         
-                        # Guardamos el diccionario completo
-                        datos_cg[cuenta] = {
-                            'VES': vals_ves, 
-                            'USD': vals_usd, 
-                            'descripcion': descripcion
-                        }
+                        datos_cg[cuenta] = {'VES': vals_ves, 'USD': vals_usd, 'descripcion': descripcion}
                             
     except Exception as e:
         log_messages.append(f"❌ Error leyendo PDF CG: {str(e)}")
 
     # --- MODO EXCEL ---
     else:
-        # (Lógica Excel simplificada manteniendo estructura de diccionarios)
-        # Si usas Excel para CG, asegúrate de llenar vals_ves y vals_usd como dicts, no floats.
+        # Placeholder para Excel CG
         pass
             
     return datos_cg
@@ -2785,48 +2764,36 @@ def run_cuadre_cb_cg_beval(file_cb, file_cg, log_messages):
     
     for codigo_cb, config in MAPEO_CB_CG_BEVAL.items():
         cuenta_cg = config['cta']
-        moneda = config['moneda'] # 'USD', 'VES', 'EUR', 'COP'
+        moneda = config['moneda']
         
-        # Datos CB
         info_cb = data_cb.get(codigo_cb, {'inicial':0, 'debitos':0, 'creditos':0, 'final':0})
         
-        # Datos CG
-        # Si la moneda es EUR o COP, asumimos que en contabilidad está en la columna Dólar/Multimoneda
         clave_cg = 'VES' if moneda == 'VES' else 'USD'
-        
         info_cg_full = data_cg.get(cuenta_cg, {})
         info_cg = info_cg_full.get(clave_cg, {'inicial':0, 'debitos':0, 'creditos':0, 'final':0})
         desc_cg = info_cg_full.get('descripcion', NOMBRES_CUENTAS_OFICIALES.get(cuenta_cg, 'NO DEFINIDO'))
         
-        # Diferencias
         dif_final = round(info_cb['final'] - info_cg['final'], 2)
-        
         estado = "OK" if dif_final == 0 else "DESCUADRE"
         
-        # Si todo es cero, se ignora (cuenta inactiva)
         if info_cb['final'] == 0 and info_cg['final'] == 0 and info_cb['debitos'] == 0:
             continue
 
         resultados.append({
             'Moneda': moneda,
-            'Banco (Tesorería)': codigo_cb, # Usamos codigo corto para identificar
+            'Banco (Tesorería)': codigo_cb, 
             'Cuenta Contable': cuenta_cg,
             'Descripción': desc_cg,
-            
-            # Saldos Finales (Para la hoja resumen)
-            'Saldo Final CB': info_cb['final'],
-            'Saldo Final CG': info_cg['final'],
+            'Saldo Final CB': info_cb.get('final', 0), # Usar .get para seguridad
+            'Saldo Final CG': info_cg.get('final', 0),
             'Diferencia': dif_final,
             'Estado': estado,
-            
-            # Detalle Movimiento (Para hoja de Descuadre)
-            'CB Inicial': info_cb['inicial'],
-            'CB Débitos': info_cb['debitos'],
-            'CB Créditos': info_cb['creditos'],
-            
-            'CG Inicial': info_cg['inicial'],
-            'CG Débitos': info_cg['debitos'],
-            'CG Créditos': info_cg['creditos']
+            'CB Inicial': info_cb.get('inicial', 0),
+            'CB Débitos': info_cb.get('debitos', 0),
+            'CB Créditos': info_cb.get('creditos', 0),
+            'CG Inicial': info_cg.get('inicial', 0),
+            'CG Débitos': info_cg.get('debitos', 0),
+            'CG Créditos': info_cg.get('creditos', 0)
         })
         
     return pd.DataFrame(resultados)
