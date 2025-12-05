@@ -2576,7 +2576,7 @@ MAPEO_CB_CG_BEVAL = {
     "0210EU": {"cta": "1.1.1.01.6.002", "moneda": "EUR"},
     "0211E":  {"cta": "1.1.1.03.6.015", "moneda": "USD"},
     "0501E":  {"cta": "1.1.1.03.6.024", "moneda": "USD"},
-    "2407E":  {"cta": "1.1.1.06.6.003", "moneda": "USD"},
+    "2407E":  {"cta": "1.1.1.06.6.003", "moneda": "USD"}
 }
 
 def limpiar_monto_pdf(texto):
