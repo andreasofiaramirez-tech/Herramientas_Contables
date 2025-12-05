@@ -2638,7 +2638,10 @@ def extraer_saldos_cb(archivo, log_messages):
     return datos
 
 def extraer_saldos_cg(archivo, log_messages):
-    """Extrae saldos COMPLETOS del Balance de Comprobación."""
+    """
+    Extrae saldos del Balance de Comprobación.
+    MEJORA: Prioriza el nombre del diccionario oficial para evitar texto basura del PDF.
+    """
     datos_cg = {}
     
     log_messages.append("📄 Procesando Balance CG como PDF...")
@@ -2654,41 +2657,53 @@ def extraer_saldos_cg(archivo, log_messages):
                     
                     cuenta = parts[0].strip()
                     
+                    # Validar formato de cuenta
                     if not (cuenta.startswith('1.') and len(cuenta) > 10):
                         continue
                     
-                    # Usamos el nombre OFICIAL si existe, sino tratamos de extraer
-                    descripcion = NOMBRES_CUENTAS_OFICIALES.get(cuenta, "CUENTA NO REGISTRADA")
+                    # --- CORRECCIÓN CRÍTICA: PRIORIDAD AL DICCIONARIO ---
+                    # Si la cuenta está en nuestra lista oficial, usamos ese nombre limpio.
+                    # Si no, intentamos leerlo del PDF (fallback).
+                    if cuenta in NOMBRES_CUENTAS_OFICIALES:
+                        descripcion = NOMBRES_CUENTAS_OFICIALES[cuenta]
+                    else:
+                        # Lógica de fallback para cuentas desconocidas
+                        desc_parts = []
+                        idx_inicio_numeros = len(parts)
+                        for i, p in enumerate(parts[1:], 1):
+                            p_clean = p.replace('.', '').replace(',', '').replace('-', '')
+                            # Detenerse si encuentra palabras clave de saldo o números
+                            if p.upper() in ['DEUDOR', 'ACREEDOR', 'SALDO'] or (p_clean.isdigit() and len(p_clean) > 0):
+                                idx_inicio_numeros = i
+                                break
+                            desc_parts.append(p)
+                        descripcion = " ".join(desc_parts) + " (Leído de PDF)"
+                    # ----------------------------------------------------
                     
-                    # Extracción de números
+                    # Extracción de números (buscando desde el final de la descripción)
                     numeros = []
-                    for p in parts[1:]:
+                    for p in parts[1:]: # Revisamos toda la línea por seguridad
                         p_clean = p.replace('.', '').replace(',', '').replace('-', '')
                         if p_clean.isdigit() and len(p_clean) > 0:
                             numeros.append(p)
                     
-                    # Mapeo: Indices 0-3 (Local), Indices 4-7 (Dolar)
-                    # [Ini, Deb, Cre, Fin]
-                    vals_ves = {'inicial':0.0, 'debitos':0.0, 'creditos':0.0, 'final':0.0}
-                    vals_usd = {'inicial':0.0, 'debitos':0.0, 'creditos':0.0, 'final':0.0}
-                    
                     if len(numeros) >= 4:
-                        vals_ves = {
-                            'inicial': limpiar_monto_pdf(numeros[0]),
-                            'debitos': limpiar_monto_pdf(numeros[1]),
-                            'creditos': limpiar_monto_pdf(numeros[2]),
-                            'final': limpiar_monto_pdf(numeros[3])
-                        }
-                    
-                    if len(numeros) >= 8:
-                        vals_usd = {
-                            'inicial': limpiar_monto_pdf(numeros[4]),
-                            'debitos': limpiar_monto_pdf(numeros[5]),
-                            'creditos': limpiar_monto_pdf(numeros[6]),
-                            'final': limpiar_monto_pdf(numeros[7])
-                        }
-                    
-                    datos_cg[cuenta] = {'VES': vals_ves, 'USD': vals_usd, 'descripcion': descripcion}
+                        try:
+                            # Mapeo estándar del reporte CG Beval:
+                            # Si hay 8 números: [0-3] son Local, [4-7] son Dólar
+                            saldo_ves = limpiar_monto_pdf(numeros[3]) # 4to número
+                            saldo_usd = 0.0
+                            
+                            if len(numeros) >= 8:
+                                saldo_usd = limpiar_monto_pdf(numeros[7]) # 8vo número
+                            
+                            datos_cg[cuenta] = {
+                                'VES': saldo_ves, 
+                                'USD': saldo_usd, 
+                                'descripcion': descripcion
+                            }
+                        except:
+                            pass
                             
     except Exception as e:
         log_messages.append(f"❌ Error leyendo PDF CG: {str(e)}")
