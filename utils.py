@@ -983,7 +983,7 @@ def generar_reporte_paquete_cc(df_analizado, nombre_casa):
         total_label_format = workbook.add_format({'bold': True, 'align': 'right', 'top': 2, 'font_color': '#003366'})
         total_money_format = workbook.add_format({'bold': True, 'num_format': '#,##0.00', 'top': 2, 'bottom': 1})
 
-        columnas_reporte = ['Asiento', 'Fecha', 'Fuente', 'Cuenta Contable', 'Descripción de Cuenta', 'Referencia', 'Débito Dolar', 'Crédito Dolar', 'Débito VES', 'Crédito VES']
+        columnas_reporte = ['Asiento', 'Fecha', 'Fuente', 'Cuenta Contable', 'Descripción de Cuenta', 'Referencia', 'Débito Dolar', 'Crédito Dolar', 'Débito VES', 'Crédito VES','NIT', 'Nombre']
         
         df_analizado['Grupo Principal'] = df_analizado['Grupo'].apply(lambda x: x.split(':')[0].strip())
         grupos_principales_ordenados = sorted(df_analizado['Grupo Principal'].unique(), key=lambda x: (0, int(x.split()[1])) if x.startswith('Grupo') else (1, x))
@@ -1083,15 +1083,12 @@ def generar_reporte_paquete_cc(df_analizado, nombre_casa):
             sheet_name = re.sub(r'[\\/*?:"\[\]]', '', grupo_principal_nombre)[:31]
             ws = workbook.add_worksheet(sheet_name)
             ws.hide_gridlines(2)
-            
-            # Usamos el título dinámico aquí también
-            ws.merge_range('A1:J1', titulo_reporte, main_title_format)
-            
+            ws.merge_range('A1:L1', titulo_reporte, main_title_format) # Ampliado hasta L
             df_grupo_completo = df_analizado[df_analizado['Grupo Principal'] == grupo_principal_nombre]
             subgrupos = sorted(df_grupo_completo['Grupo'].unique())
             full_descriptive_title = subgrupos[0]
             if len(subgrupos) > 1: full_descriptive_title = f"{subgrupos[0].split(':')[0].strip()}: {subgrupos[0].split(':')[1].split('-')[0].strip()}"
-            ws.merge_range('A3:J3', full_descriptive_title, descriptive_title_format)
+            ws.merge_range('A3:L3', full_descriptive_title, descriptive_title_format) # Ampliado hasta L
             current_row = 4
             for subgrupo_nombre in subgrupos:
                 df_subgrupo = df_grupo_completo[df_grupo_completo['Grupo'] == subgrupo_nombre]
@@ -1106,26 +1103,38 @@ def generar_reporte_paquete_cc(df_analizado, nombre_casa):
                     fmt_num = incidencia_money_format if is_incidencia else money_format
                     fmt_date = incidencia_date_format if is_incidencia else date_format
                     
+                    # --- ESCRITURA DE COLUMNAS ACTUALIZADA ---
                     ws.write(current_row, 0, row_data.get('Asiento', ''), fmt_txt)
                     ws.write_datetime(current_row, 1, row_data.get('Fecha', None), fmt_date)
-                    ws.write(current_row, 2, row_data.get('Fuente', ''), fmt_txt)
-                    ws.write(current_row, 3, row_data.get('Cuenta Contable', ''), fmt_txt)
-                    ws.write(current_row, 4, row_data.get('Descripción de Cuenta', ''), fmt_txt)
-                    ws.write(current_row, 5, row_data.get('Referencia', ''), fmt_txt)
-                    ws.write_number(current_row, 6, row_data.get('Débito Dolar', 0), fmt_num)
-                    ws.write_number(current_row, 7, row_data.get('Crédito Dolar', 0), fmt_num)
-                    ws.write_number(current_row, 8, row_data.get('Débito VES', 0), fmt_num)
-                    ws.write_number(current_row, 9, row_data.get('Crédito VES', 0), fmt_num)
+                    ws.write(current_row, 2, row_data.get('NIT', ''), fmt_txt)    # <--- NUEVO
+                    ws.write(current_row, 3, row_data.get('Nombre', ''), fmt_txt) # <--- NUEVO
+                    ws.write(current_row, 4, row_data.get('Fuente', ''), fmt_txt)
+                    ws.write(current_row, 5, row_data.get('Cuenta Contable', ''), fmt_txt)
+                    ws.write(current_row, 6, row_data.get('Descripción de Cuenta', ''), fmt_txt)
+                    ws.write(current_row, 7, row_data.get('Referencia', ''), fmt_txt)
+                    ws.write_number(current_row, 8, row_data.get('Débito Dolar', 0), fmt_num)
+                    ws.write_number(current_row, 9, row_data.get('Crédito Dolar', 0), fmt_num)
+                    ws.write_number(current_row, 10, row_data.get('Débito VES', 0), fmt_num)
+                    ws.write_number(current_row, 11, row_data.get('Crédito VES', 0), fmt_num)
                     current_row += 1
                 if not df_subgrupo.empty:
-                    ws.write(current_row, 5, f'TOTALES {subgrupo_nombre.split(":")[-1].strip()}', total_label_format)
-                    ws.write_formula(current_row, 6, f'=SUM(G{start_data_row + 1}:G{current_row})', total_money_format)
-                    ws.write_formula(current_row, 7, f'=SUM(H{start_data_row + 1}:H{current_row})', total_money_format)
-                    ws.write_formula(current_row, 8, f'=SUM(I{start_data_row + 1}:I{current_row})', total_money_format)
-                    ws.write_formula(current_row, 9, f'=SUM(J{start_data_row + 1}:J{current_row})', total_money_format)
+                    # Ajustado índice de columnas para totales
+                    ws.write(current_row, 7, f'TOTALES {subgrupo_nombre.split(":")[-1].strip()}', total_label_format)
+                    ws.write_formula(current_row, 8, f'=SUM(I{start_data_row + 1}:I{current_row})', total_money_format) # Col I
+                    ws.write_formula(current_row, 9, f'=SUM(J{start_data_row + 1}:J{current_row})', total_money_format) # Col J
+                    ws.write_formula(current_row, 10, f'=SUM(K{start_data_row + 1}:K{current_row})', total_money_format) # Col K
+                    ws.write_formula(current_row, 11, f'=SUM(L{start_data_row + 1}:L{current_row})', total_money_format) # Col L
                     current_row += 2
-            ws.set_column('A:A', 12); ws.set_column('B:B', 12); ws.set_column('C:C', 15)
-            ws.set_column('D:D', 18); ws.set_column('E:E', 40); ws.set_column('F:F', 50)
-            ws.set_column('G:J', 15)
+            
+            # Ajuste anchos
+            ws.set_column('A:A', 12) # Asiento
+            ws.set_column('B:B', 12) # Fecha
+            ws.set_column('C:C', 15) # NIT
+            ws.set_column('D:D', 40) # Nombre
+            ws.set_column('E:E', 15) # Fuente
+            ws.set_column('F:F', 18) # Cuenta
+            ws.set_column('G:G', 40) # Desc Cuenta
+            ws.set_column('H:H', 40) # Ref
+            ws.set_column('I:L', 15) # Montos
             
     return output_buffer.getvalue()
