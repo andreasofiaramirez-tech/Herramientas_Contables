@@ -15,7 +15,6 @@ from guides import (
 
 from functools import partial
 
-# --- Importaciones desde nuestros módulos ---
 from logic import (
     run_conciliation_fondos_en_transito,
     run_conciliation_fondos_por_depositar,
@@ -36,6 +35,60 @@ from utils import (
     generar_excel_saldos_abiertos,
     generar_reporte_paquete_cc
 )
+
+import traceback # Asegúrate de que esto esté importado al inicio
+
+def mostrar_error_amigable(e, contexto=""):
+    """
+    Traduce errores técnicos de Python a mensajes amigables para el usuario contable.
+    """
+    error_tecnico = str(e)
+    mensaje_usuario = ""
+    recomendacion = ""
+
+    # 1. ERRORES DE COLUMNAS FALTANTES (KeyError)
+    if "KeyError" in type(e).__name__ or "not in index" in error_tecnico:
+        columna_faltante = error_tecnico.replace("'", "").replace("KeyError", "").strip()
+        mensaje_usuario = f"❌ Falta una columna obligatoria en el archivo: '{columna_faltante}'"
+        
+        if "RIF" in columna_faltante or "Proveedor" in columna_faltante:
+            recomendacion = "💡 **Posible Causa:** El archivo de Retenciones CP debe tener los encabezados en la **Fila 5**. Verifique que no estén en la fila 1."
+        elif "Asiento" in columna_faltante:
+            recomendacion = "💡 **Solución:** Verifique que la columna se llame 'Asiento' o 'ASIENTO'."
+        else:
+            recomendacion = "💡 **Solución:** Revise que el nombre de la columna esté escrito correctamente en el Excel."
+
+    # 2. ERRORES DE LECTURA DE EXCEL (BadZipFile, ValueError)
+    elif "BadZipFile" in error_tecnico:
+        mensaje_usuario = "❌ El archivo cargado parece estar dañado o no es un Excel válido (.xlsx)."
+        recomendacion = "💡 **Solución:** Intente abrir y volver a guardar el archivo en Excel antes de subirlo."
+    
+    elif "Excel file format cannot be determined" in error_tecnico:
+        mensaje_usuario = "❌ Formato de archivo no reconocido."
+        recomendacion = "💡 **Solución:** Asegúrese de subir archivos con extensión .xlsx (Excel moderno)."
+
+    # 3. ERRORES DE LÓGICA / VACÍOS
+    elif "The truth value of a Series is ambiguous" in error_tecnico:
+        mensaje_usuario = "❌ Error de duplicidad en columnas."
+        recomendacion = "💡 **Solución:** Su archivo Excel tiene dos columnas con el mismo nombre (ej: dos columnas 'RIF'). Elimine una."
+    
+    elif "No columns to parse" in error_tecnico:
+        mensaje_usuario = "❌ El archivo parece estar vacío o no tiene datos legibles."
+
+    # 4. ERROR GENÉRICO (Fallback)
+    else:
+        mensaje_usuario = f"❌ Ocurrió un error inesperado durante {contexto}."
+        recomendacion = f"Detalle técnico: {error_tecnico}"
+
+    # --- MOSTRAR EN PANTALLA ---
+    st.error(mensaje_usuario)
+    if recomendacion:
+        st.info(recomendacion)
+        
+    # Mostrar el traceback solo si el usuario quiere verlo (para ti como soporte)
+    with st.expander("Ver detalles técnicos del error (Solo para Soporte)"):
+        st.code(traceback.format_exc())
+
 
 # --- Configuración de la página de Streamlit ---
 st.set_page_config(page_title="Conciliador Automático", page_icon="🤖", layout="wide")
