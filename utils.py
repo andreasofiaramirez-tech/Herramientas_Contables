@@ -1134,29 +1134,39 @@ def generar_reporte_paquete_cc(df_analizado, nombre_casa):
 def generar_reporte_cuadre(df_resultado, df_huerfanos, nombre_empresa):
     """
     Genera el Excel del Cuadre CB-CG.
-    Hoja 1: Resumen.
-    Hoja 2: Descuadres.
-    Hoja 3: Cuentas No Configuradas (Integridad).
+    Hoja 1: Resumen General (Con Totales).
+    Hoja 2: Análisis de Descuadres (Con Código CB y Cuenta CG).
+    Hoja 3: Cuentas No Configuradas.
     """
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         workbook = writer.book
         
-        # --- ESTILOS (Mismos de antes) ---
+        # --- ESTILOS ---
         title_fmt = workbook.add_format({'bold': True, 'font_size': 14, 'align': 'center', 'valign': 'vcenter'})
         header_fmt = workbook.add_format({'bold': True, 'fg_color': '#D9EAD3', 'border': 1, 'align': 'center', 'valign': 'vcenter'})
         text_fmt = workbook.add_format({'border': 1})
         money_fmt = workbook.add_format({'num_format': '#,##0.00', 'border': 1})
+        
         red_fmt = workbook.add_format({'bg_color': '#FFC7CE', 'font_color': '#9C0006', 'num_format': '#,##0.00', 'border': 1})
         green_fmt = workbook.add_format({'bg_color': '#C6EFCE', 'font_color': '#006100', 'num_format': '#,##0.00', 'border': 1})
+        
         group_fmt = workbook.add_format({'bold': True, 'bg_color': '#E0E0E0', 'border': 1})
+        
+        # Estilos Totales Hoja 1
+        total_label_fmt = workbook.add_format({'bold': True, 'bg_color': '#F2F2F2', 'border': 1, 'align': 'right'})
+        total_val_fmt = workbook.add_format({'bold': True, 'bg_color': '#F2F2F2', 'num_format': '#,##0.00', 'border': 1})
+        total_red_fmt = workbook.add_format({'bold': True, 'bg_color': '#FFC7CE', 'font_color': '#9C0006', 'num_format': '#,##0.00', 'border': 1})
+        total_green_fmt = workbook.add_format({'bold': True, 'bg_color': '#C6EFCE', 'font_color': '#006100', 'num_format': '#,##0.00', 'border': 1})
         
         # ==========================================
         # HOJA 1: RESUMEN GENERAL
         # ==========================================
         ws1 = workbook.add_worksheet('Resumen General')
         ws1.hide_gridlines(2)
+        
         cols_resumen = ['Banco (Tesorería)', 'Cuenta Contable', 'Descripción', 'Saldo Final CB', 'Saldo Final CG', 'Diferencia', 'Estado']
+        
         current_row = 0
         ws1.merge_range('A1:G1', f"CUADRE DE DISPONIBILIDAD BANCARIA (CB vs CG) - {nombre_empresa}", title_fmt)
         current_row += 2
@@ -1164,19 +1174,44 @@ def generar_reporte_cuadre(df_resultado, df_huerfanos, nombre_empresa):
         for moneda, grupo in df_resultado.groupby('Moneda'):
             ws1.merge_range(current_row, 0, current_row, 6, f"MONEDA: {moneda}", group_fmt)
             current_row += 1
+            
             ws1.write_row(current_row, 0, cols_resumen, header_fmt)
             current_row += 1
+            
+            # Variables para Totales
+            sum_cb = 0.0
+            sum_cg = 0.0
+            sum_dif = 0.0
+            
             for _, row in grupo.iterrows():
                 ws1.write(current_row, 0, row['Banco (Tesorería)'], text_fmt)
                 ws1.write(current_row, 1, row['Cuenta Contable'], text_fmt)
                 ws1.write(current_row, 2, row['Descripción'], text_fmt)
                 ws1.write_number(current_row, 3, row['Saldo Final CB'], money_fmt)
                 ws1.write_number(current_row, 4, row['Saldo Final CG'], money_fmt)
-                fmt_dif = red_fmt if row['Diferencia'] != 0 else green_fmt
-                ws1.write_number(current_row, 5, row['Diferencia'], fmt_dif)
+                
+                dif = row['Diferencia']
+                fmt_dif = red_fmt if dif != 0 else green_fmt
+                ws1.write_number(current_row, 5, dif, fmt_dif)
+                
                 ws1.write(current_row, 6, row['Estado'], text_fmt)
+                
+                # Acumular
+                sum_cb += row['Saldo Final CB']
+                sum_cg += row['Saldo Final CG']
+                sum_dif += dif
                 current_row += 1
+            
+            # Fila de Totales
+            ws1.write(current_row, 2, f"TOTAL {moneda}", total_label_fmt)
+            ws1.write_number(current_row, 3, sum_cb, total_val_fmt)
+            ws1.write_number(current_row, 4, sum_cg, total_val_fmt)
+            fmt_tot_dif = total_red_fmt if abs(sum_dif) > 0.01 else total_green_fmt
+            ws1.write_number(current_row, 5, sum_dif, fmt_tot_dif)
+            ws1.write(current_row, 6, "", total_val_fmt) # Borde vacío
+            
             current_row += 2
+
         ws1.set_column('A:B', 15); ws1.set_column('C:C', 40); ws1.set_column('D:F', 18); ws1.set_column('G:G', 12)
 
         # ==========================================
@@ -1184,36 +1219,58 @@ def generar_reporte_cuadre(df_resultado, df_huerfanos, nombre_empresa):
         # ==========================================
         ws2 = workbook.add_worksheet('Análisis de Descuadres')
         ws2.hide_gridlines(2)
+        
         df_descuadres = df_resultado[df_resultado['Estado'] == 'DESCUADRE'].copy()
-        ws2.merge_range('A1:J1', f"DETALLE DE DESCUADRES - {nombre_empresa}", title_fmt)
+        ws2.merge_range('A1:K1', f"DETALLE DE DESCUADRES - {nombre_empresa}", title_fmt)
         
         if not df_descuadres.empty:
-            headers_det = ['Moneda', 'Cuenta', 'Descripción', 'CB Inicial', 'CB Débitos', 'CB Créditos', 'CG Inicial', 'CG Débitos', 'CG Créditos', 'DIFERENCIA FINAL']
+            # --- CAMBIO AQUÍ: AGREGADAS COLUMNAS CÓDIGO Y CUENTA ---
+            headers_det = [
+                'Moneda', 
+                'Código CB',       # <--- Nueva
+                'Cuenta Contable', # <--- Nueva
+                'Descripción', 
+                'CB Inicial', 'CB Débitos', 'CB Créditos',
+                'CG Inicial', 'CG Débitos', 'CG Créditos',
+                'DIFERENCIA FINAL'
+            ]
             ws2.write_row(2, 0, headers_det, header_fmt)
+            
             curr_row = 3
             for _, row in df_descuadres.iterrows():
                 ws2.write(curr_row, 0, row['Moneda'], text_fmt)
-                ws2.write(curr_row, 1, row['Cuenta Contable'], text_fmt)
-                ws2.write(curr_row, 2, row['Descripción'], text_fmt)
-                ws2.write_number(curr_row, 3, row.get('CB Inicial', 0), money_fmt)
-                ws2.write_number(curr_row, 4, row.get('CB Débitos', 0), money_fmt)
-                ws2.write_number(curr_row, 5, row.get('CB Créditos', 0), money_fmt)
-                ws2.write_number(curr_row, 6, row.get('CG Inicial', 0), money_fmt)
-                ws2.write_number(curr_row, 7, row.get('CG Débitos', 0), money_fmt)
-                ws2.write_number(curr_row, 8, row.get('CG Créditos', 0), money_fmt)
-                ws2.write_number(curr_row, 9, row['Diferencia'], red_fmt)
+                ws2.write(curr_row, 1, row['Banco (Tesorería)'], text_fmt) # Código CB
+                ws2.write(curr_row, 2, row['Cuenta Contable'], text_fmt)   # Cuenta CG
+                ws2.write(curr_row, 3, row['Descripción'], text_fmt)
+                
+                # CB Saldos (Indices +1 por las nuevas columnas)
+                ws2.write_number(curr_row, 4, row.get('CB Inicial', 0), money_fmt)
+                ws2.write_number(curr_row, 5, row.get('CB Débitos', 0), money_fmt)
+                ws2.write_number(curr_row, 6, row.get('CB Créditos', 0), money_fmt)
+                
+                # CG Saldos
+                ws2.write_number(curr_row, 7, row.get('CG Inicial', 0), money_fmt)
+                ws2.write_number(curr_row, 8, row.get('CG Débitos', 0), money_fmt)
+                ws2.write_number(curr_row, 9, row.get('CG Créditos', 0), money_fmt)
+                
+                # Diferencia
+                ws2.write_number(curr_row, 10, row['Diferencia'], red_fmt)
                 curr_row += 1
-            ws2.set_column('A:B', 15); ws2.set_column('C:C', 35); ws2.set_column('D:J', 15)
+            
+            # Ajuste de Anchos
+            ws2.set_column('A:A', 10) # Moneda
+            ws2.set_column('B:C', 18) # Codigos
+            ws2.set_column('D:D', 35) # Descripcion
+            ws2.set_column('E:K', 15) # Montos
         else:
             ws2.write('A3', "¡Felicidades! No hay descuadres en saldos finales.")
 
         # ==========================================
-        # HOJA 3: CUENTAS NO CONFIGURADAS (HUÉRFANOS)
+        # HOJA 3: CUENTAS NO CONFIGURADAS
         # ==========================================
         if not df_huerfanos.empty:
             ws3 = workbook.add_worksheet('⚠️ Cuentas Sin Configurar')
             ws3.hide_gridlines(2)
-            
             warning_fmt = workbook.add_format({'bold': True, 'font_color': 'red', 'align': 'center', 'font_size': 12})
             ws3.merge_range('A1:E1', "¡ALERTA! Se encontraron movimientos en cuentas que NO están en el diccionario", warning_fmt)
             
@@ -1225,14 +1282,10 @@ def generar_reporte_cuadre(df_resultado, df_huerfanos, nombre_empresa):
                 ws3.write(curr_row, 0, row['Origen'], text_fmt)
                 ws3.write(curr_row, 1, row['Código/Cuenta'], text_fmt)
                 ws3.write(curr_row, 2, row['Descripción/Nombre'], text_fmt)
-                # El saldo puede ser texto o número, usamos write general
                 ws3.write(curr_row, 3, row['Saldo Final'], text_fmt)
                 ws3.write(curr_row, 4, row['Mensaje'], text_fmt)
                 curr_row += 1
-            
             ws3.set_column('A:B', 20); ws3.set_column('C:C', 40); ws3.set_column('D:E', 30)
-            
-            # Tab color rojo para llamar la atención
             ws3.set_tab_color('red')
 
     return output.getvalue()
