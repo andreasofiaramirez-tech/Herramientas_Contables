@@ -2627,11 +2627,49 @@ MAPEO_CB_CG_FEBECA = {
 }
 
 def limpiar_monto_pdf(texto):
-    """Convierte texto de moneda a float."""
+    """
+    Convierte texto a float detectando automáticamente el formato numérico.
+    Maneja: "1,234.56" (US) y "1.234,56" (VE/EU).
+    """
     if not texto: return 0.0
-    limpio = texto.replace('.', '').replace(',', '.')
-    try: return float(limpio)
-    except ValueError: return 0.0
+    
+    # 1. Limpieza básica (quitar espacios, símbolos de moneda)
+    t = str(texto).replace(' ', '').replace('$', '').replace('Bs', '').strip()
+    
+    # 2. Manejo de negativos entre paréntesis: (100.00) -> -100.00
+    signo = 1
+    if '(' in t and ')' in t:
+        signo = -1
+        t = t.replace('(', '').replace(')', '')
+    elif '-' in t: # A veces el menos está al final "100-" o al inicio "-100"
+        signo = -1
+        t = t.replace('-', '')
+
+    # 3. Detección de Formato basada en la última aparición
+    idx_punto = t.rfind('.')
+    idx_coma = t.rfind(',')
+
+    if idx_punto > idx_coma:
+        # CASO US: "81,268.96" (El punto está al final, es el decimal)
+        # Acción: Quitar comas
+        t = t.replace(',', '')
+    elif idx_coma > idx_punto:
+        # CASO VE: "81.268,96" (La coma está al final, es el decimal)
+        # Acción: Quitar puntos, cambiar coma por punto
+        t = t.replace('.', '').replace(',', '.')
+    
+    # Caso borde: Si solo hay uno de los dos, intentamos inferir o dejarlo pasar
+    # (Python float acepta "1000.50" pero no "1000,50")
+    elif idx_coma != -1 and idx_punto == -1:
+        # Solo hay comas: "10,50" o "1,000"
+        # Si tiene 3 decimales es miles (1,000), si tiene 2 es decimal (10,50)... es ambiguo.
+        # Por seguridad en reportes financieros, si hay coma y no punto, asumimos formato VE:
+        t = t.replace(',', '.')
+
+    try:
+        return float(t) * signo
+    except ValueError:
+        return 0.0
 
 def extraer_saldos_cb(archivo, log_messages):
     datos = {} 
