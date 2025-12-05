@@ -2308,14 +2308,13 @@ def _validar_asiento(asiento_group):
 def run_analysis_paquete_cc(df_diario, log_messages):
     """
     Función principal optimizada con VECTORIZACIÓN y AGREGACIÓN PREVIA.
-    Incluye normalización de columnas de Cliente/NIT.
+    Incluye normalización de columnas de Cliente/NIT y CORRECCIÓN DE ORDENAMIENTO.
     """
     log_messages.append("--- INICIANDO ANÁLISIS Y VALIDACIÓN DE PAQUETE CC (ULTRA RÁPIDO) ---")
     
     df = df_diario.copy()
     
     # --- PASO 0: NORMALIZACIÓN DE COLUMNAS DE CLIENTE/NIT ---
-    # Buscamos columnas comunes y las renombramos a un estándar
     rename_map = {}
     for col in df.columns:
         c_upper = col.strip().upper()
@@ -2325,21 +2324,15 @@ def run_analysis_paquete_cc(df_diario, log_messages):
             rename_map[col] = 'Nombre'
             
     df.rename(columns=rename_map, inplace=True)
-    
-    # Aseguramos que existan para no romper el reporte
     if 'NIT' not in df.columns: df['NIT'] = ''
     if 'Nombre' not in df.columns: df['Nombre'] = ''
-    
-    # Rellenar vacíos estéticos
     df['NIT'] = df['NIT'].fillna('')
     df['Nombre'] = df['Nombre'].fillna('')
-    # --------------------------------------------------------
 
     # Limpieza vectorizada
     df['Cuenta Contable Norm'] = df['Cuenta Contable'].astype(str).str.replace(r'\D', '', regex=True)
     df['Monto_USD'] = (df['Débito Dolar'] - df['Crédito Dolar']).round(2)
     
-    # Preparar columnas de texto para agrupación eficiente
     df['Ref_Str'] = df['Referencia'].astype(str).fillna('').str.upper()
     df['Fuente_Str'] = df['Fuente'].astype(str).fillna('').str.upper()
     
@@ -2425,7 +2418,7 @@ def run_analysis_paquete_cc(df_diario, log_messages):
     if mapa_cambio_grupo:
         df['Grupo'] = df['Asiento'].map(mapa_cambio_grupo).fillna(df['Grupo'])
 
-    # --- FASE 4: VALIDACIÓN Y ORDEN ---
+    # --- FASE 4: VALIDACIÓN Y ORDENAMIENTO ---
     resultados_validacion = {}
     for asiento_id, asiento_group in df.groupby('Asiento'):
         if asiento_group['Grupo'].iloc[0].startswith("Grupo 13"):
@@ -2439,12 +2432,15 @@ def run_analysis_paquete_cc(df_diario, log_messages):
     if asientos_con_cuentas_nuevas > 0:
         log_messages.append(f"⚠️ Se encontraron {asientos_con_cuentas_nuevas} asientos con cuentas no registradas.")
 
-    # Orden visual: Incidencias primero
+    # 1. Calcular prioridad de orden (0=Rojo, 1=Blanco)
     df['Orden_Prioridad'] = df['Estado'].apply(lambda x: 1 if str(x).startswith('Conciliado') else 0)
     
-    # Limpieza final (Mantenemos NIT y Nombre)
+    # 2. ORDENAR PRIMERO (Aquí estaba el error antes, ahora ordenamos mientras la columna existe)
+    df = df.sort_values(by=['Grupo', 'Orden_Prioridad', 'Asiento'], ascending=[True, True, True])
+    
+    # 3. BORRAR COLUMNAS AUXILIARES DESPUÉS
     cols_drop = ['Ref_Str', 'Fuente_Str', 'Cuenta Contable Norm', 'Monto_USD', 'Orden_Prioridad']
-    df_final = df.drop(columns=cols_drop, errors='ignore').sort_values(by=['Grupo', 'Orden_Prioridad', 'Asiento'], ascending=[True, True, True])
+    df_final = df.drop(columns=cols_drop, errors='ignore')
     
     log_messages.append("--- ANÁLISIS FINALIZADO CON ÉXITO ---")
     return df_final
