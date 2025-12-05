@@ -2533,10 +2533,12 @@ def limpiar_monto_pdf(texto):
         return 0.0
 
 def extraer_saldos_cb(archivo, log_messages):
-    """Extrae saldos del reporte de Tesorería (Soporta PDF y Excel)."""
-    saldos = {} # {CODIGO: Saldo_Final}
+    """
+    Extrae saldos Y NOMBRES del reporte de Tesorería (CB).
+    Retorna: {CODIGO: {'monto': float, 'nombre': str}}
+    """
+    datos = {} 
     
-    # Detección por extensión o tipo
     nombre_archivo = getattr(archivo, 'name', '').lower()
     
     if nombre_archivo.endswith('.pdf'):
@@ -2551,42 +2553,51 @@ def extraer_saldos_cb(archivo, log_messages):
                         parts = line.split()
                         if not parts: continue
                         
-                        # El código CB suele ser el primero (ej: 0102E, 0134L)
-                        # Validamos que tenga el formato correcto (4 digitos + letras)
                         codigo = parts[0]
                         
-                        # Verificamos si es un código válido de nuestro diccionario
-                        # O si cumple patrón básico (para no leer basura)
+                        # Validamos que sea un código de tesorería (4 chars, empieza con dígito)
                         if len(codigo) >= 4 and codigo[0].isdigit():
-                            # En el PDF de CB, el Saldo Final suele ser el ÚLTIMO valor numérico de la línea
-                            # Buscamos el último elemento que parezca un número
                             try:
+                                # 1. Extraer Monto (Último elemento numérico)
                                 saldo_str = parts[-1]
-                                # Validación simple: debe tener coma o punto y ser numérico
                                 if any(c.isdigit() for c in saldo_str):
                                     monto = limpiar_monto_pdf(saldo_str)
-                                    saldos[codigo] = monto
+                                    
+                                    # 2. Extraer Nombre (Todo lo que hay entre el código y los números)
+                                    # Estrategia: Tomamos desde el índice 1 hasta encontrar un patrón numérico o de fecha
+                                    nombre_parts = []
+                                    for p in parts[1:]:
+                                        # Si parece fecha (01/01...) o número largo, paramos
+                                        if '/' in p or (any(c.isdigit() for c in p) and len(p) > 4):
+                                            break
+                                        nombre_parts.append(p)
+                                    
+                                    nombre_banco = " ".join(nombre_parts)
+                                    
+                                    datos[codigo] = {'monto': monto, 'nombre': nombre_banco}
                             except:
                                 pass
         except Exception as e:
             log_messages.append(f"❌ Error leyendo PDF CB: {str(e)}")
             
     else:
-        # Asumimos Excel
+        # Lógica Excel (Placeholder simplificado)
         log_messages.append("📗 Procesando Reporte CB como Excel...")
         try:
             df = pd.read_excel(archivo)
-            # Normalizar columnas (buscar 'Cuenta' y 'Saldo Final')
-            # Lógica pendiente si envías Excel, por ahora placeholder básico
+            # Aquí se debería implementar la lógica específica si se usa Excel
             pass 
         except Exception as e:
             log_messages.append(f"❌ Error leyendo Excel CB: {str(e)}")
 
-    return saldos
+    return datos
 
 def extraer_saldos_cg(archivo, log_messages):
-    """Extrae saldos del Balance de Comprobación (PDF)."""
-    saldos_cg = {} # {CUENTA_CONTABLE: {'VES': monto, 'USD': monto}}
+    """
+    Extrae saldos Y DESCRIPCIONES del Balance de Comprobación (CG).
+    Retorna: {CUENTA: {'VES': float, 'USD': float, 'descripcion': str}}
+    """
+    datos_cg = {}
     
     log_messages.append("📄 Procesando Balance CG como PDF...")
     try:
@@ -2599,54 +2610,65 @@ def extraer_saldos_cg(archivo, log_messages):
                     parts = line.split()
                     if not parts: continue
                     
-                    # La cuenta contable es el primer elemento (ej: 1.1.1.02...)
                     cuenta = parts[0]
                     
                     # Validar formato de cuenta (1.x.x...)
                     if not (cuenta.startswith('1.') and len(cuenta) > 10):
                         continue
                         
-                    # Extracción de Saldos
-                    # El PDF tiene dos bloques: Local (izq) y Dolar (der).
-                    # Estructura usual de línea de datos:
-                    # Cta | Desc... | S.Ini | Deb | Cred | S.Fin(Local) | S.Ini | Deb | Cred | S.Fin(Dolar)
+                    # 1. Extraer Descripción
+                    # La descripción está entre la cuenta y la palabra "Deudor"/"Acreedor" o los números
+                    desc_parts = []
+                    idx_inicio_numeros = len(parts) # Por defecto al final
                     
-                    # Filtramos solo los elementos que parecen números
+                    for i, p in enumerate(parts[1:], 1):
+                        # Detectamos donde empiezan los saldos o el tipo de saldo
+                        p_clean = p.replace('.', '').replace(',', '').replace('-', '')
+                        
+                        # Si es "Deudor", "Acreedor" o un número, ahí termina la descripción
+                        if p in ['Deudor', 'Acreedor'] or (p_clean.isdigit() and len(p_clean) > 0):
+                            idx_inicio_numeros = i
+                            break
+                        desc_parts.append(p)
+                        
+                    descripcion = " ".join(desc_parts)
+                    
+                    # 2. Extraer Saldos (usando el índice detectado)
+                    # Filtramos solo los elementos numéricos a partir de donde terminó la descripción
                     numeros = []
-                    for p in parts[1:]:
-                        # Limpiamos caracteres no numéricos para validar
+                    for p in parts[idx_inicio_numeros:]:
                         p_clean = p.replace('.', '').replace(',', '').replace('-', '')
                         if p_clean.isdigit() and len(p_clean) > 0:
                             numeros.append(p)
                     
-                    # Si detectamos suficientes números, intentamos asignar
-                    # Asumimos que el Saldo Final Local es el 4to número 
-                    # y el Saldo Final Dólar es el 8vo (o el último).
                     if len(numeros) >= 4:
                         try:
-                            # Saldo Local (VES) suele estar en la posición 3 (índice 0,1,2,3) de los números encontrados
-                            # Ojo: esto es heurística, puede requerir ajuste fino viendo el PDF real
+                            # Asumiendo estructura: S.Ini | Deb | Cred | S.Fin(Local)
                             saldo_ves = limpiar_monto_pdf(numeros[3]) 
                             
-                            # Saldo Dólar (USD) suele ser el último
                             saldo_usd = 0.0
                             if len(numeros) >= 8:
                                 saldo_usd = limpiar_monto_pdf(numeros[-1])
                             
-                            saldos_cg[cuenta] = {'VES': saldo_ves, 'USD': saldo_usd}
+                            datos_cg[cuenta] = {
+                                'VES': saldo_ves, 
+                                'USD': saldo_usd, 
+                                'descripcion': descripcion
+                            }
                         except:
                             pass
                             
     except Exception as e:
         log_messages.append(f"❌ Error leyendo PDF CG: {str(e)}")
         
-    return saldos_cg
+    return datos_cg
 
 def run_cuadre_cb_cg_beval(file_cb, file_cg, log_messages):
     """
     Función Principal: Cruza Tesorería vs Contabilidad.
+    Ahora incluye Nombres y Descripciones.
     """
-    # 1. Extracción
+    # 1. Extracción (Ahora devuelve diccionarios más ricos)
     data_cb = extraer_saldos_cb(file_cb, log_messages)
     data_cg = extraer_saldos_cg(file_cg, log_messages)
     
@@ -2657,24 +2679,35 @@ def run_cuadre_cb_cg_beval(file_cb, file_cg, log_messages):
     resultados = []
     
     for codigo_cb, config in MAPEO_CB_CG_BEVAL.items():
-        # Datos del Mapeo
         cuenta_cg = config['cta']
         moneda = config['moneda']
         
-        # Obtener Saldos
-        saldo_tesoreria = data_cb.get(codigo_cb, 0.0)
+        # Obtener Datos CB (Diccionario con 'monto' y 'nombre')
+        info_cb = data_cb.get(codigo_cb, {'monto': 0.0, 'nombre': 'NO ENCONTRADO EN PDF'})
+        saldo_tesoreria = info_cb['monto']
+        nombre_cb = info_cb['nombre']
         
-        datos_contables = data_cg.get(cuenta_cg, {'VES': 0.0, 'USD': 0.0})
-        saldo_contabilidad = datos_contables.get(moneda, 0.0)
+        # Obtener Datos CG (Diccionario con 'VES', 'USD', 'descripcion')
+        info_cg = data_cg.get(cuenta_cg, {'VES': 0.0, 'USD': 0.0, 'descripcion': 'NO ENCONTRADO EN PDF'})
+        saldo_contabilidad = info_cg.get(moneda, 0.0)
+        descripcion_cg = info_cg.get('descripcion', '')
         
-        # Calcular Diferencia
         diferencia = round(saldo_tesoreria - saldo_contabilidad, 2)
-        estado = "OK" if diferencia == 0 else "DESCUADRE"
+        
+        # Estado Visual
+        if diferencia == 0:
+            estado = "OK"
+        elif saldo_tesoreria == 0 and saldo_contabilidad == 0:
+            estado = "SIN MOVIMIENTO"
+        else:
+            estado = "DESCUADRE"
         
         resultados.append({
             'Codigo CB': codigo_cb,
+            'Banco (Tesoreria)': nombre_cb,  # <--- NUEVO
             'Moneda': moneda,
             'Cuenta Contable': cuenta_cg,
+            'Descripcion (Contabilidad)': descripcion_cg, # <--- NUEVO
             'Saldo Tesoreria': saldo_tesoreria,
             'Saldo Contabilidad': saldo_contabilidad,
             'Diferencia': diferencia,
