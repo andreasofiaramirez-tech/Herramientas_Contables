@@ -2642,8 +2642,31 @@ def limpiar_monto_pdf(texto):
     try: return float(t)
     except ValueError: return 0.0
 
+def es_texto_numerico(texto):
+    """
+    Determina si un string es un candidato a número financiero.
+    Acepta: '1.000,00', '-500', '(200.00)', '0.00'.
+    """
+    if not texto: return False
+    # Limpiamos caracteres que no sean dígitos
+    # Permitimos: dígitos, coma, punto, guion, paréntesis
+    t_clean = re.sub(r'[^\d]', '', texto)
+    
+    # Debe tener al menos un dígito
+    if not t_clean: return False
+    
+    # Debe tener algún indicador de formato financiero o ser un 0
+    indicadores = ['.', ',', '-', '(', ')']
+    if any(i in texto for i in indicadores):
+        return True
+    
+    # Si es solo dígitos (ej: 1000), también vale
+    return True
+
 def extraer_saldos_cb(archivo, log_messages):
-    """Extrae saldos COMPLETOS y NOMBRES del reporte de Tesorería."""
+    """
+    Extrae saldos de CB con detección mejorada de números negativos/parentesis.
+    """
     datos = {} 
     nombre_archivo = getattr(archivo, 'name', '').lower()
     
@@ -2667,34 +2690,52 @@ def extraer_saldos_cb(archivo, log_messages):
                                 indices_numeros = []
                                 
                                 for i, p in enumerate(parts):
-                                    if any(c.isdigit() for c in p) and (',' in p or '.' in p or p=='0.00' or p=='-0.00'):
+                                    # USAMOS LA NUEVA FUNCIÓN DE DETECCIÓN
+                                    if es_texto_numerico(p):
                                         numeros_encontrados.append(p)
                                         indices_numeros.append(i)
                                 
-                                if len(numeros_encontrados) >= 4:
+                                # Lógica flexible de asignación
+                                s_ini = 0.0; s_deb = 0.0; s_cre = 0.0; s_fin = 0.0
+                                cant = len(numeros_encontrados)
+                                
+                                if cant >= 1: s_fin = limpiar_monto_pdf(numeros_encontrados[-1])
+                                if cant >= 2: s_ini = limpiar_monto_pdf(numeros_encontrados[0])
+                                
+                                if cant >= 4:
+                                    # Si hay 4 o más, tomamos los últimos 4 (lo estándar)
                                     s_ini = limpiar_monto_pdf(numeros_encontrados[-4])
                                     s_deb = limpiar_monto_pdf(numeros_encontrados[-3])
                                     s_cre = limpiar_monto_pdf(numeros_encontrados[-2])
                                     s_fin = limpiar_monto_pdf(numeros_encontrados[-1])
                                     
-                                    # Nombre
+                                    # Extracción de Nombre
                                     if indices_numeros:
-                                        idx_fin_nombre = indices_numeros[-4]
-                                        nombre_parts = parts[1:idx_fin_nombre]
-                                        nombre_limpio_parts = []
+                                        # El nombre está antes del primer número del bloque de saldos
+                                        idx_corte = indices_numeros[-4]
+                                        nombre_parts = parts[1:idx_corte]
+                                        # Limpieza
+                                        nombre_limpio = []
                                         for p in nombre_parts:
+                                            # Filtramos fechas dd/mm/yyyy
                                             if not re.search(r'\d{2}/\d{2}/\d{4}', p) and not (p.isdigit() and len(p)==4):
-                                                nombre_limpio_parts.append(p)
-                                        nombre_banco = " ".join(nombre_limpio_parts)
+                                                nombre_limpio.append(p)
+                                        nombre_banco = " ".join(nombre_limpio)
                                     else: nombre_banco = "SIN NOMBRE"
                                 else:
-                                    nombre_banco = "SIN MOVIMIENTOS (Saldo detectado)"
+                                    # Caso raro: hay código pero no 4 números. Asumimos lo que haya.
+                                    nombre_banco = "DETECTADO (Saldo Parcial)"
 
-                                datos[codigo] = {'inicial': s_ini, 'debitos': s_deb, 'creditos': s_cre, 'final': s_fin, 'nombre': nombre_banco}
+                                datos[codigo] = {
+                                    'inicial': s_ini, 'debitos': s_deb, 
+                                    'creditos': s_cre, 'final': s_fin, 
+                                    'nombre': nombre_banco
+                                }
                             except: continue
         except Exception as e:
             log_messages.append(f"❌ Error leyendo PDF CB: {str(e)}")
-            
+    
+    # --- MODO EXCEL ---
     else:
         log_messages.append("📗 Procesando Reporte CB como Excel...")
         try:
@@ -2705,17 +2746,17 @@ def extraer_saldos_cb(archivo, log_messages):
             if col_cta and col_fin:
                 for _, row in df.iterrows():
                     codigo = str(row[col_cta]).strip()
-                    try:
-                        s_fin = float(row[col_fin])
-                        datos[codigo] = {'inicial':0, 'debitos':0, 'creditos':0, 'final':s_fin, 'nombre':"Excel Import"}
-                    except: pass
-        except Exception as e:
-            log_messages.append(f"❌ Error leyendo Excel CB: {str(e)}")
+                    try: s_fin = float(row[col_fin])
+                    except: s_fin = 0.0
+                    datos[codigo] = {'inicial':0, 'debitos':0, 'creditos':0, 'final':s_fin, 'nombre':"Excel Import"}
+        except: pass
 
     return datos
 
 def extraer_saldos_cg(archivo, log_messages):
-    """Extrae saldos COMPLETOS y NOMBRES OFICIALES del Balance."""
+    """
+    Extrae saldos de CG con detección mejorada de números.
+    """
     datos_cg = {}
     nombre_archivo = getattr(archivo, 'name', '').lower()
     
@@ -2733,47 +2774,58 @@ def extraer_saldos_cg(archivo, log_messages):
                         cuenta = parts[0].strip()
                         if not (cuenta.startswith('1.') and len(cuenta) > 10): continue
                         
-                        # 1. Nombre Oficial
+                        # Nombre
                         if cuenta in NOMBRES_CUENTAS_OFICIALES:
                             descripcion = NOMBRES_CUENTAS_OFICIALES[cuenta]
                         else:
+                            # Fallback para nombre
                             desc_parts = []
                             for p in parts[1:]:
-                                p_clean = p.replace('.', '').replace(',', '').replace('-', '')
-                                if p.upper() in ['DEUDOR', 'ACREEDOR', 'SALDO'] or (p_clean.isdigit() and len(p_clean)>0):
+                                # Usamos la nueva función para saber dónde paran las letras
+                                if p.upper() in ['DEUDOR', 'ACREEDOR', 'SALDO'] or es_texto_numerico(p):
                                     break
                                 desc_parts.append(p)
-                            descripcion = " ".join(desc_parts) + " (Leído PDF)"
+                            descripcion = " ".join(desc_parts)
 
-                        # 2. Saldos
+                        # Saldos
                         numeros = []
                         for p in parts[1:]:
-                            p_clean = p.replace('.', '').replace(',', '').replace('-', '')
-                            if p_clean.isdigit() and len(p_clean) > 0:
+                            # USAMOS LA NUEVA FUNCIÓN DE DETECCIÓN
+                            if es_texto_numerico(p):
                                 numeros.append(p)
                         
                         vals_ves = {'inicial':0.0, 'debitos':0.0, 'creditos':0.0, 'final':0.0}
                         vals_usd = {'inicial':0.0, 'debitos':0.0, 'creditos':0.0, 'final':0.0}
                         
-                        if len(numeros) >= 4:
+                        # Mapeo inteligente
+                        # Si hay 8 números, son los 2 bloques completos
+                        if len(numeros) >= 8:
                             vals_ves = {
                                 'inicial': limpiar_monto_pdf(numeros[0]),
                                 'debitos': limpiar_monto_pdf(numeros[1]),
                                 'creditos': limpiar_monto_pdf(numeros[2]),
                                 'final': limpiar_monto_pdf(numeros[3])
                             }
-                        if len(numeros) >= 8:
                             vals_usd = {
                                 'inicial': limpiar_monto_pdf(numeros[4]),
                                 'debitos': limpiar_monto_pdf(numeros[5]),
                                 'creditos': limpiar_monto_pdf(numeros[6]),
                                 'final': limpiar_monto_pdf(numeros[7])
                             }
+                        # Si hay 4 números, asumimos que son solo VES (Local)
+                        elif len(numeros) >= 4:
+                            vals_ves = {
+                                'inicial': limpiar_monto_pdf(numeros[0]),
+                                'debitos': limpiar_monto_pdf(numeros[1]),
+                                'creditos': limpiar_monto_pdf(numeros[2]),
+                                'final': limpiar_monto_pdf(numeros[3])
+                            }
                         
                         datos_cg[cuenta] = {'VES': vals_ves, 'USD': vals_usd, 'descripcion': descripcion}
-                            
         except Exception as e:
             log_messages.append(f"❌ Error leyendo PDF CG: {str(e)}")
+    else:
+        pass
             
     return datos_cg
 
