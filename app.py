@@ -570,6 +570,11 @@ def render_paquete_cc():
 
 def render_cuadre():
     st.title("⚖️ Cuadre de Disponibilidad (CB vs CG)", anchor=False)
+
+    # --- BOTÓN VOLVER AL INICIO ---
+    if st.button("⬅️ Volver al Inicio", key="back_from_cuadre"):
+        set_page('inicio')
+        st.rerun()
     
     # --- SELECTOR DE EMPRESA ---
     CASA_OPTIONS = ["MAYOR BEVAL, C.A", "FEBECA, C.A", "FEBECA, C.A (QUINCALLA)", "PRISMA, C.A"]
