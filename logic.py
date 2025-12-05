@@ -2586,11 +2586,14 @@ def limpiar_monto_pdf(texto):
     except ValueError: return 0.0
 
 def extraer_saldos_cb(archivo, log_messages):
-    """Extrae saldos COMPLETOS (Ini, Deb, Cre, Fin) del reporte de Tesorería."""
+    """
+    Extrae saldos COMPLETOS (Ini, Deb, Cre, Fin) y NOMBRES del reporte de Tesorería.
+    Soporte PDF y Excel.
+    """
     datos = {} 
-    
     nombre_archivo = getattr(archivo, 'name', '').lower()
     
+    # --- MODO PDF ---
     if nombre_archivo.endswith('.pdf'):
         log_messages.append("📄 Procesando Reporte CB como PDF...")
         try:
@@ -2605,109 +2608,172 @@ def extraer_saldos_cb(archivo, log_messages):
                         
                         codigo = parts[0].strip()
                         
+                        # Filtro: Código debe tener al menos 4 chars y empezar por dígito (0102L)
                         if len(codigo) >= 4 and codigo[0].isdigit():
                             try:
-                                # Capturamos los últimos 4 números de la línea
-                                # Estructura: ... SaldoIni | Debitos | Creditos | SaldoFin
+                                # 1. Extraer Saldos (Buscamos los 4 últimos números de la línea)
                                 numeros_encontrados = []
-                                for p in parts:
+                                indices_numeros = []
+                                
+                                for i, p in enumerate(parts):
+                                    # Limpieza para detección
                                     if any(c.isdigit() for c in p) and (',' in p or '.' in p or p=='0.00'):
                                         numeros_encontrados.append(p)
+                                        indices_numeros.append(i)
                                 
+                                # Necesitamos al menos 4 números (Ini, Deb, Cre, Fin)
                                 if len(numeros_encontrados) >= 4:
-                                    # Tomamos los últimos 4
                                     s_ini = limpiar_monto_pdf(numeros_encontrados[-4])
                                     s_deb = limpiar_monto_pdf(numeros_encontrados[-3])
                                     s_cre = limpiar_monto_pdf(numeros_encontrados[-2])
                                     s_fin = limpiar_monto_pdf(numeros_encontrados[-1])
                                     
+                                    # 2. Extraer Nombre
+                                    # El nombre está entre el código (idx 0) y el primer número de saldo
+                                    idx_inicio_nums = indices_numeros[-4]
+                                    nombre_parts = parts[1:idx_inicio_nums]
+                                    
+                                    # Limpieza extra del nombre (quitar fechas si se colaron)
+                                    nombre_limpio_parts = []
+                                    for p in nombre_parts:
+                                        if not re.search(r'\d{2}/\d{2}/\d{4}', p) and not (p.isdigit() and len(p)==4):
+                                            nombre_limpio_parts.append(p)
+                                            
+                                    nombre_banco = " ".join(nombre_limpio_parts)
+                                    
+                                    # Guardamos la estructura completa
                                     datos[codigo] = {
-                                        'inicial': s_ini, 'debitos': s_deb, 
-                                        'creditos': s_cre, 'final': s_fin
+                                        'inicial': s_ini, 
+                                        'debitos': s_deb, 
+                                        'creditos': s_cre, 
+                                        'final': s_fin, 
+                                        'nombre': nombre_banco
                                     }
                             except Exception:
-                                pass
+                                continue
         except Exception as e:
             log_messages.append(f"❌ Error leyendo PDF CB: {str(e)}")
             
+    # --- MODO EXCEL ---
     else:
-        # Modo Excel (simplificado, asume columnas estándar)
-        # Para el reporte de movimiento completo se requeriría lógica similar
-        pass
+        log_messages.append("📗 Procesando Reporte CB como Excel...")
+        try:
+            df = pd.read_excel(archivo)
+            df.columns = [str(c).strip().upper() for c in df.columns]
+            
+            # Mapeo de columnas básico
+            col_cta = next((c for c in df.columns if 'CUENTA' in c), None)
+            col_nom = next((c for c in df.columns if 'NOMBRE' in c), None)
+            col_fin = next((c for c in df.columns if 'FINAL' in c), None)
+            # Intentar buscar inicial/deb/cre si existen, sino 0
+            col_ini = next((c for c in df.columns if 'INICIAL' in c), None)
+            col_deb = next((c for c in df.columns if 'DEBITO' in c or 'DÉBITO' in c), None)
+            col_cre = next((c for c in df.columns if 'CREDITO' in c or 'CRÉDITO' in c), None)
+            
+            if col_cta and col_fin:
+                for _, row in df.iterrows():
+                    codigo = str(row[col_cta]).strip()
+                    nombre = str(row[col_nom]).strip() if col_nom else "SIN NOMBRE"
+                    
+                    try:
+                        s_fin = float(row[col_fin])
+                        s_ini = float(row[col_ini]) if col_ini else 0.0
+                        s_deb = float(row[col_deb]) if col_deb else 0.0
+                        s_cre = float(row[col_cre]) if col_cre else 0.0
+                        
+                        datos[codigo] = {
+                            'inicial': s_ini, 'debitos': s_deb, 
+                            'creditos': s_cre, 'final': s_fin, 
+                            'nombre': nombre
+                        }
+                    except: pass
+        except Exception as e:
+            log_messages.append(f"❌ Error leyendo Excel CB: {str(e)}")
 
     return datos
 
 def extraer_saldos_cg(archivo, log_messages):
     """
-    Extrae saldos del Balance de Comprobación.
-    MEJORA: Prioriza el nombre del diccionario oficial para evitar texto basura del PDF.
+    Extrae saldos COMPLETOS y NOMBRES OFICIALES del Balance.
+    Corrige el error de 'float not subscriptable'.
     """
     datos_cg = {}
+    nombre_archivo = getattr(archivo, 'name', '').lower()
     
-    log_messages.append("📄 Procesando Balance CG como PDF...")
-    try:
-        with pdfplumber.open(archivo) as pdf:
-            for page in pdf.pages:
-                text = page.extract_text()
-                if not text: continue
-                
-                for line in text.split('\n'):
-                    parts = line.split()
-                    if not parts: continue
+    # --- MODO PDF ---
+    if nombre_archivo.endswith('.pdf'):
+        log_messages.append("📄 Procesando Balance CG como PDF...")
+        try:
+            with pdfplumber.open(archivo) as pdf:
+                for page in pdf.pages:
+                    text = page.extract_text()
+                    if not text: continue
                     
-                    cuenta = parts[0].strip()
-                    
-                    # Validar formato de cuenta
-                    if not (cuenta.startswith('1.') and len(cuenta) > 10):
-                        continue
-                    
-                    # --- CORRECCIÓN CRÍTICA: PRIORIDAD AL DICCIONARIO ---
-                    # Si la cuenta está en nuestra lista oficial, usamos ese nombre limpio.
-                    # Si no, intentamos leerlo del PDF (fallback).
-                    if cuenta in NOMBRES_CUENTAS_OFICIALES:
-                        descripcion = NOMBRES_CUENTAS_OFICIALES[cuenta]
-                    else:
-                        # Lógica de fallback para cuentas desconocidas
-                        desc_parts = []
-                        idx_inicio_numeros = len(parts)
-                        for i, p in enumerate(parts[1:], 1):
+                    for line in text.split('\n'):
+                        parts = line.split()
+                        if len(parts) < 3: continue
+                        
+                        cuenta = parts[0].strip()
+                        
+                        if not (cuenta.startswith('1.') and len(cuenta) > 10):
+                            continue
+                        
+                        # 1. Nombre Oficial (Prioridad 1)
+                        if cuenta in NOMBRES_CUENTAS_OFICIALES:
+                            descripcion = NOMBRES_CUENTAS_OFICIALES[cuenta]
+                        else:
+                            # Fallback: Intentar leer del PDF si no está en la lista
+                            desc_parts = []
+                            for p in parts[1:]:
+                                p_clean = p.replace('.', '').replace(',', '').replace('-', '')
+                                if p.upper() in ['DEUDOR', 'ACREEDOR', 'SALDO'] or (p_clean.isdigit() and len(p_clean)>0):
+                                    break
+                                desc_parts.append(p)
+                            descripcion = " ".join(desc_parts) + " (Leído PDF)"
+
+                        # 2. Extracción de Saldos (Inicial, Deb, Cre, Final)
+                        numeros = []
+                        for p in parts[1:]:
                             p_clean = p.replace('.', '').replace(',', '').replace('-', '')
-                            # Detenerse si encuentra palabras clave de saldo o números
-                            if p.upper() in ['DEUDOR', 'ACREEDOR', 'SALDO'] or (p_clean.isdigit() and len(p_clean) > 0):
-                                idx_inicio_numeros = i
-                                break
-                            desc_parts.append(p)
-                        descripcion = " ".join(desc_parts) + " (Leído de PDF)"
-                    # ----------------------------------------------------
-                    
-                    # Extracción de números (buscando desde el final de la descripción)
-                    numeros = []
-                    for p in parts[1:]: # Revisamos toda la línea por seguridad
-                        p_clean = p.replace('.', '').replace(',', '').replace('-', '')
-                        if p_clean.isdigit() and len(p_clean) > 0:
-                            numeros.append(p)
-                    
-                    if len(numeros) >= 4:
-                        try:
-                            # Mapeo estándar del reporte CG Beval:
-                            # Si hay 8 números: [0-3] son Local, [4-7] son Dólar
-                            saldo_ves = limpiar_monto_pdf(numeros[3]) # 4to número
-                            saldo_usd = 0.0
-                            
-                            if len(numeros) >= 8:
-                                saldo_usd = limpiar_monto_pdf(numeros[7]) # 8vo número
-                            
-                            datos_cg[cuenta] = {
-                                'VES': saldo_ves, 
-                                'USD': saldo_usd, 
-                                'descripcion': descripcion
+                            if p_clean.isdigit() and len(p_clean) > 0:
+                                numeros.append(p)
+                        
+                        # Estructuras por defecto (diccionarios, NO floats)
+                        vals_ves = {'inicial':0.0, 'debitos':0.0, 'creditos':0.0, 'final':0.0}
+                        vals_usd = {'inicial':0.0, 'debitos':0.0, 'creditos':0.0, 'final':0.0}
+                        
+                        if len(numeros) >= 4:
+                            vals_ves = {
+                                'inicial': limpiar_monto_pdf(numeros[0]),
+                                'debitos': limpiar_monto_pdf(numeros[1]),
+                                'creditos': limpiar_monto_pdf(numeros[2]),
+                                'final': limpiar_monto_pdf(numeros[3])
                             }
-                        except:
-                            pass
+                        
+                        if len(numeros) >= 8:
+                            vals_usd = {
+                                'inicial': limpiar_monto_pdf(numeros[4]),
+                                'debitos': limpiar_monto_pdf(numeros[5]),
+                                'creditos': limpiar_monto_pdf(numeros[6]),
+                                'final': limpiar_monto_pdf(numeros[7])
+                            }
+                        
+                        # Guardamos el diccionario completo
+                        datos_cg[cuenta] = {
+                            'VES': vals_ves, 
+                            'USD': vals_usd, 
+                            'descripcion': descripcion
+                        }
                             
     except Exception as e:
         log_messages.append(f"❌ Error leyendo PDF CG: {str(e)}")
-        
+
+    # --- MODO EXCEL ---
+    else:
+        # (Lógica Excel simplificada manteniendo estructura de diccionarios)
+        # Si usas Excel para CG, asegúrate de llenar vals_ves y vals_usd como dicts, no floats.
+        pass
+            
     return datos_cg
 
 def run_cuadre_cb_cg_beval(file_cb, file_cg, log_messages):
