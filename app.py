@@ -590,20 +590,22 @@ def render_cuadre():
         if st.button("Comparar Saldos"):
             log = []
             try:
-                # --- CAMBIO: Se pasa 'empresa_sel' a la función ---
-                # Nota: Asegúrate de importar 'run_cuadre_cb_cg' (el nuevo nombre) en los imports de arriba
-                # o renómbralo en logic.py si prefieres mantener el nombre viejo.
-                # Aquí asumo que en logic.py ahora se llama 'run_cuadre_cb_cg' como puse arriba.
+
                 from logic import run_cuadre_cb_cg 
                 
                 df_res = run_cuadre_cb_cg(file_cb, file_cg, empresa_sel, log)
-                # --------------------------------------------------
                 
                 cols_pantalla = ['Moneda', 'Banco (Tesorería)', 'Cuenta Contable', 'Descripción', 'Saldo Final CB', 'Saldo Final CG', 'Diferencia', 'Estado']
                 st.dataframe(df_res[cols_pantalla], use_container_width=True)
+                excel_data = generar_reporte_cuadre(df_res, empresa_sel)
+                # --------------------------------------------------
                 
-                excel_data = generar_reporte_cuadre(df_res)
-                st.download_button("⬇️ Descargar Reporte Completo (Excel)", excel_data, "Cuadre_CB_CG.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                st.download_button(
+                    label="⬇️ Descargar Reporte Completo (Excel)",
+                    data=excel_data,
+                    file_name=f"Cuadre_CB_CG_{empresa_sel}.xlsx", # Nombre de archivo también personalizado
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
                 
                 with st.expander("Ver Log de Extracción"):
                     st.write(log)
