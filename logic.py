@@ -2479,7 +2479,6 @@ def run_analysis_paquete_cc(df_diario, log_messages):
 # LÓGICA PARA CUADRE CB - CG (TESORERÍA VS CONTABILIDAD) - VERSIÓN FINAL BLINDADA
 # ==============================================================================
 import pdfplumber
-import re
 
 # 1. DICCIONARIO MAESTRO DE NOMBRES
 NOMBRES_CUENTAS_OFICIALES = {
