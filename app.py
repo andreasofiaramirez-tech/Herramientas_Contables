@@ -467,7 +467,7 @@ def render_paquete_cc():
 
                     df_resultado = run_analysis_paquete_cc(df_diario, log_messages)
                     
-                    st.session_state.reporte_paquete_output = generar_reporte_paquete_cc(df_resultado)
+                    st.session_state.reporte_paquete_output = generar_reporte_paquete_cc(df_resultado, casa_seleccionada)
                     st.session_state.log_messages_paquete = log_messages
                     st.session_state.processing_paquete_complete = True
                     st.rerun()
