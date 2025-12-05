@@ -2891,8 +2891,8 @@ def run_cuadre_cb_cg(file_cb, file_cg, nombre_empresa, log_messages):
             diferencia_visual = diferencia_grupo 
             saldo_cg_visual = saldo_cg_total_real
             
-        if saldo_cb_individual == 0 and saldo_cg_total_real == 0 and info_cb.get('debitos', 0) == 0 and diferencia_grupo == 0:
-            continue
+        #if saldo_cb_individual == 0 and saldo_cg_total_real == 0 and info_cb.get('debitos', 0) == 0 and diferencia_grupo == 0:
+            #continue
 
         resultados.append({
             'Moneda': moneda,
