@@ -593,17 +593,28 @@ def render_cuadre():
 
                 from logic import run_cuadre_cb_cg 
                 
-                df_res = run_cuadre_cb_cg(file_cb, file_cg, empresa_sel, log)
+                from logic import run_cuadre_cb_cg
                 
+                # --- CAMBIO: AHORA RECIBE 2 VARIABLES ---
+                df_res, df_huerfanos = run_cuadre_cb_cg(file_cb, file_cg, empresa_sel, log)
+                # ----------------------------------------
+                
+                # Mostrar Resumen en pantalla
                 cols_pantalla = ['Moneda', 'Banco (Tesorería)', 'Cuenta Contable', 'Descripción', 'Saldo Final CB', 'Saldo Final CG', 'Diferencia', 'Estado']
                 st.dataframe(df_res[cols_pantalla], use_container_width=True)
-                excel_data = generar_reporte_cuadre(df_res, empresa_sel)
-                # --------------------------------------------------
+                
+                # Mostrar Alerta en pantalla si hay huérfanos
+                if not df_huerfanos.empty:
+                    st.error(f"⚠️ ATENCIÓN: Se detectaron {len(df_huerfanos)} cuentas con saldo que NO están configuradas. Revisa la 3ra pestaña del Excel.")
+                    st.dataframe(df_huerfanos, use_container_width=True)
+                
+                # Generar Excel con ambos DFs
+                excel_data = generar_reporte_cuadre(df_res, df_huerfanos, empresa_sel)
                 
                 st.download_button(
                     label="⬇️ Descargar Reporte Completo (Excel)",
                     data=excel_data,
-                    file_name=f"Cuadre_CB_CG_{empresa_sel}.xlsx", # Nombre de archivo también personalizado
+                    file_name=f"Cuadre_CB_CG_{empresa_sel}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
                 
