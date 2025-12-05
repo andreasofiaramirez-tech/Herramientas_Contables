@@ -583,14 +583,35 @@ def render_cuadre():
         if st.button("Comparar Saldos"):
             log = []
             try:
+                # 1. Ejecutar la lógica completa (Trae todas las columnas)
                 df_res = run_cuadre_cb_cg_beval(file_cb, file_cg, log)
-                st.dataframe(df_res, use_container_width=True)
                 
-                # Excel
+                # 2. Definir columnas para VISUALIZACIÓN (Solo el recuadro rojo)
+                cols_pantalla = [
+                    'Moneda', 
+                    'Banco (Tesorería)', 
+                    'Cuenta Contable', 
+                    'Descripción', 
+                    'Saldo Final CB', 
+                    'Saldo Final CG', 
+                    'Diferencia', 
+                    'Estado'
+                ]
+                
+                # 3. Mostrar en pantalla solo el resumen limpio
+                st.dataframe(df_res[cols_pantalla], use_container_width=True)
+                
+                # 4. Generar Excel (Usamos el DF completo para que el Excel sí tenga el detalle)
                 excel_data = generar_reporte_cuadre(df_res)
-                st.download_button("⬇️ Descargar Reporte", excel_data, "Cuadre_CB_CG.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
                 
-                with st.expander("Ver Log"):
+                st.download_button(
+                    label="⬇️ Descargar Reporte Completo (Excel)",
+                    data=excel_data,
+                    file_name="Cuadre_CB_CG.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+                
+                with st.expander("Ver Log de Extracción"):
                     st.write(log)
                     
             except Exception as e:
