@@ -2308,11 +2308,33 @@ def _validar_asiento(asiento_group):
 def run_analysis_paquete_cc(df_diario, log_messages):
     """
     Función principal optimizada con VECTORIZACIÓN y AGREGACIÓN PREVIA.
-    Reduce drásticamente el tiempo de ejecución en archivos grandes.
+    Incluye normalización de columnas de Cliente/NIT.
     """
     log_messages.append("--- INICIANDO ANÁLISIS Y VALIDACIÓN DE PAQUETE CC (ULTRA RÁPIDO) ---")
     
     df = df_diario.copy()
+    
+    # --- PASO 0: NORMALIZACIÓN DE COLUMNAS DE CLIENTE/NIT ---
+    # Buscamos columnas comunes y las renombramos a un estándar
+    rename_map = {}
+    for col in df.columns:
+        c_upper = col.strip().upper()
+        if c_upper in ['NIT', 'RIF', 'R.I.F.', 'CEDULA']:
+            rename_map[col] = 'NIT'
+        elif c_upper in ['DESCRIPCIÓN NIT', 'DESCRIPCION NIT', 'NOMBRE', 'CLIENTE', 'NOMBRE DEL PROVEEDOR']:
+            rename_map[col] = 'Nombre'
+            
+    df.rename(columns=rename_map, inplace=True)
+    
+    # Aseguramos que existan para no romper el reporte
+    if 'NIT' not in df.columns: df['NIT'] = ''
+    if 'Nombre' not in df.columns: df['Nombre'] = ''
+    
+    # Rellenar vacíos estéticos
+    df['NIT'] = df['NIT'].fillna('')
+    df['Nombre'] = df['Nombre'].fillna('')
+    # --------------------------------------------------------
+
     # Limpieza vectorizada
     df['Cuenta Contable Norm'] = df['Cuenta Contable'].astype(str).str.replace(r'\D', '', regex=True)
     df['Monto_USD'] = (df['Débito Dolar'] - df['Crédito Dolar']).round(2)
@@ -2323,114 +2345,77 @@ def run_analysis_paquete_cc(df_diario, log_messages):
     
     log_messages.append("⚙️ Pre-calculando metadatos por asiento...")
     
-    # --- FASE 1: AGREGACIÓN MASIVA (El secreto de la velocidad) ---
-    # En lugar de iterar 31.000 filas, agrupamos la información por asiento en un solo paso.
+    # --- FASE 1: AGREGACIÓN MASIVA ---
     df_grouped = df.groupby('Asiento')
     
-    # 1. Obtenemos el conjunto de cuentas por asiento
     s_cuentas = df_grouped['Cuenta Contable Norm'].apply(set)
-    
-    # 2. Obtenemos el texto completo de referencia y fuente por asiento
-    # (Unimos los textos únicos para formar una "super cadena" del asiento)
     s_ref = df_grouped['Ref_Str'].apply(lambda x: ' '.join(x.unique()))
     s_fuente = df_grouped['Fuente_Str'].apply(lambda x: ' '.join(x.unique()))
-    
-    # 3. Obtenemos métricas de montos por asiento
     s_suma = df_grouped['Monto_USD'].sum()
     s_max_abs = df_grouped['Monto_USD'].apply(lambda x: x.abs().max())
     
-    # Consolidamos todo en un DataFrame de "Metadatos de Asientos" (1 fila por Asiento)
     df_meta = pd.DataFrame({
-        'Cuentas': s_cuentas,
-        'Ref': s_ref,
-        'Fuente': s_fuente,
-        'Suma': s_suma,
-        'Max_Abs': s_max_abs
+        'Cuentas': s_cuentas, 'Ref': s_ref, 'Fuente': s_fuente, 'Suma': s_suma, 'Max_Abs': s_max_abs
     })
     
     log_messages.append(f"⚙️ Analizando {len(df_meta)} asientos únicos...")
     
-    # --- FASE 2: CLASIFICACIÓN ITERATIVA SOBRE METADATOS ---
-    # Ahora iteramos sobre ~5.000 asientos en lugar de 31.000 filas.
-    # Y no hacemos operaciones de DataFrame dentro del bucle.
-    
+    # --- FASE 2: CLASIFICACIÓN ITERATIVA ---
     mapa_grupos = {}
     asientos_con_cuentas_nuevas = 0
     
     for asiento_id, row in df_meta.iterrows():
         cuentas_del_asiento = row['Cuentas']
-        
-        # Validación de cuentas conocidas
         cuentas_desconocidas = cuentas_del_asiento - CUENTAS_CONOCIDAS
         if cuentas_desconocidas:
             lista_faltantes = ", ".join(sorted(cuentas_desconocidas))
             grupo_asignado = f"Grupo 11: Cuentas No Identificadas ({lista_faltantes})"
             asientos_con_cuentas_nuevas += 1
         else:
-            # Llamamos a la función optimizada pasando valores directos
             grupo_asignado = _clasificar_asiento_paquete_cc(
-                cuentas_del_asiento, 
-                row['Ref'], 
-                row['Fuente'], 
-                row['Suma'], 
-                row['Max_Abs']
+                cuentas_del_asiento, row['Ref'], row['Fuente'], row['Suma'], row['Max_Abs']
             )
-        
         mapa_grupos[asiento_id] = grupo_asignado
 
-    # Mapeamos el resultado al DataFrame original
     df['Grupo'] = df['Asiento'].map(mapa_grupos)
     
-    # --- FASE 3: INTELIGENCIA DE REVERSOS (OPTIMIZADA) ---
-    # Usamos el mapa de montos (Hash Map) para evitar O(N^2)
+    # --- FASE 3: INTELIGENCIA DE REVERSOS ---
     log_messages.append("🧠 Ejecutando cruce inteligente de reversos...")
     
     mask_reverso = df['Grupo'].astype(str).str.contains("Reverso", case=False, na=False)
     ids_reversos = df[mask_reverso]['Asiento'].unique()
     
-    # Diccionario de candidatos por monto {Monto: [Lista de Asientos]}
     df_candidatos = df[~df['Asiento'].isin(ids_reversos)]
     candidatos_agrupados = df_candidatos.groupby(['Asiento'])['Monto_USD'].sum().round(2).reset_index()
     
     mapa_montos = {}
     for _, row in candidatos_agrupados.iterrows():
         m = row['Monto_USD']
-        aid = row['Asiento']
         if m not in mapa_montos: mapa_montos[m] = []
-        mapa_montos[m].append(aid)
+        mapa_montos[m].append(row['Asiento'])
     
     mapa_cambio_grupo = {}
     procesados = set()
     
-    # Obtenemos montos de reversos directo de los metadatos
     for id_rev in ids_reversos:
         if id_rev in procesados: continue
-        
         monto_rev = df_meta.loc[id_rev, 'Suma']
         monto_target = round(-monto_rev, 2)
-        
-        # Búsqueda O(1)
-        posibles = mapa_montos.get(monto_target, [])
-        posibles = [p for p in posibles if p not in procesados]
-        
+        posibles = [p for p in mapa_montos.get(monto_target, []) if p not in procesados]
         if not posibles: continue
         
-        # Búsqueda fina
         ref_rev = df_meta.loc[id_rev, 'Ref'] + " " + df_meta.loc[id_rev, 'Fuente']
         numeros_clave = re.findall(r'\d+', ref_rev)
-        
         match_final = None
         
         for cand_id in posibles:
             ref_cand = df_meta.loc[cand_id, 'Ref'] + " " + df_meta.loc[cand_id, 'Fuente']
             for num in numeros_clave:
                 if len(num) > 3 and num in ref_cand:
-                    match_final = cand_id
-                    break
+                    match_final = cand_id; break
             if match_final: break
             
-        if not match_final and len(posibles) == 1:
-            match_final = posibles[0]
+        if not match_final and len(posibles) == 1: match_final = posibles[0]
             
         if match_final:
             mapa_cambio_grupo[id_rev] = "Grupo 13: Operaciones Reversadas / Anuladas"
@@ -2440,8 +2425,7 @@ def run_analysis_paquete_cc(df_diario, log_messages):
     if mapa_cambio_grupo:
         df['Grupo'] = df['Asiento'].map(mapa_cambio_grupo).fillna(df['Grupo'])
 
-    # --- FASE 4: VALIDACIÓN ---
-    # La validación se hace asiento por asiento, pero es rápida
+    # --- FASE 4: VALIDACIÓN Y ORDEN ---
     resultados_validacion = {}
     for asiento_id, asiento_group in df.groupby('Asiento'):
         if asiento_group['Grupo'].iloc[0].startswith("Grupo 13"):
@@ -2455,9 +2439,12 @@ def run_analysis_paquete_cc(df_diario, log_messages):
     if asientos_con_cuentas_nuevas > 0:
         log_messages.append(f"⚠️ Se encontraron {asientos_con_cuentas_nuevas} asientos con cuentas no registradas.")
 
-    # Limpieza final y orden
-    cols_drop = ['Ref_Str', 'Fuente_Str', 'Cuenta Contable Norm', 'Monto_USD']
-    df_final = df.drop(columns=cols_drop, errors='ignore').sort_values(by=['Grupo', 'Asiento'], ascending=[True, True])
+    # Orden visual: Incidencias primero
+    df['Orden_Prioridad'] = df['Estado'].apply(lambda x: 1 if str(x).startswith('Conciliado') else 0)
+    
+    # Limpieza final (Mantenemos NIT y Nombre)
+    cols_drop = ['Ref_Str', 'Fuente_Str', 'Cuenta Contable Norm', 'Monto_USD', 'Orden_Prioridad']
+    df_final = df.drop(columns=cols_drop, errors='ignore').sort_values(by=['Grupo', 'Orden_Prioridad', 'Asiento'], ascending=[True, True, True])
     
     log_messages.append("--- ANÁLISIS FINALIZADO CON ÉXITO ---")
     return df_final
