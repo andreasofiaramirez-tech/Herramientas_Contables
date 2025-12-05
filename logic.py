@@ -2534,13 +2534,13 @@ def limpiar_monto_pdf(texto):
 
 def extraer_saldos_cb(archivo, log_messages):
     """
-    Extrae saldos Y NOMBRES del reporte de Tesorería (CB).
-    Retorna: {CODIGO: {'monto': float, 'nombre': str}}
+    Extrae saldos Y NOMBRES del reporte de Tesorería.
+    Soporte COMPLETO para PDF y EXCEL.
     """
     datos = {} 
-    
     nombre_archivo = getattr(archivo, 'name', '').lower()
     
+    # --- MODO PDF ---
     if nombre_archivo.endswith('.pdf'):
         log_messages.append("📄 Procesando Reporte CB como PDF...")
         try:
@@ -2551,42 +2551,79 @@ def extraer_saldos_cb(archivo, log_messages):
                     
                     for line in text.split('\n'):
                         parts = line.split()
-                        if not parts: continue
+                        if len(parts) < 3: continue
                         
-                        codigo = parts[0]
+                        codigo = parts[0].strip()
                         
-                        # Validamos que sea un código de tesorería (4 chars, empieza con dígito)
+                        # Filtro: Código debe tener al menos 4 chars y empezar por dígito (0102L)
                         if len(codigo) >= 4 and codigo[0].isdigit():
                             try:
-                                # 1. Extraer Monto (Último elemento numérico)
+                                # 1. Extraer Monto (El último "número" válido de la línea)
                                 saldo_str = parts[-1]
-                                if any(c.isdigit() for c in saldo_str):
-                                    monto = limpiar_monto_pdf(saldo_str)
-                                    
-                                    # 2. Extraer Nombre (Todo lo que hay entre el código y los números)
-                                    # Estrategia: Tomamos desde el índice 1 hasta encontrar un patrón numérico o de fecha
-                                    nombre_parts = []
-                                    for p in parts[1:]:
-                                        # Si parece fecha (01/01...) o número largo, paramos
-                                        if '/' in p or (any(c.isdigit() for c in p) and len(p) > 4):
-                                            break
-                                        nombre_parts.append(p)
-                                    
-                                    nombre_banco = " ".join(nombre_parts)
-                                    
-                                    datos[codigo] = {'monto': monto, 'nombre': nombre_banco}
-                            except:
-                                pass
+                                # A veces el PDF pega cosas, buscamos de atrás adelante
+                                idx_monto = -1
+                                for i in range(len(parts)-1, -1, -1):
+                                    # Debe tener coma o punto y algún dígito
+                                    if any(c.isdigit() for c in parts[i]) and (',' in parts[i] or '.' in parts[i]):
+                                        saldo_str = parts[i]
+                                        idx_monto = i
+                                        break
+                                
+                                monto = limpiar_monto_pdf(saldo_str)
+                                
+                                # 2. Extraer Nombre
+                                # El nombre está entre el Código (índice 0) y la Fecha o el Código de Banco
+                                # Buscamos un patrón de fecha dd/mm/yyyy para detener el nombre
+                                nombre_parts = []
+                                for p in parts[1:idx_monto]:
+                                    # Si encontramos una fecha, paramos de leer el nombre
+                                    if re.search(r'\d{2}/\d{2}/\d{4}', p):
+                                        break
+                                    # Si encontramos el código del banco (ej: 0102) que son solo 4 digitos
+                                    if p.isdigit() and len(p) == 4:
+                                        break
+                                    nombre_parts.append(p)
+                                
+                                nombre_banco = " ".join(nombre_parts)
+                                datos[codigo] = {'monto': monto, 'nombre': nombre_banco}
+                            except Exception:
+                                continue
         except Exception as e:
             log_messages.append(f"❌ Error leyendo PDF CB: {str(e)}")
             
+    # --- MODO EXCEL ---
     else:
-        # Lógica Excel (Placeholder simplificado)
         log_messages.append("📗 Procesando Reporte CB como Excel...")
         try:
             df = pd.read_excel(archivo)
-            # Aquí se debería implementar la lógica específica si se usa Excel
-            pass 
+            
+            # Normalización básica de columnas
+            df.columns = [str(c).strip().upper() for c in df.columns]
+            
+            # Buscamos columnas clave
+            col_cuenta = next((c for c in df.columns if 'CUENTA' in c and 'BANC' not in c), None) # 'Cuenta' a secas
+            col_nombre = next((c for c in df.columns if 'NOMBRE' in c), None)
+            col_saldo = next((c for c in df.columns if 'SALDO' in c and 'FINAL' in c), None)
+            
+            if col_cuenta and col_saldo:
+                for _, row in df.iterrows():
+                    codigo = str(row[col_cuenta]).strip()
+                    monto = row[col_saldo]
+                    # Limpieza de nombre
+                    nombre = str(row[col_nombre]).strip() if col_nombre else "SIN NOMBRE"
+                    
+                    # Validación básica del código
+                    if len(codigo) >= 4:
+                        # Asegurar que el monto sea float
+                        try:
+                            monto_float = float(monto)
+                        except:
+                            monto_float = 0.0
+                            
+                        datos[codigo] = {'monto': monto_float, 'nombre': nombre}
+            else:
+                log_messages.append("⚠️ No se encontraron las columnas 'Cuenta', 'Nombre' y 'Saldo Final' en el Excel.")
+                
         except Exception as e:
             log_messages.append(f"❌ Error leyendo Excel CB: {str(e)}")
 
@@ -2594,62 +2631,82 @@ def extraer_saldos_cb(archivo, log_messages):
 
 def extraer_saldos_cg(archivo, log_messages):
     """
-    Extrae saldos Y DESCRIPCIONES del Balance de Comprobación (CG).
-    Retorna: {CUENTA: {'VES': float, 'USD': float, 'descripcion': str}}
+    Extrae saldos Y DESCRIPCIONES del Balance de Comprobación.
+    Soporte PDF y Excel.
     """
     datos_cg = {}
+    nombre_archivo = getattr(archivo, 'name', '').lower()
     
-    log_messages.append("📄 Procesando Balance CG como PDF...")
-    try:
-        with pdfplumber.open(archivo) as pdf:
-            for page in pdf.pages:
-                text = page.extract_text()
-                if not text: continue
-                
-                for line in text.split('\n'):
-                    parts = line.split()
-                    if not parts: continue
+    # --- MODO PDF ---
+    if nombre_archivo.endswith('.pdf'):
+        log_messages.append("📄 Procesando Balance CG como PDF...")
+        try:
+            with pdfplumber.open(archivo) as pdf:
+                for page in pdf.pages:
+                    text = page.extract_text()
+                    if not text: continue
                     
-                    cuenta = parts[0]
-                    
-                    # Validar formato de cuenta (1.x.x...)
-                    if not (cuenta.startswith('1.') and len(cuenta) > 10):
-                        continue
+                    for line in text.split('\n'):
+                        parts = line.split()
+                        if len(parts) < 3: continue
                         
-                    # 1. Extraer Descripción
-                    # La descripción está entre la cuenta y la palabra "Deudor"/"Acreedor" o los números
-                    desc_parts = []
-                    idx_inicio_numeros = len(parts) # Por defecto al final
-                    
-                    for i, p in enumerate(parts[1:], 1):
-                        # Detectamos donde empiezan los saldos o el tipo de saldo
-                        p_clean = p.replace('.', '').replace(',', '').replace('-', '')
+                        cuenta = parts[0].strip()
                         
-                        # Si es "Deudor", "Acreedor" o un número, ahí termina la descripción
-                        if p in ['Deudor', 'Acreedor'] or (p_clean.isdigit() and len(p_clean) > 0):
-                            idx_inicio_numeros = i
-                            break
-                        desc_parts.append(p)
+                        # Validar formato cuenta (1.x.x...)
+                        if not (cuenta.startswith('1.') and len(cuenta) > 8):
+                            continue
+                            
+                        # 1. Extraer Saldos (De atrás hacia adelante para mayor precisión)
+                        # El PDF tiene dos bloques: Local y Dolar. El último es Saldo Final Dolar.
+                        # El Saldo Final Local suele estar en el medio.
                         
-                    descripcion = " ".join(desc_parts)
-                    
-                    # 2. Extraer Saldos (usando el índice detectado)
-                    # Filtramos solo los elementos numéricos a partir de donde terminó la descripción
-                    numeros = []
-                    for p in parts[idx_inicio_numeros:]:
-                        p_clean = p.replace('.', '').replace(',', '').replace('-', '')
-                        if p_clean.isdigit() and len(p_clean) > 0:
-                            numeros.append(p)
-                    
-                    if len(numeros) >= 4:
+                        numeros_encontrados = []
+                        indices_numeros = []
+                        
+                        for i, p in enumerate(parts):
+                            # Limpiamos para ver si es número
+                            p_clean = p.replace('.', '').replace(',', '').replace('-', '')
+                            if p_clean.isdigit() and len(p_clean) > 0:
+                                # Es un número o parece uno
+                                # Ignoramos si es parte de la cuenta (ya la tomamos)
+                                if i > 0:
+                                    numeros_encontrados.append(p)
+                                    indices_numeros.append(i)
+                        
+                        if not numeros_encontrados: continue
+
+                        # 2. Extraer Descripción
+                        # La descripción está entre la Cuenta (índice 0) y el primer número encontrado
+                        idx_fin_desc = indices_numeros[0]
+                        # A veces hay "Saldo Normal: Deudor" antes de los números
+                        if parts[idx_fin_desc-1].upper() in ['DEUDOR', 'ACREEDOR']:
+                            idx_fin_desc -= 1
+                        if parts[idx_fin_desc-1].upper() == 'NORMAL': # "Saldo Normal"
+                            idx_fin_desc -= 1
+                            
+                        desc_parts = parts[1:idx_fin_desc]
+                        descripcion = " ".join(desc_parts)
+                        
+                        # 3. Asignar Saldos
                         try:
-                            # Asumiendo estructura: S.Ini | Deb | Cred | S.Fin(Local)
-                            saldo_ves = limpiar_monto_pdf(numeros[3]) 
+                            # Heurística basada en tu imagen:
+                            # 4 columnas Local + 4 columnas Dolar = 8 columnas de montos aprox
+                            # Si hay 8 números, el 4to (idx 3) es Saldo Final Local, el 8vo (idx 7) es Saldo Final Dolar.
                             
+                            saldo_ves = 0.0
                             saldo_usd = 0.0
-                            if len(numeros) >= 8:
-                                saldo_usd = limpiar_monto_pdf(numeros[-1])
                             
+                            cant_nums = len(numeros_encontrados)
+                            
+                            if cant_nums >= 4:
+                                saldo_ves = limpiar_monto_pdf(numeros_encontrados[3])
+                            
+                            if cant_nums >= 8:
+                                saldo_usd = limpiar_monto_pdf(numeros_encontrados[7])
+                            elif cant_nums == 4:
+                                # A veces solo sale un bloque si no hay movs en dolares? Asumimos solo local
+                                pass 
+
                             datos_cg[cuenta] = {
                                 'VES': saldo_ves, 
                                 'USD': saldo_usd, 
@@ -2657,10 +2714,44 @@ def extraer_saldos_cg(archivo, log_messages):
                             }
                         except:
                             pass
-                            
-    except Exception as e:
-        log_messages.append(f"❌ Error leyendo PDF CG: {str(e)}")
-        
+        except Exception as e:
+            log_messages.append(f"❌ Error leyendo PDF CG: {str(e)}")
+
+    # --- MODO EXCEL ---
+    else:
+        log_messages.append("📗 Procesando Balance CG como Excel...")
+        try:
+            df = pd.read_excel(archivo)
+            df.columns = [str(c).strip().upper() for c in df.columns]
+            
+            col_cta = next((c for c in df.columns if 'CUENTA' in c), None)
+            col_desc = next((c for c in df.columns if 'DESCRIPCI' in c), None)
+            
+            # Buscar columnas de saldos (esto depende mucho del excel de tu sistema)
+            # Buscamos columnas que contengan 'FINAL'
+            cols_final = [c for c in df.columns if 'FINAL' in c]
+            
+            if col_cta and len(cols_final) >= 1:
+                col_ves = cols_final[0] # Asumimos primero Local
+                col_usd = cols_final[1] if len(cols_final) > 1 else None
+                
+                for _, row in df.iterrows():
+                    cta = str(row[col_cta]).strip()
+                    desc = str(row[col_desc]).strip() if col_desc else ""
+                    
+                    try:
+                        m_ves = float(row[col_ves])
+                    except: m_ves = 0.0
+                    
+                    m_usd = 0.0
+                    if col_usd:
+                        try: m_usd = float(row[col_usd])
+                        except: m_usd = 0.0
+                        
+                    datos_cg[cta] = {'VES': m_ves, 'USD': m_usd, 'descripcion': desc}
+        except Exception as e:
+            log_messages.append(f"❌ Error leyendo Excel CG: {str(e)}")
+            
     return datos_cg
 
 def run_cuadre_cb_cg_beval(file_cb, file_cg, log_messages):
