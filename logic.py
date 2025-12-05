@@ -2243,7 +2243,7 @@ def _validar_asiento(asiento_group):
             return "Incidencia: Movimiento mayor al límite permitido ($25)."
             
     # --- GRUPO 7: DEVOLUCIONES Y REBAJAS (Logica Inteligente) ---
-     elif grupo.startswith("Grupo 7:"):
+    elif grupo.startswith("Grupo 7:"):
         # Límite corregido a $5
         if (asiento_group['Monto_USD'].abs() > 5).any():
             
