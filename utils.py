@@ -946,8 +946,8 @@ def generar_reporte_retenciones(df_cp_results, df_galac_no_cp, df_cg, cuentas_ma
 
 def generar_reporte_paquete_cc(df_analizado, nombre_casa):
     """
-    Genera reporte de análisis de Paquete CC con título personalizado.
-    Título: Análisis de Asientos de Cuentas por Cobrar [CASA] [MES] [AÑO]
+    Genera reporte de análisis de Paquete CC.
+    Versión actualizada: Elimina columna 'Nombre', mantiene 'NIT'.
     """
     output_buffer = BytesIO()
     with pd.ExcelWriter(output_buffer, engine='xlsxwriter') as writer:
@@ -960,44 +960,39 @@ def generar_reporte_paquete_cc(df_analizado, nombre_casa):
             texto_fecha = f"{meses_es[fecha_max.month]} {fecha_max.year}"
         else:
             texto_fecha = "PERIODO NO DEFINIDO"
-            
         titulo_reporte = f"Análisis de Asientos de Cuentas por Cobrar {nombre_casa} {texto_fecha}"
-        # -----------------------------------
 
         # --- ESTILOS ---
         main_title_format = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'font_size': 16})
         header_format = workbook.add_format({'bold': True, 'text_wrap': True, 'valign': 'top', 'fg_color': '#D9EAD3', 'border': 1, 'align': 'center'})
-        
         text_format = workbook.add_format({'border': 1})
         money_format = workbook.add_format({'num_format': '#,##0.00', 'border': 1})
         date_format = workbook.add_format({'num_format': 'dd/mm/yyyy', 'border': 1})
-        
         incidencia_text_format = workbook.add_format({'bg_color': '#FFC7CE', 'font_color': '#9C0006', 'border': 1})
         incidencia_money_format = workbook.add_format({'bg_color': '#FFC7CE', 'font_color': '#9C0006', 'num_format': '#,##0.00', 'border': 1})
         incidencia_date_format = workbook.add_format({'bg_color': '#FFC7CE', 'font_color': '#9C0006', 'num_format': 'dd/mm/yyyy', 'border': 1})
-
         header_corr_format = workbook.add_format({'bold': True, 'text_wrap': True, 'valign': 'top', 'fg_color': '#BDD7EE', 'border': 1, 'align': 'center'})
-        
         descriptive_title_format = workbook.add_format({'bold': True, 'font_size': 14, 'fg_color': '#FFFF00', 'border': 1, 'align': 'center'})
         subgroup_title_format = workbook.add_format({'bold': True, 'font_size': 11, 'fg_color': '#E0E0E0', 'border': 1})
         total_label_format = workbook.add_format({'bold': True, 'align': 'right', 'top': 2, 'font_color': '#003366'})
         total_money_format = workbook.add_format({'bold': True, 'num_format': '#,##0.00', 'top': 2, 'bottom': 1})
 
-        columnas_reporte = ['Asiento', 'Fecha', 'Fuente', 'Cuenta Contable', 'Descripción de Cuenta', 'Referencia', 'Débito Dolar', 'Crédito Dolar', 'Débito VES', 'Crédito VES','NIT', 'Nombre']
+        # --- CAMBIO: Eliminado 'Nombre' de la lista ---
+        columnas_reporte = [
+            'Asiento', 'Fecha', 'NIT', 'Fuente', 
+            'Cuenta Contable', 'Descripción de Cuenta', 'Referencia', 
+            'Débito Dolar', 'Crédito Dolar', 'Débito VES', 'Crédito VES'
+        ]
         
         df_analizado['Grupo Principal'] = df_analizado['Grupo'].apply(lambda x: x.split(':')[0].strip())
         grupos_principales_ordenados = sorted(df_analizado['Grupo Principal'].unique(), key=lambda x: (0, int(x.split()[1])) if x.startswith('Grupo') else (1, x))
         
-        # ==========================================
-        # HOJA 1: DIRECTORIO
-        # ==========================================
+        # --- HOJA 1: DIRECTORIO ---
         ws_dir = workbook.add_worksheet("Directorio")
-        # Usamos el título dinámico aquí
         ws_dir.merge_range('A1:C1', titulo_reporte, main_title_format) 
         ws_dir.write('A2', 'Nombre de la Hoja', header_format)
         ws_dir.write('B2', 'Descripción del Contenido', header_format)
         ws_dir.write('C2', 'Observaciones', header_format)
-        
         dir_row = 2
         for grupo_principal in grupos_principales_ordenados:
             sheet_name = re.sub(r'[\\/*?:"\[\]]', '', grupo_principal)[:31]
@@ -1009,56 +1004,40 @@ def generar_reporte_paquete_cc(df_analizado, nombre_casa):
             tiene_error = False
             for est in df_grupo_dir['Estado']:
                 if not str(est).startswith('Conciliado'):
-                    tiene_error = True
-                    break
+                    tiene_error = True; break
             observacion = "Incidencia Encontrada" if tiene_error else "Conciliado"
-            
             ws_dir.write(dir_row, 0, sheet_name, text_format)
             ws_dir.write(dir_row, 1, description, text_format)
             ws_dir.write(dir_row, 2, observacion, text_format)
             dir_row += 1
         ws_dir.set_column('A:A', 25); ws_dir.set_column('B:B', 60); ws_dir.set_column('C:C', 25)
 
-        # ==========================================
-        # HOJA 2: LISTADO CORRELATIVO
-        # ==========================================
+        # --- HOJA 2: LISTADO CORRELATIVO ---
         ws_corr = workbook.add_worksheet("Listado Correlativo")
-        # Usamos el título dinámico aquí también
         ws_corr.merge_range('A1:G1', titulo_reporte, main_title_format) 
-        
         cols_corr = ['Asiento', 'Estado Global', 'Grupo', 'Fecha', 'Fuente', 'Total Asiento ($)', 'Total Asiento (Bs)']
         ws_corr.write_row('A2', cols_corr, header_corr_format)
         ws_corr.freeze_panes(2, 0)
-
         resumen_data = []
         for asiento, grupo in df_analizado.groupby('Asiento'):
             tiene_incidencia = False
             for est in grupo['Estado']:
                 if not str(est).startswith('Conciliado'):
-                    tiene_incidencia = True
-                    break
+                    tiene_incidencia = True; break
             estado_final = "Incidencia (Revisar)" if tiene_incidencia else grupo['Estado'].iloc[0]
-            
             primera_fila = grupo.iloc[0]
             resumen_data.append({
-                'Asiento': asiento,
-                'Estado Global': estado_final,
-                'Grupo': primera_fila['Grupo'].split(':')[0],
-                'Fecha': primera_fila['Fecha'],
-                'Fuente': primera_fila['Fuente'],
-                'Total Asiento ($)': grupo['Débito Dolar'].sum(),
-                'Total Asiento (Bs)': grupo['Débito VES'].sum()
+                'Asiento': asiento, 'Estado Global': estado_final, 'Grupo': primera_fila['Grupo'].split(':')[0],
+                'Fecha': primera_fila['Fecha'], 'Fuente': primera_fila['Fuente'],
+                'Total Asiento ($)': grupo['Débito Dolar'].sum(), 'Total Asiento (Bs)': grupo['Débito VES'].sum()
             })
-            
         df_resumen = pd.DataFrame(resumen_data).sort_values('Asiento')
-        
         curr_row = 2
         for _, row in df_resumen.iterrows():
             is_incidencia = not str(row['Estado Global']).startswith('Conciliado')
             fmt_txt = incidencia_text_format if is_incidencia else text_format
             fmt_num = incidencia_money_format if is_incidencia else money_format
             fmt_date = incidencia_date_format if is_incidencia else date_format
-            
             ws_corr.write(curr_row, 0, row['Asiento'], fmt_txt)
             ws_corr.write(curr_row, 1, row['Estado Global'], fmt_txt)
             ws_corr.write(curr_row, 2, row['Grupo'], fmt_txt)
@@ -1067,28 +1046,22 @@ def generar_reporte_paquete_cc(df_analizado, nombre_casa):
             ws_corr.write_number(curr_row, 5, row['Total Asiento ($)'], fmt_num)
             ws_corr.write_number(curr_row, 6, row['Total Asiento (Bs)'], fmt_num)
             curr_row += 1
-            
-        # Ajuste anchos
-        ws_corr.set_column('A:A', 15) # Asiento
-        ws_corr.set_column('B:B', 20) # Estado
-        ws_corr.set_column('C:C', 15) # Grupo
-        ws_corr.set_column('D:E', 12) # Fecha/Fuente
-        ws_corr.set_column('F:G', 18) # Totales
+        ws_corr.set_column('A:A', 15); ws_corr.set_column('B:B', 20); ws_corr.set_column('C:C', 15)
+        ws_corr.set_column('D:E', 12); ws_corr.set_column('F:G', 18)
 
-
-        # ==========================================
-        # HOJAS 3...N: DETALLE POR GRUPOS
-        # ==========================================
+        # --- HOJAS 3...N: DETALLE POR GRUPOS ---
         for grupo_principal_nombre in grupos_principales_ordenados:
             sheet_name = re.sub(r'[\\/*?:"\[\]]', '', grupo_principal_nombre)[:31]
             ws = workbook.add_worksheet(sheet_name)
             ws.hide_gridlines(2)
-            ws.merge_range('A1:L1', titulo_reporte, main_title_format) # Ampliado hasta L
+            # Combinar hasta K (se redujo una columna)
+            ws.merge_range('A1:K1', titulo_reporte, main_title_format) 
+            
             df_grupo_completo = df_analizado[df_analizado['Grupo Principal'] == grupo_principal_nombre]
             subgrupos = sorted(df_grupo_completo['Grupo'].unique())
             full_descriptive_title = subgrupos[0]
             if len(subgrupos) > 1: full_descriptive_title = f"{subgrupos[0].split(':')[0].strip()}: {subgrupos[0].split(':')[1].split('-')[0].strip()}"
-            ws.merge_range('A3:L3', full_descriptive_title, descriptive_title_format) # Ampliado hasta L
+            ws.merge_range('A3:K3', full_descriptive_title, descriptive_title_format)
             current_row = 4
             for subgrupo_nombre in subgrupos:
                 df_subgrupo = df_grupo_completo[df_grupo_completo['Grupo'] == subgrupo_nombre]
@@ -1103,38 +1076,37 @@ def generar_reporte_paquete_cc(df_analizado, nombre_casa):
                     fmt_num = incidencia_money_format if is_incidencia else money_format
                     fmt_date = incidencia_date_format if is_incidencia else date_format
                     
-                    # --- ESCRITURA DE COLUMNAS ACTUALIZADA ---
+                    # --- CAMBIO: Escritura de columnas reajustada (Sin Nombre) ---
                     ws.write(current_row, 0, row_data.get('Asiento', ''), fmt_txt)
                     ws.write_datetime(current_row, 1, row_data.get('Fecha', None), fmt_date)
-                    ws.write(current_row, 2, row_data.get('NIT', ''), fmt_txt)    # <--- NUEVO
-                    ws.write(current_row, 3, row_data.get('Nombre', ''), fmt_txt) # <--- NUEVO
-                    ws.write(current_row, 4, row_data.get('Fuente', ''), fmt_txt)
-                    ws.write(current_row, 5, row_data.get('Cuenta Contable', ''), fmt_txt)
-                    ws.write(current_row, 6, row_data.get('Descripción de Cuenta', ''), fmt_txt)
-                    ws.write(current_row, 7, row_data.get('Referencia', ''), fmt_txt)
-                    ws.write_number(current_row, 8, row_data.get('Débito Dolar', 0), fmt_num)
-                    ws.write_number(current_row, 9, row_data.get('Crédito Dolar', 0), fmt_num)
-                    ws.write_number(current_row, 10, row_data.get('Débito VES', 0), fmt_num)
-                    ws.write_number(current_row, 11, row_data.get('Crédito VES', 0), fmt_num)
+                    ws.write(current_row, 2, row_data.get('NIT', ''), fmt_txt)
+                    # Col 3 ya no es Nombre, ahora es Fuente
+                    ws.write(current_row, 3, row_data.get('Fuente', ''), fmt_txt)
+                    ws.write(current_row, 4, row_data.get('Cuenta Contable', ''), fmt_txt)
+                    ws.write(current_row, 5, row_data.get('Descripción de Cuenta', ''), fmt_txt)
+                    ws.write(current_row, 6, row_data.get('Referencia', ''), fmt_txt)
+                    ws.write_number(current_row, 7, row_data.get('Débito Dolar', 0), fmt_num)
+                    ws.write_number(current_row, 8, row_data.get('Crédito Dolar', 0), fmt_num)
+                    ws.write_number(current_row, 9, row_data.get('Débito VES', 0), fmt_num)
+                    ws.write_number(current_row, 10, row_data.get('Crédito VES', 0), fmt_num)
                     current_row += 1
                 if not df_subgrupo.empty:
-                    # Ajustado índice de columnas para totales
-                    ws.write(current_row, 7, f'TOTALES {subgrupo_nombre.split(":")[-1].strip()}', total_label_format)
-                    ws.write_formula(current_row, 8, f'=SUM(I{start_data_row + 1}:I{current_row})', total_money_format) # Col I
-                    ws.write_formula(current_row, 9, f'=SUM(J{start_data_row + 1}:J{current_row})', total_money_format) # Col J
-                    ws.write_formula(current_row, 10, f'=SUM(K{start_data_row + 1}:K{current_row})', total_money_format) # Col K
-                    ws.write_formula(current_row, 11, f'=SUM(L{start_data_row + 1}:L{current_row})', total_money_format) # Col L
+                    # Ajuste de totales (Columna 6 es referencia, montos empiezan en 7/H)
+                    ws.write(current_row, 6, f'TOTALES {subgrupo_nombre.split(":")[-1].strip()}', total_label_format)
+                    ws.write_formula(current_row, 7, f'=SUM(H{start_data_row + 1}:H{current_row})', total_money_format) # Deb $
+                    ws.write_formula(current_row, 8, f'=SUM(I{start_data_row + 1}:I{current_row})', total_money_format) # Cre $
+                    ws.write_formula(current_row, 9, f'=SUM(J{start_data_row + 1}:J{current_row})', total_money_format) # Deb Bs
+                    ws.write_formula(current_row, 10, f'=SUM(K{start_data_row + 1}:K{current_row})', total_money_format) # Cre Bs
                     current_row += 2
             
-            # Ajuste anchos
+            # Ajuste de anchos final
             ws.set_column('A:A', 12) # Asiento
             ws.set_column('B:B', 12) # Fecha
             ws.set_column('C:C', 15) # NIT
-            ws.set_column('D:D', 40) # Nombre
-            ws.set_column('E:E', 15) # Fuente
-            ws.set_column('F:F', 18) # Cuenta
-            ws.set_column('G:G', 40) # Desc Cuenta
-            ws.set_column('H:H', 40) # Ref
-            ws.set_column('I:L', 15) # Montos
+            ws.set_column('D:D', 15) # Fuente
+            ws.set_column('E:E', 18) # Cuenta
+            ws.set_column('F:F', 40) # Desc Cuenta
+            ws.set_column('G:G', 40) # Referencia
+            ws.set_column('H:K', 15) # Montos
             
     return output_buffer.getvalue()
