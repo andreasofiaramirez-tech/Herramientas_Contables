@@ -2871,7 +2871,7 @@ def run_cuadre_cb_cg(file_cb, file_cg, nombre_empresa, log_messages):
             
     sobrantes_cg = cg_encontrados - cg_mapeados
     for cta in sobrantes_cg:
-        es_banco = (cta.startswith('1.1.1.02') or cta.startswith('1.1.1.03') or cta.startswith('1.1.1.06') or cta.startswith('1.1.4.01'))
+        es_banco = (cta.startswith('1.1.1.02') or cta.startswith('1.1.1.03') or cta.startswith('1.1.1.06'))
         es_agrupadora = cta.endswith('.000')
         
         if es_banco and not es_agrupadora:
