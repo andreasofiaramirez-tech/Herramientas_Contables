@@ -2578,10 +2578,25 @@ MAPEO_CB_CG_BEVAL = {
 }
 
 def limpiar_monto_pdf(texto):
+    """
+    Limpia texto numérico de PDFs (maneja negativos y formatos venezolanos).
+    """
     if not texto: return 0.0
-    limpio = texto.replace('.', '').replace(',', '.')
-    try: return float(limpio)
-    except ValueError: return 0.0
+    # Eliminar espacios (común en negativos: "- 2.000")
+    texto = texto.replace(' ', '')
+    # Eliminar puntos de miles
+    texto = texto.replace('.', '')
+    # Reemplazar coma decimal por punto
+    texto = texto.replace(',', '.')
+    
+    # Manejo de negativos entre paréntesis (opcional, pero común en contabilidad)
+    if '(' in texto and ')' in texto:
+        texto = '-' + texto.replace('(', '').replace(')', '')
+        
+    try:
+        return float(texto)
+    except ValueError:
+        return 0.0
 
 def extraer_saldos_cb(archivo, log_messages):
     datos = {} 
@@ -2709,8 +2724,10 @@ def extraer_saldos_cg(archivo, log_messages):
     return datos_cg
 
 def run_cuadre_cb_cg_beval(file_cb, file_cg, log_messages):
+    """Función Principal."""
     data_cb = extraer_saldos_cb(file_cb, log_messages)
     data_cg = extraer_saldos_cg(file_cg, log_messages)
+    
     resultados = []
     
     for codigo_cb, config in MAPEO_CB_CG_BEVAL.items():
@@ -2722,15 +2739,19 @@ def run_cuadre_cb_cg_beval(file_cb, file_cg, log_messages):
         clave_cg = 'VES' if moneda == 'VES' else 'USD'
         info_cg_full = data_cg.get(cuenta_cg, {})
         info_cg = info_cg_full.get(clave_cg, {'inicial':0, 'debitos':0, 'creditos':0, 'final':0})
+        
         desc_cg = info_cg_full.get('descripcion', NOMBRES_CUENTAS_OFICIALES.get(cuenta_cg, 'NO DEFINIDO'))
         
         saldo_cb = info_cb.get('final', 0)
         saldo_cg = info_cg.get('final', 0)
+        
         dif_final = round(saldo_cb - saldo_cg, 2)
         estado = "OK" if dif_final == 0 else "DESCUADRE"
         
-        if saldo_cb == 0 and saldo_cg == 0 and info_cb.get('debitos', 0) == 0:
-            continue
+        # --- CAMBIO: COMENTADO EL FILTRO PARA MOSTRAR TODO ---
+        # if saldo_cb == 0 and saldo_cg == 0 and info_cb.get('debitos', 0) == 0:
+        #     continue
+        # -----------------------------------------------------
 
         resultados.append({
             'Moneda': moneda,
@@ -2748,4 +2769,5 @@ def run_cuadre_cb_cg_beval(file_cb, file_cg, log_messages):
             'CG Débitos': info_cg.get('debitos', 0),
             'CG Créditos': info_cg.get('creditos', 0)
         })
+        
     return pd.DataFrame(resultados)
