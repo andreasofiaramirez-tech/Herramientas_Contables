@@ -1123,43 +1123,113 @@ def generar_reporte_paquete_cc(df_analizado, nombre_casa):
 # ==============================================================================
 
 def generar_reporte_cuadre(df_resultado):
-    """Genera el Excel del Cuadre CB-CG con nombres y descripciones."""
+    """Genera el Excel con 2 hojas: Resumen General y Análisis de Descuadres."""
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        df_resultado.to_excel(writer, index=False, sheet_name='Cuadre')
+        workbook = writer.book
         
-        wb = writer.book
-        ws = writer.sheets['Cuadre']
+        # --- ESTILOS ---
+        header_fmt = workbook.add_format({'bold': True, 'fg_color': '#D9EAD3', 'border': 1, 'align': 'center', 'valign': 'vcenter'})
+        text_fmt = workbook.add_format({'border': 1})
+        money_fmt = workbook.add_format({'num_format': '#,##0.00', 'border': 1})
         
-        # Formatos
-        fmt_header = wb.add_format({'bold': True, 'fg_color': '#D9EAD3', 'border': 1, 'align': 'center'})
-        fmt_money = wb.add_format({'num_format': '#,##0.00', 'border': 1})
-        fmt_red = wb.add_format({'bg_color': '#FFC7CE', 'font_color': '#9C0006', 'num_format': '#,##0.00', 'border': 1})
-        fmt_green = wb.add_format({'bg_color': '#C6EFCE', 'font_color': '#006100', 'num_format': '#,##0.00', 'border': 1})
-        fmt_text = wb.add_format({'border': 1})
+        red_fmt = workbook.add_format({'bg_color': '#FFC7CE', 'font_color': '#9C0006', 'num_format': '#,##0.00', 'border': 1})
+        green_fmt = workbook.add_format({'bg_color': '#C6EFCE', 'font_color': '#006100', 'num_format': '#,##0.00', 'border': 1})
         
-        # Aplicar formato a los encabezados
-        for col_num, value in enumerate(df_resultado.columns.values):
-            ws.write(0, col_num, value, fmt_header)
+        group_fmt = workbook.add_format({'bold': True, 'bg_color': '#E0E0E0', 'border': 1})
+        
+        # ==========================================
+        # HOJA 1: RESUMEN GENERAL (Agrupado por Moneda)
+        # ==========================================
+        ws1 = workbook.add_worksheet('Resumen General')
+        ws1.hide_gridlines(2)
+        
+        # Encabezados
+        cols_resumen = ['Banco (Tesorería)', 'Cuenta Contable', 'Descripción', 'Saldo Final CB', 'Saldo Final CG', 'Diferencia', 'Estado']
+        
+        current_row = 0
+        ws1.merge_range('A1:G1', 'CUADRE DE DISPONIBILIDAD BANCARIA (CB vs CG)', workbook.add_format({'bold': True, 'font_size': 14, 'align': 'center'}))
+        current_row += 2
+        
+        # Agrupar por Moneda
+        for moneda, grupo in df_resultado.groupby('Moneda'):
+            # Título del Grupo
+            ws1.merge_range(current_row, 0, current_row, 6, f"MONEDA: {moneda}", group_fmt)
+            current_row += 1
+            
+            # Encabezados de tabla
+            ws1.write_row(current_row, 0, cols_resumen, header_fmt)
+            current_row += 1
+            
+            # Filas
+            for _, row in grupo.iterrows():
+                ws1.write(current_row, 0, row['Banco (Tesorería)'], text_fmt)
+                ws1.write(current_row, 1, row['Cuenta Contable'], text_fmt)
+                ws1.write(current_row, 2, row['Descripción'], text_fmt)
+                ws1.write_number(current_row, 3, row['Saldo Final CB'], money_fmt)
+                ws1.write_number(current_row, 4, row['Saldo Final CG'], money_fmt)
+                
+                # Diferencia con color
+                dif = row['Diferencia']
+                fmt_dif = red_fmt if dif != 0 else green_fmt
+                ws1.write_number(current_row, 5, dif, fmt_dif)
+                
+                ws1.write(current_row, 6, row['Estado'], text_fmt)
+                current_row += 1
+            
+            current_row += 2 # Espacio entre monedas
 
-        # Aplicar formato condicional a la columna Diferencia (Columna H = índice 7)
-        # Estructura: CodCB | NombreCB | Moneda | CtaCG | DescCG | SaldoCB | SaldoCG | Dif | Estado
-        # Indices:      0        1         2        3        4         5         6      7      8
+        # Ajuste Anchos H1
+        ws1.set_column('A:B', 15)
+        ws1.set_column('C:C', 40)
+        ws1.set_column('D:F', 18)
+        ws1.set_column('G:G', 12)
+
+        # ==========================================
+        # HOJA 2: ANÁLISIS DE DESCUADRES (Movimientos)
+        # ==========================================
+        ws2 = workbook.add_worksheet('Análisis de Descuadres')
+        ws2.hide_gridlines(2)
         
-        ws.conditional_format('H2:H100', {
-            'type': 'cell', 'criteria': '!=', 'value': 0, 'format': fmt_red
-        })
-        ws.conditional_format('H2:H100', {
-            'type': 'cell', 'criteria': '=', 'value': 0, 'format': fmt_green
-        })
+        # Filtramos solo los que tienen diferencias
+        df_descuadres = df_resultado[df_resultado['Estado'] == 'DESCUADRE'].copy()
         
-        # Ajuste de Anchos
-        ws.set_column('A:A', 10) # Codigo CB
-        ws.set_column('B:B', 30) # Nombre Banco (Ancho)
-        ws.set_column('C:C', 8)  # Moneda
-        ws.set_column('D:D', 18) # Cuenta CG
-        ws.set_column('E:E', 40) # Descripcion CG (Muy Ancho)
-        ws.set_column('F:H', 18, fmt_money) # Saldos y Diferencia
-        ws.set_column('I:I', 15, fmt_text)  # Estado
-        
+        if not df_descuadres.empty:
+            ws2.merge_range('A1:J1', 'DETALLE DE MOVIMIENTOS EN CUENTAS CON DIFERENCIA', workbook.add_format({'bold': True, 'font_size': 12, 'align': 'center'}))
+            
+            headers_det = [
+                'Moneda', 'Cuenta', 'Descripción', 
+                'CB Inicial', 'CB Débitos', 'CB Créditos',
+                'CG Inicial', 'CG Débitos', 'CG Créditos',
+                'DIFERENCIA FINAL'
+            ]
+            
+            ws2.write_row(2, 0, headers_det, header_fmt)
+            
+            curr_row = 3
+            for _, row in df_descuadres.iterrows():
+                ws2.write(curr_row, 0, row['Moneda'], text_fmt)
+                ws2.write(curr_row, 1, row['Cuenta Contable'], text_fmt)
+                ws2.write(curr_row, 2, row['Descripción'], text_fmt)
+                
+                # Bloque CB
+                ws2.write_number(curr_row, 3, row['CB Inicial'], money_fmt)
+                ws2.write_number(curr_row, 4, row['CB Débitos'], money_fmt)
+                ws2.write_number(curr_row, 5, row['CB Créditos'], money_fmt)
+                
+                # Bloque CG
+                ws2.write_number(curr_row, 6, row['CG Inicial'], money_fmt)
+                ws2.write_number(curr_row, 7, row['CG Débitos'], money_fmt)
+                ws2.write_number(curr_row, 8, row['CG Créditos'], money_fmt)
+                
+                # Diferencia
+                ws2.write_number(curr_row, 9, row['Diferencia'], red_fmt)
+                curr_row += 1
+                
+            ws2.set_column('A:B', 15)
+            ws2.set_column('C:C', 35)
+            ws2.set_column('D:J', 15)
+        else:
+            ws2.write('A1', "¡Felicidades! No hay descuadres en saldos finales.")
+
     return output.getvalue()
