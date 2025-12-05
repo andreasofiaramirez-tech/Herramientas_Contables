@@ -324,18 +324,35 @@ def render_retenciones():
         if st.button("▶️ Iniciar Auditoría de Retenciones", type="primary", use_container_width=True):
             with st.spinner('Ejecutando auditoría... Este proceso puede tardar unos momentos.'):
                 log_messages = []
-                reporte_resultado = run_conciliation_retenciones(
-                    file_cp, file_cg, file_iva, file_islr, file_mun, log_messages
-                )
                 
-                st.session_state.reporte_ret_output = reporte_resultado
-                st.session_state.log_messages_ret = log_messages
-                st.session_state.processing_ret_complete = True
-                st.rerun()
+                # --- TRY / EXCEPT QUE ACABAMOS DE HACER ---
+                try:
+                    reporte_resultado = run_conciliation_retenciones(
+                        file_cp, file_cg, file_iva, file_islr, file_mun, log_messages
+                    )
+                    
+                    if reporte_resultado is None:
+                        raise Exception("Error interno: La lógica devolvió un resultado vacío.")
 
+                    st.session_state.reporte_ret_output = reporte_resultado
+                    st.session_state.log_messages_ret = log_messages
+                    st.session_state.processing_ret_complete = True
+                    st.rerun()
+
+                except Exception as e:
+                    mostrar_error_amigable(e, "la Auditoría de Retenciones")
+                    st.session_state.log_messages_ret = log_messages
+                    # No activamos processing_ret_complete en error para no mostrar el botón de descarga vacío,
+                    # pero sí guardamos los logs por si quieres verlos.
+                    st.session_state.processing_ret_complete = True 
+                    # Importante: Si hubo error, reporte_ret_output debe ser None
+                    st.session_state.reporte_ret_output = None 
+
+    # --- BLOQUE 2: MOSTRAR RESULTADOS (Fuera del if del botón) ---
     if st.session_state.get('processing_ret_complete', False):
         
-        if st.session_state.reporte_ret_output:
+        # Solo mostramos Éxito y Descarga si hay un reporte generado
+        if st.session_state.get('reporte_ret_output') is not None:
             st.success("✅ ¡Auditoría de retenciones completada con éxito!")
             st.download_button(
                 "⬇️ Descargar Reporte de Auditoría (Excel)",
@@ -344,11 +361,11 @@ def render_retenciones():
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
-        else:
-            st.error("❌ La auditoría finalizó con un error. Revisa el registro para más detalles.")
-
-        with st.expander("Ver registro detallado del proceso de auditoría"):
-            st.text_area("Log de Auditoría de Retenciones", '\n'.join(st.session_state.log_messages_ret), height=400)
+        
+        # El log lo mostramos siempre (sea éxito o error controlado)
+        if 'log_messages_ret' in st.session_state and st.session_state.log_messages_ret:
+            with st.expander("Ver registro detallado del proceso de auditoría"):
+                st.text_area("Log de Auditoría de Retenciones", '\n'.join(st.session_state.log_messages_ret), height=400)
 
 def render_especificaciones():
     st.title('📄 Herramienta de Conciliación de Cuentas', anchor=False)
@@ -412,9 +429,7 @@ def render_especificaciones():
                     st.session_state.processing_complete = True
                     st.rerun()
             except Exception as e:
-                st.error(f"❌ Ocurrió un error crítico durante el procesamiento: {e}")
-                import traceback
-                st.code(traceback.format_exc())
+                mostrar_error_amigable(e, "la Conciliación")
                 st.session_state.processing_complete = False
             finally:
                 progress_container.empty()
@@ -478,7 +493,6 @@ def render_paquete_cc():
     with st.expander("📖 Manual de Usuario: Criterios de Análisis y Errores Comunes", expanded=False):
         st.markdown(GUIA_PAQUETE_CC)
     
-    # --- CAMBIO 1: AGREGAR SELECTOR DE CASA ---
     CASA_OPTIONS = ["FEBECA, C.A", "MAYOR BEVAL, C.A", "PRISMA, C.A", "FEBECA, C.A (QUINCALLA)"]
     st.subheader("1. Seleccione la Empresa (Casa):", anchor=False)
     casa_seleccionada = st.selectbox("Empresa", CASA_OPTIONS, label_visibility="collapsed", key="casa_paquete_cc")
@@ -535,9 +549,7 @@ def render_paquete_cc():
                     st.rerun()
 
                 except Exception as e:
-                    st.error(f"❌ Ocurrió un error crítico durante el procesamiento: {e}")
-                    import traceback
-                    st.code(traceback.format_exc())
+                    mostrar_error_amigable(e, "el Análisis de Paquete CC")
                     st.session_state.processing_paquete_complete = False
 
     if st.session_state.get('processing_paquete_complete', False):
