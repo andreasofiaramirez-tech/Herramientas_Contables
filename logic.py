@@ -2776,14 +2776,14 @@ def extraer_saldos_cb(archivo, log_messages):
 
 def extraer_saldos_cg(archivo, log_messages):
     """
-    Extrae saldos COMPLETOS y NOMBRES del Balance (PDF/Excel).
-    MEJORA: Detecta guiones y paréntesis como números válidos.
+    Extrae saldos de CG usando REGEX para mayor precisión en números grandes.
+    Soluciona problemas donde el PDF separa los miles con espacios.
     """
     datos_cg = {}
     nombre_archivo = getattr(archivo, 'name', '').lower()
     
     if nombre_archivo.endswith('.pdf'):
-        log_messages.append("📄 Procesando Balance CG como PDF...")
+        log_messages.append("📄 Procesando Balance CG como PDF (Modo Regex)...")
         try:
             with pdfplumber.open(archivo) as pdf:
                 for page in pdf.pages:
@@ -2791,72 +2791,124 @@ def extraer_saldos_cg(archivo, log_messages):
                     if not text: continue
                     
                     for line in text.split('\n'):
-                        parts = line.split()
-                        if len(parts) < 3: continue
+                        # Limpieza inicial de la línea
+                        line_clean = line.strip()
                         
-                        cuenta = parts[0].strip()
-                        
-                        # Validación básica de cuenta
-                        if not (cuenta.startswith('1.') and len(cuenta) > 10):
+                        # 1. IDENTIFICAR LA CUENTA (Al inicio de la línea)
+                        # Busca patrón: Empieza con 1, puntos y dígitos, longitud min 10
+                        match_cuenta = re.match(r'^(1\.[\d\.]+)', line_clean)
+                        if not match_cuenta:
                             continue
+                            
+                        cuenta = match_cuenta.group(1)
+                        if len(cuenta) < 10: continue # Falso positivo corto
                         
-                        # 1. Nombre Oficial
-                        if cuenta in NOMBRES_CUENTAS_OFICIALES:
-                            descripcion = NOMBRES_CUENTAS_OFICIALES[cuenta]
-                        else:
-                            desc_parts = []
-                            for p in parts[1:]:
-                                # Paramos si encontramos algo que parece un número
-                                if es_texto_numerico(p) or p.upper() in ['DEUDOR', 'ACREEDOR']:
-                                    break
-                                desc_parts.append(p)
-                            descripcion = " ".join(desc_parts)
+                        # 2. IDENTIFICAR MONTOS
+                        # Este Regex busca números financieros:
+                        # - Opcional: Signo menos o paréntesis
+                        # - Dígitos seguidos de (puntos/comas y más dígitos)
+                        # - Debe terminar en un decimal de 2 dígitos
+                        
+                        # Patrón: ( -?  DIGITOS  ([.,] DIGITOS)*  [.,]  DIGITOS_2 )
+                        patron_monto = r'(?:\(?\-?[\d]{1,3}(?:[.,\s]\d{3})*(?:[.,]\d{2})\)?)'
+                        
+                        # Encontramos todos los patrones que parezcan dinero en la línea
+                        montos_encontrados_raw = re.findall(patron_monto, line_clean)
+                        
+                        # Filtramos: A veces el Regex atrapa la cuenta contable si termina en .XX
+                        # Eliminamos cualquier match que sea idéntico a la cuenta
+                        montos_validos = []
+                        for m in montos_encontrados_raw:
+                            # Limpiamos para comparar
+                            m_val = limpiar_monto_pdf(m)
+                            # Si no es la cuenta (comparando longitud o valor numérico) y parece un monto válido
+                            if m != cuenta and len(m) < 20: 
+                                montos_validos.append(m_val)
+                            # Caso especial: Si el monto es "0.00" o "-" (que el regex de arriba no atrapa bien a veces)
+                        
+                        # Búsqueda auxiliar para ceros explícitos "0.00" o guiones aislados "-"
+                        # Si el regex complejo falló en ceros, hacemos un split tradicional SOLO para rellenar huecos?
+                        # Mejor estrategia: El regex complejo atrapa 0.00.
+                        # Si hay guiones "-", el split los ve.
+                        
+                        # ESTRATEGIA HÍBRIDA:
+                        # Si el regex encontró pocos números (menos de 8), intentamos completar con la lógica posicional
+                        # porque a veces hay columnas vacías o guiones que el regex numérico salta.
+                        
+                        numeros_finales = montos_validos
+                        
+                        # Si detectamos menos de 4 números, es peligroso asignar.
+                        # Volvemos a mirar la línea buscando guiones "-" que representan ceros.
+                        if len(numeros_finales) < 8:
+                            parts = line.split()
+                            numeros_con_guiones = []
+                            for p in parts:
+                                if p == '-' or p == '0.00' or re.match(patron_monto, p):
+                                    val = 0.0 if p == '-' else limpiar_monto_pdf(p)
+                                    # Evitamos agregar la cuenta contable como dinero
+                                    if p != cuenta:
+                                        numeros_con_guiones.append(val)
+                            
+                            # Si esta estrategia dio más resultados, la usamos
+                            if len(numeros_con_guiones) > len(numeros_finales):
+                                numeros_finales = numeros_con_guiones
 
-                        # 2. Extracción de Saldos (Usando la nueva detección)
-                        numeros = []
-                        for p in parts[1:]:
-                            if es_texto_numerico(p):
-                                numeros.append(p)
-                        
-                        # Inicializamos
+                        # 3. ASIGNACIÓN DE SALDOS
                         vals_ves = {'inicial':0.0, 'debitos':0.0, 'creditos':0.0, 'final':0.0}
                         vals_usd = {'inicial':0.0, 'debitos':0.0, 'creditos':0.0, 'final':0.0}
                         
-                        # Mapeo según cantidad de columnas detectadas
-                        # Esperamos 8 columnas: 4 Local + 4 Dólar
-                        if len(numeros) >= 8:
-                            # Últimos 4 son Dólar, los 4 anteriores son Local
-                            # A veces hay columnas extra al inicio, tomamos relativo al final
-                            vals_usd = {
-                                'inicial': limpiar_monto_pdf(numeros[-4]),
-                                'debitos': limpiar_monto_pdf(numeros[-3]),
-                                'creditos': limpiar_monto_pdf(numeros[-2]),
-                                'final': limpiar_monto_pdf(numeros[-1])
-                            }
-                            vals_ves = {
-                                'inicial': limpiar_monto_pdf(numeros[-8]),
-                                'debitos': limpiar_monto_pdf(numeros[-7]),
-                                'creditos': limpiar_monto_pdf(numeros[-6]),
-                                'final': limpiar_monto_pdf(numeros[-5])
-                            }
-                        elif len(numeros) >= 4:
-                            # Solo detectó Local (o Dólar estaba vacío/sin guiones?)
-                            # Asumimos Local por defecto
-                            vals_ves = {
-                                'inicial': limpiar_monto_pdf(numeros[0]),
-                                'debitos': limpiar_monto_pdf(numeros[1]),
-                                'creditos': limpiar_monto_pdf(numeros[2]),
-                                'final': limpiar_monto_pdf(numeros[3])
-                            }
+                        cant = len(numeros_finales)
                         
-                        datos_cg[cuenta] = {'VES': vals_ves, 'USD': vals_usd, 'descripcion': descripcion}
+                        # Asumimos estructura estándar de 8 columnas de montos
+                        if cant >= 8:
+                            # Últimos 4 -> Dólar
+                            vals_usd = {
+                                'inicial': numeros_finales[-4],
+                                'debitos': numeros_finales[-3],
+                                'creditos': numeros_finales[-2],
+                                'final': numeros_finales[-1]
+                            }
+                            # Antepenúltimos 4 -> Local
+                            vals_ves = {
+                                'inicial': numeros_finales[-8],
+                                'debitos': numeros_finales[-7],
+                                'creditos': numeros_finales[-6],
+                                'final': numeros_finales[-5]
+                            }
+                        elif cant >= 4:
+                            # Solo Local detectado
+                            vals_ves = {
+                                'inicial': numeros_finales[-4],
+                                'debitos': numeros_finales[-3],
+                                'creditos': numeros_finales[-2],
+                                'final': numeros_finales[-1]
+                            }
+
+                        # 4. OBTENER NOMBRE
+                        if cuenta in NOMBRES_CUENTAS_OFICIALES:
+                            descripcion = NOMBRES_CUENTAS_OFICIALES[cuenta]
+                        else:
+                            # Fallback: Cortar string entre cuenta y primer número/palabra clave
+                            # Buscamos índice donde termina la cuenta
+                            idx_cuenta = line.find(cuenta) + len(cuenta)
                             
+                            # Buscamos índice donde empieza "Deudor" o el primer número
+                            match_deudor = re.search(r'\s(DEUDOR|ACREEDOR)\s', line, re.IGNORECASE)
+                            
+                            if match_deudor:
+                                idx_fin = match_deudor.start()
+                                descripcion = line[idx_cuenta:idx_fin].strip()
+                            else:
+                                descripcion = "NOMBRE NO DETECTADO"
+
+                        datos_cg[cuenta] = {'VES': vals_ves, 'USD': vals_usd, 'descripcion': descripcion}
+
         except Exception as e:
             log_messages.append(f"❌ Error leyendo PDF CG: {str(e)}")
 
     # --- MODO EXCEL ---
     else:
-        pass # (Mantener lógica Excel si existe)
+        pass
             
     return datos_cg
 
