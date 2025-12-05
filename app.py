@@ -280,8 +280,8 @@ def render_inicio():
     col1, col2 = st.columns(2)
     with col1:
         st.button("📄 Especificaciones", on_click=set_page, args=['especificaciones'], use_container_width=True)
-        st.button("💵 Reservas y Apartados", on_click=set_page, args=['reservas'], use_container_width=True, disabled=True)
         st.button("📦 Análisis de Paquete CC", on_click=set_page, args=['paquete_cc'], use_container_width=True)
+        st.button("💵 Reservas y Apartados", on_click=set_page, args=['reservas'], use_container_width=True, disabled=True)
         
     with col2:
         st.button("⚖️ Cuadre CB - CG", on_click=set_page, args=['cuadre'], use_container_width=True)
