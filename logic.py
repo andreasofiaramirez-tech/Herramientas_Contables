@@ -2220,7 +2220,6 @@ def _validar_asiento(asiento_group):
         diff_lines = asiento_group[asiento_group['Cuenta Contable Norm'] == normalize_account('6.1.1.12.1.001')]
         
         # 1. Validación Estricta (Regex)
-        # --- CAMBIO AQUÍ: AGREGAMOS 'DC' A LA LISTA ---
         keywords_estrictas = [
             'DIFERENCIAL', 'DIFERENCIA', 'DIF CAMBIARIO', 'DIF.', 
             'TASA', 'AJUSTE', 'IVA', 'DC'  # <--- NUEVO: Acepta abreviatura DC
@@ -2314,7 +2313,7 @@ def _validar_asiento(asiento_group):
             if not tiene_iva: faltante.append("Cta IVA")
             return f"Incidencia: Asiento de N/C incompleto. Falta: {', '.join(faltante)}."
 
-    # --- NUEVO: Validaciones para Grupos Nuevos ---
+    # --- Validaciones para Grupos Nuevos ---
     
     elif grupo.startswith("Grupo 14:"):
         # Regla: "Estas cuentas están conciliadas desde que se cargan"
@@ -2477,7 +2476,7 @@ def run_analysis_paquete_cc(df_diario, log_messages):
     return df_final
 
 # ==============================================================================
-# LÓGICA PARA CUADRE CB - CG (TESORERÍA VS CONTABILIDAD) - VERSIÓN FINAL
+# LÓGICA PARA CUADRE CB - CG (TESORERÍA VS CONTABILIDAD) - VERSIÓN FINAL BLINDADA
 # ==============================================================================
 import pdfplumber
 import re
@@ -2536,7 +2535,7 @@ NOMBRES_CUENTAS_OFICIALES = {
     '1.1.4.01.7.021': 'Servicios de Administración de Fondos - USDT',
     '1.1.1.01.6.001': 'Cuenta Dolares',
     '1.1.1.01.6.002': 'Cuenta Euros'
-}
+} 
 
 # 2. MAPEO DE CÓDIGOS TESORERÍA -> CONTABILIDAD
 MAPEO_CB_CG_BEVAL = {
@@ -2576,11 +2575,10 @@ MAPEO_CB_CG_BEVAL = {
     "0210EU": {"cta": "1.1.1.01.6.002", "moneda": "EUR"},
     "0211E":  {"cta": "1.1.1.03.6.015", "moneda": "USD"},
     "0501E":  {"cta": "1.1.1.03.6.024", "moneda": "USD"},
-    "2407E":  {"cta": "1.1.1.06.6.003", "moneda": "USD"}
-}
+    "2407E":  {"cta": "1.1.1.06.6.003", "moneda": "USD"},
+} 
 
 def limpiar_monto_pdf(texto):
-    """Convierte texto de moneda a float."""
     if not texto: return 0.0
     limpio = texto.replace('.', '').replace(',', '.')
     try: return float(limpio)
@@ -2609,9 +2607,10 @@ def extraer_saldos_cb(archivo, log_messages):
                         
                         codigo = parts[0].strip()
                         
-                        # Filtro: Código debe tener al menos 4 chars y empezar por dígito
+                        # Filtro: Código debe tener al menos 4 chars y empezar por dígito (0102L)
                         if len(codigo) >= 4 and codigo[0].isdigit():
                             try:
+                                # 1. Extraer Saldos (Buscamos los 4 últimos números de la línea)
                                 numeros_encontrados = []
                                 indices_numeros = []
                                 
@@ -2626,16 +2625,16 @@ def extraer_saldos_cb(archivo, log_messages):
                                     s_cre = limpiar_monto_pdf(numeros_encontrados[-2])
                                     s_fin = limpiar_monto_pdf(numeros_encontrados[-1])
                                     
-                                    # Nombre entre código y números
+                                    # 2. Extraer Nombre
                                     idx_inicio_nums = indices_numeros[-4]
                                     nombre_parts = parts[1:idx_inicio_nums]
                                     
-                                    # Limpieza de nombre
+                                    # Limpieza extra del nombre
                                     nombre_limpio_parts = []
                                     for p in nombre_parts:
                                         if not re.search(r'\d{2}/\d{2}/\d{4}', p) and not (p.isdigit() and len(p)==4):
                                             nombre_limpio_parts.append(p)
-                                    
+                                            
                                     nombre_banco = " ".join(nombre_limpio_parts)
                                     
                                     datos[codigo] = {
@@ -2671,7 +2670,11 @@ def extraer_saldos_cb(archivo, log_messages):
                         s_ini = float(row[col_ini]) if col_ini else 0.0
                         s_deb = float(row[col_deb]) if col_deb else 0.0
                         s_cre = float(row[col_cre]) if col_cre else 0.0
-                        datos[codigo] = {'inicial':s_ini, 'debitos':s_deb, 'creditos':s_cre, 'final':s_fin, 'nombre':nombre}
+                        datos[codigo] = {
+                            'inicial': s_ini, 'debitos': s_deb, 
+                            'creditos': s_cre, 'final': s_fin, 
+                            'nombre': nombre
+                        }
                     except: pass
         except Exception as e:
             log_messages.append(f"❌ Error leyendo Excel CB: {str(e)}")
@@ -2707,7 +2710,7 @@ def extraer_saldos_cg(archivo, log_messages):
                         if cuenta in NOMBRES_CUENTAS_OFICIALES:
                             descripcion = NOMBRES_CUENTAS_OFICIALES[cuenta]
                         else:
-                            # Fallback
+                            # Fallback: Intentar leer del PDF si no está en la lista
                             desc_parts = []
                             for p in parts[1:]:
                                 p_clean = p.replace('.', '').replace(',', '').replace('-', '')
@@ -2723,7 +2726,7 @@ def extraer_saldos_cg(archivo, log_messages):
                             if p_clean.isdigit() and len(p_clean) > 0:
                                 numeros.append(p)
                         
-                        # Estructuras por defecto
+                        # Estructuras por defecto (diccionarios)
                         vals_ves = {'inicial':0.0, 'debitos':0.0, 'creditos':0.0, 'final':0.0}
                         vals_usd = {'inicial':0.0, 'debitos':0.0, 'creditos':0.0, 'final':0.0}
                         
@@ -2766,17 +2769,22 @@ def run_cuadre_cb_cg_beval(file_cb, file_cg, log_messages):
         cuenta_cg = config['cta']
         moneda = config['moneda']
         
-        info_cb = data_cb.get(codigo_cb, {'inicial':0, 'debitos':0, 'creditos':0, 'final':0})
+        info_cb = data_cb.get(codigo_cb, {'inicial':0, 'debitos':0, 'creditos':0, 'final':0, 'nombre':'NO ENCONTRADO'})
         
         clave_cg = 'VES' if moneda == 'VES' else 'USD'
         info_cg_full = data_cg.get(cuenta_cg, {})
         info_cg = info_cg_full.get(clave_cg, {'inicial':0, 'debitos':0, 'creditos':0, 'final':0})
         desc_cg = info_cg_full.get('descripcion', NOMBRES_CUENTAS_OFICIALES.get(cuenta_cg, 'NO DEFINIDO'))
         
-        dif_final = round(info_cb['final'] - info_cg['final'], 2)
+        # Acceso seguro a valores
+        saldo_cb = info_cb.get('final', 0)
+        saldo_cg = info_cg.get('final', 0)
+        
+        dif_final = round(saldo_cb - saldo_cg, 2)
         estado = "OK" if dif_final == 0 else "DESCUADRE"
         
-        if info_cb['final'] == 0 and info_cg['final'] == 0 and info_cb['debitos'] == 0:
+        # Ignorar si está todo en cero
+        if saldo_cb == 0 and saldo_cg == 0 and info_cb.get('debitos', 0) == 0:
             continue
 
         resultados.append({
@@ -2784,8 +2792,8 @@ def run_cuadre_cb_cg_beval(file_cb, file_cg, log_messages):
             'Banco (Tesorería)': codigo_cb, 
             'Cuenta Contable': cuenta_cg,
             'Descripción': desc_cg,
-            'Saldo Final CB': info_cb.get('final', 0), # Usar .get para seguridad
-            'Saldo Final CG': info_cg.get('final', 0),
+            'Saldo Final CB': saldo_cb,
+            'Saldo Final CG': saldo_cg,
             'Diferencia': dif_final,
             'Estado': estado,
             'CB Inicial': info_cb.get('inicial', 0),
