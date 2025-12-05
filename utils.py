@@ -1123,7 +1123,7 @@ def generar_reporte_paquete_cc(df_analizado, nombre_casa):
 # ==============================================================================
 
 def generar_reporte_cuadre(df_resultado):
-    """Genera el Excel del Cuadre CB-CG."""
+    """Genera el Excel del Cuadre CB-CG con nombres y descripciones."""
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         df_resultado.to_excel(writer, index=False, sheet_name='Cuadre')
@@ -1132,26 +1132,34 @@ def generar_reporte_cuadre(df_resultado):
         ws = writer.sheets['Cuadre']
         
         # Formatos
-        fmt_money = wb.add_format({'num_format': '#,##0.00'})
-        fmt_red = wb.add_format({'bg_color': '#FFC7CE', 'font_color': '#9C0006', 'num_format': '#,##0.00'})
-        fmt_green = wb.add_format({'bg_color': '#C6EFCE', 'font_color': '#006100', 'num_format': '#,##0.00'})
+        fmt_header = wb.add_format({'bold': True, 'fg_color': '#D9EAD3', 'border': 1, 'align': 'center'})
+        fmt_money = wb.add_format({'num_format': '#,##0.00', 'border': 1})
+        fmt_red = wb.add_format({'bg_color': '#FFC7CE', 'font_color': '#9C0006', 'num_format': '#,##0.00', 'border': 1})
+        fmt_green = wb.add_format({'bg_color': '#C6EFCE', 'font_color': '#006100', 'num_format': '#,##0.00', 'border': 1})
+        fmt_text = wb.add_format({'border': 1})
         
-        # Aplicar formato condicional a la columna Diferencia (F)
-        # Filas 2 en adelante
-        ws.conditional_format('F2:F100', {
-            'type': 'cell',
-            'criteria': '!=',
-            'value': 0,
-            'format': fmt_red
+        # Aplicar formato a los encabezados
+        for col_num, value in enumerate(df_resultado.columns.values):
+            ws.write(0, col_num, value, fmt_header)
+
+        # Aplicar formato condicional a la columna Diferencia (Columna H = índice 7)
+        # Estructura: CodCB | NombreCB | Moneda | CtaCG | DescCG | SaldoCB | SaldoCG | Dif | Estado
+        # Indices:      0        1         2        3        4         5         6      7      8
+        
+        ws.conditional_format('H2:H100', {
+            'type': 'cell', 'criteria': '!=', 'value': 0, 'format': fmt_red
         })
-        ws.conditional_format('F2:F100', {
-            'type': 'cell',
-            'criteria': '=',
-            'value': 0,
-            'format': fmt_green
+        ws.conditional_format('H2:H100', {
+            'type': 'cell', 'criteria': '=', 'value': 0, 'format': fmt_green
         })
         
-        ws.set_column('A:C', 15)
-        ws.set_column('D:F', 20, fmt_money)
+        # Ajuste de Anchos
+        ws.set_column('A:A', 10) # Codigo CB
+        ws.set_column('B:B', 30) # Nombre Banco (Ancho)
+        ws.set_column('C:C', 8)  # Moneda
+        ws.set_column('D:D', 18) # Cuenta CG
+        ws.set_column('E:E', 40) # Descripcion CG (Muy Ancho)
+        ws.set_column('F:H', 18, fmt_money) # Saldos y Diferencia
+        ws.set_column('I:I', 15, fmt_text)  # Estado
         
     return output.getvalue()
