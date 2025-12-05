@@ -2672,9 +2672,14 @@ def limpiar_monto_pdf(texto):
         return 0.0
 
 def extraer_saldos_cb(archivo, log_messages):
+    """
+    Extrae saldos COMPLETOS y NOMBRES del reporte de Tesorería.
+    MEJORA: Capaz de leer líneas con menos de 4 columnas numéricas (cuentas sin movimiento).
+    """
     datos = {} 
     nombre_archivo = getattr(archivo, 'name', '').lower()
     
+    # --- MODO PDF ---
     if nombre_archivo.endswith('.pdf'):
         log_messages.append("📄 Procesando Reporte CB como PDF...")
         try:
@@ -2682,46 +2687,88 @@ def extraer_saldos_cb(archivo, log_messages):
                 for page in pdf.pages:
                     text = page.extract_text()
                     if not text: continue
+                    
                     for line in text.split('\n'):
                         parts = line.split()
                         if len(parts) < 3: continue
+                        
                         codigo = parts[0].strip()
+                        
+                        # Filtro: Código debe tener al menos 4 chars y empezar por dígito (0102L)
                         if len(codigo) >= 4 and codigo[0].isdigit():
                             try:
                                 numeros_encontrados = []
                                 indices_numeros = []
+                                
                                 for i, p in enumerate(parts):
-                                    if any(c.isdigit() for c in p) and (',' in p or '.' in p or p=='0.00'):
+                                    # Detectar si es un monto
+                                    if any(c.isdigit() for c in p) and (',' in p or '.' in p or p=='0.00' or p=='-0.00'):
                                         numeros_encontrados.append(p)
                                         indices_numeros.append(i)
-                                if len(numeros_encontrados) >= 4:
-                                    s_ini = limpiar_monto_pdf(numeros_encontrados[-4])
-                                    s_deb = limpiar_monto_pdf(numeros_encontrados[-3])
-                                    s_cre = limpiar_monto_pdf(numeros_encontrados[-2])
+                                
+                                cant_nums = len(numeros_encontrados)
+                                
+                                # --- LÓGICA FLEXIBLE DE ASIGNACIÓN ---
+                                s_ini = 0.0
+                                s_deb = 0.0
+                                s_cre = 0.0
+                                s_fin = 0.0
+                                
+                                if cant_nums >= 1:
+                                    # Si hay al menos un número, el ÚLTIMO es siempre el Saldo Final
                                     s_fin = limpiar_monto_pdf(numeros_encontrados[-1])
-                                    idx_inicio_nums = indices_numeros[-4]
-                                    nombre_parts = parts[1:idx_inicio_nums]
-                                    nombre_limpio_parts = []
-                                    for p in nombre_parts:
-                                        if not re.search(r'\d{2}/\d{2}/\d{4}', p) and not (p.isdigit() and len(p)==4):
-                                            nombre_limpio_parts.append(p)
-                                    nombre_banco = " ".join(nombre_limpio_parts)
-                                    datos[codigo] = {'inicial': s_ini, 'debitos': s_deb, 'creditos': s_cre, 'final': s_fin, 'nombre': nombre_banco}
-                            except: continue
+                                    
+                                    # Si hay 2 o más, el PRIMERO es el Saldo Inicial
+                                    if cant_nums >= 2:
+                                        s_ini = limpiar_monto_pdf(numeros_encontrados[0])
+                                    
+                                    # Si hay 4 o más, asumimos estructura completa
+                                    if cant_nums >= 4:
+                                        s_ini = limpiar_monto_pdf(numeros_encontrados[-4])
+                                        s_deb = limpiar_monto_pdf(numeros_encontrados[-3])
+                                        s_cre = limpiar_monto_pdf(numeros_encontrados[-2])
+                                        s_fin = limpiar_monto_pdf(numeros_encontrados[-1])
+                                    
+                                    # --- EXTRACCIÓN DE NOMBRE ---
+                                    # El nombre termina antes del primer número encontrado
+                                    if indices_numeros:
+                                        idx_fin_nombre = indices_numeros[0]
+                                        nombre_parts = parts[1:idx_fin_nombre]
+                                        
+                                        nombre_limpio_parts = []
+                                        for p in nombre_parts:
+                                            # Filtramos fechas y códigos numéricos sueltos
+                                            if not re.search(r'\d{2}/\d{2}/\d{4}', p) and not (p.isdigit() and len(p)==4):
+                                                nombre_limpio_parts.append(p)
+                                        
+                                        nombre_banco = " ".join(nombre_limpio_parts)
+                                    else:
+                                        nombre_banco = "SIN NOMBRE"
+
+                                    datos[codigo] = {
+                                        'inicial': s_ini, 'debitos': s_deb, 
+                                        'creditos': s_cre, 'final': s_fin, 
+                                        'nombre': nombre_banco
+                                    }
+                            except Exception:
+                                continue
         except Exception as e:
             log_messages.append(f"❌ Error leyendo PDF CB: {str(e)}")
             
+    # --- MODO EXCEL ---
     else:
         log_messages.append("📗 Procesando Reporte CB como Excel...")
         try:
             df = pd.read_excel(archivo)
             df.columns = [str(c).strip().upper() for c in df.columns]
+            
             col_cta = next((c for c in df.columns if 'CUENTA' in c), None)
             col_nom = next((c for c in df.columns if 'NOMBRE' in c), None)
             col_fin = next((c for c in df.columns if 'FINAL' in c), None)
             col_ini = next((c for c in df.columns if 'INICIAL' in c), None)
             col_deb = next((c for c in df.columns if 'DEBITO' in c or 'DÉBITO' in c), None)
             col_cre = next((c for c in df.columns if 'CREDITO' in c or 'CRÉDITO' in c), None)
+            
             if col_cta and col_fin:
                 for _, row in df.iterrows():
                     codigo = str(row[col_cta]).strip()
@@ -2731,10 +2778,15 @@ def extraer_saldos_cb(archivo, log_messages):
                         s_ini = float(row[col_ini]) if col_ini else 0.0
                         s_deb = float(row[col_deb]) if col_deb else 0.0
                         s_cre = float(row[col_cre]) if col_cre else 0.0
-                        datos[codigo] = {'inicial': s_ini, 'debitos': s_deb, 'creditos': s_cre, 'final': s_fin, 'nombre': nombre}
+                        datos[codigo] = {
+                            'inicial': s_ini, 'debitos': s_deb, 
+                            'creditos': s_cre, 'final': s_fin, 
+                            'nombre': nombre
+                        }
                     except: pass
         except Exception as e:
             log_messages.append(f"❌ Error leyendo Excel CB: {str(e)}")
+
     return datos
 
 def extraer_saldos_cg(archivo, log_messages):
