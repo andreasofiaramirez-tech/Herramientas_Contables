@@ -2798,48 +2798,82 @@ def extraer_saldos_cg(archivo, log_messages):
 
 def run_cuadre_cb_cg(file_cb, file_cg, nombre_empresa, log_messages):
     """
-    Función Principal MULTI-EMPRESA.
-    Selecciona el diccionario correcto según la empresa elegida en la App.
+    Función Principal: Cruza Tesorería vs Contabilidad.
+    INCLUYE INTELIGENCIA DE AGRUPACIÓN (N:1):
+    Si varios códigos CB apuntan a la misma cuenta CG, se suman antes de comparar.
     """
+    # 1. Selección de Diccionario según Empresa
+    if "FEBECA" in str(nombre_empresa).upper():
+        mapeo_actual = MAPEO_CB_CG_FEBECA
+        log_messages.append(f"🏢 Configuración activa: FEBECA")
+    else:
+        mapeo_actual = MAPEO_CB_CG_BEVAL
+        log_messages.append(f"🏢 Configuración activa: BEVAL")
+
+    # 2. Extracción de Datos
     data_cb = extraer_saldos_cb(file_cb, log_messages)
     data_cg = extraer_saldos_cg(file_cg, log_messages)
     
-    # --- SELECCIÓN DE DICCIONARIO ---
-    if "FEBECA" in nombre_empresa.upper():
-        mapeo_actual = MAPEO_CB_CG_FEBECA
-        log_messages.append("🏢 Usando configuración de cuentas: FEBECA")
-    else:
-        mapeo_actual = MAPEO_CB_CG_BEVAL
-        log_messages.append("🏢 Usando configuración de cuentas: BEVAL")
-    # --------------------------------
-    
     resultados = []
     
+    # --- PASO 3: PRE-CÁLCULO DE SALDOS AGRUPADOS POR CUENTA CONTABLE ---
+    # Sumamos todo lo que hay en Tesorería para cada cuenta contable específica
+    suma_cb_por_cuenta = {}
+    
+    for codigo_cb, config in mapeo_actual.items():
+        cuenta_cg = config['cta']
+        saldo_individual = data_cb.get(codigo_cb, {}).get('final', 0.0)
+        
+        if cuenta_cg not in suma_cb_por_cuenta:
+            suma_cb_por_cuenta[cuenta_cg] = 0.0
+        suma_cb_por_cuenta[cuenta_cg] += saldo_individual
+    # -------------------------------------------------------------------
+
+    # 4. Generación de Resultados
     for codigo_cb, config in mapeo_actual.items():
         cuenta_cg = config['cta']
         moneda = config['moneda']
         
+        # Datos CB Individuales
         info_cb = data_cb.get(codigo_cb, {'inicial':0, 'debitos':0, 'creditos':0, 'final':0, 'nombre':'NO ENCONTRADO'})
+        saldo_cb_individual = info_cb.get('final', 0)
         
+        # Datos CG (Cuenta única)
         clave_cg = 'VES' if moneda == 'VES' else 'USD'
         info_cg_full = data_cg.get(cuenta_cg, {})
         info_cg = info_cg_full.get(clave_cg, {'inicial':0, 'debitos':0, 'creditos':0, 'final':0})
+        saldo_cg = info_cg.get('final', 0)
         desc_cg = info_cg_full.get('descripcion', NOMBRES_CUENTAS_OFICIALES.get(cuenta_cg, 'NO DEFINIDO'))
         
-        saldo_cb = info_cb.get('final', 0)
-        saldo_cg = info_cg.get('final', 0)
+        # --- LÓGICA INTELIGENTE DE COMPARACIÓN ---
+        # En lugar de comparar el saldo individual, comparamos la SUMA DEL GRUPO
+        saldo_cb_grupo_total = suma_cb_por_cuenta.get(cuenta_cg, 0.0)
         
-        dif_final = round(saldo_cb - saldo_cg, 2)
-        estado = "OK" if dif_final == 0 else "DESCUADRE"
+        diferencia_grupo = round(saldo_cb_grupo_total - saldo_cg, 2)
         
+        if diferencia_grupo == 0:
+            # Si el grupo entero cuadra, esta línea está OK (aunque individualmente parezca descuadrada)
+            estado = "OK" 
+            diferencia_visual = 0.0 # Forzamos 0 visual para no alarmar
+        else:
+            # Si el grupo no cuadra, mostramos la diferencia individual o del grupo
+            estado = "DESCUADRE"
+            # Calculamos la diferencia "imputable" a esta línea como la diferencia del grupo
+            # (Esto ayuda a ver que el error es compartido)
+            diferencia_visual = diferencia_grupo 
+            
+        # Filtro de inactividad: Si todo es cero (individual y contable)
+        if saldo_cb_individual == 0 and saldo_cg == 0 and info_cb.get('debitos', 0) == 0 and diferencia_grupo == 0:
+            continue
+
         resultados.append({
             'Moneda': moneda,
             'Banco (Tesorería)': codigo_cb, 
             'Cuenta Contable': cuenta_cg,
             'Descripción': desc_cg,
-            'Saldo Final CB': saldo_cb,
-            'Saldo Final CG': saldo_cg,
-            'Diferencia': dif_final,
+            'Saldo Final CB': saldo_cb_individual, # Mostramos el saldo real de este código
+            'Saldo Final CG': saldo_cg,            # Mostramos el saldo total de la cuenta
+            'Diferencia': diferencia_visual,       # Diferencia ajustada por grupo
             'Estado': estado,
             'CB Inicial': info_cb.get('inicial', 0),
             'CB Débitos': info_cb.get('debitos', 0),
