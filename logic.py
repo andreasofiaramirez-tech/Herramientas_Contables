@@ -2476,7 +2476,7 @@ def run_analysis_paquete_cc(df_diario, log_messages):
     return df_final
 
 # ==============================================================================
-# LÓGICA PARA CUADRE CB - CG (TESORERÍA VS CONTABILIDAD) - VERSIÓN FINAL BLINDADA
+# LÓGICA PARA CUADRE CB - CG (TESORERÍA VS CONTABILIDAD) - VERSIÓN CORREGIDA
 # ==============================================================================
 import pdfplumber
 import re
@@ -2535,9 +2535,9 @@ NOMBRES_CUENTAS_OFICIALES = {
     '1.1.4.01.7.021': 'Servicios de Administración de Fondos - USDT',
     '1.1.1.01.6.001': 'Cuenta Dolares',
     '1.1.1.01.6.002': 'Cuenta Euros'
-} 
+}
 
-# 2. MAPEO DE CÓDIGOS TESORERÍA -> CONTABILIDAD
+# 2. MAPEO DE CÓDIGOS
 MAPEO_CB_CG_BEVAL = {
     "0102E":  {"cta": "1.1.1.02.6.003", "moneda": "USD"},
     "0102EU": {"cta": "1.1.1.02.6.213", "moneda": "EUR"},
@@ -2576,7 +2576,7 @@ MAPEO_CB_CG_BEVAL = {
     "0211E":  {"cta": "1.1.1.03.6.015", "moneda": "USD"},
     "0501E":  {"cta": "1.1.1.03.6.024", "moneda": "USD"},
     "2407E":  {"cta": "1.1.1.06.6.003", "moneda": "USD"},
-} 
+}
 
 def limpiar_monto_pdf(texto):
     if not texto: return 0.0
@@ -2585,10 +2585,7 @@ def limpiar_monto_pdf(texto):
     except ValueError: return 0.0
 
 def extraer_saldos_cb(archivo, log_messages):
-    """
-    Extrae saldos COMPLETOS (Ini, Deb, Cre, Fin) y NOMBRES del reporte de Tesorería.
-    Soporte PDF y Excel.
-    """
+    """Extrae saldos COMPLETOS y NOMBRES del reporte de Tesorería (PDF/Excel)."""
     datos = {} 
     nombre_archivo = getattr(archivo, 'name', '').lower()
     
@@ -2607,10 +2604,8 @@ def extraer_saldos_cb(archivo, log_messages):
                         
                         codigo = parts[0].strip()
                         
-                        # Filtro: Código debe tener al menos 4 chars y empezar por dígito (0102L)
                         if len(codigo) >= 4 and codigo[0].isdigit():
                             try:
-                                # 1. Extraer Saldos (Buscamos los 4 últimos números de la línea)
                                 numeros_encontrados = []
                                 indices_numeros = []
                                 
@@ -2625,11 +2620,9 @@ def extraer_saldos_cb(archivo, log_messages):
                                     s_cre = limpiar_monto_pdf(numeros_encontrados[-2])
                                     s_fin = limpiar_monto_pdf(numeros_encontrados[-1])
                                     
-                                    # 2. Extraer Nombre
                                     idx_inicio_nums = indices_numeros[-4]
                                     nombre_parts = parts[1:idx_inicio_nums]
                                     
-                                    # Limpieza extra del nombre
                                     nombre_limpio_parts = []
                                     for p in nombre_parts:
                                         if not re.search(r'\d{2}/\d{2}/\d{4}', p) and not (p.isdigit() and len(p)==4):
@@ -2682,9 +2675,7 @@ def extraer_saldos_cb(archivo, log_messages):
     return datos
 
 def extraer_saldos_cg(archivo, log_messages):
-    """
-    Extrae saldos COMPLETOS y NOMBRES OFICIALES del Balance.
-    """
+    """Extrae saldos COMPLETOS y NOMBRES OFICIALES del Balance (PDF/Excel)."""
     datos_cg = {}
     nombre_archivo = getattr(archivo, 'name', '').lower()
     
@@ -2710,7 +2701,6 @@ def extraer_saldos_cg(archivo, log_messages):
                         if cuenta in NOMBRES_CUENTAS_OFICIALES:
                             descripcion = NOMBRES_CUENTAS_OFICIALES[cuenta]
                         else:
-                            # Fallback: Intentar leer del PDF si no está en la lista
                             desc_parts = []
                             for p in parts[1:]:
                                 p_clean = p.replace('.', '').replace(',', '').replace('-', '')
@@ -2719,14 +2709,13 @@ def extraer_saldos_cg(archivo, log_messages):
                                 desc_parts.append(p)
                             descripcion = " ".join(desc_parts) + " (Leído PDF)"
 
-                        # 2. Extracción de Saldos (Inicial, Deb, Cre, Final)
+                        # 2. Saldos
                         numeros = []
                         for p in parts[1:]:
                             p_clean = p.replace('.', '').replace(',', '').replace('-', '')
                             if p_clean.isdigit() and len(p_clean) > 0:
                                 numeros.append(p)
                         
-                        # Estructuras por defecto (diccionarios)
                         vals_ves = {'inicial':0.0, 'debitos':0.0, 'creditos':0.0, 'final':0.0}
                         vals_usd = {'inicial':0.0, 'debitos':0.0, 'creditos':0.0, 'final':0.0}
                         
@@ -2748,12 +2737,12 @@ def extraer_saldos_cg(archivo, log_messages):
                         
                         datos_cg[cuenta] = {'VES': vals_ves, 'USD': vals_usd, 'descripcion': descripcion}
                             
-    except Exception as e:
-        log_messages.append(f"❌ Error leyendo PDF CG: {str(e)}")
+        except Exception as e:
+            log_messages.append(f"❌ Error leyendo PDF CG: {str(e)}")
 
     # --- MODO EXCEL ---
     else:
-        # Placeholder para Excel CG
+        # Placeholder para Excel
         pass
             
     return datos_cg
@@ -2776,14 +2765,12 @@ def run_cuadre_cb_cg_beval(file_cb, file_cg, log_messages):
         info_cg = info_cg_full.get(clave_cg, {'inicial':0, 'debitos':0, 'creditos':0, 'final':0})
         desc_cg = info_cg_full.get('descripcion', NOMBRES_CUENTAS_OFICIALES.get(cuenta_cg, 'NO DEFINIDO'))
         
-        # Acceso seguro a valores
         saldo_cb = info_cb.get('final', 0)
         saldo_cg = info_cg.get('final', 0)
         
         dif_final = round(saldo_cb - saldo_cg, 2)
         estado = "OK" if dif_final == 0 else "DESCUADRE"
         
-        # Ignorar si está todo en cero
         if saldo_cb == 0 and saldo_cg == 0 and info_cb.get('debitos', 0) == 0:
             continue
 
