@@ -2054,7 +2054,9 @@ CUENTAS_CONOCIDAS = {normalize_account(acc) for acc in [
     '1.1.1.03.6.012', '1.1.1.03.6.024', '1.1.1.03.6.026', '1.1.1.03.6.031',
     '1.1.1.02.1.002', '1.1.1.02.1.005', '1.1.1.02.6.001', '1.1.1.02.1.003',
     '1.1.1.02.1.018', '1.1.1.02.6.013', '1.1.1.06.6.003', '1.1.1.03.6.002',
-    '1.1.1.03.6.028'
+    '1.1.1.03.6.028', '1.9.1.01.3.008', # Inversión entre oficinas
+    '1.9.1.01.3.009', # Inversión entre oficinas
+    '7.1.3.01.1.001'  # Deudores Incobrables
 ]}
 
 CUENTAS_BANCO = {normalize_account(acc) for acc in [
@@ -2154,6 +2156,17 @@ def _get_base_classification(cuentas_del_asiento, referencia_completa, fuente_co
                 return "Grupo 6: Ingresos Varios - Limpieza (> $25)"
         else: 
             return "Grupo 6: Ingresos Varios - Otros"
+
+    # --- PRIORIDAD 8: Inversión entre Oficinas (Grupo 14) ---
+    # Cuentas 1.9.1.01.3.008 y 1.9.1.01.3.009
+    ctas_inversion = {normalize_account('1.9.1.01.3.008'), normalize_account('1.9.1.01.3.009')}
+    if not ctas_inversion.isdisjoint(cuentas_del_asiento):
+        return "Grupo 14: Inv. entre Oficinas"
+
+    # --- PRIORIDAD 9: Deudores Incobrables (Grupo 15) ---
+    # Cuenta 7.1.3.01.1.001
+    if normalize_account('7.1.3.01.1.001') in cuentas_del_asiento:
+        return "Grupo 15: Deudores Incobrables"
             
     # --- RESTO DE PRIORIDADES ---
     if normalize_account('7.1.3.06.1.998') in cuentas_del_asiento: return "Grupo 12: Perdida p/Venta o Retiro Activo ND"
@@ -2295,6 +2308,16 @@ def _validar_asiento(asiento_group):
             if not tiene_descuento: faltante.append("Cta Descuentos")
             if not tiene_iva: faltante.append("Cta IVA")
             return f"Incidencia: Asiento de N/C incompleto. Falta: {', '.join(faltante)}."
+
+    # --- NUEVO: Validaciones para Grupos Nuevos ---
+    
+    elif grupo.startswith("Grupo 14:"):
+        # Regla: "Estas cuentas están conciliadas desde que se cargan"
+        return "Conciliado"
+
+    elif grupo.startswith("Grupo 15:"):
+        # Regla: Asumimos conciliado por defecto al ser un gasto/pérdida directa
+        return "Conciliado"
 
     # --- GRUPO 11: No identificados ---
     elif grupo.startswith("Grupo 11") or grupo == "No Clasificado":
