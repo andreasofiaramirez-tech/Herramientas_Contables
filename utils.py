@@ -1117,3 +1117,41 @@ def generar_reporte_paquete_cc(df_analizado, nombre_casa):
             ws.set_column('H:K', 15) # Montos
             
     return output_buffer.getvalue()
+
+# ==============================================================================
+# 6. REPORTE PARA AUDITORIA CB-CG
+# ==============================================================================
+
+def generar_reporte_cuadre(df_resultado):
+    """Genera el Excel del Cuadre CB-CG."""
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df_resultado.to_excel(writer, index=False, sheet_name='Cuadre')
+        
+        wb = writer.book
+        ws = writer.sheets['Cuadre']
+        
+        # Formatos
+        fmt_money = wb.add_format({'num_format': '#,##0.00'})
+        fmt_red = wb.add_format({'bg_color': '#FFC7CE', 'font_color': '#9C0006', 'num_format': '#,##0.00'})
+        fmt_green = wb.add_format({'bg_color': '#C6EFCE', 'font_color': '#006100', 'num_format': '#,##0.00'})
+        
+        # Aplicar formato condicional a la columna Diferencia (F)
+        # Filas 2 en adelante
+        ws.conditional_format('F2:F100', {
+            'type': 'cell',
+            'criteria': '!=',
+            'value': 0,
+            'format': fmt_red
+        })
+        ws.conditional_format('F2:F100', {
+            'type': 'cell',
+            'criteria': '=',
+            'value': 0,
+            'format': fmt_green
+        })
+        
+        ws.set_column('A:C', 15)
+        ws.set_column('D:F', 20, fmt_money)
+        
+    return output.getvalue()
