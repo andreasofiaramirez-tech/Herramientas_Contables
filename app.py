@@ -6,6 +6,7 @@
 # ==============================================================================
 import streamlit as st
 import pandas as pd
+import traceback
 from guides import (
     GUIA_GENERAL_ESPECIFICACIONES, 
     LOGICA_POR_CUENTA, 
@@ -27,16 +28,17 @@ from logic import (
     run_conciliation_haberes_clientes,
     run_conciliation_cdc_factoring,
     run_conciliation_asientos_por_clasificar,
-    run_conciliation_deudores_empleados_me
+    run_conciliation_deudores_empleados_me,
+    run_cuadre_cb_cg_beval
 )
 from utils import (
     cargar_y_limpiar_datos,
     generar_reporte_excel,
     generar_excel_saldos_abiertos,
-    generar_reporte_paquete_cc
+    generar_reporte_paquete_cc,
+    generar_reporte_cuadre
 )
 
-import traceback # Asegúrate de que esto esté importado al inicio
 
 def mostrar_error_amigable(e, contexto=""):
     """
@@ -280,6 +282,7 @@ def render_inicio():
         st.button("📄 Especificaciones", on_click=set_page, args=['especificaciones'], use_container_width=True)
         st.button("💵 Reservas y Apartados", on_click=set_page, args=['reservas'], use_container_width=True, disabled=True)
         st.button("📦 Análisis de Paquete CC", on_click=set_page, args=['paquete_cc'], use_container_width=True)
+        st.button("⚖️ Cuadre CB - CG", on_click=set_page, args=['cuadre'], use_container_width=True)
     with col2:
         st.button("🧾 Relación de Retenciones", on_click=set_page, args=['retenciones'], use_container_width=True)
         st.button("🔜 Próximamente", on_click=set_page, args=['proximamente'], use_container_width=True, disabled=True)
@@ -564,6 +567,35 @@ def render_paquete_cc():
         with st.expander("Ver registro detallado del proceso de análisis"):
             st.text_area("Log de Análisis", '\n'.join(st.session_state.log_messages_paquete), height=400)
 
+def render_cuadre():
+    st.title("⚖️ Cuadre de Disponibilidad (CB vs CG)", anchor=False)
+    
+    st.info("Sube el Reporte de Tesorería (CB) y el Balance de Comprobación (CG). Pueden ser PDF o Excel.")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        file_cb = st.file_uploader("1. Reporte Tesorería (CB)", type=['pdf', 'xlsx'])
+    with col2:
+        file_cg = st.file_uploader("2. Balance Contable (CG)", type=['pdf', 'xlsx'])
+        
+    if file_cb and file_cg:
+        if st.button("Comparar Saldos"):
+            log = []
+            try:
+                df_res = run_cuadre_cb_cg_beval(file_cb, file_cg, log)
+                st.dataframe(df_res, use_container_width=True)
+                
+                # Excel
+                excel_data = generar_reporte_cuadre(df_res)
+                st.download_button("⬇️ Descargar Reporte", excel_data, "Cuadre_CB_CG.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                
+                with st.expander("Ver Log"):
+                    st.write(log)
+                    
+            except Exception as e:
+                mostrar_error_amigable(e, "el Cuadre CB-CG")
+                
+
 # ==============================================================================
 # FLUJO PRINCIPAL DE LA APLICACIÓN (ROUTER)
 # ==============================================================================
@@ -572,7 +604,8 @@ def main():
         'inicio': render_inicio,
         'especificaciones': render_especificaciones,
         'retenciones': render_retenciones,
-        'paquete_cc': render_paquete_cc, # <--- AÑADIR ESTA LÍNEA
+        'paquete_cc': render_paquete_cc, 
+        'cuadre': render_cuadre,
         'reservas': lambda: render_proximamente("Reservas y Apartados"),
         'proximamente': lambda: render_proximamente("Próximamente")
     }
