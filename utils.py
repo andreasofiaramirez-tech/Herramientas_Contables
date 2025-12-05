@@ -977,11 +977,18 @@ def generar_reporte_paquete_cc(df_analizado, nombre_casa):
         total_label_format = workbook.add_format({'bold': True, 'align': 'right', 'top': 2, 'font_color': '#003366'})
         total_money_format = workbook.add_format({'bold': True, 'num_format': '#,##0.00', 'top': 2, 'bottom': 1})
 
-        # --- CAMBIO: Eliminado 'Nombre' de la lista ---
         columnas_reporte = [
-            'Asiento', 'Fecha', 'NIT', 'Fuente', 
-            'Cuenta Contable', 'Descripción de Cuenta', 'Referencia', 
-            'Débito Dolar', 'Crédito Dolar', 'Débito VES', 'Crédito VES'
+            'Asiento',                  # 0
+            'Fecha',                    # 1
+            'NIT',                      # 2 
+            'Fuente',                   # 3
+            'Cuenta Contable',          # 4
+            'Descripción de Cuenta',    # 5
+            'Referencia',               # 6
+            'Débito Dolar',             # 7
+            'Crédito Dolar',            # 8
+            'Débito VES',               # 9
+            'Crédito VES'               # 10
         ]
         
         df_analizado['Grupo Principal'] = df_analizado['Grupo'].apply(lambda x: x.split(':')[0].strip())
