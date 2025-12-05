@@ -1122,17 +1122,17 @@ def generar_reporte_paquete_cc(df_analizado, nombre_casa):
 # 6. REPORTE PARA AUDITORIA CB-CG
 # ==============================================================================
 
-def generar_reporte_cuadre(df_resultado):
+def generar_reporte_cuadre(df_resultado, nombre_empresa):
     """
     Genera el Excel del Cuadre CB-CG.
-    Hoja 1: Resumen General (Agrupado por Moneda).
-    Hoja 2: Análisis de Descuadres (Detalle de movimientos).
+    Incluye Nombre de la Empresa en el encabezado.
     """
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         workbook = writer.book
         
         # --- ESTILOS ---
+        title_fmt = workbook.add_format({'bold': True, 'font_size': 14, 'align': 'center', 'valign': 'vcenter'})
         header_fmt = workbook.add_format({'bold': True, 'fg_color': '#D9EAD3', 'border': 1, 'align': 'center', 'valign': 'vcenter'})
         text_fmt = workbook.add_format({'border': 1})
         money_fmt = workbook.add_format({'num_format': '#,##0.00', 'border': 1})
@@ -1151,20 +1151,22 @@ def generar_reporte_cuadre(df_resultado):
         cols_resumen = ['Banco (Tesorería)', 'Cuenta Contable', 'Descripción', 'Saldo Final CB', 'Saldo Final CG', 'Diferencia', 'Estado']
         
         current_row = 0
-        ws1.merge_range('A1:G1', 'CUADRE DE DISPONIBILIDAD BANCARIA (CB vs CG)', workbook.add_format({'bold': True, 'font_size': 14, 'align': 'center'}))
+        
+        # --- TÍTULO CON NOMBRE DE EMPRESA ---
+        titulo_completo = f"CUADRE DE DISPONIBILIDAD BANCARIA (CB vs CG) - {nombre_empresa}"
+        ws1.merge_range('A1:G1', titulo_completo, title_fmt)
+        # ------------------------------------
+        
         current_row += 2
         
-        # Agrupar por Moneda para visualización limpia
+        # Agrupar por Moneda
         for moneda, grupo in df_resultado.groupby('Moneda'):
-            # Título del Grupo
             ws1.merge_range(current_row, 0, current_row, 6, f"MONEDA: {moneda}", group_fmt)
             current_row += 1
             
-            # Encabezados
             ws1.write_row(current_row, 0, cols_resumen, header_fmt)
             current_row += 1
             
-            # Filas de datos
             for _, row in grupo.iterrows():
                 ws1.write(current_row, 0, row['Banco (Tesorería)'], text_fmt)
                 ws1.write(current_row, 1, row['Cuenta Contable'], text_fmt)
@@ -1172,7 +1174,6 @@ def generar_reporte_cuadre(df_resultado):
                 ws1.write_number(current_row, 3, row['Saldo Final CB'], money_fmt)
                 ws1.write_number(current_row, 4, row['Saldo Final CG'], money_fmt)
                 
-                # Diferencia con color condicional
                 dif = row['Diferencia']
                 fmt_dif = red_fmt if dif != 0 else green_fmt
                 ws1.write_number(current_row, 5, dif, fmt_dif)
@@ -1180,13 +1181,9 @@ def generar_reporte_cuadre(df_resultado):
                 ws1.write(current_row, 6, row['Estado'], text_fmt)
                 current_row += 1
             
-            current_row += 2 # Espacio entre monedas
+            current_row += 2
 
-        # Ajuste de Anchos H1
-        ws1.set_column('A:B', 15)
-        ws1.set_column('C:C', 40) # Descripción ancha
-        ws1.set_column('D:F', 18) # Montos
-        ws1.set_column('G:G', 12)
+        ws1.set_column('A:B', 15); ws1.set_column('C:C', 40); ws1.set_column('D:F', 18); ws1.set_column('G:G', 12)
 
         # ==========================================
         # HOJA 2: ANÁLISIS DE DESCUADRES
@@ -1194,19 +1191,13 @@ def generar_reporte_cuadre(df_resultado):
         ws2 = workbook.add_worksheet('Análisis de Descuadres')
         ws2.hide_gridlines(2)
         
-        # Filtramos solo las cuentas con problemas
         df_descuadres = df_resultado[df_resultado['Estado'] == 'DESCUADRE'].copy()
         
+        # Título Hoja 2 también personalizado
+        ws2.merge_range('A1:J1', f"DETALLE DE DESCUADRES - {nombre_empresa}", title_fmt)
+        
         if not df_descuadres.empty:
-            ws2.merge_range('A1:J1', 'DETALLE DE MOVIMIENTOS EN CUENTAS CON DIFERENCIA', workbook.add_format({'bold': True, 'font_size': 12, 'align': 'center'}))
-            
-            headers_det = [
-                'Moneda', 'Cuenta', 'Descripción', 
-                'CB Inicial', 'CB Débitos', 'CB Créditos',
-                'CG Inicial', 'CG Débitos', 'CG Créditos',
-                'DIFERENCIA FINAL'
-            ]
-            
+            headers_det = ['Moneda', 'Cuenta', 'Descripción', 'CB Inicial', 'CB Débitos', 'CB Créditos', 'CG Inicial', 'CG Débitos', 'CG Créditos', 'DIFERENCIA FINAL']
             ws2.write_row(2, 0, headers_det, header_fmt)
             
             curr_row = 3
@@ -1215,24 +1206,18 @@ def generar_reporte_cuadre(df_resultado):
                 ws2.write(curr_row, 1, row['Cuenta Contable'], text_fmt)
                 ws2.write(curr_row, 2, row['Descripción'], text_fmt)
                 
-                # Bloque CB (Tesorería)
                 ws2.write_number(curr_row, 3, row.get('CB Inicial', 0), money_fmt)
                 ws2.write_number(curr_row, 4, row.get('CB Débitos', 0), money_fmt)
                 ws2.write_number(curr_row, 5, row.get('CB Créditos', 0), money_fmt)
-                
-                # Bloque CG (Contabilidad)
                 ws2.write_number(curr_row, 6, row.get('CG Inicial', 0), money_fmt)
                 ws2.write_number(curr_row, 7, row.get('CG Débitos', 0), money_fmt)
                 ws2.write_number(curr_row, 8, row.get('CG Créditos', 0), money_fmt)
                 
-                # Diferencia
                 ws2.write_number(curr_row, 9, row['Diferencia'], red_fmt)
                 curr_row += 1
                 
-            ws2.set_column('A:B', 15)
-            ws2.set_column('C:C', 35)
-            ws2.set_column('D:J', 15)
+            ws2.set_column('A:B', 15); ws2.set_column('C:C', 35); ws2.set_column('D:J', 15)
         else:
-            ws2.write('A1', "¡Felicidades! No hay descuadres en saldos finales.")
+            ws2.write('A3', "¡Felicidades! No hay descuadres en saldos finales.")
 
     return output.getvalue()
