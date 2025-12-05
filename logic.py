@@ -2621,6 +2621,7 @@ MAPEO_CB_CG_FEBECA = {
 }
 
 def limpiar_monto_pdf(texto):
+    """Convierte texto de moneda a float."""
     if not texto: return 0.0
     # Lógica inteligente de limpieza (US vs VE)
     t = str(texto).replace(' ', '').replace('$', '').replace('Bs', '').strip()
@@ -2678,21 +2679,20 @@ def extraer_saldos_cb(archivo, log_messages):
                                     s_fin = limpiar_monto_pdf(numeros_encontrados[-1])
                                     
                                     # Nombre
-                                    idx_inicio_nums = indices_numeros[-4]
-                                    nombre_parts = parts[1:idx_inicio_nums]
-                                    nombre_limpio_parts = []
-                                    for p in nombre_parts:
-                                        if not re.search(r'\d{2}/\d{2}/\d{4}', p) and not (p.isdigit() and len(p)==4):
-                                            nombre_limpio_parts.append(p)
-                                    nombre_banco = " ".join(nombre_limpio_parts)
-                                    
-                                    datos[codigo] = {
-                                        'inicial': s_ini, 'debitos': s_deb, 
-                                        'creditos': s_cre, 'final': s_fin, 
-                                        'nombre': nombre_banco
-                                    }
-                            except Exception:
-                                continue
+                                    if indices_numeros:
+                                        idx_fin_nombre = indices_numeros[-4]
+                                        nombre_parts = parts[1:idx_fin_nombre]
+                                        nombre_limpio_parts = []
+                                        for p in nombre_parts:
+                                            if not re.search(r'\d{2}/\d{2}/\d{4}', p) and not (p.isdigit() and len(p)==4):
+                                                nombre_limpio_parts.append(p)
+                                        nombre_banco = " ".join(nombre_limpio_parts)
+                                    else: nombre_banco = "SIN NOMBRE"
+                                else:
+                                    nombre_banco = "SIN MOVIMIENTOS (Saldo detectado)"
+
+                                datos[codigo] = {'inicial': s_ini, 'debitos': s_deb, 'creditos': s_cre, 'final': s_fin, 'nombre': nombre_banco}
+                            except: continue
         except Exception as e:
             log_messages.append(f"❌ Error leyendo PDF CB: {str(e)}")
             
@@ -2702,26 +2702,13 @@ def extraer_saldos_cb(archivo, log_messages):
             df = pd.read_excel(archivo)
             df.columns = [str(c).strip().upper() for c in df.columns]
             col_cta = next((c for c in df.columns if 'CUENTA' in c), None)
-            col_nom = next((c for c in df.columns if 'NOMBRE' in c), None)
             col_fin = next((c for c in df.columns if 'FINAL' in c), None)
-            col_ini = next((c for c in df.columns if 'INICIAL' in c), None)
-            col_deb = next((c for c in df.columns if 'DEBITO' in c or 'DÉBITO' in c), None)
-            col_cre = next((c for c in df.columns if 'CREDITO' in c or 'CRÉDITO' in c), None)
-            
             if col_cta and col_fin:
                 for _, row in df.iterrows():
                     codigo = str(row[col_cta]).strip()
-                    nombre = str(row[col_nom]).strip() if col_nom else "SIN NOMBRE"
                     try:
                         s_fin = float(row[col_fin])
-                        s_ini = float(row[col_ini]) if col_ini else 0.0
-                        s_deb = float(row[col_deb]) if col_deb else 0.0
-                        s_cre = float(row[col_cre]) if col_cre else 0.0
-                        datos[codigo] = {
-                            'inicial': s_ini, 'debitos': s_deb, 
-                            'creditos': s_cre, 'final': s_fin, 
-                            'nombre': nombre
-                        }
+                        datos[codigo] = {'inicial':0, 'debitos':0, 'creditos':0, 'final':s_fin, 'nombre':"Excel Import"}
                     except: pass
         except Exception as e:
             log_messages.append(f"❌ Error leyendo Excel CB: {str(e)}")
@@ -2729,7 +2716,7 @@ def extraer_saldos_cb(archivo, log_messages):
     return datos
 
 def extraer_saldos_cg(archivo, log_messages):
-    """Extrae saldos COMPLETOS y NOMBRES OFICIALES del Balance (PDF/Excel)."""
+    """Extrae saldos COMPLETOS y NOMBRES OFICIALES del Balance."""
     datos_cg = {}
     nombre_archivo = getattr(archivo, 'name', '').lower()
     
@@ -2740,21 +2727,17 @@ def extraer_saldos_cg(archivo, log_messages):
                 for page in pdf.pages:
                     text = page.extract_text()
                     if not text: continue
-                    
                     for line in text.split('\n'):
                         parts = line.split()
                         if len(parts) < 3: continue
                         
                         cuenta = parts[0].strip()
-                        
-                        if not (cuenta.startswith('1.') and len(cuenta) > 10):
-                            continue
+                        if not (cuenta.startswith('1.') and len(cuenta) > 10): continue
                         
                         # 1. Nombre Oficial
                         if cuenta in NOMBRES_CUENTAS_OFICIALES:
                             descripcion = NOMBRES_CUENTAS_OFICIALES[cuenta]
                         else:
-                            # Fallback
                             desc_parts = []
                             for p in parts[1:]:
                                 p_clean = p.replace('.', '').replace(',', '').replace('-', '')
@@ -2780,7 +2763,6 @@ def extraer_saldos_cg(archivo, log_messages):
                                 'creditos': limpiar_monto_pdf(numeros[2]),
                                 'final': limpiar_monto_pdf(numeros[3])
                             }
-                        
                         if len(numeros) >= 8:
                             vals_usd = {
                                 'inicial': limpiar_monto_pdf(numeros[4]),
@@ -2791,19 +2773,15 @@ def extraer_saldos_cg(archivo, log_messages):
                         
                         datos_cg[cuenta] = {'VES': vals_ves, 'USD': vals_usd, 'descripcion': descripcion}
                             
-    except Exception as e:
-        log_messages.append(f"❌ Error leyendo PDF CG: {str(e)}")
-
-    # --- MODO EXCEL ---
-    else:
-        pass
+        except Exception as e:
+            log_messages.append(f"❌ Error leyendo PDF CG: {str(e)}")
             
     return datos_cg
 
 def run_cuadre_cb_cg(file_cb, file_cg, nombre_empresa, log_messages):
     """
     Función Principal: Cruza Tesorería vs Contabilidad.
-    INCLUYE DETECCIÓN DE HUÉRFANOS (Cuentas no mapeadas).
+    INCLUYE DETECCIÓN DE HUÉRFANOS.
     """
     # 1. Configuración
     if "FEBECA" in str(nombre_empresa).upper():
@@ -2880,7 +2858,6 @@ def run_cuadre_cb_cg(file_cb, file_cg, nombre_empresa, log_messages):
     # 5. HUÉRFANOS
     huerfanos = []
     
-    # A. Huérfanos CB
     sobrantes_cb = cb_encontrados - cb_mapeados
     for cod in sobrantes_cb:
         info = data_cb[cod]
@@ -2893,14 +2870,9 @@ def run_cuadre_cb_cg(file_cb, file_cg, nombre_empresa, log_messages):
                 'Mensaje': 'Código en reporte CB pero no en diccionario.'
             })
             
-    # B. Huérfanos CG
     sobrantes_cg = cg_encontrados - cg_mapeados
     for cta in sobrantes_cg:
-        # FILTRO DE SEGURIDAD: Bancos, Cuentas Ext y Monederos (1.1.4.01 incluido)
-        es_banco = (cta.startswith('1.1.1.02') or 
-                    cta.startswith('1.1.1.03') or 
-                    cta.startswith('1.1.1.06') or 
-                    cta.startswith('1.1.4.01'))
+        es_banco = (cta.startswith('1.1.1.02') or cta.startswith('1.1.1.03') or cta.startswith('1.1.1.06') or cta.startswith('1.1.4.01'))
         es_agrupadora = cta.endswith('.000')
         
         if es_banco and not es_agrupadora:
