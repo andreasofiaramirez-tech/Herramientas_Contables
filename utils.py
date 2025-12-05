@@ -57,15 +57,24 @@ def cargar_y_limpiar_datos(uploaded_actual, uploaded_anterior, log_messages):
 
     def limpiar_numero_avanzado(texto):
         if texto is None or str(texto).strip().lower() == 'nan': return '0.0'
-        texto_limpio = re.sub(r'[^\d.,-]', '', str(texto).strip())
-        if not texto_limpio: return '0.0'
-        num_puntos, num_comas = texto_limpio.count('.'), texto_limpio.count(',')
-        if num_comas == 1 and num_puntos > 0:
-            return texto_limpio.replace('.', '').replace(',', '.')
-        elif num_puntos == 1 and num_comas > 0:
-            return texto_limpio.replace(',', '')
-        else:
-            return texto_limpio.replace(',', '.')
+        
+        # Limpieza inicial
+        t = re.sub(r'[^\d.,-]', '', str(texto).strip())
+        if not t: return '0.0'
+        
+        # Detección inteligente
+        idx_punto = t.rfind('.')
+        idx_coma = t.rfind(',')
+
+        if idx_punto > idx_coma:
+            # Formato "81,268.96" -> Eliminar comas
+            return t.replace(',', '')
+            
+        elif idx_coma > idx_punto:
+            # Formato "81.268,96" -> Eliminar puntos, coma a punto
+            return t.replace('.', '').replace(',', '.')
+            
+        return t.replace(',', '.') # Fallback estándar
 
     def procesar_excel(archivo_buffer):
         try:
