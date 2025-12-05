@@ -284,9 +284,9 @@ def render_inicio():
         st.button("📦 Análisis de Paquete CC", on_click=set_page, args=['paquete_cc'], use_container_width=True)
         
     with col2:
-        st.button("🧾 Relación de Retenciones", on_click=set_page, args=['retenciones'], use_container_width=True)
-        st.button("🔜 Próximamente", on_click=set_page, args=['proximamente'], use_container_width=True, disabled=True)
         st.button("⚖️ Cuadre CB - CG", on_click=set_page, args=['cuadre'], use_container_width=True)
+        st.button("🧾 Relación de Retenciones", on_click=set_page, args=['retenciones'], use_container_width=True)
+        st.button("🔜 Próximamente", on_click=set_page, args=['proximamente'], use_container_width=True, disabled=True)    
 
 def render_proximamente(titulo):
     st.title(f"🛠️ {titulo}")
