@@ -2056,7 +2056,8 @@ CUENTAS_CONOCIDAS = {normalize_account(acc) for acc in [
     '1.1.1.02.1.018', '1.1.1.02.6.013', '1.1.1.06.6.003', '1.1.1.03.6.002',
     '1.1.1.03.6.028', '1.9.1.01.3.008', # Inversión entre oficinas
     '1.9.1.01.3.009', # Inversión entre oficinas
-    '7.1.3.01.1.001'  # Deudores Incobrables
+    '7.1.3.01.1.001',  # Deudores Incobrables
+    '1.1.4.01.7.044'  # Cuentas por Cobrar - Varios en ME
 ]}
 
 CUENTAS_BANCO = {normalize_account(acc) for acc in [
@@ -2167,6 +2168,10 @@ def _get_base_classification(cuentas_del_asiento, referencia_completa, fuente_co
     # Cuenta 7.1.3.01.1.001
     if normalize_account('7.1.3.01.1.001') in cuentas_del_asiento:
         return "Grupo 15: Deudores Incobrables"
+
+    # --- NUEVO: PRIORIDAD 10: CxC Varios ME (Grupo 16) ---
+    if normalize_account('1.1.4.01.7.044') in cuentas_del_asiento:
+        return "Grupo 16: Cuentas por Cobrar - Varios en ME"
             
     # --- RESTO DE PRIORIDADES ---
     if normalize_account('7.1.3.06.1.998') in cuentas_del_asiento: return "Grupo 12: Perdida p/Venta o Retiro Activo ND"
@@ -2317,6 +2322,9 @@ def _validar_asiento(asiento_group):
 
     elif grupo.startswith("Grupo 15:"):
         # Regla: Asumimos conciliado por defecto al ser un gasto/pérdida directa
+        return "Conciliado"
+
+    elif grupo.startswith("Grupo 16:"):
         return "Conciliado"
 
     # --- GRUPO 11: No identificados ---
