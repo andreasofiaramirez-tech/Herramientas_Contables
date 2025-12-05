@@ -1123,7 +1123,11 @@ def generar_reporte_paquete_cc(df_analizado, nombre_casa):
 # ==============================================================================
 
 def generar_reporte_cuadre(df_resultado):
-    """Genera el Excel con 2 hojas: Resumen General y Análisis de Descuadres."""
+    """
+    Genera el Excel del Cuadre CB-CG.
+    Hoja 1: Resumen General (Agrupado por Moneda).
+    Hoja 2: Análisis de Descuadres (Detalle de movimientos).
+    """
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         workbook = writer.book
@@ -1139,29 +1143,28 @@ def generar_reporte_cuadre(df_resultado):
         group_fmt = workbook.add_format({'bold': True, 'bg_color': '#E0E0E0', 'border': 1})
         
         # ==========================================
-        # HOJA 1: RESUMEN GENERAL (Agrupado por Moneda)
+        # HOJA 1: RESUMEN GENERAL
         # ==========================================
         ws1 = workbook.add_worksheet('Resumen General')
         ws1.hide_gridlines(2)
         
-        # Encabezados
         cols_resumen = ['Banco (Tesorería)', 'Cuenta Contable', 'Descripción', 'Saldo Final CB', 'Saldo Final CG', 'Diferencia', 'Estado']
         
         current_row = 0
         ws1.merge_range('A1:G1', 'CUADRE DE DISPONIBILIDAD BANCARIA (CB vs CG)', workbook.add_format({'bold': True, 'font_size': 14, 'align': 'center'}))
         current_row += 2
         
-        # Agrupar por Moneda
+        # Agrupar por Moneda para visualización limpia
         for moneda, grupo in df_resultado.groupby('Moneda'):
             # Título del Grupo
             ws1.merge_range(current_row, 0, current_row, 6, f"MONEDA: {moneda}", group_fmt)
             current_row += 1
             
-            # Encabezados de tabla
+            # Encabezados
             ws1.write_row(current_row, 0, cols_resumen, header_fmt)
             current_row += 1
             
-            # Filas
+            # Filas de datos
             for _, row in grupo.iterrows():
                 ws1.write(current_row, 0, row['Banco (Tesorería)'], text_fmt)
                 ws1.write(current_row, 1, row['Cuenta Contable'], text_fmt)
@@ -1169,7 +1172,7 @@ def generar_reporte_cuadre(df_resultado):
                 ws1.write_number(current_row, 3, row['Saldo Final CB'], money_fmt)
                 ws1.write_number(current_row, 4, row['Saldo Final CG'], money_fmt)
                 
-                # Diferencia con color
+                # Diferencia con color condicional
                 dif = row['Diferencia']
                 fmt_dif = red_fmt if dif != 0 else green_fmt
                 ws1.write_number(current_row, 5, dif, fmt_dif)
@@ -1179,19 +1182,19 @@ def generar_reporte_cuadre(df_resultado):
             
             current_row += 2 # Espacio entre monedas
 
-        # Ajuste Anchos H1
+        # Ajuste de Anchos H1
         ws1.set_column('A:B', 15)
-        ws1.set_column('C:C', 40)
-        ws1.set_column('D:F', 18)
+        ws1.set_column('C:C', 40) # Descripción ancha
+        ws1.set_column('D:F', 18) # Montos
         ws1.set_column('G:G', 12)
 
         # ==========================================
-        # HOJA 2: ANÁLISIS DE DESCUADRES (Movimientos)
+        # HOJA 2: ANÁLISIS DE DESCUADRES
         # ==========================================
         ws2 = workbook.add_worksheet('Análisis de Descuadres')
         ws2.hide_gridlines(2)
         
-        # Filtramos solo los que tienen diferencias
+        # Filtramos solo las cuentas con problemas
         df_descuadres = df_resultado[df_resultado['Estado'] == 'DESCUADRE'].copy()
         
         if not df_descuadres.empty:
@@ -1212,15 +1215,15 @@ def generar_reporte_cuadre(df_resultado):
                 ws2.write(curr_row, 1, row['Cuenta Contable'], text_fmt)
                 ws2.write(curr_row, 2, row['Descripción'], text_fmt)
                 
-                # Bloque CB
-                ws2.write_number(curr_row, 3, row['CB Inicial'], money_fmt)
-                ws2.write_number(curr_row, 4, row['CB Débitos'], money_fmt)
-                ws2.write_number(curr_row, 5, row['CB Créditos'], money_fmt)
+                # Bloque CB (Tesorería)
+                ws2.write_number(curr_row, 3, row.get('CB Inicial', 0), money_fmt)
+                ws2.write_number(curr_row, 4, row.get('CB Débitos', 0), money_fmt)
+                ws2.write_number(curr_row, 5, row.get('CB Créditos', 0), money_fmt)
                 
-                # Bloque CG
-                ws2.write_number(curr_row, 6, row['CG Inicial'], money_fmt)
-                ws2.write_number(curr_row, 7, row['CG Débitos'], money_fmt)
-                ws2.write_number(curr_row, 8, row['CG Créditos'], money_fmt)
+                # Bloque CG (Contabilidad)
+                ws2.write_number(curr_row, 6, row.get('CG Inicial', 0), money_fmt)
+                ws2.write_number(curr_row, 7, row.get('CG Débitos', 0), money_fmt)
+                ws2.write_number(curr_row, 8, row.get('CG Créditos', 0), money_fmt)
                 
                 # Diferencia
                 ws2.write_number(curr_row, 9, row['Diferencia'], red_fmt)
