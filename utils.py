@@ -239,8 +239,7 @@ def _crear_formatos(workbook):
 def _generar_hoja_pendientes(workbook, formatos, df_saldos, estrategia, casa, fecha_maxima):
     """
     Genera la hoja de pendientes AGRUPADA POR NIT.
-    Orden: NIT (Alfabetico) -> Fecha (Cronológico).
-    Soporta alias de columnas para Haberes (Fecha Origen, Numero Documento).
+    Soporta ordenamiento por Antigüedad (Haberes) o Alfabético (Otros).
     """
     nombre_hoja = estrategia.get("nombre_hoja_excel", "Pendientes")
     ws = workbook.add_worksheet(nombre_hoja)
@@ -270,22 +269,27 @@ def _generar_hoja_pendientes(workbook, formatos, df_saldos, estrategia, casa, fe
     
     if 'NIT' in df.columns: df['NIT'] = df['NIT'].fillna('SIN_NIT').astype(str)
     
-    # --- ORDENAMIENTO CORRECTO ---
-    # 1. Agrupa los NITs alfabéticamente.
-    # 2. Dentro del NIT, ordena del más antiguo al más reciente.
-    df = df.sort_values(by=['NIT', 'Fecha'], ascending=[True, True])
+    # --- LÓGICA DE ORDENAMIENTO DINÁMICA ---
+    if estrategia['id'] == 'haberes_clientes':
+        # Para Haberes: Ordenamos por FECHA para que los NITs más antiguos salgan primero
+        df = df.sort_values(by=['Fecha', 'NIT'], ascending=[True, True])
+    else:
+        # Para el resto: Ordenamos por NIT alfabéticamente
+        df = df.sort_values(by=['NIT', 'Fecha'], ascending=[True, True])
+    # ---------------------------------------
     
     current_row = 5
     usd_idx = get_col_idx(pd.DataFrame(columns=cols), ['Monto Dólar', 'Monto USD'])
     bs_idx = get_col_idx(pd.DataFrame(columns=cols), ['Bs.', 'Monto Bolivar', 'Monto Bs'])
     
-    # BUCLE AGRUPADO (sort=False respeta el ordenamiento previo)
+    # --- BUCLE AGRUPADO (sort=False es VITAL para Haberes) ---
+    # sort=False hace que respete el orden del DataFrame anterior.
+    # Si ordenamos por fecha arriba, aquí los grupos saldrán en orden de fecha.
     for nit, grupo in df.groupby('NIT', sort=False):
         for _, row in grupo.iterrows():
             for c_idx, col_name in enumerate(cols):
                 
-                # --- TRADUCCIÓN DE COLUMNAS (ALIAS) ---
-                # Aquí conectamos el nombre "bonito" del reporte con el dato real
+                # Mapeo de Alias
                 val = None
                 if col_name == 'Fecha Origen Acreencia':
                     val = row.get('Fecha')
@@ -293,7 +297,6 @@ def _generar_hoja_pendientes(workbook, formatos, df_saldos, estrategia, casa, fe
                     val = row.get('Fuente')
                 else:
                     val = row.get(col_name)
-                # --------------------------------------
 
                 # Escritura
                 if col_name in ['Fecha', 'Fecha Origen Acreencia'] and pd.notna(val): 
