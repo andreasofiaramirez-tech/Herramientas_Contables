@@ -2984,6 +2984,7 @@ def validar_coincidencia_empresa(file_obj, nombre_empresa_sel):
     if "BEVAL" in empresa_sel_upper: keyword = "BEVAL"
     elif "FEBECA" in empresa_sel_upper: keyword = "FEBECA"
     elif "PRISMA" in empresa_sel_upper: keyword = "PRISMA"
+    elif "SILLACA" in empresa_sel_upper: keyword = "SILLACA"
     
     # Si no hay keyword definida (caso raro), pasamos la validación
     if not keyword: return True, ""
