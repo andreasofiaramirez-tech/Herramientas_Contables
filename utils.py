@@ -402,19 +402,19 @@ def _generar_hoja_conciliados_estandar(workbook, formatos, df_conciliados, estra
     ws.set_column('A:H', 18)
 
 def _generar_hoja_conciliados_agrupada(workbook, formatos, df_conciliados, estrategia):
-    """Para cuentas agrupadas: Cobros Viajeros, Otras CxP y Deudores Empleados."""
+    """Para cuentas agrupadas: Cobros Viajeros, Otras CxP, Deudores, Haberes y Factoring."""
     ws = workbook.add_worksheet("Conciliacion")
-    ws.hide_gridlines(2) # <--- Ocultar celdas de fondo
+    ws.hide_gridlines(2)
     
     df = df_conciliados.copy()
     
-    # Variables de control
+    # Variables de control por defecto
     mostrar_saldo_linea = False
+    col_saldo_idx = -1
     fmt_moneda = formatos['bs']
     fmt_total = formatos['total_bs']
-    col_saldo_idx = -1
 
-    # --- CONFIGURACIÓN SEGÚN LA CUENTA ---
+    # --- 1. COBROS VIAJEROS ---
     if estrategia['id'] == 'cobros_viajeros':
         df['Débitos'] = df['Monto_USD'].apply(lambda x: x if x > 0 else 0)
         df['Créditos'] = df['Monto_USD'].apply(lambda x: abs(x) if x < 0 else 0)
@@ -424,14 +424,14 @@ def _generar_hoja_conciliados_agrupada(workbook, formatos, df_conciliados, estra
         fmt_moneda = formatos['usd']
         fmt_total = formatos['total_usd']
         
+    # --- 2. OTRAS CUENTAS POR PAGAR ---
     elif estrategia['id'] == 'otras_cuentas_por_pagar':
         df['Monto Bs.'] = df['Monto_BS']
         columnas = ['Fecha', 'Descripcion NIT', 'Numero_Envio', 'Monto Bs.']
         cols_sum = ['Monto Bs.']
         titulo = 'Detalle de Movimientos Conciliados por Proveedor y Envío'
-        # ... (formatos por defecto bs)
-
-    # --- DEUDORES EMPLEADOS (CAMBIOS AQUÍ) ---
+        
+    # --- 3. DEUDORES EMPLEADOS (ME y BS) ---
     elif estrategia['id'] in ['deudores_empleados_me', 'deudores_empleados_bs']:
         is_usd = estrategia['id'] == 'deudores_empleados_me'
         col_origen = 'Monto_USD' if is_usd else 'Monto_BS'
@@ -441,17 +441,38 @@ def _generar_hoja_conciliados_agrupada(workbook, formatos, df_conciliados, estra
         df['Débitos'] = df[col_origen].apply(lambda x: x if x > 0 else 0)
         df['Créditos'] = df[col_origen].apply(lambda x: abs(x) if x < 0 else 0)
         
-        # AGREGAMOS COLUMNA SALDO AL FINAL
         columnas = ['Fecha', 'Asiento', 'Referencia', 'Débitos', 'Créditos', 'Saldo']
         cols_sum = ['Débitos', 'Créditos']
         titulo = 'Detalle de Movimientos Conciliados por Empleado'
         mostrar_saldo_linea = True
-        col_saldo_idx = 5 # Índice de la columna Saldo
+        col_saldo_idx = 5
+
+    # --- 4. NUEVO: HABERES DE CLIENTES (EL BLOQUE QUE FALTABA) ---
+    elif estrategia['id'] == 'haberes_clientes':
+        df['Monto Bs.'] = df['Monto_BS']
+        # Usamos los nombres personalizados que pediste
+        columnas = ['Fecha', 'Fuente', 'Referencia', 'Monto Bs.'] 
+        cols_sum = ['Monto Bs.']
+        titulo = 'Detalle de Movimientos Conciliados por Cliente (NIT)'
+        # Mapeo de nombres para el writer abajo
+        # (Fecha y Fuente ya se llaman así en el DF, no necesitamos mapeo especial aquí,
+        #  pero visualmente en el Excel el header será 'Fecha' y 'Fuente')
+
+    # --- 5. CDC FACTORING ---
+    elif estrategia['id'] == 'cdc_factoring':
+        df['Débitos'] = df['Monto_USD'].apply(lambda x: x if x > 0 else 0)
+        df['Créditos'] = df['Monto_USD'].apply(lambda x: abs(x) if x < 0 else 0)
+        columnas = ['Fecha', 'Contrato', 'Fuente', 'Referencia', 'Débitos', 'Créditos']
+        cols_sum = ['Débitos', 'Créditos']
+        titulo = 'Detalle de Movimientos Conciliados por NIT (Factoring)'
+        fmt_moneda = formatos['usd']
+        fmt_total = formatos['total_usd']
+
     # --------------------------------------------------
 
     df = df.sort_values(by=['NIT', 'Fecha'])
     
-    ws.merge_range(0, 0, 0, len(columnas)+1, titulo, formatos['encabezado_sub'])
+    ws.merge_range(0, 0, 0, len(columnas)-1, titulo, formatos['encabezado_sub']) # Ajustado len -1 para merge correcto
     current_row = 2
     
     grand_totals = {c: 0.0 for c in cols_sum}
@@ -465,7 +486,6 @@ def _generar_hoja_conciliados_agrupada(workbook, formatos, df_conciliados, estra
         ws.write_row(current_row, 0, columnas, formatos['header_tabla'])
         current_row += 1
         
-        # Variables para saldo del grupo
         sum_deb = 0
         sum_cre = 0
 
@@ -475,40 +495,34 @@ def _generar_hoja_conciliados_agrupada(workbook, formatos, df_conciliados, estra
                 
                 if col_name == 'Fecha' and pd.notna(val): ws.write_datetime(current_row, c_idx, val, formatos['fecha'])
                 elif col_name in ['Débitos', 'Créditos', 'Monto Bs.']: ws.write_number(current_row, c_idx, val, fmt_moneda)
-                elif col_name == 'Saldo': 
-                    pass # No escribimos nada en las líneas individuales, solo en subtotal
+                elif col_name == 'Saldo': pass
                 else: ws.write(current_row, c_idx, val if pd.notna(val) else '')
             
-            # Acumular para subtotal
             if mostrar_saldo_linea:
-                sum_deb += row['Débitos']
-                sum_cre += row['Créditos']
+                sum_deb += row.get('Débitos', 0)
+                sum_cre += row.get('Créditos', 0)
 
             current_row += 1
         
-        # Subtotal del Grupo
+        # Subtotal
         lbl_col = len(columnas) - len(cols_sum) - (1 if mostrar_saldo_linea else 1)
-        if mostrar_saldo_linea: lbl_col -= 1 # Ajuste por columna extra
+        if mostrar_saldo_linea: lbl_col -= 1
 
         ws.write(current_row, lbl_col, "Subtotal", formatos['subtotal_label'])
         
-        # Escribir sumas de columnas normales
         for i, c_sum in enumerate(cols_sum):
             suma = grupo[c_sum].sum()
             grand_totals[c_sum] += suma
-            # Ajuste de índice si hay columna saldo
             col_idx_sum = lbl_col + 1 + i
             ws.write_number(current_row, col_idx_sum, suma, fmt_moneda)
         
-        # --- Escribir SALDO NETO en la columna Saldo ---
         if mostrar_saldo_linea:
             saldo_neto = sum_deb - sum_cre
             ws.write_number(current_row, col_saldo_idx, saldo_neto, fmt_total)
-        # -----------------------------------------------
 
         current_row += 2
 
-    # TOTALES GENERALES
+    # Totales Generales
     lbl_col_tot = len(columnas) - len(cols_sum) - (1 if mostrar_saldo_linea else 1)
     if mostrar_saldo_linea: lbl_col_tot -= 1
 
@@ -517,9 +531,8 @@ def _generar_hoja_conciliados_agrupada(workbook, formatos, df_conciliados, estra
         col_idx_sum = lbl_col_tot + 1 + i
         ws.write_number(current_row, col_idx_sum, grand_totals[c_sum], fmt_total)
     
-    # Total Saldo General (Neto global)
     if mostrar_saldo_linea:
-        neto_global = grand_totals['Débitos'] - grand_totals['Créditos']
+        neto_global = grand_totals.get('Débitos', 0) - grand_totals.get('Créditos', 0)
         ws.write_number(current_row, col_saldo_idx, neto_global, fmt_total)
         
     ws.set_column('A:F', 18)
