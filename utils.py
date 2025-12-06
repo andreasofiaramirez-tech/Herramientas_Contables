@@ -733,6 +733,64 @@ def _generar_hoja_pendientes_cdc(workbook, formatos, df_saldos, estrategia, casa
     ws.set_column('E:E', 15) # Documento
     ws.set_column('F:H', 18)
 
+def _generar_hoja_pendientes_corrida(workbook, formatos, df_saldos, estrategia, casa, fecha_maxima):
+    """
+    Genera hoja de pendientes como LISTADO CORRIDO (Cronológico).
+    Ideal para: Fondos en Tránsito, Fondos por Depositar.
+    """
+    ws = workbook.add_worksheet(estrategia.get("nombre_hoja_excel", "Pendientes"))
+    cols = estrategia["columnas_reporte"]
+    
+    # Encabezados
+    if pd.notna(fecha_maxima):
+        ultimo_dia = fecha_maxima + pd.offsets.MonthEnd(0)
+        meses = {1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio", 7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"}
+        txt_fecha = f"PARA EL {ultimo_dia.day} DE {meses[ultimo_dia.month].upper()} DE {ultimo_dia.year}"
+    else:
+        txt_fecha = "FECHA NO DISPONIBLE"
+
+    ws.merge_range(0, 0, 0, len(cols)-1, casa, formatos['encabezado_empresa'])
+    ws.merge_range(1, 0, 1, len(cols)-1, f"ESPECIFICACION DE LA CUENTA {estrategia['nombre_hoja_excel']}", formatos['encabezado_sub'])
+    ws.merge_range(2, 0, 2, len(cols)-1, txt_fecha, formatos['encabezado_sub'])
+    ws.write_row(4, 0, cols, formatos['header_tabla'])
+
+    if df_saldos.empty: return
+
+    df = df_saldos.copy()
+    df['Monto Dólar'] = pd.to_numeric(df.get('Monto_USD'), errors='coerce').fillna(0)
+    df['Bs.'] = pd.to_numeric(df.get('Monto_BS'), errors='coerce').fillna(0)
+    df['Monto Bolivar'] = df['Bs.']
+    df['Tasa'] = np.where(df['Monto Dólar'].abs() != 0, df['Bs.'].abs() / df['Monto Dólar'].abs(), 0)
+    
+    # ORDENAMIENTO CRONOLÓGICO
+    df = df.sort_values(by=['Fecha', 'Asiento'])
+
+    current_row = 5
+    usd_idx = get_col_idx(pd.DataFrame(columns=cols), ['Monto Dólar', 'Monto USD'])
+    bs_idx = get_col_idx(pd.DataFrame(columns=cols), ['Bs.', 'Monto Bolivar', 'Monto Bs'])
+    
+    for _, row in df.iterrows():
+        for c_idx, col_name in enumerate(cols):
+            val = row.get(col_name)
+            if col_name == 'Fecha' and pd.notna(val): ws.write_datetime(current_row, c_idx, val, formatos['fecha'])
+            elif col_name in ['Monto Dólar', 'Monto USD']: ws.write_number(current_row, c_idx, val or 0, formatos['usd'])
+            elif col_name in ['Bs.', 'Monto Bolivar', 'Monto Bs']: ws.write_number(current_row, c_idx, val or 0, formatos['bs'])
+            elif col_name == 'Tasa': ws.write_number(current_row, c_idx, val or 0, formatos['tasa'])
+            else: ws.write(current_row, c_idx, val if pd.notna(val) else '')
+        current_row += 1
+        
+    # SALDO TOTAL AL FINAL
+    current_row += 1
+    lbl_idx = max(0, (usd_idx if usd_idx != -1 else bs_idx) - 1)
+    ws.write(current_row, lbl_idx, "SALDO TOTAL", formatos['total_label'])
+    if usd_idx != -1: ws.write_number(current_row, usd_idx, df['Monto Dólar'].sum(), formatos['total_usd'])
+    if bs_idx != -1: ws.write_number(current_row, bs_idx, df['Bs.'].sum(), formatos['total_bs'])
+
+    ws.set_column(0, 0, 18)
+    ws.set_column(1, 1, 55)
+    ws.set_column(2, 2, 15)
+    ws.set_column(3, 10, 20)
+    
 #@st.cache_data
 def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrategia, casa_seleccionada, cuenta_seleccionada):
     """Controlador principal que orquesta la creación del Excel."""
@@ -746,52 +804,56 @@ def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrate
         fecha_max = _df_full['Fecha'].dropna().max()
         
         # ============================================================
-        # 1. SELECCIÓN DE LA HOJA DE PENDIENTES (SALDOS ABIERTOS)
+        # 1. SELECCIÓN DE HOJA DE PENDIENTES
         # ============================================================
         
-        cuentas_empleados = ['deudores_empleados_me', 'deudores_empleados_bs']
+        # LISTA A: Cuentas RESUMIDAS (1 línea por empleado)
+        cuentas_resumen = ['deudores_empleados_me', 'deudores_empleados_bs']
         
-        # A. Cuentas de Empleados (Resumen 1 línea por NIT)
-        if _estrategia['id'] in cuentas_empleados:
+        # LISTA B: Cuentas CORRIDAS (Sin agrupar por NIT, orden fecha)
+        cuentas_corridas = ['fondos_transito', 'fondos_depositar']
+        
+        # LISTA C: Cuentas FACTORING (Agrupado especial)
+        # (Se maneja en el elif)
+
+        if _estrategia['id'] in cuentas_resumen:
             _generar_hoja_pendientes_resumida(workbook, formatos, df_saldos_abiertos, _estrategia, casa_seleccionada, fecha_max)
             
-        # B. Cuenta Factoring (Agrupado: Proveedor -> Contrato)
+        elif _estrategia['id'] in cuentas_corridas:
+            # ¡AQUÍ USAMOS LA NUEVA FUNCIÓN CORRIDA!
+            _generar_hoja_pendientes_corrida(workbook, formatos, df_saldos_abiertos, _estrategia, casa_seleccionada, fecha_max)
+            
         elif _estrategia['id'] == 'cdc_factoring':
-            # ¡AQUÍ ES DONDE SE LLAMA A LA FUNCIÓN NUEVA!
             _generar_hoja_pendientes_cdc(workbook, formatos, df_saldos_abiertos, _estrategia, casa_seleccionada, fecha_max)
             
-        # C. Resto de Cuentas (Lista Plana Detallada)
         else:
+            # EL RESTO (Haberes, Viajes, Otras CxP) usa la función AGRUPADA POR NIT
             _generar_hoja_pendientes(workbook, formatos, df_saldos_abiertos, _estrategia, casa_seleccionada, fecha_max)
         
         # ============================================================
-        # 2. SELECCIÓN DE LA HOJA DE CONCILIADOS (CERRADOS)
+        # 2. SELECCIÓN DE HOJA DE CONCILIADOS
         # ============================================================
         
-        # Definimos qué datos usar para la hoja de conciliación
-        if _estrategia['id'] in cuentas_empleados:
-            datos_conciliacion = _df_full.copy() # Empleados muestra TODO (Estado de Cuenta)
+        if _estrategia['id'] in cuentas_resumen:
+            datos_conciliacion = _df_full.copy() 
         else:
-            datos_conciliacion = df_conciliados.copy() # Otros muestran solo lo cerrado
+            datos_conciliacion = df_conciliados.copy()
 
         if not datos_conciliacion.empty:
-            
-            # Lista de cuentas que usan el formato visual agrupado
-            cuentas_agrupadas = [
+            cuentas_agrupadas_conc = [
                 'cobros_viajeros', 
                 'otras_cuentas_por_pagar', 
                 'deudores_empleados_me',
                 'deudores_empleados_bs',
                 'haberes_clientes',
-                'cdc_factoring' # Asegúrate de que esté aquí también
+                'cdc_factoring'
             ]
             
-            if _estrategia['id'] in cuentas_agrupadas:
+            if _estrategia['id'] in cuentas_agrupadas_conc:
                 _generar_hoja_conciliados_agrupada(workbook, formatos, datos_conciliacion, _estrategia)
             else:
                 _generar_hoja_conciliados_estandar(workbook, formatos, datos_conciliacion, _estrategia)
 
-        # 3. Hoja Extra Devoluciones (Solo para esa cuenta)
         if _estrategia['id'] == 'devoluciones_proveedores' and not df_saldos_abiertos.empty:
             _generar_hoja_resumen_devoluciones(workbook, formatos, df_saldos_abiertos)
 
