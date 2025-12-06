@@ -419,12 +419,43 @@ def render_especificaciones():
                 with st.spinner('Cargando y limpiando datos...'):
                     df_full = cargar_y_limpiar_datos(uploaded_actual, uploaded_anterior, log_messages)
                 if df_full is not None:
-                    progress_container.progress(0, text="Iniciando fases de conciliación. Esto puede tardar unos momentos...")
+                    # ... (Lógica de conciliación existente) ...
+                    progress_container.progress(0, text="Iniciando fases de conciliación...")
                     df_resultado = estrategia_actual["funcion_principal"](df_full.copy(), log_messages, progress_bar=progress_container)
                     progress_container.progress(1.0, text="¡Proceso completado!")
+                    
                     st.session_state.df_saldos_abiertos = df_resultado[~df_resultado['Conciliado']].copy()
                     st.session_state.df_conciliados = df_resultado[df_resultado['Conciliado']].copy()
+                    
+                    # --- NUEVO: GENERACIÓN DE NOMBRE DE ARCHIVO ---
+                    codigos_casa = {
+                        "FEBECA, C.A": "004",
+                        "MAYOR BEVAL, C.A": "207",
+                        "PRISMA, C.A": "298",
+                        "FEBECA, C.A (QUINCALLA)": "071"
+                    }
+                    
+                    # 1. Código Casa
+                    cod = codigos_casa.get(casa_seleccionada, "000")
+                    
+                    # 2. Número de Cuenta (quitamos la descripción)
+                    num_cta = cuenta_seleccionada.split(" - ")[0].strip()
+                    
+                    # 3. Fecha (Mes y Año)
+                    fecha_max = df_full['Fecha'].max()
+                    if pd.notna(fecha_max):
+                        meses_abr = {1:"ENE", 2:"FEB", 3:"MAR", 4:"ABR", 5:"MAY", 6:"JUN", 7:"JUL", 8:"AGO", 9:"SEP", 10:"OCT", 11:"NOV", 12:"DIC"}
+                        fecha_txt = f"{meses_abr[fecha_max.month]}.{str(fecha_max.year)[-2:]}"
+                    else:
+                        fecha_txt = "SIN_FECHA"
+                    
+                    # Construir nombre: 071_212.05.1019 NOV.25.xlsx
+                    nombre_final = f"{cod}_{num_cta} {fecha_txt}.xlsx"
+                    st.session_state.nombre_archivo_salida = nombre_final
+                    # ----------------------------------------------
+
                     st.session_state.excel_saldos_output = generar_excel_saldos_abiertos(st.session_state.df_saldos_abiertos)
+                    
                     st.session_state.excel_output = generar_reporte_excel(
                         df_full, st.session_state.df_saldos_abiertos, st.session_state.df_conciliados,
                         estrategia_actual, casa_seleccionada, cuenta_seleccionada
@@ -432,6 +463,7 @@ def render_especificaciones():
                     st.session_state.log_messages = log_messages
                     st.session_state.processing_complete = True
                     st.rerun()
+                    
             except Exception as e:
                 mostrar_error_amigable(e, "la Conciliación")
                 st.session_state.processing_complete = False
@@ -443,15 +475,33 @@ def render_especificaciones():
         res_col1, res_col2 = st.columns(2, gap="small")
         with res_col1:
             st.metric("Movimientos Conciliados", len(st.session_state.df_conciliados))
-            st.download_button("⬇️ Descargar Reporte Completo (Excel)", st.session_state.excel_output, f"reporte_conciliacion_{estrategia_actual['id']}.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True, key="download_excel")
+            
+            # --- USAMOS EL NOMBRE DINÁMICO AQUÍ ---
+            nombre_descarga = st.session_state.get('nombre_archivo_salida', 'reporte_conciliacion.xlsx')
+            
+            st.download_button(
+                "⬇️ Descargar Reporte Completo (Excel)", 
+                st.session_state.excel_output, 
+                file_name=nombre_descarga,  # <--- CAMBIO
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", 
+                use_container_width=True, 
+                key="download_excel"
+            )
+            # --------------------------------------
+
         with res_col2:
             st.metric("Saldos Abiertos (Pendientes)", len(st.session_state.df_saldos_abiertos))
+            
+            # Opcional: También puedes nombrar este archivo parecido si quieres
+            # Ej: Saldos_071_212.05.1019 NOV.25.xlsx
+            nombre_saldos = "Saldos_" + st.session_state.get('nombre_archivo_salida', 'proximo_mes.xlsx')
+            
             st.download_button(
-                label="⬇️ Descargar Saldos para Próximo Mes (Excel)",
-                data=st.session_state.excel_saldos_output,
-                file_name="saldos_para_proximo_mes.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True,
+                "⬇️ Descargar Saldos para Próximo Mes (Excel)", 
+                st.session_state.excel_saldos_output, 
+                file_name=nombre_saldos, # <--- CAMBIO SUGERIDO
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", 
+                use_container_width=True, 
                 key="download_saldos_xlsx"
             )
         
