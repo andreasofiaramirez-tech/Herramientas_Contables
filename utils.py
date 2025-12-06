@@ -239,7 +239,8 @@ def _crear_formatos(workbook):
 def _generar_hoja_pendientes(workbook, formatos, df_saldos, estrategia, casa, fecha_maxima):
     """
     Genera la hoja de pendientes AGRUPADA POR NIT.
-    Incluye mapeo de alias para columnas personalizadas (Haberes).
+    Orden: NIT (Alfabetico) -> Fecha (Cronológico).
+    Soporta alias de columnas para Haberes (Fecha Origen, Numero Documento).
     """
     nombre_hoja = estrategia.get("nombre_hoja_excel", "Pendientes")
     ws = workbook.add_worksheet(nombre_hoja)
@@ -254,11 +255,10 @@ def _generar_hoja_pendientes(workbook, formatos, df_saldos, estrategia, casa, fe
     else:
         txt_fecha = "FECHA NO DISPONIBLE"
 
-    if cols:
-        ws.merge_range(0, 0, 0, len(cols)-1, casa, formatos['encabezado_empresa'])
-        ws.merge_range(1, 0, 1, len(cols)-1, f"ESPECIFICACION DE LA CUENTA {estrategia['nombre_hoja_excel']}", formatos['encabezado_sub'])
-        ws.merge_range(2, 0, 2, len(cols)-1, txt_fecha, formatos['encabezado_sub'])
-        ws.write_row(4, 0, cols, formatos['header_tabla'])
+    ws.merge_range(0, 0, 0, len(cols)-1, casa, formatos['encabezado_empresa'])
+    ws.merge_range(1, 0, 1, len(cols)-1, f"ESPECIFICACION DE LA CUENTA {estrategia['nombre_hoja_excel']}", formatos['encabezado_sub'])
+    ws.merge_range(2, 0, 2, len(cols)-1, txt_fecha, formatos['encabezado_sub'])
+    ws.write_row(4, 0, cols, formatos['header_tabla'])
 
     if df_saldos.empty: return
 
@@ -270,17 +270,22 @@ def _generar_hoja_pendientes(workbook, formatos, df_saldos, estrategia, casa, fe
     
     if 'NIT' in df.columns: df['NIT'] = df['NIT'].fillna('SIN_NIT').astype(str)
     
-    df = df.sort_values(by=['NIT', 'Fecha'])
+    # --- ORDENAMIENTO CORRECTO ---
+    # 1. Agrupa los NITs alfabéticamente.
+    # 2. Dentro del NIT, ordena del más antiguo al más reciente.
+    df = df.sort_values(by=['NIT', 'Fecha'], ascending=[True, True])
+    
     current_row = 5
     usd_idx = get_col_idx(pd.DataFrame(columns=cols), ['Monto Dólar', 'Monto USD'])
     bs_idx = get_col_idx(pd.DataFrame(columns=cols), ['Bs.', 'Monto Bolivar', 'Monto Bs'])
     
-    # BUCLE AGRUPADO POR NIT
-    for nit, grupo in df.groupby('NIT'):
+    # BUCLE AGRUPADO (sort=False respeta el ordenamiento previo)
+    for nit, grupo in df.groupby('NIT', sort=False):
         for _, row in grupo.iterrows():
             for c_idx, col_name in enumerate(cols):
                 
-                # --- MAPEO DE ALIAS (Para Haberes de Clientes) ---
+                # --- TRADUCCIÓN DE COLUMNAS (ALIAS) ---
+                # Aquí conectamos el nombre "bonito" del reporte con el dato real
                 val = None
                 if col_name == 'Fecha Origen Acreencia':
                     val = row.get('Fecha')
@@ -288,9 +293,9 @@ def _generar_hoja_pendientes(workbook, formatos, df_saldos, estrategia, casa, fe
                     val = row.get('Fuente')
                 else:
                     val = row.get(col_name)
-                # -------------------------------------------------
+                # --------------------------------------
 
-                # Escritura según tipo de dato (usando el nombre de columna o su alias real)
+                # Escritura
                 if col_name in ['Fecha', 'Fecha Origen Acreencia'] and pd.notna(val): 
                     ws.write_datetime(current_row, c_idx, val, formatos['fecha'])
                 elif col_name in ['Monto Dólar', 'Monto USD']: 
@@ -316,13 +321,12 @@ def _generar_hoja_pendientes(workbook, formatos, df_saldos, estrategia, casa, fe
     ws.write(current_row, lbl_idx, "SALDO TOTAL", formatos['total_label'])
     if usd_idx != -1: ws.write_number(current_row, usd_idx, df['Monto Dólar'].sum(), formatos['total_usd'])
     if bs_idx != -1: ws.write_number(current_row, bs_idx, df['Bs.'].sum(), formatos['total_bs'])
-    # -----------------------------------------------------
 
-    # Ajuste de anchos de columna
-    ws.set_column(0, 0, 18)  # Asiento
-    ws.set_column(1, 1, 55)  # Referencia
-    ws.set_column(2, 2, 15)  # Fecha
-    ws.set_column(3, 10, 20) # Montos
+    ws.set_column(0, 0, 18) # NIT
+    ws.set_column(1, 1, 55) # Descripción
+    ws.set_column(2, 2, 18) # Fecha (Fecha Origen)
+    ws.set_column(3, 3, 20) # Fuente (Num Documento)
+    ws.set_column(4, 10, 20) # Resto
 
 def _generar_hoja_conciliados_estandar(workbook, formatos, df_conciliados, estrategia):
     """Para cuentas: Tránsito, Depositar, Viajes, Devoluciones, Deudores."""
