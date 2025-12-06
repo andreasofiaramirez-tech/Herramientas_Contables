@@ -620,7 +620,7 @@ def render_paquete_cc():
 
 def render_cuadre():
     st.title("⚖️ Cuadre de Disponibilidad (CB vs CG)", anchor=False)
-
+    
     # --- BOTÓN VOLVER AL INICIO ---
     if st.button("⬅️ Volver al Inicio", key="back_from_cuadre"):
         set_page('inicio')
@@ -631,70 +631,69 @@ def render_cuadre():
     col_emp, _ = st.columns([1, 1])
     with col_emp:
         empresa_sel = st.selectbox("Seleccione la Empresa:", CASA_OPTIONS, key="empresa_cuadre")
-    # ---------------------------
-
+    
     st.info("Sube el Reporte de Tesorería (CB) y el Balance de Comprobación (CG). Pueden ser PDF o Excel.")
     
+    # --- CARGA DE ARCHIVOS ---
     col1, col2 = st.columns(2)
     with col1:
         file_cb = st.file_uploader("1. Reporte Tesorería (CB)", type=['pdf', 'xlsx'])
     with col2:
         file_cg = st.file_uploader("2. Balance Contable (CG)", type=['pdf', 'xlsx'])
         
+    # --- BOTÓN DE ACCIÓN ---
     if file_cb and file_cg:
-        if st.button("Comparar Saldos"):
+        if st.button("Comparar Saldos", type="primary", use_container_width=True):
             log = []
             try:
+                # Importamos funciones necesarias (incluyendo la nueva validación)
+                from logic import run_cuadre_cb_cg, validar_coincidencia_empresa
+                from utils import generar_reporte_cuadre
+                
+                # --- FASE 0: VALIDACIÓN DE SEGURIDAD ---
+                # 1. Verificar archivo Tesorería
+                es_valido_cb, msg_cb = validar_coincidencia_empresa(file_cb, empresa_sel)
+                if not es_valido_cb:
+                    st.error(f"⛔ ALERTA DE SEGURIDAD (Tesorería): {msg_cb}")
+                    st.warning("Por favor verifique que seleccionó la empresa correcta en el menú.")
+                    st.stop() # Detiene la ejecución aquí para proteger los datos
+                
+                # 2. Verificar archivo Contabilidad
+                es_valido_cg, msg_cg = validar_coincidencia_empresa(file_cg, empresa_sel)
+                if not es_valido_cg:
+                    st.error(f"⛔ ALERTA DE SEGURIDAD (Contabilidad): {msg_cg}")
+                    st.warning("Por favor verifique que seleccionó la empresa correcta en el menú.")
+                    st.stop() # Detiene la ejecución aquí
+                # ---------------------------------------
 
-                from logic import run_cuadre_cb_cg 
+                # --- FASE 1: PROCESAMIENTO ---
+                with st.spinner("Analizando y cruzando saldos..."):
+                    df_res, df_huerfanos = run_cuadre_cb_cg(file_cb, file_cg, empresa_sel, log)
                 
-                from logic import run_cuadre_cb_cg
+                # --- FASE 2: MOSTRAR RESULTADOS EN PANTALLA ---
+                st.subheader("Resumen de Saldos", anchor=False)
                 
-                # --- CAMBIO: AHORA RECIBE 2 VARIABLES ---
-                df_res, df_huerfanos = run_cuadre_cb_cg(file_cb, file_cg, empresa_sel, log)
-                # ----------------------------------------
-                
-                # Mostrar Resumen en pantalla
+                # Mostramos solo columnas clave para no saturar la vista
                 cols_pantalla = ['Moneda', 'Banco (Tesorería)', 'Cuenta Contable', 'Descripción', 'Saldo Final CB', 'Saldo Final CG', 'Diferencia', 'Estado']
                 st.dataframe(df_res[cols_pantalla], use_container_width=True)
                 
-                # Mostrar Alerta en pantalla si hay huérfanos
+                # Si hay cuentas huérfanas (no configuradas), mostramos alerta
                 if not df_huerfanos.empty:
                     st.error(f"⚠️ ATENCIÓN: Se detectaron {len(df_huerfanos)} cuentas con saldo que NO están configuradas. Revisa la 3ra pestaña del Excel.")
                     st.dataframe(df_huerfanos, use_container_width=True)
                 
-                # Generar Excel con ambos DFs
+                # --- FASE 3: GENERAR EXCEL ---
                 excel_data = generar_reporte_cuadre(df_res, df_huerfanos, empresa_sel)
                 
                 st.download_button(
                     label="⬇️ Descargar Reporte Completo (Excel)",
                     data=excel_data,
                     file_name=f"Cuadre_CB_CG_{empresa_sel}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
                 )
                 
-    if file_cb and file_cg:
-        if st.button("Comparar Saldos", type="primary", use_container_width=True):
-            log = []
-            try:
-                # Importamos la nueva función de validación
-                from logic import run_cuadre_cb_cg, validar_coincidencia_empresa 
-                
-                # --- FASE 0: VALIDACIÓN DE SEGURIDAD ---
-                # Verificamos Tesorería
-                es_valido_cb, msg_cb = validar_coincidencia_empresa(file_cb, empresa_sel)
-                if not es_valido_cb:
-                    st.error(f"⛔ ALERTA DE SEGURIDAD: {msg_cb}")
-                    st.warning("Por favor verifique que seleccionó la empresa correcta en el menú o subió el archivo correcto.")
-                    st.stop() # Detiene la ejecución aquí
-                
-                # Verificamos Contabilidad
-                es_valido_cg, msg_cg = validar_coincidencia_empresa(file_cg, empresa_sel)
-                if not es_valido_cg:
-                    st.error(f"⛔ ALERTA DE SEGURIDAD: {msg_cg}")
-                    st.warning("Por favor verifique que seleccionó la empresa correcta en el menú o subió el archivo correcto.")
-                    st.stop() # Detiene la ejecución aquí
-                    
+                # Log técnico al final
                 with st.expander("Ver Log de Extracción"):
                     st.write(log)
                     
