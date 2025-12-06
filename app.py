@@ -31,6 +31,7 @@ from logic import (
     run_conciliation_deudores_empleados_me,
     run_cuadre_cb_cg
 )
+
 from utils import (
     cargar_y_limpiar_datos,
     generar_reporte_excel,
@@ -38,7 +39,6 @@ from utils import (
     generar_reporte_paquete_cc,
     generar_reporte_cuadre
 )
-
 
 def mostrar_error_amigable(e, contexto=""):
     """
@@ -137,14 +137,28 @@ if not st.session_state.get("password_correct", False):
         
         with st.container(border=True):
             st.subheader("Acceso Exclusivo", anchor=False)
+            
+            # Campo de texto (Se activa con Enter)
             st.text_input(
-                "Contraseña", type="password", on_change=password_entered, key="password", label_visibility="collapsed", placeholder="Ingresa la contraseña"
+                "Contraseña", 
+                type="password", 
+                on_change=password_entered, 
+                key="password", 
+                label_visibility="collapsed", 
+                placeholder="Ingresa la contraseña"
             )
+            
+            # --- NUEVO BOTÓN DE INGRESAR ---
+            # Se activa con Clic. Llama a la misma función de validación.
+            st.button("Ingresar", on_click=password_entered, type="primary", use_container_width=True)
+            # -------------------------------
             
             if st.session_state.get("authentication_attempted", False):
                 if not st.session_state.get("password_correct", False):
                     st.error("😕 Contraseña incorrecta.")
             else:
+                # Pequeño espacio visual
+                st.markdown("") 
                 st.info("Por favor, ingresa la contraseña para continuar.")
 
         st.divider()
