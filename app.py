@@ -242,9 +242,9 @@ ESTRATEGIAS = {
         "funcion_principal": run_conciliation_haberes_clientes,
         "label_actual": "Movimientos del mes (Haberes Clientes)",
         "label_anterior": "Saldos anteriores (Haberes Clientes)",
-        "columnas_reporte": ['NIT', 'Descripción Nit', 'Fecha', 'Fuente', 'Referencia', 'Monto Bolivar'],
+        "columnas_reporte": ['NIT', 'Descripción Nit', 'Fecha Origen Acreencia', 'Numero de Documento', 'Referencia', 'Monto Bolivar'],
         "nombre_hoja_excel": "212.05.1108",
-        "columnas_requeridas": ['Fecha', 'Asiento', 'Referencia', 'Nit', 'Descripción Nit', 'Débito Bolivar', 'Crédito Bolivar']
+        "columnas_requeridas": ['Fecha', 'Asiento', 'Referencia', 'Nit', 'Descripción Nit', 'Débito Bolivar', 'Crédito Bolivar', 'Fuente']
     },
     "212.07.9001 - CDC - Factoring": {
         "id": "cdc_factoring",
