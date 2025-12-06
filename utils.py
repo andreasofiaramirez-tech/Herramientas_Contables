@@ -239,7 +239,8 @@ def _crear_formatos(workbook):
 def _generar_hoja_pendientes(workbook, formatos, df_saldos, estrategia, casa, fecha_maxima):
     """
     Genera la hoja de pendientes AGRUPADA POR NIT.
-    Soporta ordenamiento por Antigüedad (Haberes) o Alfabético (Otros).
+    CORREGIDO: Ubicación de la etiqueta "Saldo" para evitar sobrescritura.
+    Orden: NIT -> Fecha.
     """
     nombre_hoja = estrategia.get("nombre_hoja_excel", "Pendientes")
     ws = workbook.add_worksheet(nombre_hoja)
@@ -269,34 +270,27 @@ def _generar_hoja_pendientes(workbook, formatos, df_saldos, estrategia, casa, fe
     
     if 'NIT' in df.columns: df['NIT'] = df['NIT'].fillna('SIN_NIT').astype(str)
     
-    # --- LÓGICA DE ORDENAMIENTO DINÁMICA ---
-    if estrategia['id'] == 'haberes_clientes':
-        # Para Haberes: Ordenamos por FECHA para que los NITs más antiguos salgan primero
-        df = df.sort_values(by=['Fecha', 'NIT'], ascending=[True, True])
-    else:
-        # Para el resto: Ordenamos por NIT alfabéticamente
-        df = df.sort_values(by=['NIT', 'Fecha'], ascending=[True, True])
-    # ---------------------------------------
+    # Ordenamiento: NIT -> Fecha
+    df = df.sort_values(by=['NIT', 'Fecha'], ascending=[True, True])
     
     current_row = 5
-    usd_idx = get_col_idx(pd.DataFrame(columns=cols), ['Monto Dólar', 'Monto USD'])
-    bs_idx = get_col_idx(pd.DataFrame(columns=cols), ['Bs.', 'Monto Bolivar', 'Monto Bs'])
     
-    # --- BUCLE AGRUPADO (sort=False es VITAL para Haberes) ---
-    # sort=False hace que respete el orden del DataFrame anterior.
-    # Si ordenamos por fecha arriba, aquí los grupos saldrán en orden de fecha.
+    # Indices de columnas clave
+    col_df_ref = pd.DataFrame(columns=cols)
+    usd_idx = get_col_idx(col_df_ref, ['Monto Dólar', 'Monto USD'])
+    bs_idx = get_col_idx(col_df_ref, ['Bs.', 'Monto Bolivar', 'Monto Bs'])
+    ref_idx = get_col_idx(col_df_ref, ['Referencia']) # Buscamos donde está Referencia
+
+    # BUCLE AGRUPADO POR NIT
     for nit, grupo in df.groupby('NIT', sort=False):
         for _, row in grupo.iterrows():
             for c_idx, col_name in enumerate(cols):
                 
                 # Mapeo de Alias
                 val = None
-                if col_name == 'Fecha Origen Acreencia':
-                    val = row.get('Fecha')
-                elif col_name == 'Numero de Documento':
-                    val = row.get('Fuente')
-                else:
-                    val = row.get(col_name)
+                if col_name == 'Fecha Origen Acreencia': val = row.get('Fecha')
+                elif col_name == 'Numero de Documento': val = row.get('Fuente')
+                else: val = row.get(col_name)
 
                 # Escritura
                 if col_name in ['Fecha', 'Fecha Origen Acreencia'] and pd.notna(val): 
@@ -311,8 +305,19 @@ def _generar_hoja_pendientes(workbook, formatos, df_saldos, estrategia, casa, fe
                     ws.write(current_row, c_idx, val if pd.notna(val) else '')
             current_row += 1
         
-        # Subtotal por NIT
-        lbl_idx = max(0, (usd_idx if usd_idx != -1 else bs_idx) - 1)
+        # --- CÁLCULO DE LA POSICIÓN DE LA ETIQUETA "Saldo" ---
+        if ref_idx != -1:
+            # Opción A: Si existe la columna Referencia, la ponemos ahí (Lo más seguro)
+            lbl_idx = ref_idx
+        else:
+            # Opción B: Si no, buscamos el índice menor de las monedas y restamos 1
+            indices_monedas = [i for i in [usd_idx, bs_idx] if i != -1]
+            if indices_monedas:
+                lbl_idx = max(0, min(indices_monedas) - 1)
+            else:
+                lbl_idx = 0
+        # -----------------------------------------------------
+
         ws.write(current_row, lbl_idx, "Saldo", formatos['subtotal_label'])
         if usd_idx != -1: ws.write_number(current_row, usd_idx, grupo['Monto Dólar'].sum(), formatos['subtotal_usd'])
         if bs_idx != -1: ws.write_number(current_row, bs_idx, grupo['Bs.'].sum(), formatos['subtotal_bs'])
@@ -320,7 +325,13 @@ def _generar_hoja_pendientes(workbook, formatos, df_saldos, estrategia, casa, fe
         
     # SALDO TOTAL AL FINAL
     current_row += 1
-    lbl_idx = max(0, (usd_idx if usd_idx != -1 else bs_idx) - 1)
+    
+    # Recalculamos lbl_idx por seguridad
+    if ref_idx != -1: lbl_idx = ref_idx
+    else:
+        indices_monedas = [i for i in [usd_idx, bs_idx] if i != -1]
+        lbl_idx = max(0, min(indices_monedas) - 1) if indices_monedas else 0
+
     ws.write(current_row, lbl_idx, "SALDO TOTAL", formatos['total_label'])
     if usd_idx != -1: ws.write_number(current_row, usd_idx, df['Monto Dólar'].sum(), formatos['total_usd'])
     if bs_idx != -1: ws.write_number(current_row, bs_idx, df['Bs.'].sum(), formatos['total_bs'])
