@@ -2914,55 +2914,56 @@ def extraer_saldos_cg(archivo, log_messages):
 
 def validar_coincidencia_empresa(file_obj, nombre_empresa_sel):
     """
-    Verifica si el archivo subido pertenece a la empresa seleccionada leyendo su encabezado.
-    Retorna: (bool: EsValido, str: MensajeError)
+    Verifica si el archivo subido pertenece a la empresa seleccionada.
+    Lee la primera página (PDF) o las primeras filas (Excel) buscando el nombre.
     """
-    # 1. Definir palabra clave según la selección
-    empresa_sel = nombre_empresa_sel.upper()
+    # 1. Definir palabra clave según la selección del menú
+    empresa_sel_upper = str(nombre_empresa_sel).upper()
     keyword = ""
     
-    if "BEVAL" in empresa_sel: keyword = "BEVAL"
-    elif "FEBECA" in empresa_sel: keyword = "FEBECA"
-    elif "PRISMA" in empresa_sel: keyword = "PRISMA"
+    if "BEVAL" in empresa_sel_upper: keyword = "BEVAL"
+    elif "FEBECA" in empresa_sel_upper: keyword = "FEBECA"
+    elif "PRISMA" in empresa_sel_upper: keyword = "PRISMA"
     
-    # Si no detectamos una empresa conocida en la selección, dejamos pasar (Fail-Open)
+    # Si no hay keyword definida (caso raro), pasamos la validación
     if not keyword: return True, ""
 
     # 2. Leer el encabezado del archivo
-    file_obj.seek(0) # Importante: Rebobinar el archivo al inicio
+    file_obj.seek(0) # Importante: Rebobinar el archivo al inicio para leerlo
     texto_cabecera = ""
     
     try:
-        if file_obj.name.lower().endswith('.pdf'):
+        nombre_archivo = getattr(file_obj, 'name', '').lower()
+        
+        if nombre_archivo.endswith('.pdf'):
             with pdfplumber.open(file_obj) as pdf:
                 if pdf.pages:
-                    # Leemos solo la primera página y los primeros 1000 caracteres
-                    texto_cabecera = pdf.pages[0].extract_text()
-                    if texto_cabecera:
-                        texto_cabecera = texto_cabecera.upper()
+                    # Leemos solo la primera página
+                    texto_cabecera = pdf.pages[0].extract_text() or ""
+                    texto_cabecera = texto_cabecera.upper()
         else:
-            # Excel: Leemos las primeras 8 filas sin encabezado
-            df = pd.read_excel(file_obj, header=None, nrows=8)
-            # Convertimos todo a string gigante para buscar la palabra
+            # Excel: Leemos las primeras 10 filas
+            df = pd.read_excel(file_obj, header=None, nrows=10)
+            # Convertimos todo el dataframe pequeño a texto mayúscula
             texto_cabecera = df.to_string().upper()
             
     except Exception:
-        # Si falla la lectura técnica (archivo dañado, etc), dejamos que el proceso principal maneje el error después
+        # Si falla la lectura técnica (archivo dañado), dejamos que el proceso principal maneje el error
         file_obj.seek(0)
         return True, ""
 
-    file_obj.seek(0) # Importante: Dejar el archivo listo para el siguiente proceso
+    file_obj.seek(0) # Importante: Rebobinar de nuevo para que el proceso principal lo lea desde el principio
 
     # 3. Comparación
     if keyword in texto_cabecera:
         return True, ""
     else:
-        # Caso especial: A veces Febeca Quincalla dice solo FEBECA
+        # Caso especial: A veces el archivo de "Febeca Quincalla" dice solo "FEBECA"
         if keyword == "FEBECA" and "FEBECA" in texto_cabecera:
              return True, ""
              
-        return False, f"El archivo **'{file_obj.name}'** no parece pertenecer a **{keyword}**. No se encontró el nombre en el encabezado."
-
+        return False, f"El archivo **'{file_obj.name}'** no parece corresponder a **{keyword}**. No se encontró el nombre de la empresa en el encabezado."
+        
 def run_cuadre_cb_cg(file_cb, file_cg, nombre_empresa, log_messages):
     """
     Función Principal: Cruza Tesorería vs Contabilidad.
