@@ -673,6 +673,28 @@ def render_cuadre():
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
                 
+    if file_cb and file_cg:
+        if st.button("Comparar Saldos", type="primary", use_container_width=True):
+            log = []
+            try:
+                # Importamos la nueva función de validación
+                from logic import run_cuadre_cb_cg, validar_coincidencia_empresa 
+                
+                # --- FASE 0: VALIDACIÓN DE SEGURIDAD ---
+                # Verificamos Tesorería
+                es_valido_cb, msg_cb = validar_coincidencia_empresa(file_cb, empresa_sel)
+                if not es_valido_cb:
+                    st.error(f"⛔ ALERTA DE SEGURIDAD: {msg_cb}")
+                    st.warning("Por favor verifique que seleccionó la empresa correcta en el menú o subió el archivo correcto.")
+                    st.stop() # Detiene la ejecución aquí
+                
+                # Verificamos Contabilidad
+                es_valido_cg, msg_cg = validar_coincidencia_empresa(file_cg, empresa_sel)
+                if not es_valido_cg:
+                    st.error(f"⛔ ALERTA DE SEGURIDAD: {msg_cg}")
+                    st.warning("Por favor verifique que seleccionó la empresa correcta en el menú o subió el archivo correcto.")
+                    st.stop() # Detiene la ejecución aquí
+                    
                 with st.expander("Ver Log de Extracción"):
                     st.write(log)
                     
