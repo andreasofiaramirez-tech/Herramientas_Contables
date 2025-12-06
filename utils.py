@@ -237,7 +237,10 @@ def _crear_formatos(workbook):
     }
 
 def _generar_hoja_pendientes(workbook, formatos, df_saldos, estrategia, casa, fecha_maxima):
-    """Genera la hoja de 'Pendientes' o 'Saldos Abiertos'."""
+    """
+    Genera la hoja de pendientes AGRUPADA POR NIT.
+    Incluye mapeo de alias para columnas personalizadas (Haberes).
+    """
     nombre_hoja = estrategia.get("nombre_hoja_excel", "Pendientes")
     ws = workbook.add_worksheet(nombre_hoja)
     ws.hide_gridlines(2)
@@ -259,58 +262,60 @@ def _generar_hoja_pendientes(workbook, formatos, df_saldos, estrategia, casa, fe
 
     if df_saldos.empty: return
 
-    # Preparar datos
     df = df_saldos.copy()
-    # Rellenar NITs vacíos para que groupby no elimine esas filas
-    if 'NIT' in df.columns:
-        df['NIT'] = df['NIT'].fillna('SIN_NIT').replace(['', ' '], 'SIN_NIT').astype(str)
-        df['Descripcion NIT'] = df['Descripcion NIT'].fillna('NO DEFINIDO')
-    else:
-        # Si por alguna razón no existe la columna, la creamos
-        df['NIT'] = 'SIN_NIT'
-        df['Descripcion NIT'] = 'NO DEFINIDO'
     df['Monto Dólar'] = pd.to_numeric(df.get('Monto_USD'), errors='coerce').fillna(0)
     df['Bs.'] = pd.to_numeric(df.get('Monto_BS'), errors='coerce').fillna(0)
-    df['Monto Bolivar'] = df['Bs.'] # Alias
+    df['Monto Bolivar'] = df['Bs.']
     df['Tasa'] = np.where(df['Monto Dólar'].abs() != 0, df['Bs.'].abs() / df['Monto Dólar'].abs(), 0)
-    df = df.sort_values(by=['NIT', 'Referencia', 'Fecha'])
-
+    
+    if 'NIT' in df.columns: df['NIT'] = df['NIT'].fillna('SIN_NIT').astype(str)
+    
+    df = df.sort_values(by=['NIT', 'Fecha'])
     current_row = 5
-    # Indices para columnas
     usd_idx = get_col_idx(pd.DataFrame(columns=cols), ['Monto Dólar', 'Monto USD'])
     bs_idx = get_col_idx(pd.DataFrame(columns=cols), ['Bs.', 'Monto Bolivar', 'Monto Bs'])
     
-    # Escritura agrupada por NIT
+    # BUCLE AGRUPADO POR NIT
     for nit, grupo in df.groupby('NIT'):
         for _, row in grupo.iterrows():
             for c_idx, col_name in enumerate(cols):
-                val = row.get(col_name)
-                if col_name == 'Fecha' and pd.notna(val): ws.write_datetime(current_row, c_idx, val, formatos['fecha'])
-                elif col_name in ['Monto Dólar', 'Monto USD']: ws.write_number(current_row, c_idx, val or 0, formatos['usd'])
-                elif col_name in ['Bs.', 'Monto Bolivar', 'Monto Bs']: ws.write_number(current_row, c_idx, val or 0, formatos['bs'])
-                elif col_name == 'Tasa': ws.write_number(current_row, c_idx, val or 0, formatos['tasa'])
-                else: ws.write(current_row, c_idx, val if pd.notna(val) else '')
+                
+                # --- MAPEO DE ALIAS (Para Haberes de Clientes) ---
+                val = None
+                if col_name == 'Fecha Origen Acreencia':
+                    val = row.get('Fecha')
+                elif col_name == 'Numero de Documento':
+                    val = row.get('Fuente')
+                else:
+                    val = row.get(col_name)
+                # -------------------------------------------------
+
+                # Escritura según tipo de dato (usando el nombre de columna o su alias real)
+                if col_name in ['Fecha', 'Fecha Origen Acreencia'] and pd.notna(val): 
+                    ws.write_datetime(current_row, c_idx, val, formatos['fecha'])
+                elif col_name in ['Monto Dólar', 'Monto USD']: 
+                    ws.write_number(current_row, c_idx, val or 0, formatos['usd'])
+                elif col_name in ['Bs.', 'Monto Bolivar', 'Monto Bs']: 
+                    ws.write_number(current_row, c_idx, val or 0, formatos['bs'])
+                elif col_name == 'Tasa': 
+                    ws.write_number(current_row, c_idx, val or 0, formatos['tasa'])
+                else: 
+                    ws.write(current_row, c_idx, val if pd.notna(val) else '')
             current_row += 1
         
-        # Subtotal por NIT (Etiqueta "Saldo")
+        # Subtotal por NIT
         lbl_idx = max(0, (usd_idx if usd_idx != -1 else bs_idx) - 1)
         ws.write(current_row, lbl_idx, "Saldo", formatos['subtotal_label'])
-        
         if usd_idx != -1: ws.write_number(current_row, usd_idx, grupo['Monto Dólar'].sum(), formatos['subtotal_usd'])
         if bs_idx != -1: ws.write_number(current_row, bs_idx, grupo['Bs.'].sum(), formatos['subtotal_bs'])
         current_row += 2
-
-    # --- NUEVO BLOQUE: SALDO TOTAL AL FINAL DE LA HOJA ---
-    current_row += 1 # Dejar una fila extra de espacio
+        
+    # SALDO TOTAL AL FINAL
+    current_row += 1
     lbl_idx = max(0, (usd_idx if usd_idx != -1 else bs_idx) - 1)
-    
     ws.write(current_row, lbl_idx, "SALDO TOTAL", formatos['total_label'])
-    
-    # Sumar toda la columna del DataFrame filtrado
-    if usd_idx != -1: 
-        ws.write_number(current_row, usd_idx, df['Monto Dólar'].sum(), formatos['total_usd'])
-    if bs_idx != -1: 
-        ws.write_number(current_row, bs_idx, df['Bs.'].sum(), formatos['total_bs'])
+    if usd_idx != -1: ws.write_number(current_row, usd_idx, df['Monto Dólar'].sum(), formatos['total_usd'])
+    if bs_idx != -1: ws.write_number(current_row, bs_idx, df['Bs.'].sum(), formatos['total_bs'])
     # -----------------------------------------------------
 
     # Ajuste de anchos de columna
