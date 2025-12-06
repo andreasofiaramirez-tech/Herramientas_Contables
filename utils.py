@@ -240,6 +240,7 @@ def _generar_hoja_pendientes(workbook, formatos, df_saldos, estrategia, casa, fe
     """Genera la hoja de 'Pendientes' o 'Saldos Abiertos'."""
     nombre_hoja = estrategia.get("nombre_hoja_excel", "Pendientes")
     ws = workbook.add_worksheet(nombre_hoja)
+    ws.hide_gridlines(2)
     cols = estrategia["columnas_reporte"]
     
     # Encabezados
@@ -321,6 +322,7 @@ def _generar_hoja_pendientes(workbook, formatos, df_saldos, estrategia, casa, fe
 def _generar_hoja_conciliados_estandar(workbook, formatos, df_conciliados, estrategia):
     """Para cuentas: Tránsito, Depositar, Viajes, Devoluciones, Deudores."""
     ws = workbook.add_worksheet("Conciliacion")
+    ws.hide_gridlines(2)
     
     # Preparar DataFrame
     df = df_conciliados.copy()
@@ -397,9 +399,17 @@ def _generar_hoja_conciliados_estandar(workbook, formatos, df_conciliados, estra
 def _generar_hoja_conciliados_agrupada(workbook, formatos, df_conciliados, estrategia):
     """Para cuentas agrupadas: Cobros Viajeros, Otras CxP y Deudores Empleados."""
     ws = workbook.add_worksheet("Conciliacion")
+    ws.hide_gridlines(2) # <--- Ocultar celdas de fondo
+    
     df = df_conciliados.copy()
     
-    # 1. Configuración específica para COBROS VIAJEROS
+    # Variables de control
+    mostrar_saldo_linea = False
+    fmt_moneda = formatos['bs']
+    fmt_total = formatos['total_bs']
+    col_saldo_idx = -1
+
+    # --- CONFIGURACIÓN SEGÚN LA CUENTA ---
     if estrategia['id'] == 'cobros_viajeros':
         df['Débitos'] = df['Monto_USD'].apply(lambda x: x if x > 0 else 0)
         df['Créditos'] = df['Monto_USD'].apply(lambda x: abs(x) if x < 0 else 0)
@@ -409,51 +419,29 @@ def _generar_hoja_conciliados_agrupada(workbook, formatos, df_conciliados, estra
         fmt_moneda = formatos['usd']
         fmt_total = formatos['total_usd']
         
-    # 2. Configuración específica para OTRAS CXP
     elif estrategia['id'] == 'otras_cuentas_por_pagar':
         df['Monto Bs.'] = df['Monto_BS']
         columnas = ['Fecha', 'Descripcion NIT', 'Numero_Envio', 'Monto Bs.']
         cols_sum = ['Monto Bs.']
         titulo = 'Detalle de Movimientos Conciliados por Proveedor y Envío'
-        fmt_moneda = formatos['bs']
-        fmt_total = formatos['total_bs']
+        # ... (formatos por defecto bs)
 
-    # 3. Configuración para DEUDORES EMPLEADOS (Solo ME por ahora)
+    # --- DEUDORES EMPLEADOS (CAMBIOS AQUÍ) ---
     elif estrategia['id'] in ['deudores_empleados_me', 'deudores_empleados_bs']:
         is_usd = estrategia['id'] == 'deudores_empleados_me'
         col_origen = 'Monto_USD' if is_usd else 'Monto_BS'
         fmt_moneda = formatos['usd'] if is_usd else formatos['bs']
         fmt_total = formatos['total_usd'] if is_usd else formatos['total_bs']
         
-        # Separamos Débitos y Créditos (Valor Absoluto para visualización)
         df['Débitos'] = df[col_origen].apply(lambda x: x if x > 0 else 0)
         df['Créditos'] = df[col_origen].apply(lambda x: abs(x) if x < 0 else 0)
         
-        columnas = ['Fecha', 'Asiento', 'Referencia', 'Débitos', 'Créditos']
+        # AGREGAMOS COLUMNA SALDO AL FINAL
+        columnas = ['Fecha', 'Asiento', 'Referencia', 'Débitos', 'Créditos', 'Saldo']
         cols_sum = ['Débitos', 'Créditos']
         titulo = 'Detalle de Movimientos Conciliados por Empleado'
-        
-    # 4. Configuración para Haberes de Clientes (VES)
-    elif estrategia['id'] == 'haberes_clientes':
-        df['Monto Bs.'] = df['Monto_BS']
-        # Columnas solicitadas: Nit, Descripcion, Fecha, Fuente, Monto
-        columnas = ['Fecha', 'Fuente', 'Referencia', 'Monto Bs.'] 
-        cols_sum = ['Monto Bs.']
-        titulo = 'Detalle de Movimientos Conciliados por Cliente (NIT)'
-        fmt_moneda = formatos['bs']
-        fmt_total = formatos['total_bs']
-
-    # 4. Configuración para CDC - Factoring (USD)
-    elif estrategia['id'] == 'cdc_factoring':
-        df['Débitos'] = df['Monto_USD'].apply(lambda x: x if x > 0 else 0)
-        df['Créditos'] = df['Monto_USD'].apply(lambda x: abs(x) if x < 0 else 0)
-        
-        # Mostramos Contrato y Fuente
-        columnas = ['Fecha', 'Contrato', 'Fuente', 'Referencia', 'Débitos', 'Créditos']
-        cols_sum = ['Débitos', 'Créditos']
-        titulo = 'Detalle de Movimientos Conciliados por NIT (Factoring)'
-        fmt_moneda = formatos['usd']
-        fmt_total = formatos['total_usd']
+        mostrar_saldo_linea = True
+        col_saldo_idx = 5 # Índice de la columna Saldo
     # --------------------------------------------------
 
     df = df.sort_values(by=['NIT', 'Fecha'])
@@ -461,59 +449,84 @@ def _generar_hoja_conciliados_agrupada(workbook, formatos, df_conciliados, estra
     ws.merge_range(0, 0, 0, len(columnas)+1, titulo, formatos['encabezado_sub'])
     current_row = 2
     
-    # Iterar por NIT
     grand_totals = {c: 0.0 for c in cols_sum}
     
     for nit, grupo in df.groupby('NIT'):
         col_nombre = 'Descripcion NIT' if 'Descripcion NIT' in grupo.columns else 'Nombre del Proveedor'
         nombre = grupo[col_nombre].iloc[0] if not grupo.empty and col_nombre in grupo else 'NO DEFINIDO'
         
-        # Encabezado del Grupo (Empleado/Proveedor)
         ws.merge_range(current_row, 0, current_row, len(columnas)-1, f"NIT: {nit} - {nombre}", formatos['proveedor_header'])
         current_row += 1
         ws.write_row(current_row, 0, columnas, formatos['header_tabla'])
         current_row += 1
         
-        # Filas de detalle
+        # Variables para saldo del grupo
+        sum_deb = 0
+        sum_cre = 0
+
         for _, row in grupo.iterrows():
             for c_idx, col_name in enumerate(columnas):
                 val = row.get(col_name)
+                
                 if col_name == 'Fecha' and pd.notna(val): ws.write_datetime(current_row, c_idx, val, formatos['fecha'])
                 elif col_name in ['Débitos', 'Créditos', 'Monto Bs.']: ws.write_number(current_row, c_idx, val, fmt_moneda)
+                elif col_name == 'Saldo': 
+                    pass # No escribimos nada en las líneas individuales, solo en subtotal
                 else: ws.write(current_row, c_idx, val if pd.notna(val) else '')
+            
+            # Acumular para subtotal
+            if mostrar_saldo_linea:
+                sum_deb += row['Débitos']
+                sum_cre += row['Créditos']
+
             current_row += 1
         
         # Subtotal del Grupo
-        lbl_col = len(columnas) - len(cols_sum) - 1
+        lbl_col = len(columnas) - len(cols_sum) - (1 if mostrar_saldo_linea else 1)
+        if mostrar_saldo_linea: lbl_col -= 1 # Ajuste por columna extra
+
         ws.write(current_row, lbl_col, "Subtotal", formatos['subtotal_label'])
+        
+        # Escribir sumas de columnas normales
         for i, c_sum in enumerate(cols_sum):
             suma = grupo[c_sum].sum()
             grand_totals[c_sum] += suma
-            ws.write_number(current_row, lbl_col + 1 + i, suma, fmt_moneda)
+            # Ajuste de índice si hay columna saldo
+            col_idx_sum = lbl_col + 1 + i
+            ws.write_number(current_row, col_idx_sum, suma, fmt_moneda)
+        
+        # --- Escribir SALDO NETO en la columna Saldo ---
+        if mostrar_saldo_linea:
+            saldo_neto = sum_deb - sum_cre
+            ws.write_number(current_row, col_saldo_idx, saldo_neto, fmt_total)
+        # -----------------------------------------------
+
         current_row += 2
 
     # TOTALES GENERALES
-    lbl_col = len(columnas) - len(cols_sum) - 1
-    ws.write(current_row, lbl_col, "TOTALES", formatos['total_label'])
-    for i, c_sum in enumerate(cols_sum):
-        ws.write_number(current_row, lbl_col + 1 + i, grand_totals[c_sum], fmt_total)
-        
-    # Comprobación (Solo si hay D/C separados)
-    if len(cols_sum) > 1:
-        current_row += 1
-        ws.write(current_row, lbl_col, "Comprobacion", formatos['subtotal_label'])
-        # Restamos Débitos - Créditos (Debe dar 0)
-        neto = grand_totals[cols_sum[0]] - grand_totals[cols_sum[1]]
-        ws.write_number(current_row, lbl_col + 1, neto, formatos['total_bs']) # Formato genérico para la diferencia
+    lbl_col_tot = len(columnas) - len(cols_sum) - (1 if mostrar_saldo_linea else 1)
+    if mostrar_saldo_linea: lbl_col_tot -= 1
 
+    ws.write(current_row, lbl_col_tot, "TOTALES", formatos['total_label'])
+    for i, c_sum in enumerate(cols_sum):
+        col_idx_sum = lbl_col_tot + 1 + i
+        ws.write_number(current_row, col_idx_sum, grand_totals[c_sum], fmt_total)
+    
+    # Total Saldo General (Neto global)
+    if mostrar_saldo_linea:
+        neto_global = grand_totals['Débitos'] - grand_totals['Créditos']
+        ws.write_number(current_row, col_saldo_idx, neto_global, fmt_total)
+        
     ws.set_column('A:F', 18)
 
 def _generar_hoja_resumen_devoluciones(workbook, formatos, df_saldos):
     """Hoja extra específica para Devoluciones a Proveedores."""
     ws = workbook.add_worksheet("Resumen por Proveedor")
+    ws.hide_gridlines(2)
     cols = ['Fecha', 'Fuente', 'Referencia', 'Monto USD', 'Monto Bs']
     ws.merge_range('A1:E1', 'Detalle de Saldos Abiertos por Proveedor', formatos['encabezado_sub'])
     ws.write_row(2, 0, cols, formatos['header_tabla'])
+    
     
     df = df_saldos.sort_values(by=['Nombre del Proveedor', 'Fecha'])
     current_row = 3
@@ -541,82 +554,75 @@ def _generar_hoja_resumen_devoluciones(workbook, formatos, df_saldos):
 
 def _generar_hoja_pendientes_resumida(workbook, formatos, df_saldos, estrategia, casa, fecha_maxima):
     """
-    Genera una hoja de saldos RESUMIDA (una línea por NIT) para cuentas de Empleados.
+    Genera una hoja de saldos RESUMIDA (una línea por NIT).
+    CAMBIOS: Sin columna Fecha, Sin líneas de división.
     """
     nombre_hoja = estrategia.get("nombre_hoja_excel", "Saldos Por Empleado")
     ws = workbook.add_worksheet(nombre_hoja)
+    ws.hide_gridlines(2) # <--- Ocultar celdas de fondo
     
     # Encabezados
     if pd.notna(fecha_maxima):
         ultimo_dia = fecha_maxima + pd.offsets.MonthEnd(0)
         meses = {1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio", 7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"}
         txt_fecha = f"PARA EL {ultimo_dia.day} DE {meses[ultimo_dia.month].upper()} DE {ultimo_dia.year}"
-        fecha_excel = ultimo_dia
     else:
         txt_fecha = "FECHA NO DISPONIBLE"
-        fecha_excel = None
 
-    ws.merge_range('A1:G1', casa, formatos['encabezado_empresa'])
-    ws.merge_range('A2:G2', f"ESPECIFICACION DE LA CUENTA {estrategia['nombre_hoja_excel']}", formatos['encabezado_sub'])
-    ws.merge_range('A3:G3', txt_fecha, formatos['encabezado_sub'])
+    ws.merge_range('A1:F1', casa, formatos['encabezado_empresa'])
+    ws.merge_range('A2:F2', f"ESPECIFICACION DE LA CUENTA {estrategia['nombre_hoja_excel']}", formatos['encabezado_sub'])
+    ws.merge_range('A3:F3', txt_fecha, formatos['encabezado_sub'])
 
-    # Columnas específicas solicitadas en la imagen
-    # SUB-CTA | NIT | NOMBRE | $ (USD) | FECHA | Bs. | Tasa
-    headers = ['SUB-CTA', 'NIT', 'NOMBRE', '$', 'FECHA', 'Bs.', 'Tasa']
+    # --- CAMBIO: Eliminada columna FECHA ---
+    # Antes: ['SUB-CTA', 'NIT', 'NOMBRE', '$', 'FECHA', 'Bs.', 'Tasa']
+    headers = ['SUB-CTA', 'NIT', 'NOMBRE', '$', 'Bs.', 'Tasa']
     ws.write_row('A5', headers, formatos['header_tabla'])
 
     if df_saldos.empty: return
 
-    # --- LÓGICA DE AGRUPACIÓN (RESUMEN) ---
-    # 1. Rellenar nombres faltantes
+    # Lógica de Agrupación
     col_nombre = 'Descripcion NIT' if 'Descripcion NIT' in df_saldos.columns else 'Nombre del Proveedor'
     if col_nombre not in df_saldos.columns:
         df_saldos['Nombre_Final'] = 'NO DEFINIDO'
     else:
         df_saldos['Nombre_Final'] = df_saldos[col_nombre].fillna('NO DEFINIDO')
 
-    # 2. Agrupar por NIT y sumar
     resumen = df_saldos.groupby('NIT').agg({
-        'Nombre_Final': 'first', # Toma el primer nombre que encuentre
+        'Nombre_Final': 'first',
         'Monto_USD': 'sum',
         'Monto_BS': 'sum'
     }).reset_index()
 
-    # 3. Calcular Tasa Implícita del saldo
-    # Evitamos división por cero
     resumen['Tasa_Impl'] = np.where(
         resumen['Monto_USD'].abs() > 0.01, 
         (resumen['Monto_BS'] / resumen['Monto_USD']).abs(), 
         0
     )
 
-    # --- ESCRITURA EN EXCEL ---
+    # Escritura
     current_row = 5
-    sub_cta = estrategia['nombre_hoja_excel'].split('.')[-1][:4] # Extrae '6006' o '1006'
+    sub_cta = estrategia['nombre_hoja_excel'].split('.')[-1][:4]
 
     for _, row in resumen.iterrows():
-        ws.write(current_row, 0, sub_cta, formatos['encabezado_sub']) # SUB-CTA Centrada
+        ws.write(current_row, 0, sub_cta, formatos['encabezado_sub'])
         ws.write(current_row, 1, row['NIT'])
         ws.write(current_row, 2, row['Nombre_Final'])
         ws.write_number(current_row, 3, row['Monto_USD'], formatos['usd'])
-        if fecha_excel:
-            ws.write_datetime(current_row, 4, fecha_excel, formatos['fecha'])
-        else:
-            ws.write(current_row, 4, '-')
-        ws.write_number(current_row, 5, row['Monto_BS'], formatos['bs'])
-        ws.write_number(current_row, 6, row['Tasa_Impl'], formatos['tasa'])
+        # Eliminada columna fecha, rodamos índices
+        ws.write_number(current_row, 4, row['Monto_BS'], formatos['bs'])
+        ws.write_number(current_row, 5, row['Tasa_Impl'], formatos['tasa'])
         current_row += 1
 
-    # --- TOTALES AL FINAL ---
+    # Totales
     ws.write(current_row, 2, "TOTALES", formatos['total_label'])
     ws.write_number(current_row, 3, resumen['Monto_USD'].sum(), formatos['total_usd'])
-    ws.write_number(current_row, 5, resumen['Monto_BS'].sum(), formatos['total_bs'])
+    ws.write_number(current_row, 4, resumen['Monto_BS'].sum(), formatos['total_bs'])
 
     # Ajuste de anchos
-    ws.set_column('A:A', 10) # Sub-Cta
-    ws.set_column('B:B', 15) # NIT
-    ws.set_column('C:C', 45) # Nombre
-    ws.set_column('D:G', 15) # Montos y Fechas
+    ws.set_column('A:A', 10)
+    ws.set_column('B:B', 15)
+    ws.set_column('C:C', 45)
+    ws.set_column('D:F', 15)
     
 def _generar_hoja_pendientes_cdc(workbook, formatos, df_saldos, estrategia, casa, fecha_maxima):
     """
@@ -624,6 +630,7 @@ def _generar_hoja_pendientes_cdc(workbook, formatos, df_saldos, estrategia, casa
     Muestra subtotales por contrato como se solicitó.
     """
     ws = workbook.add_worksheet(estrategia.get("nombre_hoja_excel", "Pendientes"))
+    ws.hide_gridlines(2)
     
     # 1. Encabezados del Reporte
     if pd.notna(fecha_maxima):
@@ -740,6 +747,7 @@ def _generar_hoja_pendientes_corrida(workbook, formatos, df_saldos, estrategia, 
     """
     ws = workbook.add_worksheet(estrategia.get("nombre_hoja_excel", "Pendientes"))
     cols = estrategia["columnas_reporte"]
+    ws.hide_gridlines(2)
     
     # Encabezados
     if pd.notna(fecha_maxima):
