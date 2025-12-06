@@ -2620,6 +2620,66 @@ MAPEO_CB_CG_FEBECA = {
     "2407E":  {"cta": "1.1.1.06.6.003", "moneda": "USD"},
 }
 
+MAPEO_CB_CG_PRISMA = {
+    "0104L":  {"cta": "1.1.1.02.1.112", "moneda": "VES"},
+    "0105E":  {"cta": "1.1.1.02.6.001", "moneda": "USD"},
+    "0105L":  {"cta": "1.1.1.02.1.003", "moneda": "VES"},
+    "0114L":  {"cta": "1.1.1.02.1.005", "moneda": "VES"},
+    "0174E":  {"cta": "1.1.1.02.6.010", "moneda": "USD"},
+    "0174L":  {"cta": "1.1.1.02.1.132", "moneda": "VES"},
+    "0175L":  {"cta": "1.1.1.02.1.115", "moneda": "VES"},
+    "0205E":  {"cta": "1.1.1.03.6.026", "moneda": "USD"},
+    "0209E":  {"cta": "1.1.1.01.6.001", "moneda": "USD"},
+    "0501E":  {"cta": "1.1.1.03.6.024", "moneda": "USD"},
+}
+
+# 5. MAPEO SILLACA
+MAPEO_CB_CG_SILLACA = {
+    "0102E":  {"cta": "1.1.1.02.6.003", "moneda": "USD"},
+    "0102EU": {"cta": "1.1.1.02.6.213", "moneda": "EUR"},
+    "0102L":  {"cta": "1.1.1.02.1.016", "moneda": "VES"},
+    "0104L":  {"cta": "1.1.1.02.1.112", "moneda": "VES"},
+    "0104L2": {"cta": "1.1.1.02.1.112", "moneda": "VES"}, # Duplicado intencional
+    "0105E":  {"cta": "1.1.1.02.6.001", "moneda": "USD"},
+    "0105E2": {"cta": "1.1.1.02.6.001", "moneda": "USD"}, # Duplicado intencional
+    "0105L":  {"cta": "1.1.1.02.1.009", "moneda": "VES"},
+    "0105L2": {"cta": "1.1.1.02.1.009", "moneda": "VES"}, # Duplicado intencional
+    "0108E":  {"cta": "1.1.1.02.6.013", "moneda": "USD"},
+    "0108L":  {"cta": "1.1.1.02.1.004", "moneda": "VES"},
+    "0114E":  {"cta": "1.1.1.02.6.006", "moneda": "USD"},
+    "0114L":  {"cta": "1.1.1.02.1.011", "moneda": "VES"},
+    "0115L":  {"cta": "1.1.1.02.1.015", "moneda": "VES"},
+    "0134EC": {"cta": "1.1.1.02.6.005", "moneda": "USD"},
+    "0134L":  {"cta": "1.1.1.02.1.007", "moneda": "VES"},
+    "0137CP": {"cta": "1.1.1.02.6.214", "moneda": "COP"},
+    "0137E":  {"cta": "1.1.1.02.6.015", "moneda": "USD"},
+    "0137L":  {"cta": "1.1.1.02.1.022", "moneda": "VES"},
+    "0172E":  {"cta": "1.1.1.02.6.011", "moneda": "USD"},
+    "0172L":  {"cta": "1.1.1.02.1.021", "moneda": "VES"},
+    "0174E":  {"cta": "1.1.1.02.6.010", "moneda": "USD"},
+    "0174E2": {"cta": "1.1.1.02.6.010", "moneda": "USD"}, # Duplicado intencional
+    "0174EU": {"cta": "1.1.1.02.6.210", "moneda": "EUR"},
+    "0174L":  {"cta": "1.1.1.02.1.132", "moneda": "VES"},
+    "0174L2": {"cta": "1.1.1.02.1.132", "moneda": "VES"}, # Duplicado intencional
+    "0175L":  {"cta": "1.1.1.02.1.115", "moneda": "VES"},
+    "0191E":  {"cta": "1.1.1.02.6.002", "moneda": "USD"},
+    "0191L":  {"cta": "1.1.1.02.1.124", "moneda": "VES"},
+    "0201E":  {"cta": "1.1.1.03.6.012", "moneda": "USD"},
+    "0202E":  {"cta": "1.1.1.03.6.002", "moneda": "USD"},
+    "0203E":  {"cta": "1.1.4.01.7.020", "moneda": "USD"},
+    "0204E":  {"cta": "1.1.1.03.6.028", "moneda": "USD"},
+    "0205E":  {"cta": "1.1.1.03.6.026", "moneda": "USD"},
+    "0205E2": {"cta": "1.1.1.03.6.026", "moneda": "USD"}, # Duplicado intencional
+    "0206E":  {"cta": "1.1.1.06.6.001", "moneda": "USD"},
+    "0207E":  {"cta": "1.1.4.01.7.021", "moneda": "USD"},
+    "0209E":  {"cta": "1.1.1.01.6.001", "moneda": "USD"},
+    "0210EU": {"cta": "1.1.1.01.6.002", "moneda": "EUR"},
+    "0211E":  {"cta": "1.1.1.03.6.015", "moneda": "USD"},
+    "0501E":  {"cta": "1.1.1.03.6.024", "moneda": "USD"},
+    "0501E2": {"cta": "1.1.1.03.6.024", "moneda": "USD"}, # Duplicado intencional
+    "2407E":  {"cta": "1.1.1.06.6.003", "moneda": "USD"},
+}
+
 def limpiar_monto_pdf(texto):
     """
     Convierte texto a float. Maneja formatos US/VE, paréntesis y guiones (-).
@@ -2967,10 +3027,19 @@ def validar_coincidencia_empresa(file_obj, nombre_empresa_sel):
 def run_cuadre_cb_cg(file_cb, file_cg, nombre_empresa, log_messages):
     """
     Función Principal: Cruza Tesorería vs Contabilidad.
-    INCLUYE DETECCIÓN DE HUÉRFANOS.
+    Soporta: BEVAL, FEBECA, PRISMA, SILLACA.
     """
-    # 1. Configuración
-    if "FEBECA" in str(nombre_empresa).upper():
+    # 1. Configuración (Selección de Diccionario)
+    empresa_upper = str(nombre_empresa).upper()
+    
+    if "PRISMA" in empresa_upper:
+        mapeo_actual = MAPEO_CB_CG_PRISMA
+        log_messages.append(f"🏢 Configuración activa: PRISMA")
+    elif "SILLACA" in empresa_upper:
+        mapeo_actual = MAPEO_CB_CG_SILLACA
+        log_messages.append(f"🏢 Configuración activa: SILLACA")
+    elif "FEBECA" in empresa_upper:
+        # Aplica tanto para Febeca C.A. como Febeca Quincalla
         mapeo_actual = MAPEO_CB_CG_FEBECA
         log_messages.append(f"🏢 Configuración activa: FEBECA")
     else:
