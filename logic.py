@@ -2121,7 +2121,7 @@ def _get_base_classification(cuentas_del_asiento, referencia_completa, fuente_co
 
     # --- PRIORIDAD 5: Traspasos vs. Devoluciones (Grupo 10 y 7) ---
     if normalize_account('4.1.1.21.4.001') in cuentas_del_asiento:
-        if 'TRASPASO' in referencia_completa and abs(monto_suma) <= TOLERANCIA_MAX_USD: 
+        if 'TRASPASO' in referencia_completa: 
             return "Grupo 10: Traspasos"
         
         if is_reverso_check: return "Grupo 7: Devoluciones y Rebajas"
@@ -2287,10 +2287,18 @@ def _validar_asiento(asiento_group):
         else:
             return f"Incidencia: Referencia '{referencia_str}' inválida (Se requiere Nro Comprobante o RET/IMP)."
 
-    # --- GRUPO 10: TRASPASOS ---
+    # --- GRUPO 10: TRASPASOS (VALIDACIÓN ESTRICTA) ---
     elif grupo.startswith("Grupo 10:"):
+        # 1. Regla de Suma Cero
         if not np.isclose(asiento_group['Monto_USD'].sum(), 0, atol=TOLERANCIA_MAX_USD):
-            return "Incidencia: El traspaso no suma cero."
+            return "Incidencia: El traspaso no suma cero (Descuadrado)."
+            
+        # 2. Regla de Naturaleza (Debe haber Débito Y Crédito)
+        tiene_debito = (asiento_group['Monto_USD'] > 0).any()
+        tiene_credito = (asiento_group['Monto_USD'] < 0).any()
+        
+        if not (tiene_debito and tiene_credito):
+            return "Incidencia: Traspaso incompleto (Falta contrapartida Débito/Crédito)."
             
     # --- GRUPO 3: N/C ---
     elif grupo.startswith("Grupo 3:"):
