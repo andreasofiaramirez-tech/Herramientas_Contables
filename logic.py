@@ -2057,7 +2057,8 @@ CUENTAS_CONOCIDAS = {normalize_account(acc) for acc in [
     '1.1.1.03.6.028', '1.9.1.01.3.008', # Inversión entre oficinas
     '1.9.1.01.3.009', # Inversión entre oficinas
     '7.1.3.01.1.001',  # Deudores Incobrables
-    '1.1.4.01.7.044'  # Cuentas por Cobrar - Varios en ME
+    '1.1.4.01.7.044',  # Cuentas por Cobrar - Varios en ME
+    '2.1.2.05.1.005'  # Asientos por Clasificar
 ]}
 
 CUENTAS_BANCO = {normalize_account(acc) for acc in [
@@ -2172,6 +2173,10 @@ def _get_base_classification(cuentas_del_asiento, referencia_completa, fuente_co
 
     if normalize_account('1.1.4.01.7.044') in cuentas_del_asiento:
         return "Grupo 16: Cuentas por Cobrar - Varios en ME"
+
+    # --- NUEVO: PRIORIDAD 11: Asientos por Clasificar (Grupo 17) ---
+    if normalize_account('2.1.2.05.1.005') in cuentas_del_asiento:
+        return "Grupo 17: Asientos por Clasificar"
 
     if normalize_account('7.1.3.06.1.998') in cuentas_del_asiento: return "Grupo 12: Perdida p/Venta o Retiro Activo ND"
     if normalize_account('7.1.3.45.1.997') in cuentas_del_asiento: return "Grupo 1: Acarreos y Fletes Recuperados"
@@ -2332,6 +2337,13 @@ def _validar_asiento(asiento_group):
 
     elif grupo.startswith("Grupo 16:"):
         return "Conciliado"
+
+    # --- NUEVO: GRUPO 17 ---
+    elif grupo.startswith("Grupo 17:"):
+        # Regla de Negocio: Esta cuenta es transitoria. 
+        # Se marca como incidencia para obligar al usuario a revisar el Mayor.
+        return "Incidencia: Cuenta Transitoria. Verificar cruce en Mayor antes de mayorizar."
+    return "Conciliado"
 
     # --- GRUPO 11: No identificados ---
     elif grupo.startswith("Grupo 11") or grupo == "No Clasificado":
