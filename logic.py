@@ -3097,24 +3097,40 @@ def run_cuadre_cb_cg(file_cb, file_cg, nombre_empresa, log_messages):
     return pd.DataFrame(resultados), pd.DataFrame(huerfanos)
 
 # ==============================================================================
-# LÓGICA PARA CRUCE IMPRENTA (LIBRO VENTAS VS RETENCIONES TXT)
+# LÓGICA PARA CRUCE IMPRENTA (LIBRO VENTAS VS RETENCIONES TXT) - MEJORADA
 # ==============================================================================
 
-# IMPORTANTE: La palabra 'def' debe estar pegada totalmente a la izquierda
+def normalizar_nro_factura(texto):
+    """
+    Elimina ceros a la izquierda para comparar números matemáticamente iguales.
+    Ej: '000123' -> '123'
+    """
+    if not texto: return ""
+    # Quita todo lo que no sea número
+    solo_nums = re.sub(r'\D', '', str(texto))
+    # Quita ceros a la izquierda (pero deja '0' si es cero)
+    return str(int(solo_nums)) if solo_nums else ""
+
 def parse_sales_txt(file_obj, log_messages):
     """
     Lee el TXT del Libro de Ventas.
+    Mejora: Normaliza quitando ceros a la izquierda.
     """
     invoices_found = set()
     try:
         content = file_obj.getvalue().decode('latin-1') 
         lines = content.splitlines()
-        regex_pattern = r"(?:FAC|N/C|N/D)\s+([0-9]+)"
+        
+        # Patrón: (FAC o N/C) + Espacios Opcionales + Números
+        regex_pattern = r"(?:FAC|N/C|N/D)\s*([0-9]+)"
         
         for line in lines:
             matches = re.findall(regex_pattern, line)
             for match in matches:
-                invoices_found.add(str(match).strip())
+                # Guardamos el número normalizado (sin ceros extra)
+                nro_limpio = normalizar_nro_factura(match)
+                if nro_limpio:
+                    invoices_found.add(nro_limpio)
                 
         log_messages.append(f"✅ Libro de Ventas procesado. {len(invoices_found)} documentos encontrados.")
         return invoices_found, lines
@@ -3125,6 +3141,7 @@ def parse_sales_txt(file_obj, log_messages):
 def run_cross_check_imprenta(file_sales, file_retentions, log_messages):
     """
     Cruza Retenciones vs Libro de Ventas.
+    Mejora: Regex flexible (con/sin espacios) y comparación normalizada.
     """
     log_messages.append("\n--- INICIANDO CRUCE IMPRENTA (TXT) ---")
     
@@ -3141,27 +3158,41 @@ def run_cross_check_imprenta(file_sales, file_retentions, log_messages):
         content_ret = file_retentions.getvalue().decode('latin-1')
         txt_original = content_ret
         lines_ret = content_ret.splitlines()
-        regex_ret = r"(FAC|N/C)\s+([0-9]+)"
+        
+        # Patrón Mejorado:
+        # (FAC|N/C) -> Grupo 1: Tipo
+        # \s*       -> Cero o más espacios (Acepta "FAC001" y "FAC 001")
+        # ([0-9]+)  -> Grupo 2: Número
+        regex_ret = r"(FAC|N/C)\s*([0-9]+)"
         
         for line_idx, line in enumerate(lines_ret):
             match = re.search(regex_ret, line)
+            
+            # Solo analizamos líneas que tengan estructura de documento
             if match:
                 tipo = match.group(1)
-                factura = match.group(2).strip()
+                factura_raw = match.group(2)
+                
+                # Normalizamos para comparar (quitamos ceros)
+                factura_comparar = normalizar_nro_factura(factura_raw)
+                
                 status = "OK"
                 
-                if factura not in valid_invoices:
+                # VALIDACIÓN 1: Existencia (Comparando limpio contra limpio)
+                if factura_comparar not in valid_invoices:
                     status = "ERROR: Factura no declarada en Libro de Ventas"
-                if factura in processed_invoices:
+                
+                # VALIDACIÓN 2: Duplicidad
+                if factura_comparar in processed_invoices:
                     status = "ERROR: Factura duplicada en archivo de Retenciones"
                 
-                processed_invoices.add(factura)
+                processed_invoices.add(factura_comparar)
                 
                 resultados.append({
                     'Línea TXT': line_idx + 1,
                     'Contenido Original': line.strip(),
                     'Tipo': tipo,
-                    'Factura Detectada': factura,
+                    'Factura Detectada': factura_raw, # Mostramos la original
                     'Estado': status
                 })
                 
