@@ -2042,7 +2042,7 @@ def normalize_account(acc):
     """Función auxiliar que limpia un número de cuenta, eliminando todo lo que no sea un dígito."""
     return re.sub(r'\D', '', str(acc))
 
-# --- Directorio de Cuentas (Versión Normalizada) ---
+## --- Directorio de Cuentas (Versión Normalizada) ---
 CUENTAS_CONOCIDAS = {normalize_account(acc) for acc in [
     '1.1.3.01.1.001', '1.1.3.01.1.901', '7.1.3.45.1.997', '6.1.1.12.1.001',
     '4.1.1.22.4.001', '2.1.3.04.1.001', '7.1.3.19.1.012', '2.1.2.05.1.108',
@@ -2052,13 +2052,15 @@ CUENTAS_CONOCIDAS = {normalize_account(acc) for acc in [
     '1.1.1.02.1.016', '1.1.1.02.1.112', '1.1.1.02.1.124', '1.1.1.02.1.132',
     '1.1.1.02.6.002', '1.1.1.02.6.003', '1.1.1.02.6.005', '1.1.1.02.6.010',
     '1.1.1.03.6.012', '1.1.1.03.6.024', '1.1.1.03.6.026', '1.1.1.03.6.031',
+    # --- BANCOS ADICIONALES ---
     '1.1.1.02.1.002', '1.1.1.02.1.005', '1.1.1.02.6.001', '1.1.1.02.1.003',
-    '1.1.1.02.1.018', '1.1.1.02.6.013', '1.1.1.06.6.003', '1.1.1.03.6.002',
-    '1.1.1.03.6.028', '1.9.1.01.3.008', # Inversión entre oficinas
-    '1.9.1.01.3.009', # Inversión entre oficinas
-    '7.1.3.01.1.001',  # Deudores Incobrables
-    '1.1.4.01.7.044',  # Cuentas por Cobrar - Varios en ME
-    '2.1.2.05.1.005'  # Asientos por Clasificar
+    '4.1.1.21.4.001', '2.1.3.04.1.001', '4.1.1.22.4.001',
+    # --- CUENTAS GRUPOS NUEVOS ---
+    '1.9.1.01.3.008', # Inv. Oficinas
+    '1.9.1.01.3.009', # Inv. Oficinas
+    '7.1.3.01.1.001', # Deudores Incobrables
+    '1.1.4.01.7.044', # CxC Varios ME
+    '2.1.2.05.1.005'  # Asientos por Clasificar (NUEVA)
 ]}
 
 CUENTAS_BANCO = {normalize_account(acc) for acc in [
@@ -2078,7 +2080,6 @@ CUENTAS_BANCO = {normalize_account(acc) for acc in [
 def _get_base_classification(cuentas_del_asiento, referencia_completa, fuente_completa, referencia_limpia_palabras, monto_suma, monto_max_abs, is_reverso_check=False):
     """
     Clasifica el asiento basándose en reglas de jerarquía.
-    IMPORTANTE: El orden de los 'if' determina la prioridad.
     """
     
     # --- PRIORIDAD 1: Notas de Crédito (Grupo 3) ---
@@ -2098,20 +2099,15 @@ def _get_base_classification(cuentas_del_asiento, referencia_completa, fuente_co
             return "Grupo 3: N/C - Otros"
 
     # --- PRIORIDAD 2: Gastos de Ventas (Grupo 4) ---
-    # MOVIDO AQUÍ ARRIBA Y MEJORADO
-    # Detecta si tiene la cuenta 7.1.3.19... O si tiene palabras clave de mercadeo
     keywords_mercadeo = {'EXHIBIDOR', 'EXHIBIDORES', 'OBSEQUIO', 'OBSEQUIOS', 'MERCADEO', 'PUBLICIDAD', 'PROPAGANDA'}
-    
     tiene_cuenta_gasto = normalize_account('7.1.3.19.1.012') in cuentas_del_asiento
     tiene_texto_gasto = not keywords_mercadeo.isdisjoint(referencia_limpia_palabras)
-    
     if tiene_cuenta_gasto or tiene_texto_gasto: 
         return "Grupo 4: Gastos de Ventas"
 
     # --- PRIORIDAD 3: Diferencial Cambiario PURO (Grupo 2) ---
     tiene_diferencial = normalize_account('6.1.1.12.1.001') in cuentas_del_asiento
     tiene_banco = not CUENTAS_BANCO.isdisjoint(cuentas_del_asiento)
-    
     if tiene_diferencial and not tiene_banco:
         return "Grupo 2: Diferencial Cambiario"
 
@@ -2122,8 +2118,7 @@ def _get_base_classification(cuentas_del_asiento, referencia_completa, fuente_co
 
     # --- PRIORIDAD 5: Traspasos vs. Devoluciones (Grupo 10 y 7) ---
     if normalize_account('4.1.1.21.4.001') in cuentas_del_asiento:
-        if 'TRASPASO' in referencia_completa: 
-            return "Grupo 10: Traspasos"
+        if 'TRASPASO' in referencia_completa: return "Grupo 10: Traspasos"
         
         if is_reverso_check: return "Grupo 7: Devoluciones y Rebajas"
         
@@ -2141,13 +2136,10 @@ def _get_base_classification(cuentas_del_asiento, referencia_completa, fuente_co
 
     # --- PRIORIDAD 6: Cobranzas (Grupo 8) ---
     is_cobranza_texto = 'RECIBO DE COBRANZA' in referencia_completa or 'TEF' in fuente_completa or 'DEPR' in fuente_completa
-    
     if is_cobranza_texto or tiene_banco:
         if is_reverso_check: return "Grupo 8: Cobranzas"
-        
         if normalize_account('6.1.1.12.1.001') in cuentas_del_asiento: return "Grupo 8: Cobranzas - Con Diferencial Cambiario"
         if normalize_account('1.1.1.04.6.003') in cuentas_del_asiento: return "Grupo 8: Cobranzas - Fondos por Depositar"
-        
         if tiene_banco:
             if 'TEF' in fuente_completa: return "Grupo 8: Cobranzas - TEF (Bancos)"
             return "Grupo 8: Cobranzas - Recibos (Bancos)"
@@ -2156,14 +2148,13 @@ def _get_base_classification(cuentas_del_asiento, referencia_completa, fuente_co
     # --- PRIORIDAD 7: Ingresos Varios (Grupo 6) ---
     if normalize_account('6.1.1.19.1.001') in cuentas_del_asiento:
         if is_reverso_check: return "Grupo 6: Ingresos Varios"
-        keywords_limpieza = {'LIMPIEZA', 'LIMPIEZAS', 'SALDO', 'SALDOS', 'HISTORICO'}
+        keywords_limpieza = {'LIMPIEZA', 'LIMPIEZAS', 'SALDO', 'SALDOS', 'HISTORICO', 'INGRESOS', 'INGRESO', 'AJUSTE'}
         if not keywords_limpieza.isdisjoint(referencia_limpia_palabras):
             if monto_max_abs <= 25: return "Grupo 6: Ingresos Varios - Limpieza (<= $25)"
             else: return "Grupo 6: Ingresos Varios - Limpieza (> $25)"
         else: return "Grupo 6: Ingresos Varios - Otros"
             
-    # --- RESTO DE PRIORIDADES ---
-    # Prioridad 8, 9, 10
+    # --- RESTO DE PRIORIDADES (Grupos Específicos) ---
     ctas_inversion = {normalize_account('1.9.1.01.3.008'), normalize_account('1.9.1.01.3.009')}
     if not ctas_inversion.isdisjoint(cuentas_del_asiento):
         return "Grupo 14: Inv. entre Oficinas"
@@ -2174,9 +2165,10 @@ def _get_base_classification(cuentas_del_asiento, referencia_completa, fuente_co
     if normalize_account('1.1.4.01.7.044') in cuentas_del_asiento:
         return "Grupo 16: Cuentas por Cobrar - Varios en ME"
 
-    # --- NUEVO: PRIORIDAD 11: Asientos por Clasificar (Grupo 17) ---
+    # --- NUEVO GRUPO 17 ---
     if normalize_account('2.1.2.05.1.005') in cuentas_del_asiento:
         return "Grupo 17: Asientos por Clasificar"
+    # ----------------------
 
     if normalize_account('7.1.3.06.1.998') in cuentas_del_asiento: return "Grupo 12: Perdida p/Venta o Retiro Activo ND"
     if normalize_account('7.1.3.45.1.997') in cuentas_del_asiento: return "Grupo 1: Acarreos y Fletes Recuperados"
@@ -2208,150 +2200,89 @@ def _clasificar_asiento_paquete_cc(cuentas_del_asiento, referencia_completa, fue
 
 def _validar_asiento(asiento_group):
     """
-    Recibe un asiento completo (ya clasificado) y aplica las reglas de negocio
-    para determinar si está Conciliado o tiene una Incidencia.
+    Recibe un asiento completo (ya clasificado) y aplica las reglas de negocio.
     """
     grupo = asiento_group['Grupo'].iloc[0]
     
-    # --- GRUPO 1: FLETES ---
+    # GRUPO 1: FLETES
     if grupo.startswith("Grupo 1:"):
         fletes_lines = asiento_group[asiento_group['Cuenta Contable Norm'] == normalize_account('7.1.3.45.1.997')]
         if not fletes_lines['Referencia'].str.contains('FLETE', case=False, na=False).all():
             return "Incidencia: Referencia sin 'FLETE' encontrada."
             
-    # --- GRUPO 2: DIFERENCIAL CAMBIARIO (CORREGIDO) ---
+    # GRUPO 2: DIFERENCIAL CAMBIARIO
     elif grupo.startswith("Grupo 2:"):
         diff_lines = asiento_group[asiento_group['Cuenta Contable Norm'] == normalize_account('6.1.1.12.1.001')]
-        
-        # 1. Validación Estricta (Regex)
-        keywords_estrictas = [
-            'DIFERENCIAL', 'DIFERENCIA', 'DIF CAMBIARIO', 'DIF.', 
-            'TASA', 'AJUSTE', 'IVA', 'DC'  # <--- NUEVO: Acepta abreviatura DC
-        ]
-        
-        # Nota: re.escape es útil para puntos, pero para palabras normales no afecta.
-        # Aseguramos que busque la palabra completa o parte significativa.
+        keywords_estrictas = ['DIFERENCIAL', 'DIFERENCIA', 'DIF CAMBIARIO', 'DIF.', 'TASA', 'AJUSTE', 'IVA', 'DC']
         patron_regex = '|'.join([re.escape(k) if '.' in k else k for k in keywords_estrictas])
         
-        # Revisamos línea por línea
         for ref in diff_lines['Referencia']:
             ref_str = str(ref).upper()
+            if re.search(patron_regex, ref_str): continue
             
-            # Si pasa la prueba estricta (tiene DIF, DC, TASA...), continuamos
-            if re.search(patron_regex, ref_str):
-                continue
-                
-            # 2. Validación de Similitud (Detector de Typos)
+            # Fuzzy match
             palabras_referencia = ref_str.split()
             objetivos = ['DIFERENCIAL', 'CAMBIARIO', 'DIFERENCIA', 'AJUSTE']
             es_typo_aceptable = False
-            
             for palabra in palabras_referencia:
                 p_clean = re.sub(r'[^A-Z]', '', palabra)
                 for objetivo in objetivos:
                     ratio = SequenceMatcher(None, p_clean, objetivo).ratio()
                     if ratio > 0.80: 
-                        es_typo_aceptable = True
-                        break
+                        es_typo_aceptable = True; break
                 if es_typo_aceptable: break
+            if not es_typo_aceptable: return f"Incidencia: Referencia '{ref}' sospechosa."
             
-            if not es_typo_aceptable:
-                return f"Incidencia: Referencia '{ref}' no parece indicar Diferencial Cambiario."
-            
-    # --- GRUPO 6: INGRESOS VARIOS ---
+    # GRUPO 6: INGRESOS VARIOS
     elif grupo.startswith("Grupo 6:"):
         if (asiento_group['Monto_USD'].abs() > 25).any():
             return "Incidencia: Movimiento mayor al límite permitido ($25)."
             
-    # --- GRUPO 7: DEVOLUCIONES Y REBAJAS (Logica Inteligente) ---
+    # GRUPO 7: DEVOLUCIONES
     elif grupo.startswith("Grupo 7:"):
-        # Límite corregido a $5
         if (asiento_group['Monto_USD'].abs() > 5).any():
-            
-            # Excepción para traslados autorizados
             referencia_upper = str(asiento_group['Referencia'].iloc[0]).upper()
             keywords_autorizadas = ['TRASLADO', 'APLICAR', 'CRUCE', 'RECLASIFICACION', 'CORRECCION']
-            
             if not any(k in referencia_upper for k in keywords_autorizadas):
                 return "Incidencia: Movimiento mayor a $5 (y no indica ser Traslado/Cruce)."
 
-    # --- GRUPO 9: RETENCIONES ---
+    # GRUPO 9: RETENCIONES
     elif grupo.startswith("Grupo 9:"):
-        # Tomamos la referencia como texto y mayúsculas
         referencia_str = str(asiento_group['Referencia'].iloc[0]).upper().strip()
-        
-        # Validacion 1: ¿Tiene algún número? (Ej: "00000072", "2025...", "123")
         tiene_numeros = any(char.isdigit() for char in referencia_str)
-        
-        # Validacion 2: ¿Tiene palabras clave?
         tiene_keywords = any(k in referencia_str for k in ['RET', 'IMP', 'ISLR', 'IVA', 'MUNICIPAL'])
-        
-        # Si cumple CUALQUIERA de las dos, es válido.
-        if tiene_numeros or tiene_keywords:
-            pass # Está correcto, pasará al return "Conciliado" final.
-        else:
-            return f"Incidencia: Referencia '{referencia_str}' inválida (Se requiere Nro Comprobante o RET/IMP)."
+        if not (tiene_numeros or tiene_keywords):
+            return f"Incidencia: Referencia '{referencia_str}' inválida."
 
-    # --- GRUPO 10: TRASPASOS (VALIDACIÓN ESTRICTA) ---
-    elif grupo.startswith("Grupo 10:"):
-        # 1. Regla de Suma Cero
-        if not np.isclose(asiento_group['Monto_USD'].sum(), 0, atol=TOLERANCIA_MAX_USD):
-            return "Incidencia: El traspaso no suma cero (Descuadrado)."
-            
-        # 2. Regla de Naturaleza (Debe haber Débito Y Crédito)
-        tiene_debito = (asiento_group['Monto_USD'] > 0).any()
-        tiene_credito = (asiento_group['Monto_USD'] < 0).any()
-        
-        if not (tiene_debito and tiene_credito):
-            return "Incidencia: Traspaso incompleto (Falta contrapartida Débito/Crédito)."
-            
-    # --- GRUPO 3: N/C ---
+    # GRUPO 3: NOTAS DE CRÉDITO
     elif grupo.startswith("Grupo 3:"):
-        # Regla 1: Si la referencia habla de Diferencial Cambiario, es un error de cuenta.
         if "Error de Cuenta" in grupo:
             return "Incidencia: Diferencial Cambiario registrado en cuenta de Descuentos/NC."
-            
-        # Regla 2: Auditoría de Cuentas Cruzadas (Debe tener Descuento + IVA)
-        # Obtenemos las cuentas presentes en este asiento específico
         cuentas_presentes = set(asiento_group['Cuenta Contable Norm'])
         tiene_descuento = normalize_account('4.1.1.22.4.001') in cuentas_presentes
         tiene_iva = normalize_account('2.1.3.04.1.001') in cuentas_presentes
-        
-        # Si es una Bonificación/Estrategia/Descuento, usualmente esperamos que afecte el IVA.
-        # Si falta alguna de las dos, avisamos.
         if not (tiene_descuento and tiene_iva):
-            faltante = []
-            if not tiene_descuento: faltante.append("Cta Descuentos")
-            if not tiene_iva: faltante.append("Cta IVA")
-            return f"Incidencia: Asiento de N/C incompleto. Falta: {', '.join(faltante)}."
+            return "Incidencia: Asiento de N/C incompleto (Falta Descuento o IVA)."
 
-    # --- Validaciones para Grupos Nuevos ---
-    
-    elif grupo.startswith("Grupo 14:"):
-        # Regla: "Estas cuentas están conciliadas desde que se cargan"
-        return "Conciliado"
-
-    elif grupo.startswith("Grupo 15:"):
-        # Regla: Asumimos conciliado por defecto al ser un gasto/pérdida directa
-        return "Conciliado"
-
-    elif grupo.startswith("Grupo 16:"):
-        return "Conciliado"
+    # GRUPO 10: TRASPASOS
+    elif grupo.startswith("Grupo 10:"):
+        if not np.isclose(asiento_group['Monto_USD'].sum(), 0, atol=TOLERANCIA_MAX_USD):
+            return "Incidencia: El traspaso no suma cero."
+        if not ((asiento_group['Monto_USD'] > 0).any() and (asiento_group['Monto_USD'] < 0).any()):
+             return "Incidencia: Traspaso incompleto (Falta contrapartida)."
 
     # --- NUEVO: GRUPO 17 ---
     elif grupo.startswith("Grupo 17:"):
-        # Regla de Negocio: Esta cuenta es transitoria. 
-        # Se marca como incidencia para obligar al usuario a revisar el Mayor.
         return "Incidencia: Cuenta Transitoria. Verificar cruce en Mayor antes de mayorizar."
-    return "Conciliado"
-
-    # --- GRUPO 11: No identificados ---
-    elif grupo.startswith("Grupo 11") or grupo == "No Clasificado":
-        # Si falta la cuenta contable en el sistema o no encajó en ninguna regla,
-        # es IMPOSIBLE que esté conciliado automáticamente.
-        return f"Incidencia: Revisión requerida. {grupo}"
     
-    # Si pasó todas las validaciones (o es un grupo sin reglas específicas como Cobranzas)
+    # GRUPOS AUTOMÁTICOS (14, 15, 16)
+    elif grupo.startswith("Grupo 14:") or grupo.startswith("Grupo 15:") or grupo.startswith("Grupo 16:"):
+        return "Conciliado"
+
+    # NO CLASIFICADOS / NO IDENTIFICADOS
+    elif grupo.startswith("Grupo 11") or grupo == "No Clasificado":
+        return f"Incidencia: Revisión requerida. {grupo}"
+
     return "Conciliado"
 
 def run_analysis_paquete_cc(df_diario, log_messages):
