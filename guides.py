@@ -342,4 +342,14 @@ Esta herramienta clasifica automáticamente los miles de asientos del diario en 
 Vaya a la hoja **"Listado Correlativo"**. Verá los asientos en orden numérico. Mayorice en lotes hasta que encuentre una **Línea Roja**. Deténgase, corrija ese asiento en el sistema contable, y continúe con el siguiente lote.
 """
 
+GUIA_IMPRENTA = """
+### 🖨️ Guía de Cruce de Imprenta
 
+Esta herramienta valida la integridad entre el Libro de Ventas y el archivo de Retenciones antes de declarar.
+
+**Validaciones Automáticas:**
+1.  **Factura Inexistente:** Verifica que cada número de factura mencionado en el archivo de Retenciones exista realmente en el Libro de Ventas cargado.
+2.  **Duplicidad:** Verifica que no existan facturas duplicadas dentro del archivo de Retenciones (lo cual suele ser un error de sistema).
+
+**Archivos Requeridos:**
+*   Archivos `.txt` planos generados por el sistema administrativo (Spooler).
