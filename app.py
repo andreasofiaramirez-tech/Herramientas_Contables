@@ -29,7 +29,8 @@ from logic import (
     run_conciliation_cdc_factoring,
     run_conciliation_asientos_por_clasificar,
     run_conciliation_deudores_empleados_me,
-    run_cuadre_cb_cg
+    run_cuadre_cb_cg,
+    run_cross_check_imprenta
 )
 
 from utils import (
@@ -37,7 +38,8 @@ from utils import (
     generar_reporte_excel,
     generar_excel_saldos_abiertos,
     generar_reporte_paquete_cc,
-    generar_reporte_cuadre
+    generar_reporte_cuadre,
+    generar_reporte_imprenta
 )
 
 def mostrar_error_amigable(e, contexto=""):
@@ -300,6 +302,7 @@ def render_inicio():
     with col2:
         st.button("⚖️ Cuadre CB - CG", on_click=set_page, args=['cuadre'], use_container_width=True)
         st.button("🧾 Relación de Retenciones", on_click=set_page, args=['retenciones'], use_container_width=True)
+        st.button("🖨️ Cruce Imprenta", on_click=set_page, args=['imprenta'], use_container_width=True)
         st.button("🔜 Próximamente", on_click=set_page, args=['proximamente'], use_container_width=True, disabled=True)    
 
 def render_proximamente(titulo):
@@ -714,6 +717,66 @@ def render_cuadre():
             except Exception as e:
                 mostrar_error_amigable(e, "el Cuadre CB-CG")
                 
+def render_imprenta():
+    st.title("🖨️ Cruce Imprenta (Libro Ventas vs Retenciones)", anchor=False)
+    
+    st.info("Sube los archivos TXT generados por el sistema (Spooler).")
+    
+    if st.button("⬅️ Volver al Inicio", key="back_from_imprenta"):
+        set_page('inicio')
+        st.rerun()
+
+    col1, col2 = st.columns(2)
+    with col1:
+        file_sales = st.file_uploader("1. Libro de Ventas (.txt)", type=['txt'])
+    with col2:
+        file_ret = st.file_uploader("2. Archivo de Retenciones (.txt)", type=['txt'])
+        
+    if file_sales and file_ret:
+        if st.button("Validar Archivos", type="primary", use_container_width=True):
+            log = []
+            try:
+                # Ejecutar lógica
+                df_res, txt_original = run_cross_check_imprenta(file_sales, file_ret, log)
+                
+                if not df_res.empty:
+                    # Mostrar métricas rápidas
+                    errores = df_res[df_res['Estado'].str.contains('ERROR')]
+                    
+                    if not errores.empty:
+                        st.error(f"❌ Se encontraron {len(errores)} errores.")
+                        st.dataframe(errores, use_container_width=True)
+                    else:
+                        st.success("✅ Validación Exitosa: Todas las retenciones tienen su factura en el libro.")
+                        st.dataframe(df_res[df_res['Estado']=='OK'].head(), use_container_width=True)
+
+                    # Descargas
+                    col_d1, col_d2 = st.columns(2)
+                    
+                    # 1. Reporte Excel
+                    excel_data = generar_reporte_imprenta(df_res)
+                    col_d1.download_button(
+                        "⬇️ Reporte de Errores (Excel)",
+                        excel_data,
+                        "Reporte_Validacion_Imprenta.xlsx",
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True
+                    )
+                    
+                    # 2. TXT Original (Para facilitar flujo)
+                    col_d2.download_button(
+                        "⬇️ Archivo Retenciones (TXT Original)",
+                        txt_original,
+                        "Retenciones_Validado.txt",
+                        "text/plain",
+                        use_container_width=True
+                    )
+
+                with st.expander("Ver Log del Proceso"):
+                    st.write(log)
+                    
+            except Exception as e:
+                mostrar_error_amigable(e, "el Cruce de Imprenta")
 
 # ==============================================================================
 # FLUJO PRINCIPAL DE LA APLICACIÓN (ROUTER)
@@ -725,6 +788,7 @@ def main():
         'retenciones': render_retenciones,
         'paquete_cc': render_paquete_cc, 
         'cuadre': render_cuadre,
+        'imprenta': render_imprenta,
         'reservas': lambda: render_proximamente("Reservas y Apartados"),
         'proximamente': lambda: render_proximamente("Próximamente")
     }
