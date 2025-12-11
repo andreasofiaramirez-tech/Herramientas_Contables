@@ -342,6 +342,10 @@ Esta herramienta clasifica automáticamente los miles de asientos del diario en 
 Vaya a la hoja **"Listado Correlativo"**. Verá los asientos en orden numérico. Mayorice en lotes hasta que encuentre una **Línea Roja**. Deténgase, corrija ese asiento en el sistema contable, y continúe con el siguiente lote.
 """
 
+
+# ==============================================================================
+# GUÍA PARA EL ANÁLISIS DE PAQUETE CC
+# ==============================================================================
 GUIA_IMPRENTA = """
 ### 🖨️ Guía de Cruce de Imprenta
 
@@ -353,3 +357,4 @@ Esta herramienta valida la integridad entre el Libro de Ventas y el archivo de R
 
 **Archivos Requeridos:**
 *   Archivos `.txt` planos generados por el sistema administrativo (Spooler).
+"""
