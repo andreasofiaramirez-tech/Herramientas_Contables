@@ -1395,3 +1395,38 @@ def generar_reporte_cuadre(df_resultado, df_huerfanos, nombre_empresa):
             ws3.set_tab_color('red')
 
     return output.getvalue()
+
+def generar_reporte_imprenta(df_resultado):
+    """Genera el Excel de resultados del Cruce de Imprenta."""
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df_resultado.to_excel(writer, index=False, sheet_name='Resultados')
+        
+        workbook = writer.book
+        ws = writer.sheets['Resultados']
+        
+        # Formatos
+        header_fmt = workbook.add_format({'bold': True, 'fg_color': '#D9EAD3', 'border': 1})
+        red_fmt = workbook.add_format({'bg_color': '#FFC7CE', 'font_color': '#9C0006'})
+        green_fmt = workbook.add_format({'bg_color': '#C6EFCE', 'font_color': '#006100'})
+        
+        # Aplicar formato condicional a la columna Estado (E)
+        ws.conditional_format('E2:E5000', {
+            'type': 'text',
+            'criteria': 'containing',
+            'value': 'ERROR',
+            'format': red_fmt
+        })
+        ws.conditional_format('E2:E5000', {
+            'type': 'text',
+            'criteria': 'containing',
+            'value': 'OK',
+            'format': green_fmt
+        })
+        
+        ws.set_column('A:A', 10) # Línea
+        ws.set_column('B:B', 50) # Contenido Original
+        ws.set_column('C:D', 15) # Tipo/Factura
+        ws.set_column('E:E', 40) # Estado
+        
+    return output.getvalue()
