@@ -7,6 +7,9 @@
 import streamlit as st
 import pandas as pd
 import traceback
+from functools import partial
+
+# --- BLOQUE 1: IMPORTAR GUÍAS (Verifica las comas) ---
 from guides import (
     GUIA_GENERAL_ESPECIFICACIONES, 
     LOGICA_POR_CUENTA, 
@@ -15,8 +18,7 @@ from guides import (
     GUIA_IMPRENTA
 )
 
-from functools import partial
-
+# --- BLOQUE 2: IMPORTAR LÓGICA (Verifica las comas) ---
 from logic import (
     run_conciliation_fondos_en_transito,
     run_conciliation_fondos_por_depositar,
@@ -30,10 +32,13 @@ from logic import (
     run_conciliation_cdc_factoring,
     run_conciliation_asientos_por_clasificar,
     run_conciliation_deudores_empleados_me,
+    run_conciliation_deudores_empleados_bs,
     run_cuadre_cb_cg,
+    validar_coincidencia_empresa,
     run_cross_check_imprenta
 )
 
+# --- BLOQUE 3: IMPORTAR UTILS ---
 from utils import (
     cargar_y_limpiar_datos,
     generar_reporte_excel,
