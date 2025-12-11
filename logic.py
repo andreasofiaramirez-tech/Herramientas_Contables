@@ -3102,28 +3102,23 @@ def run_cuadre_cb_cg(file_cb, file_cg, nombre_empresa, log_messages):
 
 def parse_sales_txt(file_obj, log_messages):
     """
-    Lee el TXT del Libro de Ventas y extrae los números de Factura/Nota de Crédito.
-    Busca patrones como: 'FAC 00123456' o 'N/C 00123456'.
-    Retorna: Un set (conjunto) con los números encontrados para búsqueda rápida.
+    Lee el TXT del Libro de Ventas y extrae los números de Factura.
     """
     invoices_found = set()
     try:
-        # Decodificar el archivo (utf-8 o latin-1 suelen ser los estándar)
+        # Decodificar (latin-1 es común para archivos generados por sistemas viejos/spoolers)
         content = file_obj.getvalue().decode('latin-1') 
         lines = content.splitlines()
         
-        # Patrón: Busca la palabra FAC o N/C seguida de espacios y luego números
-        # Ejemplo: "FAC   06947906"
+        # Patrón: Busca FAC, N/C o N/D seguido de números
         regex_pattern = r"(?:FAC|N/C|N/D)\s+([0-9]+)"
         
         for line in lines:
             matches = re.findall(regex_pattern, line)
             for match in matches:
-                # Normalizamos quitando ceros a la izquierda para comparar mejor
-                # (Opcional: Si el formato es estricto, quitamos el lstrip)
                 invoices_found.add(str(match).strip())
                 
-        log_messages.append(f"✅ Libro de Ventas procesado. {len(invoices_found)} documentos únicos encontrados.")
+        log_messages.append(f"✅ Libro de Ventas procesado. {len(invoices_found)} documentos encontrados.")
         return invoices_found, lines
         
     except Exception as e:
@@ -3133,54 +3128,49 @@ def parse_sales_txt(file_obj, log_messages):
 def run_cross_check_imprenta(file_sales, file_retentions, log_messages):
     """
     Cruza el archivo de Retenciones contra el Libro de Ventas.
-    Reglas:
-    1. La factura de la retención DEBE existir en el Libro de Ventas.
-    2. No deben haber facturas duplicadas en el archivo de Retenciones.
     """
-    log_messages.append("--- INICIANDO CRUCE IMPRENTA (TXT) ---")
+    log_messages.append("\n--- INICIANDO CRUCE IMPRENTA (TXT) ---")
     
-    # 1. Procesar Libro de Ventas (Nuestra Base de Datos de Verdad)
+    # 1. Procesar Libro de Ventas
     valid_invoices, _ = parse_sales_txt(file_sales, log_messages)
     
     if not valid_invoices:
-        return pd.DataFrame(), "Error: No se encontraron facturas en el Libro de Ventas."
+        # Si falla la lectura, devolvemos vacío para evitar crashes
+        return pd.DataFrame(), None
 
     # 2. Procesar Archivo de Retenciones
     resultados = []
-    processed_invoices = set() # Para detectar duplicados internos
+    processed_invoices = set() 
+    
+    txt_original = ""
     
     try:
         content_ret = file_retentions.getvalue().decode('latin-1')
+        txt_original = content_ret # Guardamos para devolverlo
         lines_ret = content_ret.splitlines()
         
-        # Patrón para Retenciones (según imagen 2): "FAC   06916928"
-        # Asumimos que la estructura es TipoDoc - NumeroDoc
+        # Patrón para Retenciones (FAC   000...)
         regex_ret = r"(FAC|N/C)\s+([0-9]+)"
         
         for line_idx, line in enumerate(lines_ret):
             match = re.search(regex_ret, line)
             
-            status = "Línea sin datos fiscales"
-            factura = ""
-            tipo = ""
-            
+            # Solo analizamos líneas que parezcan tener documentos
             if match:
                 tipo = match.group(1)
                 factura = match.group(2).strip()
+                status = "OK"
                 
-                # VALIDACIÓN 1: Existencia en Libro de Ventas
-                if factura in valid_invoices:
-                    status = "OK"
-                else:
+                # VALIDACIÓN 1: Existencia
+                if factura not in valid_invoices:
                     status = "ERROR: Factura no declarada en Libro de Ventas"
                 
-                # VALIDACIÓN 2: Duplicidad en el mismo archivo de Retenciones
+                # VALIDACIÓN 2: Duplicidad
                 if factura in processed_invoices:
                     status = "ERROR: Factura duplicada en archivo de Retenciones"
                 
                 processed_invoices.add(factura)
                 
-                # Guardamos resultado
                 resultados.append({
                     'Línea TXT': line_idx + 1,
                     'Contenido Original': line.strip(),
@@ -3188,6 +3178,9 @@ def run_cross_check_imprenta(file_sales, file_retentions, log_messages):
                     'Factura Detectada': factura,
                     'Estado': status
                 })
+            else:
+                # Opcional: Registrar líneas que no son facturas si se desea depurar
+                pass
                 
     except Exception as e:
         log_messages.append(f"❌ Error procesando Retenciones: {str(e)}")
@@ -3195,11 +3188,13 @@ def run_cross_check_imprenta(file_sales, file_retentions, log_messages):
 
     df_res = pd.DataFrame(resultados)
     
-    # Contar errores
-    errores = df_res[df_res['Estado'] != 'OK']
-    if not errores.empty:
-        log_messages.append(f"⚠️ Se encontraron {len(errores)} incidencias en el archivo de retenciones.")
+    if not df_res.empty:
+        errores = df_res[df_res['Estado'] != 'OK']
+        if not errores.empty:
+            log_messages.append(f"⚠️ Se encontraron {len(errores)} incidencias.")
+        else:
+            log_messages.append("✅ Validación exitosa.")
     else:
-        log_messages.append("✅ El archivo de retenciones está perfecto.")
+        log_messages.append("⚠️ No se detectaron facturas en el archivo de retenciones para validar.")
 
-    return df_res, content_ret # Retornamos el contenido original para descarga
+    return df_res, txt_original
