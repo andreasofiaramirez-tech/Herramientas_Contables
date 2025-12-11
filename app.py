@@ -11,7 +11,8 @@ from guides import (
     GUIA_GENERAL_ESPECIFICACIONES, 
     LOGICA_POR_CUENTA, 
     GUIA_COMPLETA_RETENCIONES,
-    GUIA_PAQUETE_CC
+    GUIA_PAQUETE_CC,
+    GUIA_IMPRENTA
 )
 
 from functools import partial
