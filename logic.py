@@ -2054,7 +2054,7 @@ CUENTAS_CONOCIDAS = {normalize_account(acc) for acc in [
     '1.1.1.03.6.012', '1.1.1.03.6.024', '1.1.1.03.6.026', '1.1.1.03.6.031',
     # --- BANCOS ADICIONALES ---
     '1.1.1.02.1.002', '1.1.1.02.1.005', '1.1.1.02.6.001', '1.1.1.02.1.003',
-    '4.1.1.21.4.001', '2.1.3.04.1.001', '4.1.1.22.4.001',
+    '4.1.1.21.4.001', '2.1.3.04.1.001', '4.1.1.22.4.001', '1.1.1.03.6.002',
     # --- CUENTAS GRUPOS NUEVOS ---
     '1.9.1.01.3.008', # Inv. Oficinas
     '1.9.1.01.3.009', # Inv. Oficinas
@@ -2074,7 +2074,7 @@ CUENTAS_BANCO = {normalize_account(acc) for acc in [
     '1.1.1.02.6.001', # Banco Mercantil
     '1.1.1.02.1.003', # Banco de Venezuela
     '1.1.1.02.1.018','1.1.1.02.6.013', '1.1.1.06.6.003', '1.1.1.03.6.002',
-    '1.1.1.03.6.028'
+    '1.1.1.03.6.028', '1.1.1.03.6.002'
 ]}
 
 def _get_base_classification(cuentas_del_asiento, referencia_completa, fuente_completa, referencia_limpia_palabras, monto_suma, monto_max_abs, is_reverso_check=False):
