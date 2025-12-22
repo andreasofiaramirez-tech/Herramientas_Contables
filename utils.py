@@ -1479,7 +1479,7 @@ def generar_reporte_auditoria_txt(df_audit):
                 if pd.isna(val): val = ""
                 
                 current_fmt = text_fmt
-                if col_name in ['Monto Retenido', 'Base IVA', 'Monto Softland']:
+                if col_name in ['Monto Retenido', 'Base IVA (Galac)', 'Monto Softland', 'Monto Softland Total']:
                     current_fmt = money_fmt
                 elif col_name == '% Calc':
                     current_fmt = percent_fmt
