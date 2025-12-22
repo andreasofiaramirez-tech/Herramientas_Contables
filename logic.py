@@ -2242,17 +2242,29 @@ def _validar_asiento(asiento_group):
                     if ratio > 0.80: 
                         es_typo_aceptable = True; break
                 if es_typo_aceptable: break
-            if not es_typo_aceptable: return f"Incidencia: Referencia '{ref}' sospechosa."
+            if not es_typo_aceptable: return f"Incidencia: Referencia '{ref}' no parece indicar Diferencial Cambiario."
             
     # GRUPO 6: INGRESOS VARIOS
     elif grupo.startswith("Grupo 6:"):
         if (asiento_group['Monto_USD'].abs() > 25).any():
             return "Incidencia: Movimiento mayor al límite permitido ($25)."
             
-    # GRUPO 7: DEVOLUCIONES
+    # --- GRUPO 7: DEVOLUCIONES (VALIDACIÓN SEMÁNTICA AGREGADA) ---
     elif grupo.startswith("Grupo 7:"):
+        referencia_upper = str(asiento_group['Referencia'].iloc[0]).upper()
+        
+        # 1. REGLA DE COHERENCIA CONTABLE (Nueva)
+        # Si dice "Diferencial", "Tasa" o "Cambio", no debería estar en Devoluciones.
+        keywords_error_cuenta = ['DIFERENCIAL', 'DIF. CAMBIARIO', 'DIF CAMBIARIO', 'TASA', 'DIFF', 'CAMBIO']
+        
+        # Verificamos si alguna palabra "prohibida" está en la referencia
+        if any(k in referencia_upper for k in keywords_error_cuenta):
+            # Excepción: A veces dicen "DIFERENCIA DE PRECIO" (que sí es devolución)
+            if "PRECIO" not in referencia_upper:
+                return "Incidencia: Referencia indica 'Diferencial/Tasa' pero usa cuenta de Devoluciones."
+
+        # 2. REGLA DE MONTO (Existente)
         if (asiento_group['Monto_USD'].abs() > 5).any():
-            referencia_upper = str(asiento_group['Referencia'].iloc[0]).upper()
             keywords_autorizadas = ['TRASLADO', 'APLICAR', 'CRUCE', 'RECLASIFICACION', 'CORRECCION']
             if not any(k in referencia_upper for k in keywords_autorizadas):
                 return "Incidencia: Movimiento mayor a $5 (y no indica ser Traslado/Cruce)."
@@ -2282,7 +2294,7 @@ def _validar_asiento(asiento_group):
         if not ((asiento_group['Monto_USD'] > 0).any() and (asiento_group['Monto_USD'] < 0).any()):
              return "Incidencia: Traspaso incompleto (Falta contrapartida)."
 
-    # --- NUEVO: GRUPO 17 ---
+    # GRUPO 17
     elif grupo.startswith("Grupo 17:"):
         return "Incidencia: Cuenta Transitoria. Verificar cruce en Mayor antes de mayorizar."
     
@@ -2290,7 +2302,7 @@ def _validar_asiento(asiento_group):
     elif grupo.startswith("Grupo 14:") or grupo.startswith("Grupo 15:") or grupo.startswith("Grupo 16:"):
         return "Conciliado"
 
-    # NO CLASIFICADOS / NO IDENTIFICADOS
+    # NO CLASIFICADOS
     elif grupo.startswith("Grupo 11") or grupo == "No Clasificado":
         return f"Incidencia: Revisión requerida. {grupo}"
 
