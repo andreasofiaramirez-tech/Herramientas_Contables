@@ -725,126 +725,108 @@ def render_cuadre():
                 mostrar_error_amigable(e, "el Cuadre CB-CG")
                 
 def render_imprenta():
-    st.title("🖨️ Cruce Imprenta (Libro Ventas vs Retenciones)", anchor=False)
-    
-    st.info("Sube los archivos TXT generados por el sistema (Spooler).")
+    st.title("🖨️ Gestión de Imprenta (Retenciones de IVA)", anchor=False)
     
     if st.button("⬅️ Volver al Inicio", key="back_from_imprenta"):
         set_page('inicio')
         st.rerun()
 
-    col1, col2 = st.columns(2)
-    with col1:
-        file_sales = st.file_uploader("1. Libro de Ventas (.txt)", type=['txt'])
-    with col2:
-        file_ret = st.file_uploader("2. Archivo de Retenciones (.txt)", type=['txt'])
+    # --- PESTAÑAS PARA SEPARAR FUNCIONALIDADES ---
+    tab1, tab2 = st.tabs(["✅ 1. Validar TXTs Existentes", "⚙️ 2. Generar TXT desde Softland"])
+    
+    # ---------------------------------------------------------
+    # TAB 1: VALIDACIÓN (CÓDIGO ORIGINAL)
+    # ---------------------------------------------------------
+    with tab1:
+        st.info("Valida integridad entre el Libro de Ventas y el archivo TXT de Retenciones ya generado.")
         
-    if file_sales and file_ret:
-        if st.button("Validar Archivos", type="primary", use_container_width=True):
-            log = []
-            try:
-                # Ejecutar lógica
-                df_res, txt_original = run_cross_check_imprenta(file_sales, file_ret, log)
-                
-                if not df_res.empty:
-                    # Mostrar métricas rápidas
-                    errores = df_res[df_res['Estado'].str.contains('ERROR')]
+        c1, c2 = st.columns(2)
+        with c1:
+            file_sales = st.file_uploader("1. Libro de Ventas (.txt)", type=['txt'], key="val_sales")
+        with c2:
+            file_ret = st.file_uploader("2. Archivo de Retenciones (.txt)", type=['txt'], key="val_ret")
+            
+        if file_sales and file_ret:
+            if st.button("Validar Archivos", type="primary", use_container_width=True, key="btn_validar"):
+                log = []
+                try:
+                    from logic import run_cross_check_imprenta
+                    from utils import generar_reporte_imprenta
                     
-                    if not errores.empty:
-                        st.error(f"❌ Se encontraron {len(errores)} errores.")
-                        st.dataframe(errores, use_container_width=True)
+                    df_res, txt_original = run_cross_check_imprenta(file_sales, file_ret, log)
+                    
+                    if not df_res.empty:
+                        errores = df_res[df_res['Estado'].str.contains('ERROR')]
+                        if not errores.empty:
+                            st.error(f"❌ Se encontraron {len(errores)} errores.")
+                            st.dataframe(errores, use_container_width=True)
+                        else:
+                            st.success("✅ Validación Exitosa.")
+                            st.dataframe(df_res[df_res['Estado']=='OK'].head(), use_container_width=True)
+
+                        col_d1, col_d2 = st.columns(2)
+                        excel_data = generar_reporte_imprenta(df_res)
+                        col_d1.download_button("⬇️ Reporte Errores (Excel)", excel_data, "Reporte_Validacion.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+                        col_d2.download_button("⬇️ TXT Original", txt_original, "Retenciones_Original.txt", "text/plain", use_container_width=True)
+
+                    with st.expander("Ver Log"): st.write(log)
+                except Exception as e:
+                    mostrar_error_amigable(e, "la Validación")
+
+    # ---------------------------------------------------------
+    # TAB 2: GENERACIÓN (NUEVO CÓDIGO)
+    # ---------------------------------------------------------
+    with tab2:
+        st.info("Calcula y genera el TXT de Retenciones cruzando el Mayor de Softland con el Libro de Ventas (Excel).")
+        
+        c1, c2 = st.columns(2)
+        with c1:
+            file_soft = st.file_uploader("1. Mayor Softland (Excel)", type=['xlsx'], key="gen_soft")
+        with c2:
+            file_libro = st.file_uploader("2. Libro Ventas GALAC (Excel)", type=['xlsx'], key="gen_libro")
+            
+        if file_soft and file_libro:
+            if st.button("Generar TXT", type="primary", use_container_width=True, key="btn_generar"):
+                log = []
+                try:
+                    from logic import generar_txt_retenciones_galac
+                    from utils import generar_archivo_txt
+                    
+                    lineas_txt, df_audit = generar_txt_retenciones_galac(file_soft, file_libro, log)
+                    
+                    if df_audit is not None and not df_audit.empty:
+                        st.success(f"✅ Se generaron {len(df_audit)} líneas de retención.")
+                        st.dataframe(df_audit.head(), use_container_width=True)
+                        
+                        c_down1, c_down2 = st.columns(2)
+                        
+                        txt_bytes = generar_archivo_txt(lineas_txt)
+                        c_down1.download_button(
+                            "⬇️ Descargar TXT para GALAC",
+                            txt_bytes,
+                            "Retenciones_Para_Galac.txt",
+                            "text/plain",
+                            use_container_width=True
+                        )
+                        
+                        output_audit = BytesIO()
+                        with pd.ExcelWriter(output_audit, engine='xlsxwriter') as writer:
+                            df_audit.to_excel(writer, index=False)
+                            
+                        c_down2.download_button(
+                            "⬇️ Descargar Auditoría (Excel)",
+                            output_audit.getvalue(),
+                            "Auditoria_Calculo.xlsx",
+                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            use_container_width=True
+                        )
                     else:
-                        st.success("✅ Validación Exitosa: Todas las retenciones tienen su factura en el libro.")
-                        st.dataframe(df_res[df_res['Estado']=='OK'].head(), use_container_width=True)
-
-                    # Descargas
-                    col_d1, col_d2 = st.columns(2)
+                        st.warning("⚠️ No se generaron líneas. Verifica que el formato de 'Referencia' en Softland sea correcto.")
+                        
+                    with st.expander("Ver Log de Cálculo"): st.write(log)
                     
-                    # 1. Reporte Excel
-                    excel_data = generar_reporte_imprenta(df_res)
-                    col_d1.download_button(
-                        "⬇️ Reporte de Errores (Excel)",
-                        excel_data,
-                        "Reporte_Validacion_Imprenta.xlsx",
-                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        use_container_width=True
-                    )
-                    
-                    # 2. TXT Original (Para facilitar flujo)
-                    col_d2.download_button(
-                        "⬇️ Archivo Retenciones (TXT Original)",
-                        txt_original,
-                        "Retenciones_Validado.txt",
-                        "text/plain",
-                        use_container_width=True
-                    )
-
-                with st.expander("Ver Log del Proceso"):
-                    st.write(log)
-                    
-            except Exception as e:
-                mostrar_error_amigable(e, "el Cruce de Imprenta")
-
-def render_generador_txt():
-    st.title("⚙️ Generador TXT Retenciones (Softland -> GALAC)", anchor=False)
-    
-    st.info("Esta herramienta toma los comprobantes agrupados de Softland, busca las facturas en el Libro de Ventas, calcula la retención individual y genera el TXT.")
-    
-    if st.button("⬅️ Volver al Inicio", key="back_from_gen"):
-        set_page('inicio')
-        st.rerun()
-
-    col1, col2 = st.columns(2)
-    with col1:
-        file_soft = st.file_uploader("1. Mayor de Retenciones Softland (Excel)", type=['xlsx'])
-    with col2:
-        file_libro = st.file_uploader("2. Libro de Ventas GALAC (Excel)", type=['xlsx'])
-        
-    if file_soft and file_libro:
-        if st.button("Generar Archivos", type="primary", use_container_width=True):
-            log = []
-            try:
-                # Ejecutar lógica
-                lineas_txt, df_audit = generar_txt_retenciones_galac(file_soft, file_libro, log)
-                
-                if df_audit is not None and not df_audit.empty:
-                    st.success(f"✅ Se generaron {len(df_audit)} líneas de retención.")
-                    
-                    # Mostrar tabla previa
-                    st.dataframe(df_audit.head(), use_container_width=True)
-                    
-                    c1, c2 = st.columns(2)
-                    
-                    # Descargar TXT
-                    txt_bytes = generar_archivo_txt(lineas_txt)
-                    c1.download_button(
-                        "⬇️ Descargar TXT para GALAC",
-                        txt_bytes,
-                        "Retenciones_Importar_GALAC.txt",
-                        "text/plain",
-                        use_container_width=True
-                    )
-                    
-                    # Descargar Excel Auditoría (Reutilizamos la funcion de excel simple si quieres, o raw)
-                    output_audit = BytesIO()
-                    with pd.ExcelWriter(output_audit, engine='xlsxwriter') as writer:
-                        df_audit.to_excel(writer, index=False)
-                    
-                    c2.download_button(
-                        "⬇️ Descargar Auditoría (Excel)",
-                        output_audit.getvalue(),
-                        "Auditoria_Calculo.xlsx",
-                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        use_container_width=True
-                    )
-                else:
-                    st.warning("No se generaron líneas. Revisa el log.")
-
-                with st.expander("Ver Log de Procesamiento"):
-                    st.write(log)
-                    
-            except Exception as e:
-                mostrar_error_amigable(e, "la Generación de TXT")
+                except Exception as e:
+                    mostrar_error_amigable(e, "la Generación de TXT")
 
 # ==============================================================================
 # FLUJO PRINCIPAL DE LA APLICACIÓN (ROUTER)
