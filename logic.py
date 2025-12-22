@@ -2299,13 +2299,13 @@ def _validar_asiento(asiento_group):
 def run_analysis_paquete_cc(df_diario, log_messages):
     """
     Función principal optimizada con VECTORIZACIÓN y AGREGACIÓN PREVIA.
-    Incluye protección para no anular Retenciones por error de monto.
+    Incluye normalización de columnas de Cliente/NIT y CORRECCIÓN DE ORDENAMIENTO.
     """
     log_messages.append("--- INICIANDO ANÁLISIS Y VALIDACIÓN DE PAQUETE CC (ULTRA RÁPIDO) ---")
     
     df = df_diario.copy()
     
-    # --- PASO 0: NORMALIZACIÓN ---
+    # --- PASO 0: NORMALIZACIÓN DE COLUMNAS DE CLIENTE/NIT ---
     rename_map = {}
     for col in df.columns:
         c_upper = col.strip().upper()
@@ -2320,9 +2320,10 @@ def run_analysis_paquete_cc(df_diario, log_messages):
     df['NIT'] = df['NIT'].fillna('')
     df['Nombre'] = df['Nombre'].fillna('')
 
-    # Limpieza
+    # Limpieza vectorizada
     df['Cuenta Contable Norm'] = df['Cuenta Contable'].astype(str).str.replace(r'\D', '', regex=True)
     df['Monto_USD'] = (df['Débito Dolar'] - df['Crédito Dolar']).round(2)
+    
     df['Ref_Str'] = df['Referencia'].astype(str).fillna('').str.upper()
     df['Fuente_Str'] = df['Fuente'].astype(str).fillna('').str.upper()
     
@@ -2341,7 +2342,9 @@ def run_analysis_paquete_cc(df_diario, log_messages):
         'Cuentas': s_cuentas, 'Ref': s_ref, 'Fuente': s_fuente, 'Suma': s_suma, 'Max_Abs': s_max_abs
     })
     
-    # --- FASE 2: CLASIFICACIÓN ---
+    log_messages.append(f"⚙️ Analizando {len(df_meta)} asientos únicos...")
+    
+    # --- FASE 2: CLASIFICACIÓN ITERATIVA ---
     mapa_grupos = {}
     asientos_con_cuentas_nuevas = 0
     
@@ -2368,14 +2371,12 @@ def run_analysis_paquete_cc(df_diario, log_messages):
     
     # Mapa de montos de candidatos
     df_candidatos = df[~df['Asiento'].isin(ids_reversos)]
-    # Importante: Guardamos el Grupo en el candidato para poder filtrarlo después
     candidatos_agrupados = df_candidatos.groupby(['Asiento']).agg({
         'Monto_USD': 'sum',
-        'Grupo': 'first' # Tomamos el grupo ya asignado
+        'Grupo': 'first'
     }).reset_index()
     candidatos_agrupados['Monto_USD'] = candidatos_agrupados['Monto_USD'].round(2)
     
-    # Mapa de Monto -> Lista de (Asiento, Grupo)
     mapa_montos = {}
     for _, row in candidatos_agrupados.iterrows():
         m = row['Monto_USD']
@@ -2390,7 +2391,6 @@ def run_analysis_paquete_cc(df_diario, log_messages):
         monto_rev = df_meta.loc[id_rev, 'Suma']
         monto_target = round(-monto_rev, 2)
         
-        # Obtenemos candidatos posibles
         lista_posibles = mapa_montos.get(monto_target, [])
         posibles = [p for p in lista_posibles if p['id'] not in procesados]
         
@@ -2416,8 +2416,6 @@ def run_analysis_paquete_cc(df_diario, log_messages):
             grupo_cand = str(candidato_unico['grupo'])
             
             # --- PROTECCIÓN: NO ANULAR RETENCIONES POR MONTO ---
-            # Si el candidato es una Retención, el riesgo de falso positivo es alto.
-            # Solo permitimos anularlo si hubo match de referencia (paso A).
             if not grupo_cand.startswith("Grupo 9"):
                 match_final = candidato_unico['id']
             
@@ -2443,10 +2441,15 @@ def run_analysis_paquete_cc(df_diario, log_messages):
     if asientos_con_cuentas_nuevas > 0:
         log_messages.append(f"⚠️ Se encontraron {asientos_con_cuentas_nuevas} asientos con cuentas no registradas.")
 
+    # 1. Calcular prioridad de orden (0=Rojo, 1=Blanco)
     df['Orden_Prioridad'] = df['Estado'].apply(lambda x: 1 if str(x).startswith('Conciliado') else 0)
     
+    # 2. ORDENAR PRIMERO (Aquí estaba el error antes, ahora ordenamos mientras la columna existe)
+    df = df.sort_values(by=['Grupo', 'Orden_Prioridad', 'Asiento'], ascending=[True, True, True])
+    
+    # 3. BORRAR COLUMNAS AUXILIARES DESPUÉS
     cols_drop = ['Ref_Str', 'Fuente_Str', 'Cuenta Contable Norm', 'Monto_USD', 'Orden_Prioridad']
-    df_final = df.drop(columns=cols_drop, errors='ignore').sort_values(by=['Grupo', 'Orden_Prioridad', 'Asiento'], ascending=[True, True, True])
+    df_final = df.drop(columns=cols_drop, errors='ignore')
     
     log_messages.append("--- ANÁLISIS FINALIZADO CON ÉXITO ---")
     return df_final
