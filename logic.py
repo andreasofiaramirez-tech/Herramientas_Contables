@@ -3323,13 +3323,16 @@ def indexar_libro_ventas(file_libro, log_messages):
         return {}
 
 def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
-    """Genera TXT cruzando Softland y Libro de Ventas."""
+    """
+    Genera TXT cruzando Softland y Libro de Ventas.
+    GARANTIZA que las columnas de Base IVA, % y Monto se llenen.
+    """
     log_messages.append("--- INICIANDO GENERACIÓN DE TXT ---")
     
     db_ventas = indexar_libro_ventas(file_libro, log_messages)
     if not db_ventas: return [], None
 
-    # Detectar periodo
+    # Detectar periodo del libro (para saber si es anterior)
     periodo_actual = "999999"
     try:
         fechas = [v['fecha_factura'] for k, v in db_ventas.items() if pd.notna(v['fecha_factura'])]
@@ -3360,8 +3363,8 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
     filas_txt = []
     reporte_excel = []
     
-    # PLANTILLA DE FILA PARA ASEGURAR COLUMNAS UNIFORMES
-    def crear_fila_reporte(estatus, mensaje, rif, nombre, comp, fac="", f_fac="", f_comp="", base=0.0, pct=0.0, m_ret=0.0, ref_orig="", m_soft=0.0):
+    # --- FUNCIÓN AUXILIAR PARA UNIFICAR FILAS DEL REPORTE ---
+    def crear_fila(estatus, mensaje, rif, nombre, comp, fac, f_fac, f_comp, base, pct, m_ret, ref_orig, m_soft):
         return {
             'Estatus': estatus,
             'Mensaje': mensaje,
@@ -3371,12 +3374,13 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
             'Factura': fac,
             'Fecha Factura': f_fac,
             'Fecha Comprobante': f_comp,
-            'Base IVA (Galac)': base,
-            '% Calc': pct,
-            'Monto Retenido': m_ret,
+            'Base IVA (Galac)': base,      # Columna I
+            '% Calc': pct,                 # Columna J
+            'Monto Retenido': m_ret,       # Columna K
             'Referencia Original': ref_orig,
             'Monto Softland': m_soft
         }
+    # --------------------------------------------------------
     
     for idx, row in df_soft.iterrows():
         referencia = str(row[col_ref]).strip()
@@ -3390,12 +3394,10 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
         
         parts = [p.strip() for p in referencia.split('/')]
         if len(parts) < 2:
-            # Intento de rescate si es comprobante largo
             comp_temp = re.sub(r'\D', '', parts[0])
-            if len(comp_temp) > 10:
-                 reporte_excel.append(crear_fila_reporte('FALTA NRO FACTURA', 'Solo se detectó comprobante', rif_c, nom_c, comp_temp, ref_orig=referencia, m_soft=monto_total_ret))
-            else:
-                 reporte_excel.append(crear_fila_reporte('ERROR FORMATO', 'Formato invalido', rif_c, nom_c, parts[0], ref_orig=referencia, m_soft=monto_total_ret))
+            msg = "Solo se detectó Comprobante. Falta Factura" if len(comp_temp) > 10 else "Formato inválido"
+            # En error, pasamos 0 en montos calculados
+            reporte_excel.append(crear_fila('FALTA INFO', msg, rif_c, nom_c, parts[0], "", "", "", 0, 0, 0, referencia, monto_total_ret))
             continue
             
         comprobante = re.sub(r'\D', '', parts[0])
@@ -3426,13 +3428,13 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
                 for f_miss in missing_facs:
                     facturas_encontradas.append({'num': f_miss, 'info': None, 'origen': 'forzado'})
             else:
-                reporte_excel.append(crear_fila_reporte('FACTURA NO ENCONTRADA', f"Faltan: {', '.join(missing_facs)}", rif_c, nom_c, comprobante, ref_orig=referencia, m_soft=monto_total_ret))
+                reporte_excel.append(crear_fila('FACTURA NO ENCONTRADA', f"Faltan: {', '.join(missing_facs)}", rif_c, nom_c, comprobante, "", "", "", 0, 0, 0, referencia, monto_total_ret))
                 continue
 
         hay_forzadas = any(item['origen'] == 'forzado' for item in facturas_encontradas)
         
         if hay_forzadas:
-            # Distribución equitativa para anteriores
+            # Distribución equitativa (Periodos anteriores)
             monto_individual = monto_total_ret / len(facturas_encontradas)
             for item in facturas_encontradas:
                 nro_factura = item['num'].zfill(10)
@@ -3442,21 +3444,22 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
                 linea = f"FAC\t{nro_factura}\t0\t{comprobante}\t{monto_individual:.2f}\t{f_comp_str}\t{f_comp_str}"
                 filas_txt.append(linea)
                 
-                reporte_excel.append(crear_fila_reporte('OK - PERIODO ANTERIOR', 'Generado sin libro', rif_c, nom_c, comprobante, nro_factura, f_comp_str, f_comp_str, 0.0, 0.0, monto_individual, referencia, monto_total_ret))
+                # En periodo anterior, Base y % son 0 porque no tenemos el dato
+                reporte_excel.append(crear_fila('OK - PERIODO ANTERIOR', 'Extemporáneo', rif_c, nom_c, comprobante, nro_factura, f_comp_str, f_comp_str, 0.0, 0.0, monto_individual, referencia, monto_total_ret))
         else:
-            # Distribución real
+            # Distribución Real (Mes actual)
             if total_iva_grupo == 0:
-                reporte_excel.append(crear_fila_reporte('ERROR MATEMATICO', 'IVA Base 0.00', rif_c, nom_c, comprobante, ref_orig=referencia, m_soft=monto_total_ret))
+                reporte_excel.append(crear_fila('ERROR MATEMATICO', 'IVA Base 0.00', rif_c, nom_c, comprobante, "", "", "", 0, 0, 0, referencia, monto_total_ret))
                 continue
                 
             factor = monto_total_ret / total_iva_grupo
             nota_factor = "⚠️ Revisar %" if (factor > 1.01 or factor < 0.70) else "OK"
             
             for item in facturas_encontradas:
+                # Datos de Galac
                 iva_factura = item['info']['monto_iva']
                 ret_individual = round(iva_factura * factor, 2)
                 
-                # Usamos nombre del libro de ventas si está disponible, sino el de softland
                 rif_final = item['info'].get('rif', rif_c)
                 nom_final = item['info'].get('nombre', nom_c)
                 
@@ -3469,13 +3472,29 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
                 linea = f"FAC\t{nro_factura}\t0\t{comprobante}\t{ret_individual:.2f}\t{f_comp}\t{f_fac}"
                 filas_txt.append(linea)
                 
-                reporte_excel.append(crear_fila_reporte('GENERADO OK', nota_factor, rif_final, nom_final, comprobante, nro_factura, f_fac, f_comp, iva_factura, factor, ret_individual, referencia, monto_total_ret))
+                # AQUÍ PASAMOS LOS DATOS A LAS COLUMNAS QUE TE FALTABAN
+                reporte_excel.append(crear_fila(
+                    'GENERADO OK', 
+                    nota_factor, 
+                    rif_final, 
+                    nom_final, 
+                    comprobante, 
+                    nro_factura, 
+                    f_fac, 
+                    f_comp, 
+                    iva_factura,    # -> Base IVA (Galac)
+                    factor,         # -> % Calc
+                    ret_individual, # -> Monto Retenido
+                    referencia, 
+                    monto_total_ret
+                ))
 
-    # Ordenar columnas para el excel final
+    # Asegurar orden de columnas
     cols_order = ['Estatus', 'Mensaje', 'RIF', 'Nombre', 'Comprobante', 'Factura', 'Fecha Factura', 'Fecha Comprobante', 'Base IVA (Galac)', '% Calc', 'Monto Retenido', 'Referencia Original', 'Monto Softland']
     df_final = pd.DataFrame(reporte_excel)
     
     if not df_final.empty:
-        df_final = df_final[cols_order] # Reordenar
+        # Rellenar cualquier NaN que haya quedado con 0 o vacío
+        df_final = df_final.reindex(columns=cols_order)
 
     return filas_txt, df_final
