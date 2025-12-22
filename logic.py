@@ -3265,32 +3265,85 @@ def run_cross_check_imprenta(file_sales, file_retentions, log_messages):
 # --- PARTE B: GENERACIÓN (Excel Softland -> TXT) ---
 
 def indexar_libro_ventas(file_libro, log_messages):
-    """Indexa el Excel del Libro de Ventas."""
+    """
+    Crea un diccionario rápido del Libro de Ventas.
+    Key: Número de Factura. Value: {Fecha, RIF, IVA, etc.}
+    """
     db_ventas = {}
     try:
+        # Leemos header=1 (Fila 2 del Excel, índice 1) según tu imagen donde el título está en fila 2
+        # Pero a veces está en la 6 o 7. Vamos a intentar leerlo y buscar dónde empiezan los datos.
         df = pd.read_excel(file_libro)
+        
+        # Estrategia: Buscar la fila que tenga "N de Factura" o "Impuesto IVA"
+        header_row_idx = None
+        for i, row in df.head(15).iterrows():
+            row_str = row.astype(str).str.upper().values
+            if any("N DE FACTURA" in s or "NUMERO DE FACTURA" in s for s in row_str):
+                header_row_idx = i
+                break
+        
+        if header_row_idx is not None:
+            # Recargamos usando la fila correcta como encabezado
+            df = pd.read_excel(file_libro, header=header_row_idx+1) # +1 porque pandas es 0-based pero el header es la fila que le sigue
+        
+        # Normalizamos nombres
         df.columns = [str(c).strip().upper() for c in df.columns]
         
-        col_fac = next((c for c in df.columns if 'FACTURA' in c and 'AFECT' not in c), None)
-        col_fecha = next((c for c in df.columns if 'FECHA' in c and 'FACTURA' in c), None)
-        col_iva = next((c for c in df.columns if 'IMPUESTO' in c and 'IVA' in c and 'RET' not in c), None)
+        # --- BÚSQUEDA DE COLUMNAS FLEXIBLE ---
+        col_fac = None
+        # Opciones: "N de Factura", "Número Factura", "Factura"
+        posibles_fac = ['N DE FACTURA', 'NUMERO DE FACTURA', 'NRO FACTURA', 'FACTURA']
+        for p in posibles_fac:
+            matches = [c for c in df.columns if p in c and 'AFECT' not in c]
+            if matches:
+                col_fac = matches[0]
+                break
         
+        col_iva = None
+        # Opciones: "Impuesto IVA G", "Total IVA", "Monto IVA"
+        posibles_iva = ['IMPUESTO IVA G', 'IMPUESTO IVA', 'TOTAL IVA', 'IVA RETENIDO']
+        for p in posibles_iva:
+            matches = [c for c in df.columns if p in c]
+            if matches:
+                col_iva = matches[0]
+                break
+                
+        col_fecha = next((c for c in df.columns if 'FECHA' in c and 'FACTURA' in c), None)
+
         if not col_fac or not col_iva:
-            log_messages.append("❌ Error: Faltan columnas 'Factura' o 'Impuesto IVA' en Libro Ventas.")
+            cols_found = ", ".join(df.columns)
+            log_messages.append(f"❌ Error: No se identificaron columnas clave. Columnas leídas: {cols_found}")
             return {}
+        # -------------------------------------
 
         for _, row in df.iterrows():
             raw_fac = str(row[col_fac])
+            # Limpiamos todo lo que no sea número
             fac_limpia = re.sub(r'\D', '', raw_fac)
-            fac_int = str(int(fac_limpia)) if fac_limpia else "0"
+            
+            if not fac_limpia: continue
+            
+            # Quitamos ceros a la izquierda
+            fac_int = str(int(fac_limpia))
+            
             try: monto_iva = float(row[col_iva])
             except: monto_iva = 0.0
-            db_ventas[fac_int] = {'fecha_factura': row[col_fecha], 'monto_iva': monto_iva, 'factura_original': raw_fac}
             
-        log_messages.append(f"✅ Libro de Ventas indexado ({len(db_ventas)} facturas).")
+            # Fecha (si existe)
+            fecha_fac = row[col_fecha] if col_fecha else ""
+            
+            db_ventas[fac_int] = {
+                'fecha_factura': fecha_fac,
+                'monto_iva': monto_iva,
+                'factura_original': raw_fac
+            }
+            
+        log_messages.append(f"✅ Libro de Ventas indexado ({len(db_ventas)} facturas detectadas).")
         return db_ventas
+
     except Exception as e:
-        log_messages.append(f"❌ Error leyendo Libro Ventas: {str(e)}")
+        log_messages.append(f"❌ Error leyendo Libro de Ventas: {str(e)}")
         return {}
 
 def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
