@@ -3297,9 +3297,9 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
         col_monto = next((c for c in df_soft.columns if 'DÉBITO' in c or 'DEBITO' in c), None)
         if not col_monto: col_monto = next((c for c in df_soft.columns if 'CRÉDITO' in c or 'CREDITO' in c), None)
         
-        col_rif = next((c for c in df_soft.columns if any(k in c for k in ['RIF', 'NIT', 'I.D'])), None)
-        col_nom = next((c for c in df_soft.columns if any(k in c for k in ['NOMBRE', 'CLIENTE', 'TERCERO', 'DESCRIPCI'])), None)
-
+        col_rif_soft = next((c for c in df_soft.columns if any(k in c for k in ['RIF', 'NIT', 'I.D', 'CEDULA'])), None)
+        col_nom_soft = next((c for c in df_soft.columns if any(k in c for k in ['NOMBRE', 'CLIENTE', 'TERCERO', 'DESCRIPCI', 'DETALLE'])), None)
+        
         if not col_ref or not col_monto:
             log_messages.append("❌ Error Softland: Faltan columnas Referencia o Monto.")
             return [], None
