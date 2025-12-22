@@ -3342,35 +3342,26 @@ def indexar_libro_ventas(file_libro, log_messages):
 def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
     """
     Genera TXT cruzando Softland y Libro de Ventas.
-    Maneja automáticamente RETENCIONES DE PERIODOS ANTERIORES.
+    CORREGIDO: Llena todas las columnas del reporte Excel (Referencia, Montos, etc).
     """
     log_messages.append("--- INICIANDO GENERACIÓN DE TXT ---")
     
-    # 1. Cargar Libro de Ventas
     db_ventas = indexar_libro_ventas(file_libro, log_messages)
     if not db_ventas: return [], None
 
-    # --- DETERMINAR PERIODO ACTUAL DEL LIBRO (Moda de las fechas) ---
-    # Esto nos dice si estamos trabajando en Agosto, Septiembre, etc.
+    # Determinamos periodo (Moda)
     try:
         fechas_libro = [v['fecha_factura'] for k, v in db_ventas.items() if pd.notna(v['fecha_factura'])]
         if fechas_libro:
-            # Convertimos a formato YYYYMM
             periodos = [pd.to_datetime(f).strftime('%Y%m') for f in fechas_libro]
-            # Tomamos el periodo más frecuente (Moda)
             periodo_actual = max(set(periodos), key=periodos.count)
-            log_messages.append(f"📅 Periodo detectado en Libro de Ventas: {periodo_actual}")
-        else:
-            periodo_actual = "999999"
-    except:
-        periodo_actual = "999999"
-    # ---------------------------------------------------------------
+        else: periodo_actual = "999999"
+    except: periodo_actual = "999999"
 
     try:
         df_soft = pd.read_excel(file_softland)
         df_soft.columns = [str(c).strip().upper() for c in df_soft.columns]
         
-        # Búsqueda de columnas
         col_ref = next((c for c in df_soft.columns if 'REFERENCIA' in c), None)
         col_fecha = next((c for c in df_soft.columns if 'FECHA' in c), None)
         col_monto = next((c for c in df_soft.columns if 'DÉBITO' in c or 'DEBITO' in c), None)
@@ -3399,24 +3390,26 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
         
         if monto_total_ret <= 0 or not referencia: continue
         
-        # Parsing Referencia
+        # Parsing
         parts = [p.strip() for p in referencia.split('/')]
         if len(parts) < 2:
+            # Intento de rescate si solo hay comprobante largo
+            if len(re.sub(r'\D', '', parts[0])) > 10:
+                msg = "Solo se detectó el Nro de Comprobante. Falta agregar la Factura (separada por /)."
+            else:
+                msg = 'Referencia sin formato COMP/FAC/FAC'
+                
             reporte_excel.append({
-                'Estatus': 'ERROR FORMATO REF',
-                'Mensaje': 'Referencia sin formato COMP/FAC',
+                'Estatus': 'ERROR FORMATO', 'Mensaje': msg,
                 'RIF': rif_cliente, 'Nombre': nom_cliente,
                 'Referencia Original': referencia, 'Monto Softland': monto_total_ret
             })
             continue
             
-        comprobante = re.sub(r'\D', '', parts[0]) 
-        
-        # Detectar Periodo del Comprobante (Primeros 6 dígitos)
-        # Ej: 20250757... -> 202507
+        comprobante = re.sub(r'\D', '', parts[0])
         periodo_comp = comprobante[:6] if len(comprobante) >= 6 else "000000"
         es_periodo_anterior = periodo_comp < periodo_actual
-
+        
         facturas_lista = []
         for f in parts[1:]:
             f_clean = re.sub(r'\D', '', f)
@@ -3424,10 +3417,10 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
             
         if not facturas_lista: continue
 
-        # --- LÓGICA DE CRUCE ---
+        # Cruce
+        total_iva_grupo = 0.0
         facturas_encontradas = []
         missing_facs = []
-        total_iva_grupo = 0.0
         
         for fac_num in facturas_lista:
             if fac_num in db_ventas:
@@ -3436,70 +3429,61 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
                 facturas_encontradas.append({'num': fac_num, 'info': info, 'origen': 'libro'})
             else:
                 missing_facs.append(fac_num)
-
-        # CASO 1: FALTAN FACTURAS
+        
+        # Lógica de Faltantes
         if missing_facs:
-            # Si faltan facturas Y es un periodo anterior, asumimos que es correcto (Extemporáneo)
             if es_periodo_anterior:
-                # Agregamos las faltantes como "Forzadas"
                 for f_miss in missing_facs:
                     facturas_encontradas.append({'num': f_miss, 'info': None, 'origen': 'forzado'})
             else:
-                # Si es del mes actual y falta, SÍ es un error
                 reporte_excel.append({
                     'Estatus': 'FACTURA NO ENCONTRADA',
-                    'Mensaje': f"Faltan en Libro Ventas (Mes Actual): {', '.join(missing_facs)}",
+                    'Mensaje': f"Faltan en Libro: {', '.join(missing_facs)}",
                     'RIF': rif_cliente, 'Nombre': nom_cliente,
-                    'Referencia Original': referencia, 'Comprobante': comprobante,
-                    'Monto Softland': monto_total_ret
+                    'Comprobante': comprobante,
+                    'Referencia Original': referencia, 'Monto Softland': monto_total_ret
                 })
                 continue
 
-        # CASO 2: CÁLCULO DE MONTOS
-        # Si todas son forzadas (periodo anterior), dividimos el monto equitativamente
-        # Si hay mezcla, priorizamos el cálculo real y el resto lo ajustamos (caso complejo, simplificamos a equitativo si hay forzadas)
-        
+        # Cálculo
         hay_forzadas = any(item['origen'] == 'forzado' for item in facturas_encontradas)
         
         if hay_forzadas:
-            # Lógica de Distribución Simple para Periodos Anteriores
+            # Distribución simple
             monto_individual = monto_total_ret / len(facturas_encontradas)
             nota_status = "OK - PERIODO ANTERIOR"
             
             for item in facturas_encontradas:
                 nro_factura = item['num'].zfill(10)
-                
                 try:
-                    fecha_comp_dt = pd.to_datetime(row[col_fecha])
-                    str_fecha_comp = fecha_comp_dt.strftime('%d/%m/%Y')
-                    
-                    # Como no tenemos fecha de factura, usamos la del comprobante o referencia
-                    # (Esto evita que el TXT falle por campo vacío)
-                    str_fecha_fac = str_fecha_comp 
-                except: 
-                    str_fecha_comp = ""; str_fecha_fac = ""
+                    str_fecha_comp = pd.to_datetime(row[col_fecha]).strftime('%d/%m/%Y')
+                except: str_fecha_comp = ""
                 
-                # Generar TXT
-                linea = f"FAC\t{nro_factura}\t0\t{comprobante}\t{monto_individual:.2f}\t{str_fecha_comp}\t{str_fecha_fac}"
+                linea = f"FAC\t{nro_factura}\t0\t{comprobante}\t{monto_individual:.2f}\t{str_fecha_comp}\t{str_fecha_comp}"
                 filas_txt.append(linea)
                 
                 reporte_excel.append({
                     'Estatus': nota_status,
-                    'Mensaje': 'Incluido en TXT (Sin datos de Libro de Ventas)',
+                    'Mensaje': 'Generado sin Libro (Extemporáneo)',
                     'RIF': rif_cliente, 'Nombre': nom_cliente,
                     'Comprobante': comprobante, 'Factura': nro_factura,
-                    'Fecha Factura': str_fecha_fac, 'Fecha Comprobante': str_fecha_comp,
-                    'Base IVA (Galac)': 0, '% Calc': 'N/A',
-                    'Monto Retenido': monto_individual
+                    'Fecha Factura': str_fecha_comp, 'Fecha Comprobante': str_fecha_comp,
+                    # Datos numéricos explícitos
+                    'Base IVA (Galac)': 0.0, 
+                    '% Calc': 0.0,
+                    'Monto Retenido': monto_individual,
+                    # Datos de referencia
+                    'Referencia Original': referencia, 
+                    'Monto Softland': monto_total_ret
                 })
-
+        
         else:
-            # Lógica Estándar (Todo está en el libro)
+            # Distribución Real
             if total_iva_grupo == 0:
                 reporte_excel.append({
                     'Estatus': 'ERROR MATEMÁTICO', 'Mensaje': 'IVA Base 0.00',
                     'RIF': rif_cliente, 'Nombre': nom_cliente,
-                    'Referencia Original': referencia
+                    'Referencia Original': referencia, 'Monto Softland': monto_total_ret
                 })
                 continue
                 
@@ -3511,15 +3495,12 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
                 ret_individual = round(iva_factura * factor, 2)
                 
                 try:
-                    f_fac_dt = pd.to_datetime(item['info']['fecha_factura'])
-                    f_comp_dt = pd.to_datetime(row[col_fecha])
-                    str_fecha_fac = f_fac_dt.strftime('%d/%m/%Y')
-                    str_fecha_comp = f_comp_dt.strftime('%d/%m/%Y')
-                except: str_fecha_fac = ""; str_fecha_comp = ""
+                    f_fac = pd.to_datetime(item['info']['fecha_factura']).strftime('%d/%m/%Y')
+                    f_comp = pd.to_datetime(row[col_fecha]).strftime('%d/%m/%Y')
+                except: f_fac=""; f_comp=""
                 
                 nro_factura = item['num'].zfill(10)
-                
-                linea = f"FAC\t{nro_factura}\t0\t{comprobante}\t{ret_individual:.2f}\t{str_fecha_comp}\t{str_fecha_fac}"
+                linea = f"FAC\t{nro_factura}\t0\t{comprobante}\t{ret_individual:.2f}\t{f_comp}\t{f_fac}"
                 filas_txt.append(linea)
                 
                 reporte_excel.append({
@@ -3527,9 +3508,13 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
                     'Mensaje': nota_factor,
                     'RIF': rif_cliente, 'Nombre': nom_cliente,
                     'Comprobante': comprobante, 'Factura': nro_factura,
-                    'Fecha Factura': str_fecha_fac, 'Fecha Comprobante': str_fecha_comp,
-                    'Base IVA (Galac)': iva_factura, '% Calc': factor,
-                    'Monto Retenido': ret_individual
+                    'Fecha Factura': f_fac, 'Fecha Comprobante': f_comp,
+                    # Datos llenos
+                    'Base IVA (Galac)': iva_factura, 
+                    '% Calc': factor,
+                    'Monto Retenido': ret_individual,
+                    'Referencia Original': referencia, 
+                    'Monto Softland': monto_total_ret
                 })
 
     return filas_txt, pd.DataFrame(reporte_excel)
