@@ -800,6 +800,7 @@ def render_imprenta():
                         
                         c_down1, c_down2 = st.columns(2)
                         
+                        # Descargar TXT (Igual que antes)
                         txt_bytes = generar_archivo_txt(lineas_txt)
                         c_down1.download_button(
                             "⬇️ Descargar TXT para GALAC",
@@ -809,17 +810,19 @@ def render_imprenta():
                             use_container_width=True
                         )
                         
-                        output_audit = BytesIO()
-                        with pd.ExcelWriter(output_audit, engine='xlsxwriter') as writer:
-                            df_audit.to_excel(writer, index=False)
-                            
+                        # --- CAMBIO AQUÍ: Usar generar_reporte_auditoria_txt ---
+                        from utils import generar_reporte_auditoria_txt # Asegúrate de importar
+                        
+                        excel_audit_bytes = generar_reporte_auditoria_txt(df_audit)
+                        
                         c_down2.download_button(
                             "⬇️ Descargar Auditoría (Excel)",
-                            output_audit.getvalue(),
-                            "Auditoria_Calculo.xlsx",
+                            excel_audit_bytes,
+                            "Auditoria_Procesamiento.xlsx",
                             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                             use_container_width=True
                         )
+                        # -------------------------------------------------------
                     else:
                         st.warning("⚠️ No se generaron líneas. Verifica que el formato de 'Referencia' en Softland sea correcto.")
                         
