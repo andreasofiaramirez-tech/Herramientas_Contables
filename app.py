@@ -34,7 +34,8 @@ from logic import (
     run_conciliation_deudores_empleados_me,
     run_cuadre_cb_cg,
     validar_coincidencia_empresa,
-    run_cross_check_imprenta
+    run_cross_check_imprenta,
+    generar_txt_retenciones_galac
 )
 
 # --- BLOQUE 3: IMPORTAR UTILS ---
@@ -44,7 +45,8 @@ from utils import (
     generar_excel_saldos_abiertos,
     generar_reporte_paquete_cc,
     generar_reporte_cuadre,
-    generar_reporte_imprenta
+    generar_reporte_imprenta,
+    generar_archivo_txt
 )
 
 def mostrar_error_amigable(e, contexto=""):
@@ -782,6 +784,67 @@ def render_imprenta():
                     
             except Exception as e:
                 mostrar_error_amigable(e, "el Cruce de Imprenta")
+
+def render_generador_txt():
+    st.title("⚙️ Generador TXT Retenciones (Softland -> GALAC)", anchor=False)
+    
+    st.info("Esta herramienta toma los comprobantes agrupados de Softland, busca las facturas en el Libro de Ventas, calcula la retención individual y genera el TXT.")
+    
+    if st.button("⬅️ Volver al Inicio", key="back_from_gen"):
+        set_page('inicio')
+        st.rerun()
+
+    col1, col2 = st.columns(2)
+    with col1:
+        file_soft = st.file_uploader("1. Mayor de Retenciones Softland (Excel)", type=['xlsx'])
+    with col2:
+        file_libro = st.file_uploader("2. Libro de Ventas GALAC (Excel)", type=['xlsx'])
+        
+    if file_soft and file_libro:
+        if st.button("Generar Archivos", type="primary", use_container_width=True):
+            log = []
+            try:
+                # Ejecutar lógica
+                lineas_txt, df_audit = generar_txt_retenciones_galac(file_soft, file_libro, log)
+                
+                if df_audit is not None and not df_audit.empty:
+                    st.success(f"✅ Se generaron {len(df_audit)} líneas de retención.")
+                    
+                    # Mostrar tabla previa
+                    st.dataframe(df_audit.head(), use_container_width=True)
+                    
+                    c1, c2 = st.columns(2)
+                    
+                    # Descargar TXT
+                    txt_bytes = generar_archivo_txt(lineas_txt)
+                    c1.download_button(
+                        "⬇️ Descargar TXT para GALAC",
+                        txt_bytes,
+                        "Retenciones_Importar_GALAC.txt",
+                        "text/plain",
+                        use_container_width=True
+                    )
+                    
+                    # Descargar Excel Auditoría (Reutilizamos la funcion de excel simple si quieres, o raw)
+                    output_audit = BytesIO()
+                    with pd.ExcelWriter(output_audit, engine='xlsxwriter') as writer:
+                        df_audit.to_excel(writer, index=False)
+                    
+                    c2.download_button(
+                        "⬇️ Descargar Auditoría (Excel)",
+                        output_audit.getvalue(),
+                        "Auditoria_Calculo.xlsx",
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True
+                    )
+                else:
+                    st.warning("No se generaron líneas. Revisa el log.")
+
+                with st.expander("Ver Log de Procesamiento"):
+                    st.write(log)
+                    
+            except Exception as e:
+                mostrar_error_amigable(e, "la Generación de TXT")
 
 # ==============================================================================
 # FLUJO PRINCIPAL DE LA APLICACIÓN (ROUTER)
