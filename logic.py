@@ -2311,8 +2311,7 @@ def _validar_asiento(asiento_group):
 def run_analysis_paquete_cc(df_diario, log_messages):
     """
     Función principal optimizada.
-    Fase 3: Cruce inteligente de reversos y ND/NC.
-    CORREGIDO: Ordenamiento final antes de borrar columnas auxiliares.
+    Fase 3 BLINDADA: Protege las Cobranzas (Grupo 8) de ser marcadas como reversos falsos.
     """
     log_messages.append("--- INICIANDO ANÁLISIS Y VALIDACIÓN DE PAQUETE CC (ULTRA RÁPIDO) ---")
     
@@ -2373,22 +2372,39 @@ def run_analysis_paquete_cc(df_diario, log_messages):
 
     df['Grupo'] = df['Asiento'].map(mapa_grupos)
     
-    # --- FASE 3: INTELIGENCIA DE REVERSOS Y EMPAREJAMIENTO ---
+    # --- FASE 3: INTELIGENCIA DE REVERSOS (BLINDADA) ---
     log_messages.append("🧠 Ejecutando cruce inteligente de reversos...")
     
     mapa_cambio_grupo = {}
     procesados = set()
     
-    # 1. Reversos explícitos
+    # 1. Definición de Reverso
     def es_potencial_reverso(row_meta):
         texto_full = (row_meta['Ref'] + " " + row_meta['Fuente']).upper()
-        keywords = ['REVERSO', 'REV ', 'ANULA', 'NO CORRESPONDE', 'ERROR', 'CORRECCION', 'DEVOLUCION DEL ASIENTO']
+        # Palabras clave más estrictas (quitamos 'ERROR' solo para evitar falsos en descripciones)
+        keywords = ['REVERSO', 'REV ', 'ANULA', 'NO CORRESPONDE', 'CORRECCION', 'DEVOLUCION DEL ASIENTO']
         return any(k in texto_full for k in keywords)
 
+    # Identificación inicial
     ids_por_grupo = df[df['Grupo'].astype(str).str.contains("Reverso", case=False, na=False)]['Asiento'].unique()
     ids_por_texto = df_meta[df_meta.apply(es_potencial_reverso, axis=1)].index.tolist()
-    ids_prioritarios = set(list(ids_por_grupo) + ids_por_texto)
+    ids_candidatos_reverso = set(list(ids_por_grupo) + ids_por_texto)
     
+    # --- FILTRO DE INMUNIDAD (La corrección clave) ---
+    ids_reversos_final = set()
+    for aid in ids_candidatos_reverso:
+        grupo_actual = mapa_grupos.get(aid, "")
+        ref_actual = df_meta.loc[aid, 'Ref']
+        
+        # Si es Cobranza (Grupo 8), SOLO es reverso si dice explícitamente "REVERSO"
+        if grupo_actual.startswith("Grupo 8"):
+            if "REVERSO" in ref_actual:
+                ids_reversos_final.add(aid)
+        else:
+            # Para otros grupos, aceptamos la detección normal
+            ids_reversos_final.add(aid)
+    # -------------------------------------------------
+
     # Mapa de montos global
     df_todos = df.groupby(['Asiento'])['Monto_USD'].sum().round(2).reset_index()
     mapa_montos_global = {}
@@ -2397,8 +2413,8 @@ def run_analysis_paquete_cc(df_diario, log_messages):
         if m not in mapa_montos_global: mapa_montos_global[m] = []
         mapa_montos_global[m].append(row['Asiento'])
 
-    # A. Procesar Reversos Prioritarios
-    for id_rev in ids_prioritarios:
+    # A. Procesar Reversos
+    for id_rev in ids_reversos_final:
         if id_rev in procesados: continue
         
         monto_rev = df_meta.loc[id_rev, 'Suma']
@@ -2411,6 +2427,7 @@ def run_analysis_paquete_cc(df_diario, log_messages):
         numeros_clave = re.findall(r'\d+', ref_rev)
         match_final = None
         
+        # Estrategia Fuerte
         for cand_id in posibles:
             ref_cand = df_meta.loc[cand_id, 'Ref'] + " " + df_meta.loc[cand_id, 'Fuente']
             for num in numeros_clave:
@@ -2418,12 +2435,14 @@ def run_analysis_paquete_cc(df_diario, log_messages):
                     match_final = cand_id; break
             if match_final: break
             
+        # Estrategia Débil
         if not match_final and len(posibles) == 1:
             cand_unico = posibles[0]
             grp_rev = mapa_grupos.get(id_rev, "")
             grp_cand = mapa_grupos.get(cand_unico, "")
-            # Protección Retenciones
-            if not (grp_rev.startswith("Grupo 9") or grp_cand.startswith("Grupo 9")):
+            # Protección Retenciones y Cobranzas
+            if not (grp_rev.startswith("Grupo 9") or grp_cand.startswith("Grupo 9") or 
+                    grp_rev.startswith("Grupo 8") or grp_cand.startswith("Grupo 8")):
                 match_final = cand_unico
             
         if match_final:
@@ -2431,8 +2450,8 @@ def run_analysis_paquete_cc(df_diario, log_messages):
             mapa_cambio_grupo[match_final] = "Grupo 13: Operaciones Reversadas / Anuladas"
             procesados.update([id_rev, match_final])
 
-    # B. Barrido de Emparejamiento (ND vs NC)
-    ids_restantes = [i for i in df_meta.index if i not in procesados]
+    # B. Barrido de Emparejamiento (Protegido)
+    ids_restantes = [i for i in df_meta.index if i not in procesados and i not in ids_reversos_final]
     mapa_abs = {}
     for aid in ids_restantes:
         m = abs(df_meta.loc[aid, 'Suma'])
@@ -2447,26 +2466,32 @@ def run_analysis_paquete_cc(df_diario, log_messages):
         
         for p_id in pos:
             if p_id in procesados: continue
+            
+            # Protección extra: No cruzar Cobranzas (Grupo 8) automáticamente aquí
+            if mapa_grupos.get(p_id, "").startswith("Grupo 8"): continue
+
             ref_p = df_meta.loc[p_id, 'Ref'] + " " + df_meta.loc[p_id, 'Fuente']
             nums_p = set([n for n in re.findall(r'\d+', ref_p) if len(n) > 3])
             if not nums_p: continue 
             
             for n_id in neg:
                 if n_id in procesados: continue
+                # Protección extra Grupo 8
+                if mapa_grupos.get(n_id, "").startswith("Grupo 8"): continue
+
                 ref_n = df_meta.loc[n_id, 'Ref'] + " " + df_meta.loc[n_id, 'Fuente']
                 for num in nums_p:
                     if num in ref_n:
                         mapa_cambio_grupo[p_id] = "Grupo 13: Operaciones Reversadas / Anuladas"
                         mapa_cambio_grupo[n_id] = "Grupo 13: Operaciones Reversadas / Anuladas"
                         procesados.update([p_id, n_id])
-                        log_messages.append(f"   🔗 Cruce Automático (ND/NC): {p_id} con {n_id}")
                         break
                 if p_id in procesados: break
 
     if mapa_cambio_grupo:
         df['Grupo'] = df['Asiento'].map(mapa_cambio_grupo).fillna(df['Grupo'])
 
-    # --- FASE 4: VALIDACIÓN Y ORDENAMIENTO ---
+    # --- FASE 4: VALIDACIÓN Y ORDEN ---
     resultados_validacion = {}
     for asiento_id, asiento_group in df.groupby('Asiento'):
         if asiento_group['Grupo'].iloc[0].startswith("Grupo 13"):
@@ -2480,13 +2505,11 @@ def run_analysis_paquete_cc(df_diario, log_messages):
     if asientos_con_cuentas_nuevas > 0:
         log_messages.append(f"⚠️ Se encontraron {asientos_con_cuentas_nuevas} asientos con cuentas no registradas.")
 
-    # 1. Definir prioridad visual
     df['Orden_Prioridad'] = df['Estado'].apply(lambda x: 1 if str(x).startswith('Conciliado') else 0)
     
-    # 2. ORDENAR (Usando la columna que acabamos de crear)
+    # ORDENAR PRIMERO
     df_sorted = df.sort_values(by=['Grupo', 'Orden_Prioridad', 'Asiento'], ascending=[True, True, True])
     
-    # 3. ELIMINAR COLUMNAS AUXILIARES (Después de ordenar)
     cols_drop = ['Ref_Str', 'Fuente_Str', 'Cuenta Contable Norm', 'Monto_USD', 'Orden_Prioridad']
     df_final = df_sorted.drop(columns=cols_drop, errors='ignore')
     
