@@ -1430,3 +1430,12 @@ def generar_reporte_imprenta(df_resultado):
         ws.set_column('E:E', 40) # Estado
         
     return output.getvalue()
+
+def generar_archivo_txt(lineas):
+    """
+    Convierte una lista de strings en un archivo TXT en memoria.
+    """
+    output = BytesIO()
+    contenido = "\n".join(lineas)
+    output.write(contenido.encode('utf-8')) # O 'latin-1' si Galac es viejo
+    return output.getvalue()
