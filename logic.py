@@ -3340,7 +3340,10 @@ def indexar_libro_ventas(file_libro, log_messages):
         return {}
 
 def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
-    """Genera TXT cruzando Softland y Libro de Ventas (Con RIF y Nombre)."""
+    """
+    Genera TXT cruzando Softland y Libro de Ventas.
+    Reporte: Muestra RIF y Nombre extraídos directamente de Softland.
+    """
     log_messages.append("--- INICIANDO GENERACIÓN DE TXT ---")
     
     db_ventas = indexar_libro_ventas(file_libro, log_messages)
@@ -3350,10 +3353,17 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
         df_soft = pd.read_excel(file_softland)
         df_soft.columns = [str(c).strip().upper() for c in df_soft.columns]
         
+        # 1. Búsqueda de Columnas Críticas
         col_ref = next((c for c in df_soft.columns if 'REFERENCIA' in c), None)
         col_fecha = next((c for c in df_soft.columns if 'FECHA' in c), None)
         col_monto = next((c for c in df_soft.columns if 'DÉBITO' in c or 'DEBITO' in c), None)
         if not col_monto: col_monto = next((c for c in df_soft.columns if 'CRÉDITO' in c or 'CREDITO' in c), None)
+
+        # 2. Búsqueda de Columnas Informativas (RIF y Nombre en Softland)
+        # Buscamos RIF, NIT, ID
+        col_rif_soft = next((c for c in df_soft.columns if any(k in c for k in ['RIF', 'NIT', 'I.D', 'CEDULA'])), None)
+        # Buscamos Nombre, Cliente, Tercero, Descripción (A veces el nombre está en la descripción del mayor)
+        col_nom_soft = next((c for c in df_soft.columns if any(k in c for k in ['NOMBRE', 'CLIENTE', 'TERCERO', 'DESCRIPCI', 'DETALLE'])), None)
 
         if not col_ref or not col_monto:
             log_messages.append("❌ Error: Faltan columnas Referencia o Monto en Softland.")
@@ -3370,15 +3380,20 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
         try: monto_total_ret = float(row[col_monto])
         except: monto_total_ret = 0.0
         
+        # Extracción de Datos Informativos (Softland)
+        # Si no encuentra la columna, pone "ND"
+        rif_cliente = str(row[col_rif_soft]).strip() if col_rif_soft else "ND"
+        nom_cliente = str(row[col_nom_soft]).strip() if col_nom_soft else "ND"
+        
         if monto_total_ret <= 0 or not referencia: continue
         
-        # Parsing "COMP / FAC / FAC"
+        # Parsing
         parts = [p.strip() for p in referencia.split('/')]
         if len(parts) < 2:
-            # Caso error formato
             reporte_excel.append({
                 'Estatus': 'ERROR FORMATO REF',
                 'Mensaje': 'Referencia sin formato COMP/FAC/FAC',
+                'RIF': rif_cliente, 'Nombre': nom_cliente,
                 'Referencia Original': referencia,
                 'Monto Softland': monto_total_ret
             })
@@ -3392,6 +3407,7 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
             
         if not facturas_lista: continue
 
+        # Cruce con Galac
         total_iva_grupo = 0.0
         facturas_encontradas = []
         missing_facs = []
@@ -3407,7 +3423,8 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
         if missing_facs:
             reporte_excel.append({
                 'Estatus': 'FACTURA NO ENCONTRADA',
-                'Mensaje': f"Faltan: {', '.join(missing_facs)}",
+                'Mensaje': f"Faltan en Libro Ventas: {', '.join(missing_facs)}",
+                'RIF': rif_cliente, 'Nombre': nom_cliente,
                 'Referencia Original': referencia,
                 'Comprobante': comprobante,
                 'Monto Softland': monto_total_ret
@@ -3417,7 +3434,8 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
         if total_iva_grupo == 0:
             reporte_excel.append({
                 'Estatus': 'ERROR MATEMÁTICO',
-                'Mensaje': 'IVA Base es 0.00',
+                'Mensaje': 'El IVA total de las facturas en Galac es 0.00',
+                'RIF': rif_cliente, 'Nombre': nom_cliente,
                 'Referencia Original': referencia,
                 'Monto Softland': monto_total_ret
             })
@@ -3426,19 +3444,16 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
         factor = monto_total_ret / total_iva_grupo
         nota_factor = "⚠️ Revisar %" if (factor > 1.01 or factor < 0.70) else "OK"
         
+        # Generación de líneas individuales
         for item in facturas_encontradas:
             iva_factura = item['info']['monto_iva']
             ret_individual = round(iva_factura * factor, 2)
             
-            # Datos extraídos del Libro
-            rif_cliente = item['info'].get('rif', '')
-            nom_cliente = item['info'].get('nombre', '')
-            
             try:
-                f_fac_dt = pd.to_datetime(item['info']['fecha_factura'])
-                f_comp_dt = pd.to_datetime(row[col_fecha])
-                str_fecha_fac = f_fac_dt.strftime('%d/%m/%Y')
-                str_fecha_comp = f_comp_dt.strftime('%d/%m/%Y')
+                fecha_fac_dt = pd.to_datetime(item['info']['fecha_factura'])
+                fecha_comp_dt = pd.to_datetime(row[col_fecha])
+                str_fecha_fac = fecha_fac_dt.strftime('%d/%m/%Y')
+                str_fecha_comp = fecha_comp_dt.strftime('%d/%m/%Y')
             except: str_fecha_fac = ""; str_fecha_comp = ""
             
             nro_factura = item['num'].zfill(10)
@@ -3449,13 +3464,13 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
             reporte_excel.append({
                 'Estatus': 'GENERADO OK',
                 'Mensaje': nota_factor,
-                'RIF': rif_cliente,       # <--- NUEVO
-                'Nombre': nom_cliente,    # <--- NUEVO
+                'RIF': rif_cliente,       # Dato de Softland
+                'Nombre': nom_cliente,    # Dato de Softland
                 'Comprobante': comprobante,
                 'Factura': nro_factura,
                 'Fecha Factura': str_fecha_fac,
                 'Fecha Comprobante': str_fecha_comp,
-                'Base IVA': iva_factura,
+                'Base IVA (Galac)': iva_factura,
                 '% Calc': factor,
                 'Monto Retenido': ret_individual
             })
