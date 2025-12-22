@@ -1442,8 +1442,8 @@ def generar_archivo_txt(lineas):
 
 def generar_reporte_auditoria_txt(df_audit):
     """
-    Genera el Excel de Auditoría de la generación de TXT.
-    Colorea filas según Estatus (OK=Verde, Error=Rojo).
+    Genera el Excel de Auditoría.
+    Actualizado para dar formato a RIF y Nombre.
     """
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
@@ -1452,7 +1452,6 @@ def generar_reporte_auditoria_txt(df_audit):
         workbook = writer.book
         ws = writer.sheets['Auditoria']
         
-        # Formatos
         header_fmt = workbook.add_format({'bold': True, 'fg_color': '#D9EAD3', 'border': 1, 'align': 'center'})
         text_fmt = workbook.add_format({'border': 1})
         money_fmt = workbook.add_format({'num_format': '#,##0.00', 'border': 1})
@@ -1461,46 +1460,39 @@ def generar_reporte_auditoria_txt(df_audit):
         red_fmt = workbook.add_format({'bg_color': '#FFC7CE', 'font_color': '#9C0006', 'border': 1})
         green_fmt = workbook.add_format({'bg_color': '#C6EFCE', 'font_color': '#006100', 'border': 1})
         
-        # Escribir encabezados
+        # Encabezados
         for col_num, value in enumerate(df_audit.columns.values):
             ws.write(0, col_num, value, header_fmt)
             
-        # Escribir datos con formato condicional
-        # Columnas típicas: Estatus(0), Mensaje(1), Ref(2), Comp(3), Fac(4), Fechas(5,6), Base(7), %(8), Monto(9)
-        
+        # Filas
         for row_idx, row in df_audit.iterrows():
             excel_row = row_idx + 1
             estatus = str(row['Estatus'])
             
-            # Elegir formato según estatus
-            if 'OK' in estatus:
-                cell_fmt = green_fmt
-            else:
-                cell_fmt = red_fmt
-            
-            # Escribir la primera columna (Estatus) con color
+            cell_fmt = green_fmt if 'OK' in estatus else red_fmt
             ws.write(excel_row, 0, estatus, cell_fmt)
             
-            # Escribir el resto
             for col_idx, col_name in enumerate(df_audit.columns):
-                if col_idx == 0: continue # Ya escribimos estatus
+                if col_idx == 0: continue
                 
                 val = row[col_name]
                 if pd.isna(val): val = ""
                 
-                # Aplicar formatos numéricos
                 current_fmt = text_fmt
-                if col_name in ['Monto Retenido', 'Base IVA (Galac)', 'Monto Softland', 'Monto Softland Total']:
+                if col_name in ['Monto Retenido', 'Base IVA', 'Monto Softland']:
                     current_fmt = money_fmt
                 elif col_name == '% Calc':
                     current_fmt = percent_fmt
                 
                 ws.write(excel_row, col_idx, val, current_fmt)
                 
-        # Ajuste de anchos
+        # --- AJUSTE DE ANCHOS ---
         ws.set_column('A:A', 20) # Estatus
-        ws.set_column('B:B', 40) # Mensaje
-        ws.set_column('C:C', 35) # Ref Original
-        ws.set_column('D:K', 15) # Datos numéricos
+        ws.set_column('B:B', 30) # Mensaje
+        # RIF y Nombre suelen estar en las primeras columnas después del mensaje
+        # Si el orden es Estatus, Mensaje, RIF, Nombre...
+        ws.set_column('C:C', 15) # RIF
+        ws.set_column('D:D', 40) # Nombre (Ancho)
+        ws.set_column('E:Z', 15) # Resto
 
     return output.getvalue()
