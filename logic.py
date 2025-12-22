@@ -3267,79 +3267,72 @@ def run_cross_check_imprenta(file_sales, file_retentions, log_messages):
 def indexar_libro_ventas(file_libro, log_messages):
     """
     Crea un diccionario rápido del Libro de Ventas.
-    Key: Número de Factura. Value: {Fecha, RIF, IVA, etc.}
+    Key: Número de Factura. Value: {Fecha, RIF, IVA, Nombre, etc.}
     """
     db_ventas = {}
     try:
-        # Leemos header=1 (Fila 2 del Excel, índice 1) según tu imagen donde el título está en fila 2
-        # Pero a veces está en la 6 o 7. Vamos a intentar leerlo y buscar dónde empiezan los datos.
+        # Intentamos leer buscando el encabezado correcto (fila con "N de Factura" o similar)
         df = pd.read_excel(file_libro)
         
-        # Estrategia: Buscar la fila que tenga "N de Factura" o "Impuesto IVA"
         header_row_idx = None
         for i, row in df.head(15).iterrows():
             row_str = row.astype(str).str.upper().values
-            if any("N DE FACTURA" in s or "NUMERO DE FACTURA" in s for s in row_str):
+            if any("FACTURA" in s for s in row_str) and any("RIF" in s for s in row_str):
                 header_row_idx = i
                 break
         
         if header_row_idx is not None:
-            # Recargamos usando la fila correcta como encabezado
-            df = pd.read_excel(file_libro, header=header_row_idx+1) # +1 porque pandas es 0-based pero el header es la fila que le sigue
+            df = pd.read_excel(file_libro, header=header_row_idx+1)
         
-        # Normalizamos nombres
         df.columns = [str(c).strip().upper() for c in df.columns]
         
-        # --- BÚSQUEDA DE COLUMNAS FLEXIBLE ---
+        # --- BÚSQUEDA DE COLUMNAS ---
         col_fac = None
-        # Opciones: "N de Factura", "Número Factura", "Factura"
-        posibles_fac = ['N DE FACTURA', 'NUMERO DE FACTURA', 'NRO FACTURA', 'FACTURA']
-        for p in posibles_fac:
+        for p in ['N DE FACTURA', 'NUMERO DE FACTURA', 'NRO FACTURA', 'FACTURA']:
             matches = [c for c in df.columns if p in c and 'AFECT' not in c]
-            if matches:
-                col_fac = matches[0]
-                break
+            if matches: col_fac = matches[0]; break
         
         col_iva = None
-        # Opciones: "Impuesto IVA G", "Total IVA", "Monto IVA"
-        posibles_iva = ['IMPUESTO IVA G', 'IMPUESTO IVA', 'TOTAL IVA', 'IVA RETENIDO']
-        for p in posibles_iva:
+        for p in ['IMPUESTO IVA G', 'IMPUESTO IVA', 'TOTAL IVA', 'IVA RETENIDO']:
             matches = [c for c in df.columns if p in c]
-            if matches:
-                col_iva = matches[0]
-                break
-                
+            if matches: col_iva = matches[0]; break
+            
         col_fecha = next((c for c in df.columns if 'FECHA' in c and 'FACTURA' in c), None)
+        
+        # --- NUEVAS COLUMNAS (RIF y NOMBRE) ---
+        col_rif = next((c for c in df.columns if 'RIF' in c and 'TERCERO' not in c), None)
+        col_nom = next((c for c in df.columns if 'NOMBRE' in c or 'RAZON' in c or 'CLIENTE' in c), None)
+        # --------------------------------------
 
         if not col_fac or not col_iva:
-            cols_found = ", ".join(df.columns)
-            log_messages.append(f"❌ Error: No se identificaron columnas clave. Columnas leídas: {cols_found}")
+            log_messages.append("❌ Error: No se detectaron columnas clave (Factura, IVA).")
             return {}
-        # -------------------------------------
 
         for _, row in df.iterrows():
             raw_fac = str(row[col_fac])
-            # Limpiamos todo lo que no sea número
             fac_limpia = re.sub(r'\D', '', raw_fac)
-            
             if not fac_limpia: continue
             
-            # Quitamos ceros a la izquierda
             fac_int = str(int(fac_limpia))
             
             try: monto_iva = float(row[col_iva])
             except: monto_iva = 0.0
             
-            # Fecha (si existe)
             fecha_fac = row[col_fecha] if col_fecha else ""
+            
+            # Capturamos RIF y Nombre
+            rif_val = str(row[col_rif]).strip() if col_rif else "ND"
+            nom_val = str(row[col_nom]).strip() if col_nom else "ND"
             
             db_ventas[fac_int] = {
                 'fecha_factura': fecha_fac,
                 'monto_iva': monto_iva,
-                'factura_original': raw_fac
+                'factura_original': raw_fac,
+                'rif': rif_val,    # <--- Guardado
+                'nombre': nom_val  # <--- Guardado
             }
             
-        log_messages.append(f"✅ Libro de Ventas indexado ({len(db_ventas)} facturas detectadas).")
+        log_messages.append(f"✅ Libro de Ventas indexado ({len(db_ventas)} facturas).")
         return db_ventas
 
     except Exception as e:
@@ -3347,17 +3340,12 @@ def indexar_libro_ventas(file_libro, log_messages):
         return {}
 
 def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
-    """
-    Genera TXT cruzando Softland y Libro de Ventas.
-    Genera Reporte de Auditoría detallando Éxitos y Errores.
-    """
+    """Genera TXT cruzando Softland y Libro de Ventas (Con RIF y Nombre)."""
     log_messages.append("--- INICIANDO GENERACIÓN DE TXT ---")
     
-    # 1. Cargar Libro de Ventas
     db_ventas = indexar_libro_ventas(file_libro, log_messages)
     if not db_ventas: return [], None
 
-    # 2. Leer Softland
     try:
         df_soft = pd.read_excel(file_softland)
         df_soft.columns = [str(c).strip().upper() for c in df_soft.columns]
@@ -3377,25 +3365,21 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
     filas_txt = []
     reporte_excel = []
     
-    # 3. Procesamiento
     for idx, row in df_soft.iterrows():
         referencia = str(row[col_ref]).strip()
         try: monto_total_ret = float(row[col_monto])
         except: monto_total_ret = 0.0
         
-        # Ignorar vacíos reales
-        if monto_total_ret == 0 and not referencia: continue
+        if monto_total_ret <= 0 or not referencia: continue
         
-        # --- VALIDACIÓN 1: FORMATO REFERENCIA ---
-        # Esperamos "COMP / FAC1 / FAC2"
+        # Parsing "COMP / FAC / FAC"
         parts = [p.strip() for p in referencia.split('/')]
-        
         if len(parts) < 2:
+            # Caso error formato
             reporte_excel.append({
-                'Estatus': 'ERROR DE FORMATO',
-                'Mensaje': 'La referencia no tiene el formato "COMP / FAC / FAC"',
+                'Estatus': 'ERROR FORMATO REF',
+                'Mensaje': 'Referencia sin formato COMP/FAC/FAC',
                 'Referencia Original': referencia,
-                'Comprobante': '?', 'Factura': '?', 'Fecha Comp': str(row[col_fecha]),
                 'Monto Softland': monto_total_ret
             })
             continue
@@ -3406,19 +3390,11 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
             f_clean = re.sub(r'\D', '', f)
             if f_clean: facturas_lista.append(str(int(f_clean))) 
             
-        if not facturas_lista:
-            reporte_excel.append({
-                'Estatus': 'SIN FACTURAS',
-                'Mensaje': 'No se detectaron números de factura en la referencia',
-                'Referencia Original': referencia,
-                'Monto Softland': monto_total_ret
-            })
-            continue
+        if not facturas_lista: continue
 
-        # --- VALIDACIÓN 2: EXISTENCIA EN GALAC ---
         total_iva_grupo = 0.0
         facturas_encontradas = []
-        faltantes = []
+        missing_facs = []
         
         for fac_num in facturas_lista:
             if fac_num in db_ventas:
@@ -3426,14 +3402,12 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
                 total_iva_grupo += info['monto_iva']
                 facturas_encontradas.append({'num': fac_num, 'info': info})
             else:
-                faltantes.append(fac_num)
-
-        # Si falta alguna factura del grupo, NO podemos calcular el % correctamente.
-        if faltantes:
-            str_faltantes = ", ".join(faltantes)
+                missing_facs.append(fac_num)
+                
+        if missing_facs:
             reporte_excel.append({
-                'Estatus': 'NO ENCONTRADO EN GALAC',
-                'Mensaje': f"Faltan las facturas: {str_faltantes}. No se puede calcular el grupo.",
+                'Estatus': 'FACTURA NO ENCONTRADA',
+                'Mensaje': f"Faltan: {', '.join(missing_facs)}",
                 'Referencia Original': referencia,
                 'Comprobante': comprobante,
                 'Monto Softland': monto_total_ret
@@ -3443,54 +3417,47 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
         if total_iva_grupo == 0:
             reporte_excel.append({
                 'Estatus': 'ERROR MATEMÁTICO',
-                'Mensaje': 'Las facturas existen pero tienen IVA 0.00 en Galac.',
+                'Mensaje': 'IVA Base es 0.00',
                 'Referencia Original': referencia,
-                'Comprobante': comprobante
+                'Monto Softland': monto_total_ret
             })
             continue
 
-        # --- CÁLCULO Y GENERACIÓN ---
         factor = monto_total_ret / total_iva_grupo
-        
-        # Alerta de factor extraño
-        nota_factor = ""
-        if factor > 1.01: nota_factor = "⚠️ Retención > 100%"
-        elif factor < 0.70: nota_factor = "⚠️ Retención < 75%"
+        nota_factor = "⚠️ Revisar %" if (factor > 1.01 or factor < 0.70) else "OK"
         
         for item in facturas_encontradas:
             iva_factura = item['info']['monto_iva']
             ret_individual = round(iva_factura * factor, 2)
             
+            # Datos extraídos del Libro
+            rif_cliente = item['info'].get('rif', '')
+            nom_cliente = item['info'].get('nombre', '')
+            
             try:
-                # Manejo robusto de fechas
-                f_fac_raw = item['info']['fecha_factura']
-                f_comp_raw = row[col_fecha]
-                
-                # Si viene como timestamp o string, intentamos convertir
-                fecha_fac = pd.to_datetime(f_fac_raw).strftime('%d/%m/%Y')
-                fecha_comp = pd.to_datetime(f_comp_raw).strftime('%d/%m/%Y')
-            except: 
-                fecha_fac = ""; fecha_comp = ""
+                f_fac_dt = pd.to_datetime(item['info']['fecha_factura'])
+                f_comp_dt = pd.to_datetime(row[col_fecha])
+                str_fecha_fac = f_fac_dt.strftime('%d/%m/%Y')
+                str_fecha_comp = f_comp_dt.strftime('%d/%m/%Y')
+            except: str_fecha_fac = ""; str_fecha_comp = ""
             
             nro_factura = item['num'].zfill(10)
             
-            # Generar línea TXT
-            linea = f"FAC\t{nro_factura}\t0\t{comprobante}\t{ret_individual:.2f}\t{fecha_comp}\t{fecha_fac}"
+            linea = f"FAC\t{nro_factura}\t0\t{comprobante}\t{ret_individual:.2f}\t{str_fecha_comp}\t{str_fecha_fac}"
             filas_txt.append(linea)
             
-            # Registro Exitoso
             reporte_excel.append({
                 'Estatus': 'GENERADO OK',
-                'Mensaje': nota_factor if nota_factor else 'Calculado correctamente',
-                'Referencia Original': referencia,
+                'Mensaje': nota_factor,
+                'RIF': rif_cliente,       # <--- NUEVO
+                'Nombre': nom_cliente,    # <--- NUEVO
                 'Comprobante': comprobante,
                 'Factura': nro_factura,
-                'Fecha Factura': fecha_fac,
-                'Fecha Comprobante': fecha_comp,
-                'Base IVA (Galac)': iva_factura,
+                'Fecha Factura': str_fecha_fac,
+                'Fecha Comprobante': str_fecha_comp,
+                'Base IVA': iva_factura,
                 '% Calc': factor,
-                'Monto Retenido': ret_individual,
-                'Monto Softland Total': monto_total_ret
+                'Monto Retenido': ret_individual
             })
 
     return filas_txt, pd.DataFrame(reporte_excel)
