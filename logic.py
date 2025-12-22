@@ -2299,13 +2299,13 @@ def _validar_asiento(asiento_group):
 def run_analysis_paquete_cc(df_diario, log_messages):
     """
     Función principal optimizada con VECTORIZACIÓN y AGREGACIÓN PREVIA.
-    Incluye normalización de columnas de Cliente/NIT y CORRECCIÓN DE ORDENAMIENTO.
+    Incluye protección para no anular Retenciones por error de monto.
     """
     log_messages.append("--- INICIANDO ANÁLISIS Y VALIDACIÓN DE PAQUETE CC (ULTRA RÁPIDO) ---")
     
     df = df_diario.copy()
     
-    # --- PASO 0: NORMALIZACIÓN DE COLUMNAS DE CLIENTE/NIT ---
+    # --- PASO 0: NORMALIZACIÓN ---
     rename_map = {}
     for col in df.columns:
         c_upper = col.strip().upper()
@@ -2320,10 +2320,9 @@ def run_analysis_paquete_cc(df_diario, log_messages):
     df['NIT'] = df['NIT'].fillna('')
     df['Nombre'] = df['Nombre'].fillna('')
 
-    # Limpieza vectorizada
+    # Limpieza
     df['Cuenta Contable Norm'] = df['Cuenta Contable'].astype(str).str.replace(r'\D', '', regex=True)
     df['Monto_USD'] = (df['Débito Dolar'] - df['Crédito Dolar']).round(2)
-    
     df['Ref_Str'] = df['Referencia'].astype(str).fillna('').str.upper()
     df['Fuente_Str'] = df['Fuente'].astype(str).fillna('').str.upper()
     
@@ -2342,9 +2341,7 @@ def run_analysis_paquete_cc(df_diario, log_messages):
         'Cuentas': s_cuentas, 'Ref': s_ref, 'Fuente': s_fuente, 'Suma': s_suma, 'Max_Abs': s_max_abs
     })
     
-    log_messages.append(f"⚙️ Analizando {len(df_meta)} asientos únicos...")
-    
-    # --- FASE 2: CLASIFICACIÓN ITERATIVA ---
+    # --- FASE 2: CLASIFICACIÓN ---
     mapa_grupos = {}
     asientos_con_cuentas_nuevas = 0
     
@@ -2363,20 +2360,27 @@ def run_analysis_paquete_cc(df_diario, log_messages):
 
     df['Grupo'] = df['Asiento'].map(mapa_grupos)
     
-    # --- FASE 3: INTELIGENCIA DE REVERSOS ---
+    # --- FASE 3: INTELIGENCIA DE REVERSOS (PROTEGIDA) ---
     log_messages.append("🧠 Ejecutando cruce inteligente de reversos...")
     
     mask_reverso = df['Grupo'].astype(str).str.contains("Reverso", case=False, na=False)
     ids_reversos = df[mask_reverso]['Asiento'].unique()
     
+    # Mapa de montos de candidatos
     df_candidatos = df[~df['Asiento'].isin(ids_reversos)]
-    candidatos_agrupados = df_candidatos.groupby(['Asiento'])['Monto_USD'].sum().round(2).reset_index()
+    # Importante: Guardamos el Grupo en el candidato para poder filtrarlo después
+    candidatos_agrupados = df_candidatos.groupby(['Asiento']).agg({
+        'Monto_USD': 'sum',
+        'Grupo': 'first' # Tomamos el grupo ya asignado
+    }).reset_index()
+    candidatos_agrupados['Monto_USD'] = candidatos_agrupados['Monto_USD'].round(2)
     
+    # Mapa de Monto -> Lista de (Asiento, Grupo)
     mapa_montos = {}
     for _, row in candidatos_agrupados.iterrows():
         m = row['Monto_USD']
         if m not in mapa_montos: mapa_montos[m] = []
-        mapa_montos[m].append(row['Asiento'])
+        mapa_montos[m].append( {'id': row['Asiento'], 'grupo': row['Grupo']} )
     
     mapa_cambio_grupo = {}
     procesados = set()
@@ -2385,21 +2389,37 @@ def run_analysis_paquete_cc(df_diario, log_messages):
         if id_rev in procesados: continue
         monto_rev = df_meta.loc[id_rev, 'Suma']
         monto_target = round(-monto_rev, 2)
-        posibles = [p for p in mapa_montos.get(monto_target, []) if p not in procesados]
+        
+        # Obtenemos candidatos posibles
+        lista_posibles = mapa_montos.get(monto_target, [])
+        posibles = [p for p in lista_posibles if p['id'] not in procesados]
+        
         if not posibles: continue
         
         ref_rev = df_meta.loc[id_rev, 'Ref'] + " " + df_meta.loc[id_rev, 'Fuente']
         numeros_clave = re.findall(r'\d+', ref_rev)
         match_final = None
         
-        for cand_id in posibles:
+        # A. ESTRATEGIA FUERTE: Por Referencia Numérica
+        for item_cand in posibles:
+            cand_id = item_cand['id']
             ref_cand = df_meta.loc[cand_id, 'Ref'] + " " + df_meta.loc[cand_id, 'Fuente']
             for num in numeros_clave:
                 if len(num) > 3 and num in ref_cand:
-                    match_final = cand_id; break
+                    match_final = cand_id
+                    break
             if match_final: break
             
-        if not match_final and len(posibles) == 1: match_final = posibles[0]
+        # B. ESTRATEGIA DÉBIL: Por Monto Único (Con Protección)
+        if not match_final and len(posibles) == 1:
+            candidato_unico = posibles[0]
+            grupo_cand = str(candidato_unico['grupo'])
+            
+            # --- PROTECCIÓN: NO ANULAR RETENCIONES POR MONTO ---
+            # Si el candidato es una Retención, el riesgo de falso positivo es alto.
+            # Solo permitimos anularlo si hubo match de referencia (paso A).
+            if not grupo_cand.startswith("Grupo 9"):
+                match_final = candidato_unico['id']
             
         if match_final:
             mapa_cambio_grupo[id_rev] = "Grupo 13: Operaciones Reversadas / Anuladas"
@@ -2409,7 +2429,7 @@ def run_analysis_paquete_cc(df_diario, log_messages):
     if mapa_cambio_grupo:
         df['Grupo'] = df['Asiento'].map(mapa_cambio_grupo).fillna(df['Grupo'])
 
-    # --- FASE 4: VALIDACIÓN Y ORDENAMIENTO ---
+    # --- FASE 4: VALIDACIÓN ---
     resultados_validacion = {}
     for asiento_id, asiento_group in df.groupby('Asiento'):
         if asiento_group['Grupo'].iloc[0].startswith("Grupo 13"):
@@ -2423,15 +2443,10 @@ def run_analysis_paquete_cc(df_diario, log_messages):
     if asientos_con_cuentas_nuevas > 0:
         log_messages.append(f"⚠️ Se encontraron {asientos_con_cuentas_nuevas} asientos con cuentas no registradas.")
 
-    # 1. Calcular prioridad de orden (0=Rojo, 1=Blanco)
     df['Orden_Prioridad'] = df['Estado'].apply(lambda x: 1 if str(x).startswith('Conciliado') else 0)
     
-    # 2. ORDENAR PRIMERO (Aquí estaba el error antes, ahora ordenamos mientras la columna existe)
-    df = df.sort_values(by=['Grupo', 'Orden_Prioridad', 'Asiento'], ascending=[True, True, True])
-    
-    # 3. BORRAR COLUMNAS AUXILIARES DESPUÉS
     cols_drop = ['Ref_Str', 'Fuente_Str', 'Cuenta Contable Norm', 'Monto_USD', 'Orden_Prioridad']
-    df_final = df.drop(columns=cols_drop, errors='ignore')
+    df_final = df.drop(columns=cols_drop, errors='ignore').sort_values(by=['Grupo', 'Orden_Prioridad', 'Asiento'], ascending=[True, True, True])
     
     log_messages.append("--- ANÁLISIS FINALIZADO CON ÉXITO ---")
     return df_final
