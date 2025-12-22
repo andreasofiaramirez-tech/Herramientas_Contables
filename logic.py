@@ -2137,11 +2137,20 @@ def _get_base_classification(cuentas_del_asiento, referencia_completa, fuente_co
             return "Grupo 7: Devoluciones y Rebajas - Otros Ajustes"
 
     # --- PRIORIDAD 6: Cobranzas (Grupo 8) ---
+    # MODIFICACIÓN: Ahora consideramos Cobranza si:
+    # 1. Tiene texto 'RECIBO', 'TEF', 'DEPR'
+    # 2. O tiene cuenta de Banco Real
+    # 3. O tiene cuenta de Fondos por Depositar (1.1.1.04.6.003) <--- NUEVO
+    
     is_cobranza_texto = 'RECIBO DE COBRANZA' in referencia_completa or 'TEF' in fuente_completa or 'DEPR' in fuente_completa
-    if is_cobranza_texto or tiene_banco:
+    tiene_cuenta_fondos = normalize_account('1.1.1.04.6.003') in cuentas_del_asiento
+    
+    if is_cobranza_texto or tiene_banco or tiene_cuenta_fondos:
         if is_reverso_check: return "Grupo 8: Cobranzas"
+        
         if normalize_account('6.1.1.12.1.001') in cuentas_del_asiento: return "Grupo 8: Cobranzas - Con Diferencial Cambiario"
-        if normalize_account('1.1.1.04.6.003') in cuentas_del_asiento: return "Grupo 8: Cobranzas - Fondos por Depositar"
+        if tiene_cuenta_fondos: return "Grupo 8: Cobranzas - Fondos por Depositar"
+        
         if tiene_banco:
             if 'TEF' in fuente_completa: return "Grupo 8: Cobranzas - TEF (Bancos)"
             return "Grupo 8: Cobranzas - Recibos (Bancos)"
