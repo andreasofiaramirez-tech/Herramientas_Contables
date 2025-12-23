@@ -3332,16 +3332,25 @@ def indexar_libro_ventas(file_libro, log_messages):
         return {}, "000000"
 
 def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
-    """Generador de TXT con validación de periodo estricta."""
+    """Generador de TXT con columnas de trazabilidad Softland vs GALAC."""
     db_ventas, periodo_libro = indexar_libro_ventas(file_libro, log_messages)
     
     try:
         df_soft = pd.read_excel(file_softland)
         df_soft.columns = [str(c).strip().upper() for c in df_soft.columns]
+        
+        # Columnas Obligatorias
         col_ref = next((c for c in df_soft.columns if 'REFERENCIA' in c), None)
         col_fecha = next((c for c in df_soft.columns if 'FECHA' in c), None)
         col_monto = next((c for c in df_soft.columns if 'DÉBITO' in c or 'DEBITO' in c), None)
-    except: return [], None
+        
+        # Nuevas Columnas Solicitadas (Búsqueda de RIF y Nombre en Softland)
+        col_rif_s = next((c for c in df_soft.columns if any(k in c for k in ['RIF', 'NIT', 'I.D', 'CEDULA'])), None)
+        col_nom_s = next((c for c in df_soft.columns if any(k in c for k in ['DESCRIPCION NIT', 'DESCRIPCIÓN NIT', 'NOMBRE', 'CLIENTE', 'TERCERO'])), None)
+        
+    except Exception as e:
+        log_messages.append(f"❌ Error leyendo Softland: {e}")
+        return [], None
 
     filas_txt = []
     audit = []
@@ -3350,58 +3359,65 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
         ref = str(row.get(col_ref, "")).strip()
         if not ref or "/" not in ref: continue
         
-        # Extraer datos del comprobante Softland
-        comprobante = re.sub(r'\D', '', ref.split('/')[0])
-        periodo_voucher = comprobante[:6] # Ejemplo: "202508"
+        # Monto que Softland dice que se retuvo (Base para el prorrateo)
+        iva_origen_softland = float(str(row.get(col_monto, 0)).replace(',', '.'))
+        if iva_origen_softland <= 0: continue
+
+        # Datos del proveedor en Softland
+        rif_softland = str(row.get(col_rif_s, "ND")).strip()
+        nombre_softland = str(row.get(col_nom_s, "ND")).strip()
         
-        # --- LÓGICA DE DECISIÓN CORREGIDA ---
-        # 1. Si los periodos son iguales, NUNCA es anterior.
-        # 2. Si el periodo del libro es "000000", procesamos todo como actual por seguridad.
+        # Extraer periodo y comprobante
+        comprobante = re.sub(r'\D', '', ref.split('/')[0])
+        periodo_voucher = comprobante[:6]
+        
+        # Lógica de Periodo
         if periodo_libro == "000000" or periodo_voucher == periodo_libro:
             es_anterior = False
         else:
             es_anterior = periodo_voucher < periodo_libro
         
-        # Extraer y limpiar números de factura de la referencia
+        # Limpiar facturas
         facturas_soft = [re.sub(r'\D', '', f) for f in ref.split('/')[1:]]
         facturas_soft = [str(int(f)) for f in facturas_soft if f]
         
-        # Buscar en el libro
+        # Buscar en Libro
         encontradas = [db_ventas.get(f) for f in facturas_soft]
         total_iva_libro = sum(f['iva'] for f in encontradas if f)
-        
-        monto_soft = float(str(row.get(col_monto, 0)).replace(',', '.'))
         
         for i, f_num in enumerate(facturas_soft):
             f_txt = f_num.zfill(10)
             f_comp = pd.to_datetime(row[col_fecha]).strftime('%d/%m/%Y')
             info_libro = encontradas[i]
             
-            # Decidir qué valores usar para el TXT y el reporte
             if es_anterior:
-                m_ret = monto_soft / len(facturas_soft)
+                m_ret_galac = iva_origen_softland / len(facturas_soft)
                 f_fac = f_comp
                 est = "OK - PERIODO ANTERIOR"
             elif info_libro is None:
-                # Caso: Es el mismo mes, pero la factura no aparece en el libro
-                m_ret = monto_soft / len(facturas_soft)
+                m_ret_galac = iva_origen_softland / len(facturas_soft)
                 f_fac = f_comp
                 est = "⚠️ NO ENCONTRADA EN LIBRO"
             else:
-                # Caso ideal: Match perfecto
-                factor = monto_soft / total_iva_libro if total_iva_libro > 0 else 0
-                m_ret = round(info_libro['iva'] * factor, 2)
+                # Prorrateo basado en el IVA real del Libro de Ventas
+                factor = iva_origen_softland / total_iva_libro if total_iva_libro > 0 else 0
+                m_ret_galac = round(info_libro['iva'] * factor, 2)
                 f_fac = info_libro['fecha'].strftime('%d/%m/%Y')
                 est = "GENERADO OK"
 
-            # Formatear línea TXT Galac
-            linea = f"FAC\t{f_txt}\t0\t{comprobante}\t{m_ret:.2f}\t{f_comp}\t{f_fac}"
+            # 1. Línea para el archivo TXT (Formato Galac)
+            linea = f"FAC\t{f_txt}\t0\t{comprobante}\t{m_ret_galac:.2f}\t{f_comp}\t{f_fac}"
             filas_txt.append(linea)
+            
+            # 2. Diccionario para el reporte de Excel (Auditoría)
             audit.append({
-                'Estatus': est, 
-                'Comprobante': comprobante, 
-                'Factura': f_txt, 
-                'Monto Retenido': m_ret,
+                'Estatus': est,
+                'Rif Origen Softland': rif_softland,
+                'Nombre proveedor Origen Softland': nombre_softland,
+                'Comprobante': comprobante,
+                'Factura': f_txt,
+                'IVA Origen Softland': iva_origen_softland,
+                'Monto Retenido GALAC': m_ret_galac,
                 'Referencia Original': ref
             })
 
