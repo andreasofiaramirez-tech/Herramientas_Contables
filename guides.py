@@ -343,18 +343,12 @@ Vaya a la hoja **"Listado Correlativo"**. Verá los asientos en orden numérico.
 """
 
 
-# ==============================================================================
-# GUÍA PARA EL ANÁLISIS DE PAQUETE CC
-# ==============================================================================
 GUIA_IMPRENTA = """
-### 🖨️ Guía de Cruce de Imprenta
+### 🖨️ Validación de TXT
+Verifica que las facturas del TXT existan en el Libro de Ventas.
+"""
 
-Esta herramienta valida la integridad entre el Libro de Ventas y el archivo de Retenciones antes de declarar.
-
-**Validaciones Automáticas:**
-1.  **Factura Inexistente:** Verifica que cada número de factura mencionado en el archivo de Retenciones exista realmente en el Libro de Ventas cargado.
-2.  **Duplicidad:** Verifica que no existan facturas duplicadas dentro del archivo de Retenciones (lo cual suele ser un error de sistema).
-
-**Archivos Requeridos:**
-*   Archivos `.txt` planos generados por el sistema administrativo (Spooler).
+GUIA_GENERADOR = """
+### ⚙️ Generación de TXT
+Crea el archivo de retenciones calculando el prorrateo de montos desde Softland.
 """
