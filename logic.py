@@ -3271,87 +3271,77 @@ def limpiar_string_factura(txt):
     # Quitar cualquier letra o caracter no numérico y luego ceros iniciales
     num = re.sub(r'\D', '', str(txt))
     return str(int(num)) if num else ""
-
 def indexar_libro_ventas(file_libro, log_messages):
+    """Indexa el Libro de Ventas y detecta el periodo de transacciones."""
     db_ventas = {}
-    periodo_detectado = "000000"
+    periodo_final = "000000"
     
     try:
         file_libro.seek(0)
         df_raw = pd.read_excel(file_libro, header=None)
         
-        log_messages.append("🔍 --- DIAGNÓSTICO: LECTURA DE LIBRO ---")
-        
-        # 1. Diagnóstico de Encabezado (Primeras 10 filas)
-        for i, row in df_raw.head(10).iterrows():
-            fila_txt = " ".join([str(x) for x in row.values if pd.notna(x)])
-            if fila_txt.strip():
-                log_messages.append(f"Fila {i}: {fila_txt[:100]}...") # Ver qué hay en las primeras filas
+        # 1. DETECCIÓN DE PERIODO (Blindada contra fecha de emisión)
+        for i, row in df_raw.head(15).iterrows():
+            fila_txt = " ".join([str(x).upper() for x in row.values if pd.notna(x)])
             
-            # Buscar el periodo "del 01/08/2025..."
-            match_fecha = re.findall(r'(\d{2}/\d{2}/\d{4})', fila_txt)
-            if match_fecha and periodo_detectado == "000000":
-                periodo_detectado = pd.to_datetime(match_fecha[0], dayfirst=True).strftime('%Y%m')
-                log_messages.append(f"🎯 PERIODO DETECTADO EN ENCABEZADO: {periodo_detectado}")
+            # Buscamos la línea que contiene "DEL ... AL" (Periodo de transacciones)
+            if "DEL" in fila_txt and "AL" in fila_txt:
+                match_fecha = re.findall(r'(\d{2}/\d{2}/\d{4})', fila_txt)
+                if match_fecha:
+                    # Tomamos la primera fecha del rango (el inicio del mes)
+                    fecha_dt = pd.to_datetime(match_fecha[0], dayfirst=True)
+                    periodo_final = fecha_dt.strftime('%Y%m')
+                    log_messages.append(f"🎯 PERIODO DEL LIBRO FIJADO: {periodo_final}")
+                    break # Detener búsqueda para no capturar la fecha de emisión
 
-        # 2. Localizar Encabezados de Tabla
+        # 2. LOCALIZAR TABLA
         header_idx = None
         for i, row in df_raw.head(20).iterrows():
             fila_vals = [str(x).upper() for x in row.values]
             if any("FACTURA" in s for s in fila_vals) and any("RIF" in s for s in fila_vals):
                 header_idx = i
-                log_messages.append(f"📍 Tabla encontrada en Fila: {i}")
-                log_messages.append(f"Columnas detectadas: {fila_vals}")
                 break
         
-        if header_idx is None:
-            log_messages.append("❌ ERROR: No se encontró la fila con 'FACTURA' y 'RIF'.")
-            return {}, "000000"
+        if header_idx is None: return {}, "000000"
 
-        # 3. Procesar datos
         df = pd.read_excel(file_libro, header=header_idx)
         df.columns = [str(c).strip().upper() for c in df.columns]
         
-        # Identificar columnas críticas
         col_fac = next((c for c in df.columns if 'N' in c and 'FACTURA' in c), None)
-        col_iva = next((c for c in df.columns if 'IVA' in c and 'RETENIDO' in c) or (c for c in df.columns if 'IMPUESTO' in c and 'G' in c), None)
+        col_iva = next((c for c in df.columns if 'IVA RETENIDO' in c) or (c for c in df.columns if 'IMPUESTO IVA G' in c), None)
         col_fecha = next((c for c in df.columns if 'FECHA' in c and 'FACTURA' in c), None)
 
-        log_messages.append(f"Map: Fac->{col_fac}, IVA->{col_iva}, Fecha->{col_fecha}")
-
-        for i, row in df.iterrows():
+        # 3. LLENADO DE MEMORIA
+        for _, row in df.iterrows():
             f_raw = row.get(col_fac)
             if pd.isna(f_raw): continue
             
+            # Normalizar número de factura (quitar letras y ceros a la izquierda)
             f_key = re.sub(r'\D', '', str(f_raw))
             if f_key:
-                f_key = str(int(f_key)) # Quitar ceros a la izquierda
+                f_key = str(int(f_key))
                 db_ventas[f_key] = {
                     'fecha': pd.to_datetime(row.get(col_fecha), dayfirst=True, errors='coerce'),
                     'iva': float(str(row.get(col_iva, 0)).replace('.', '').replace(',', '.')) if pd.notna(row.get(col_iva)) else 0.0
                 }
         
-        log_messages.append(f"✅ Total facturas en memoria: {len(db_ventas)}")
-        return db_ventas, periodo_detectado
+        return db_ventas, periodo_final
 
     except Exception as e:
-        log_messages.append(f"❌ Error en diagnóstico: {str(e)}")
+        log_messages.append(f"❌ Error Indexando: {str(e)}")
         return {}, "000000"
 
 def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
+    """Generador de TXT con validación de periodo estricta."""
     db_ventas, periodo_libro = indexar_libro_ventas(file_libro, log_messages)
     
-    log_messages.append("🔍 --- DIAGNÓSTICO: CRUCE SOFTLAND ---")
-    log_messages.append(f"Periodo del Libro: {periodo_libro}")
-
     try:
         df_soft = pd.read_excel(file_softland)
         df_soft.columns = [str(c).strip().upper() for c in df_soft.columns]
         col_ref = next((c for c in df_soft.columns if 'REFERENCIA' in c), None)
         col_fecha = next((c for c in df_soft.columns if 'FECHA' in c), None)
-    except:
-        log_messages.append("❌ Error leyendo Softland.")
-        return [], None
+        col_monto = next((c for c in df_soft.columns if 'DÉBITO' in c or 'DEBITO' in c), None)
+    except: return [], None
 
     filas_txt = []
     audit = []
@@ -3360,55 +3350,59 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
         ref = str(row.get(col_ref, "")).strip()
         if not ref or "/" not in ref: continue
         
-        # Extraer periodo del comprobante (Primeros 6 dígitos)
+        # Extraer datos del comprobante Softland
         comprobante = re.sub(r'\D', '', ref.split('/')[0])
-        periodo_voucher = comprobante[:6]
+        periodo_voucher = comprobante[:6] # Ejemplo: "202508"
         
-        # EL DIAGNÓSTICO CLAVE
-        if idx < 5: # Solo los primeros 5 para no saturar
-            log_messages.append(f"Probando Ref: {ref[:30]}... -> Periodo Voucher: {periodo_voucher} vs Libro: {periodo_libro}")
-
-        # LÓGICA DE DECISIÓN
-        es_anterior = (periodo_voucher < periodo_libro) if periodo_libro != "000000" else False
+        # --- LÓGICA DE DECISIÓN CORREGIDA ---
+        # 1. Si los periodos son iguales, NUNCA es anterior.
+        # 2. Si el periodo del libro es "000000", procesamos todo como actual por seguridad.
+        if periodo_libro == "000000" or periodo_voucher == periodo_libro:
+            es_anterior = False
+        else:
+            es_anterior = periodo_voucher < periodo_libro
         
-        facturas = [re.sub(r'\D', '', f) for f in ref.split('/')[1:]]
-        facturas = [str(int(f)) for f in facturas if f] # Limpiar
+        # Extraer y limpiar números de factura de la referencia
+        facturas_soft = [re.sub(r'\D', '', f) for f in ref.split('/')[1:]]
+        facturas_soft = [str(int(f)) for f in facturas_soft if f]
         
-        total_iva_libro = 0
-        encontradas = []
-        for f in facturas:
-            if f in db_ventas:
-                encontradas.append(db_ventas[f])
-                total_iva_libro += db_ventas[f]['iva']
-            else:
-                encontradas.append(None)
-
-        # Si el periodo es igual pero NO se encuentran las facturas, 
-        # forzamos a que NO sea anterior para ver por qué no hay match
-        if periodo_voucher == periodo_libro and total_iva_libro == 0:
-            if idx < 5: log_messages.append(f"⚠️ Facturas {facturas} NO encontradas en el libro a pesar de ser el mismo mes.")
-
-        # Generación de datos...
-        monto_soft = float(str(row.get('DÉBITO', row.get('DEBITO', 0))).replace(',', '.'))
+        # Buscar en el libro
+        encontradas = [db_ventas.get(f) for f in facturas_soft]
+        total_iva_libro = sum(f['iva'] for f in encontradas if f)
         
-        for i, f_num in enumerate(facturas):
+        monto_soft = float(str(row.get(col_monto, 0)).replace(',', '.'))
+        
+        for i, f_num in enumerate(facturas_soft):
             f_txt = f_num.zfill(10)
             f_comp = pd.to_datetime(row[col_fecha]).strftime('%d/%m/%Y')
+            info_libro = encontradas[i]
             
-            if es_anterior or encontradas[i] is None:
-                # Si es anterior o simplemente no existe en el libro
-                m_ret = monto_soft / len(facturas)
+            # Decidir qué valores usar para el TXT y el reporte
+            if es_anterior:
+                m_ret = monto_soft / len(facturas_soft)
                 f_fac = f_comp
-                est = "OK - PERIODO ANTERIOR" if es_anterior else "NO ENCONTRADA EN LIBRO"
+                est = "OK - PERIODO ANTERIOR"
+            elif info_libro is None:
+                # Caso: Es el mismo mes, pero la factura no aparece en el libro
+                m_ret = monto_soft / len(facturas_soft)
+                f_fac = f_comp
+                est = "⚠️ NO ENCONTRADA EN LIBRO"
             else:
-                # Match exitoso
+                # Caso ideal: Match perfecto
                 factor = monto_soft / total_iva_libro if total_iva_libro > 0 else 0
-                m_ret = round(encontradas[i]['iva'] * factor, 2)
-                f_fac = encontradas[i]['fecha'].strftime('%d/%m/%Y')
+                m_ret = round(info_libro['iva'] * factor, 2)
+                f_fac = info_libro['fecha'].strftime('%d/%m/%Y')
                 est = "GENERADO OK"
 
+            # Formatear línea TXT Galac
             linea = f"FAC\t{f_txt}\t0\t{comprobante}\t{m_ret:.2f}\t{f_comp}\t{f_fac}"
             filas_txt.append(linea)
-            audit.append({'Estatus': est, 'Comprobante': comprobante, 'Factura': f_txt, 'Monto': m_ret})
+            audit.append({
+                'Estatus': est, 
+                'Comprobante': comprobante, 
+                'Factura': f_txt, 
+                'Monto Retenido': m_ret,
+                'Referencia Original': ref
+            })
 
     return filas_txt, pd.DataFrame(audit)
