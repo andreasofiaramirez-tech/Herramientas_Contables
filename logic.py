@@ -3353,7 +3353,10 @@ def indexar_libro_ventas(file_libro, log_messages):
         return {}, "000000"
 
 def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
-    """Generador final: Limpieza de mensajes y rescate de nombres."""
+    """
+    Generador Avanzado: Resuelve el puzle de 75%/100% para múltiples facturas
+    y separa una línea por cada factura en el archivo de salida.
+    """
     db_ventas, periodo_libro = indexar_libro_ventas(file_libro, log_messages)
     
     try:
@@ -3363,7 +3366,6 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
         col_fecha = next((c for c in df_soft.columns if 'FECHA' in c), None)
         col_monto = next((c for c in df_soft.columns if 'DÉBITO' in c or 'DEBITO' in c), None)
         col_rif_s = next((c for c in df_soft.columns if any(k in c for k in ['RIF', 'NIT', 'I.D', 'CEDULA'])), None)
-        # Columnas de nombre en Softland
         col_nom_s = next((c for c in df_soft.columns if any(k in c for k in ['NOMBRE', 'CLIENTE', 'TERCERO', 'DESCRIPCION NIT'])), None)
     except: return [], None
 
@@ -3372,84 +3374,108 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
 
     for idx, row in df_soft.iterrows():
         ref = str(row.get(col_ref, "")).strip()
-        if not ref or "/" in ref.split('/')[0]: # Validación básica de estructura
-            if "/" not in ref: continue
+        if "/" not in ref: continue
         
-        # Limpieza de monto Softland
-        def clean_soft_monto(val):
-            if isinstance(val, (int, float)): return float(val)
-            v_str = str(val).replace('.', '').replace(',', '.')
-            try: return float(v_str)
-            except: return 0.0
-
-        iva_soft = clean_soft_monto(row.get(col_monto))
-        if iva_soft <= 0: continue
-
-        comprobante = re.sub(r'\D', '', ref.split('/')[0])
+        # 1. Datos base de Softland
+        monto_ret_total_soft = float(str(row.get(col_monto, 0)).replace('.', '').replace(',', '.'))
+        if monto_ret_total_soft <= 0: continue
+        
+        rif_softland = str(row.get(col_rif_s, "ND")).strip()
+        parts = ref.split('/')
+        comprobante = re.sub(r'\D', '', parts[0])
         p_voucher = comprobante[:6]
+        es_anterior = (p_voucher < periodo_libro) if periodo_libro != "000000" else False
         
-        # Lógica de periodo
-        if periodo_libro == "000000" or p_voucher == periodo_libro:
-            es_anterior = False
+        # 2. Identificar facturas y buscar sus bases en GALAC
+        f_nums = [str(int(re.sub(r'\D', '', f))) for f in parts[1:] if re.sub(r'\D', '', f)]
+        facturas_data = []
+        for fn in f_nums:
+            info = db_ventas.get(fn)
+            facturas_data.append({'nro': fn, 'info': info})
+
+        # --- ALGORITMO DE ASIGNACIÓN INTELIGENTE ---
+        # Si todas las facturas están en el libro y no es periodo anterior:
+        todas_en_libro = all(f['info'] is not None for f in facturas_data)
+        
+        asignaciones = {} # Guardará {nro_factura: {'monto': x, 'pct': y}}
+        
+        if todas_en_libro and not es_anterior:
+            bases = [f['info']['iva'] for f in facturas_data]
+            posibles_pcts = [0.75, 1.00]
+            mejor_combinacion = None
+            menor_dif = 999999.0
+            
+            # Probamos todas las combinaciones de 75% y 100% para las N facturas
+            for pcts in itertools.product(posibles_pcts, repeat=len(bases)):
+                suma_prueba = sum(b * p for b, p in zip(bases, pcts))
+                dif = abs(suma_prueba - monto_ret_total_soft)
+                
+                if dif < menor_dif:
+                    menor_dif = dif
+                    mejor_combinacion = pcts
+                
+                if dif < 0.05: break # Si la diferencia es menor a 5 céntimos, es esta.
+
+            # Aplicar la mejor combinación encontrada
+            if menor_dif < 1.00: # Margen de error de 1 Bs para validar match
+                for i, f_item in enumerate(facturas_data):
+                    pct = mejor_combinacion[i]
+                    m_base = f_item['info']['iva']
+                    asignaciones[f_item['nro']] = {
+                        'monto': round(m_base * pct, 2),
+                        'pct': pct,
+                        'estatus': "GENERADO OK"
+                    }
+            else:
+                # Fallback: Prorrateo lineal si la matemática no cuadra con 75/100
+                total_iva_galac = sum(bases)
+                factor = monto_ret_total_soft / total_iva_galac if total_iva_galac > 0 else 0
+                for f_item in facturas_data:
+                    asignaciones[f_item['nro']] = {
+                        'monto': round(f_item['info']['iva'] * factor, 2),
+                        'pct': factor,
+                        'estatus': "GENERADO OK (PRORRATEO)"
+                    }
         else:
-            es_anterior = p_voucher < periodo_libro
-        
-        # Facturas
-        f_nums = [str(int(re.sub(r'\D', '', f))) for f in ref.split('/')[1:] if re.sub(r'\D', '', f)]
-        encontradas = [db_ventas.get(fn) for fn in f_nums]
-        total_iva_galac = sum(f['iva'] for f in encontradas if f)
-        
-        for i, f_n in enumerate(f_nums):
+            # Lógica para anteriores o no encontradas (Prorrateo simple)
+            monto_ind = monto_ret_total_soft / len(f_nums)
+            for f_item in facturas_data:
+                asignaciones[f_item['nro']] = {
+                    'monto': round(monto_ind, 2),
+                    'pct': 0, 
+                    'estatus': "OK - PERIODO ANTERIOR" if es_anterior else "⚠️ NO ENCONTRADA EN LIBRO"
+                }
+
+        # 3. Generar líneas y Auditoría
+        for f_item in facturas_data:
+            f_n = f_item['nro']
             f_txt = f_n.zfill(10)
             f_c = pd.to_datetime(row[col_fecha]).strftime('%d/%m/%Y')
-            info = encontradas[i]
+            res = asignaciones[f_n]
+            info_g = f_item['info']
             
-            iva_g = 0.0
-            p_ret = 0.0
-            ya_existe = False
+            iva_g = info_g['iva'] if info_g else 0.0
+            f_f = info_g['fecha'].strftime('%d/%m/%Y') if info_g else f_c
+            ya_existe = info_g.get('comp_ya_registrado') if info_g else False
             
-            # DETERMINACIÓN DEL NOMBRE (Prioridad: GALAC -> SOFTLAND)
-            nombre_final = "ND"
-            if info and info['nombre'] != "ND":
-                nombre_final = info['nombre']
-            elif col_nom_s:
-                nombre_final = str(row.get(col_nom_s, "ND"))
+            estatus_final = "RETENCION REGISTRADA" if ya_existe else res['estatus']
+            
+            # Nombre prioridad
+            nombre_f = info_g['nombre'] if info_g and info_g['nombre'] != "ND" else str(row.get(col_nom_s, "ND"))
 
-            if es_anterior:
-                m_ret = iva_soft / len(f_nums)
-                f_f = f_c
-                est = "OK - PERIODO ANTERIOR"
-            elif info is None:
-                m_ret = iva_soft / len(f_nums)
-                f_f = f_c
-                est = "⚠️ NO ENCONTRADA EN LIBRO"
-            else:
-                iva_g = info['iva']
-                if info.get('comp_ya_registrado'):
-                    est = "RETENCION REGISTRADA"
-                    ya_existe = True
-                    m_ret = iva_soft / len(f_nums)
-                else:
-                    factor = iva_soft / total_iva_galac if total_iva_galac > 0 else 0
-                    m_ret = round(iva_g * factor, 2)
-                    p_ret = factor
-                    est = "GENERADO OK"
-                f_f = info['fecha'].strftime('%d/%m/%Y')
-
-            # Generar TXT solo si NO existe
             if not ya_existe:
-                filas_txt.append(f"FAC\t{f_txt}\t0\t{comprobante}\t{m_ret:.2f}\t{f_c}\t{f_f}")
+                filas_txt.append(f"FAC\t{f_txt}\t0\t{comprobante}\t{res['monto']:.2f}\t{f_c}\t{f_f}")
             
             audit.append({
-                'Estatus': est,
-                'Rif Origen Softland': row.get(col_rif_s, "ND"),
-                'Nombre proveedor Origen Softland': nombre_final,
+                'Estatus': estatus_final,
+                'Rif Origen Softland': rif_softland,
+                'Nombre proveedor Origen Softland': nombre_f,
                 'Comprobante': comprobante,
                 'Factura': f_txt,
-                'IVA Origen Softland': iva_soft,
+                'IVA Origen Softland': monto_ret_total_soft,
                 'IVA GALAC (Base)': iva_g,
-                '% Retención': p_ret,
-                'Monto Retenido GALAC': m_ret,
+                '% Retención': res['pct'],
+                'Monto Retenido GALAC': res['monto'],
                 'Referencia Original': ref
             })
 
