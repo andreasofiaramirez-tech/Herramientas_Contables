@@ -3332,25 +3332,19 @@ def indexar_libro_ventas(file_libro, log_messages):
         return {}, "000000"
 
 def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
-    """Generador de TXT con columnas de trazabilidad Softland vs GALAC."""
+    """Generador de TXT con trazabilidad de IVA GALAC y % de Retención."""
     db_ventas, periodo_libro = indexar_libro_ventas(file_libro, log_messages)
     
     try:
         df_soft = pd.read_excel(file_softland)
         df_soft.columns = [str(c).strip().upper() for c in df_soft.columns]
         
-        # Columnas Obligatorias
         col_ref = next((c for c in df_soft.columns if 'REFERENCIA' in c), None)
         col_fecha = next((c for c in df_soft.columns if 'FECHA' in c), None)
         col_monto = next((c for c in df_soft.columns if 'DÉBITO' in c or 'DEBITO' in c), None)
-        
-        # Nuevas Columnas Solicitadas (Búsqueda de RIF y Nombre en Softland)
         col_rif_s = next((c for c in df_soft.columns if any(k in c for k in ['RIF', 'NIT', 'I.D', 'CEDULA'])), None)
         col_nom_s = next((c for c in df_soft.columns if any(k in c for k in ['DESCRIPCION NIT', 'DESCRIPCIÓN NIT', 'NOMBRE', 'CLIENTE', 'TERCERO'])), None)
-        
-    except Exception as e:
-        log_messages.append(f"❌ Error leyendo Softland: {e}")
-        return [], None
+    except: return [], None
 
     filas_txt = []
     audit = []
@@ -3359,15 +3353,12 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
         ref = str(row.get(col_ref, "")).strip()
         if not ref or "/" not in ref: continue
         
-        # Monto que Softland dice que se retuvo (Base para el prorrateo)
         iva_origen_softland = float(str(row.get(col_monto, 0)).replace(',', '.'))
         if iva_origen_softland <= 0: continue
 
-        # Datos del proveedor en Softland
         rif_softland = str(row.get(col_rif_s, "ND")).strip()
         nombre_softland = str(row.get(col_nom_s, "ND")).strip()
         
-        # Extraer periodo y comprobante
         comprobante = re.sub(r'\D', '', ref.split('/')[0])
         periodo_voucher = comprobante[:6]
         
@@ -3377,11 +3368,9 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
         else:
             es_anterior = periodo_voucher < periodo_libro
         
-        # Limpiar facturas
         facturas_soft = [re.sub(r'\D', '', f) for f in ref.split('/')[1:]]
         facturas_soft = [str(int(f)) for f in facturas_soft if f]
         
-        # Buscar en Libro
         encontradas = [db_ventas.get(f) for f in facturas_soft]
         total_iva_libro = sum(f['iva'] for f in encontradas if f)
         
@@ -3390,6 +3379,9 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
             f_comp = pd.to_datetime(row[col_fecha]).strftime('%d/%m/%Y')
             info_libro = encontradas[i]
             
+            iva_galac = 0.0
+            porcentaje_ret = 0.0
+
             if es_anterior:
                 m_ret_galac = iva_origen_softland / len(facturas_soft)
                 f_fac = f_comp
@@ -3399,17 +3391,20 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
                 f_fac = f_comp
                 est = "⚠️ NO ENCONTRADA EN LIBRO"
             else:
-                # Prorrateo basado en el IVA real del Libro de Ventas
+                # Datos desde GALAC
+                iva_galac = info_libro['iva']
+                # Cálculo de Prorrateo
                 factor = iva_origen_softland / total_iva_libro if total_iva_libro > 0 else 0
-                m_ret_galac = round(info_libro['iva'] * factor, 2)
+                m_ret_galac = round(iva_galac * factor, 2)
+                
+                # Porcentaje de retención real aplicado
+                porcentaje_ret = factor # Ejemplo: 0.75 o 1.00
+                
                 f_fac = info_libro['fecha'].strftime('%d/%m/%Y')
                 est = "GENERADO OK"
 
-            # 1. Línea para el archivo TXT (Formato Galac)
-            linea = f"FAC\t{f_txt}\t0\t{comprobante}\t{m_ret_galac:.2f}\t{f_comp}\t{f_fac}"
-            filas_txt.append(linea)
+            filas_txt.append(f"FAC\t{f_txt}\t0\t{comprobante}\t{m_ret_galac:.2f}\t{f_comp}\t{f_fac}")
             
-            # 2. Diccionario para el reporte de Excel (Auditoría)
             audit.append({
                 'Estatus': est,
                 'Rif Origen Softland': rif_softland,
@@ -3417,6 +3412,8 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
                 'Comprobante': comprobante,
                 'Factura': f_txt,
                 'IVA Origen Softland': iva_origen_softland,
+                'IVA GALAC (Base)': iva_galac,
+                '% Retención': porcentaje_ret,
                 'Monto Retenido GALAC': m_ret_galac,
                 'Referencia Original': ref
             })
