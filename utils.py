@@ -1425,36 +1425,36 @@ def generar_reporte_imprenta(df_resultado):
     return output.getvalue()
 
 def generar_reporte_auditoria_txt(df_audit):
-    """Excel para Generación (Pestaña 2)."""
+    """Excel para Generación de Imprenta con formato de moneda en nuevas columnas."""
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         df_audit.to_excel(writer, index=False, sheet_name='Auditoria')
         workbook = writer.book
         ws = writer.sheets['Auditoria']
         
-        header = workbook.add_format({'bold': True, 'fg_color': '#D9EAD3', 'border': 1})
-        money = workbook.add_format({'num_format': '#,##0.00'})
-        pct = workbook.add_format({'num_format': '0.0%'})
-        red = workbook.add_format({'bg_color': '#FFC7CE'})
-        green = workbook.add_format({'bg_color': '#C6EFCE'})
+        # Estilos
+        header_fmt = workbook.add_format({'bold': True, 'fg_color': '#D9EAD3', 'border': 1})
+        money_fmt = workbook.add_format({'num_format': '#,##0.00'})
+        red_fmt = workbook.add_format({'bg_color': '#FFC7CE'})
+        green_fmt = workbook.add_format({'bg_color': '#C6EFCE'})
         
+        # Aplicar formatos
         for idx, col in enumerate(df_audit.columns):
-            ws.write(0, idx, col, header)
+            ws.write(0, idx, col, header_fmt)
             
-        for r_idx, row in df_audit.iterrows():
-            fmt = green if 'OK' in str(row['Estatus']) else red
-            ws.write(r_idx+1, 0, row['Estatus'], fmt)
-            
-            for c_idx, col in enumerate(df_audit.columns):
-                if c_idx == 0: continue
-                val = row[col]
-                if pd.isna(val): val = ""
-                
-                c_fmt = None
-                if col in ['Monto Retenido', 'Base IVA (Galac)', 'Monto Softland']: c_fmt = money
-                elif col == '% Calc': c_fmt = pct
-                
-                ws.write(r_idx+1, c_idx, val, c_fmt)
+            # Anchos de columna inteligentes
+            if 'Nombre' in col: ws.set_column(idx, idx, 40)
+            elif 'Referencia' in col: ws.set_column(idx, idx, 35)
+            else: ws.set_column(idx, idx, 18)
+
+            # Formato de Moneda para las columnas de montos
+            if col in ['IVA Origen Softland', 'Monto Retenido GALAC']:
+                ws.set_column(idx, idx, 18, money_fmt)
         
-        ws.set_column('A:M', 18)
+        # Color en la columna Estatus
+        for r_idx, row in df_audit.iterrows():
+            status = str(row['Estatus'])
+            fmt = green_fmt if 'OK' in status else red_fmt
+            ws.write(r_idx + 1, 0, status, fmt)
+            
     return output.getvalue()
