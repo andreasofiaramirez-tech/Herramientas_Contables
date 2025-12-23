@@ -33,7 +33,6 @@ from logic import (
     run_conciliation_cdc_factoring,
     run_conciliation_asientos_por_clasificar,
     run_conciliation_deudores_empleados_me,
-    run_conciliation_deudores_empleados_bs,
     run_analysis_paquete_cc,
     run_cuadre_cb_cg,
     validar_coincidencia_empresa,
