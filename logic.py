@@ -3324,11 +3324,17 @@ def indexar_libro_ventas(file_libro, log_messages):
         return {}
 
 def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
-    """Genera TXT y Reporte Excel."""
+    """
+    Genera TXT cruzando Softland y Libro de Ventas.
+    CORRECCIÓN: Prioriza errores de Existencia (Factura no hallada) sobre errores Matemáticos.
+    Agrega validación de RIF cruzado.
+    """
     log_messages.append("--- INICIANDO GENERACIÓN DE TXT ---")
+    
     db_ventas = indexar_libro_ventas(file_libro, log_messages)
     if not db_ventas: return [], None
 
+    # Detectar periodo del libro
     periodo_actual = "999999"
     try:
         fechas = [v['fecha_factura'] for k, v in db_ventas.items() if pd.notna(v['fecha_factura'])]
@@ -3346,15 +3352,9 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
         col_monto = next((c for c in df_soft.columns if 'DÉBITO' in c or 'DEBITO' in c), None)
         if not col_monto: col_monto = next((c for c in df_soft.columns if 'CRÉDITO' in c or 'CREDITO' in c), None)
         
-        # Búsqueda Jerárquica RIF
         col_rif_soft = next((c for c in df_soft.columns if any(k in c for k in ['RIF', 'NIT', 'I.D', 'CEDULA'])), None)
-        
-        # Búsqueda Jerárquica NOMBRE
-        col_nom_soft = None
-        for cand in ['DESCRIPCIÓN NIT', 'DESCRIPCION NIT', 'NOMBRE PROVEEDOR', 'NOMBRE']:
-            found = next((c for c in df_soft.columns if cand in c), None)
-            if found: col_nom_soft = found; break
-            
+        col_nom_soft = next((c for c in df_soft.columns if any(k in c for k in ['NOMBRE', 'CLIENTE', 'TERCERO'])), None)
+
         if not col_ref or not col_monto:
             log_messages.append("❌ Error: Faltan columnas Referencia o Monto en Softland.")
             return [], None
@@ -3365,6 +3365,7 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
     filas_txt = []
     reporte_excel = []
     
+    # Helper para crear filas uniformes
     def crear_fila(estatus, mensaje, rif, nombre, comp, fac="", f_fac="", f_comp="", base=0.0, pct=0.0, m_ret=0.0, ref_orig="", m_soft=0.0):
         return {
             'Estatus': estatus, 'Mensaje': mensaje, 'RIF': rif, 'Nombre': nombre,
@@ -3372,81 +3373,142 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
             'Base IVA (Galac)': base, '% Calc': pct, 'Monto Retenido': m_ret,
             'Referencia Original': ref_orig, 'Monto Softland': m_soft
         }
-
+    
     for idx, row in df_soft.iterrows():
         referencia = str(row[col_ref]).strip()
         try: monto_total_ret = float(row[col_monto])
         except: monto_total_ret = 0.0
         
         rif_c = str(row[col_rif_soft]).strip() if col_rif_soft else "ND"
-        if rif_c.lower() == 'nan': rif_c = "ND"
         nom_c = str(row[col_nom_soft]).strip() if col_nom_soft else "ND"
-        if nom_c.lower() == 'nan': nom_c = "ND"
+        
+        # Limpieza de RIF para comparación (quitar guiones y espacios)
+        rif_c_clean = re.sub(r'[^A-Z0-9]', '', rif_c.upper())
         
         if monto_total_ret <= 0 or not referencia: continue
         
+        # Parsing Referencia
         parts = [p.strip() for p in referencia.split('/')]
         if len(parts) < 2:
             comp_temp = re.sub(r'\D', '', parts[0])
-            msg = "Solo Comprobante" if len(comp_temp) > 10 else "Formato inválido"
+            msg = "Solo se detectó Comprobante" if len(comp_temp) > 10 else "Formato inválido (Falta /)"
             reporte_excel.append(crear_fila('FALTA INFO', msg, rif_c, nom_c, parts[0], "", "", "", 0, 0, 0, referencia, monto_total_ret))
             continue
             
         comprobante = re.sub(r'\D', '', parts[0])
+        
+        # Detección de Periodo Anterior
         periodo_comp = comprobante[:6] if len(comprobante) >= 6 else "000000"
-        is_anterior = periodo_comp < periodo_actual
+        es_periodo_anterior = periodo_comp < periodo_actual
         
         facturas_lista = []
         for f in parts[1:]:
             f_clean = re.sub(r'\D', '', f)
             if f_clean: facturas_lista.append(str(int(f_clean))) 
+            
         if not facturas_lista: continue
 
-        total_iva = 0.0; founds = []; missing = []
-        for f_num in facturas_lista:
-            if f_num in db_ventas:
-                info = db_ventas[f_num]
-                total_iva += info['monto_iva']
-                founds.append({'num': f_num, 'info': info, 'src': 'libro'})
-            else: missing.append(f_num)
-
-        if missing:
-            if is_anterior:
-                for f_miss in missing: founds.append({'num': f_miss, 'info': None, 'src': 'forced'})
+        # --- LÓGICA DE VALIDACIÓN Y CRUCE ---
+        total_iva_grupo = 0.0
+        facturas_encontradas = []
+        missing_facs = []
+        rif_mismatch = []
+        
+        for fac_num in facturas_lista:
+            # 1. VERIFICAR SI EXISTE EN EL LIBRO
+            if fac_num in db_ventas:
+                info = db_ventas[fac_num]
+                
+                # 2. VERIFICAR SI EL RIF COINCIDE (Opcional pero recomendado)
+                # Si en Softland dice RIF A y en Galac esa factura es del RIF B, es un error.
+                rif_libro = str(info.get('rif', '')).upper()
+                rif_libro_clean = re.sub(r'[^A-Z0-9]', '', rif_libro)
+                
+                # Validamos coincidencia solo si tenemos ambos RIFs y no son ND
+                # (Se puede comentar este bloque if si los RIFs en Softland vienen sucios)
+                if rif_c_clean and rif_libro_clean and len(rif_c_clean) > 4 and len(rif_libro_clean) > 4:
+                    if rif_c_clean != rif_libro_clean:
+                        rif_mismatch.append(f"{fac_num} (Es de {info.get('nombre')})")
+                
+                total_iva_grupo += info['monto_iva']
+                facturas_encontradas.append({'num': fac_num, 'info': info, 'origen': 'libro'})
             else:
-                reporte_excel.append(crear_fila('FACTURA NO ENCONTRADA', f"Faltan: {','.join(missing)}", rif_c, nom_c, comprobante, "", "", "", 0, 0, 0, referencia, monto_total_ret))
-                continue
+                missing_facs.append(fac_num)
 
-        has_forced = any(i['src'] == 'forced' for i in founds)
-        if has_forced:
-            m_ind = monto_total_ret / len(founds)
-            for item in founds:
-                nro = item['num'].zfill(10)
-                try: f_comp = pd.to_datetime(row[col_fecha]).strftime('%d/%m/%Y')
-                except: f_comp = ""
-                linea = f"FAC\t{nro}\t0\t{comprobante}\t{m_ind:.2f}\t{f_comp}\t{f_comp}"
-                filas_txt.append(linea)
-                reporte_excel.append(crear_fila('OK - PERIODO ANTERIOR', 'Extemporáneo', rif_c, nom_c, comprobante, nro, f_comp, f_comp, 0, 0, m_ind, referencia, monto_total_ret))
-        else:
-            if total_iva == 0:
-                reporte_excel.append(crear_fila('ERROR MATEMATICO', 'IVA 0.00', rif_c, nom_c, comprobante, "", "", "", 0, 0, 0, referencia, monto_total_ret))
+        # PRIORIDAD 1: FACTURAS NO ENCONTRADAS
+        if missing_facs:
+            if es_periodo_anterior:
+                # Si es anterior, permitimos que falten (se forzan)
+                for f_miss in missing_facs:
+                    facturas_encontradas.append({'num': f_miss, 'info': None, 'origen': 'forzado'})
+            else:
+                # Si es mes actual, ES UN ERROR BLOQUEANTE
+                reporte_excel.append(crear_fila(
+                    'FACTURA NO ENCONTRADA', 
+                    f"Las facturas {', '.join(missing_facs)} NO están en el Libro de Ventas.", 
+                    rif_c, nom_c, comprobante, "", "", "", 0, 0, 0, referencia, monto_total_ret
+                ))
                 continue
-            factor = monto_total_ret / total_iva
-            note = "⚠️ Revisar %" if (factor > 1.01 or factor < 0.70) else "OK"
-            for item in founds:
-                iva_ind = item['info']['monto_iva']
-                ret_ind = round(iva_ind * factor, 2)
-                r_final = item['info'].get('rif', rif_c) if item['info'] else rif_c
-                n_final = item['info'].get('nombre', nom_c) if item['info'] else nom_c
+        
+        # PRIORIDAD 2: RIF INCORRECTO (Si se activó la lógica)
+        if rif_mismatch:
+             reporte_excel.append(crear_fila(
+                'ERROR DE RIF', 
+                f"Facturas pertenecen a otro cliente en Galac: {', '.join(rif_mismatch)}", 
+                rif_c, nom_c, comprobante, "", "", "", 0, 0, 0, referencia, monto_total_ret
+            ))
+             continue
+
+        # CÁLCULO DE MONTOS
+        hay_forzadas = any(item['origen'] == 'forzado' for item in facturas_encontradas)
+        
+        if hay_forzadas:
+            # Distribución equitativa (Periodo anterior)
+            monto_individual = monto_total_ret / len(facturas_encontradas)
+            for item in facturas_encontradas:
+                nro_factura = item['num'].zfill(10)
+                try: f_comp_str = pd.to_datetime(row[col_fecha]).strftime('%d/%m/%Y')
+                except: f_comp_str = ""
+                
+                linea = f"FAC\t{nro_factura}\t0\t{comprobante}\t{monto_individual:.2f}\t{f_comp_str}\t{f_comp_str}"
+                filas_txt.append(linea)
+                reporte_excel.append(crear_fila('OK - PERIODO ANTERIOR', 'Extemporáneo (Sin datos base)', rif_c, nom_c, comprobante, nro_factura, f_comp_str, f_comp_str, 0.0, 0.0, monto_individual, referencia, monto_total_ret))
+        else:
+            # PRIORIDAD 3: ERROR MATEMÁTICO (Base Cero)
+            if total_iva_grupo == 0:
+                reporte_excel.append(crear_fila(
+                    'ERROR BASE IMPONIBLE', 
+                    'Las facturas existen pero su Impuesto IVA en Galac es 0.00', 
+                    rif_c, nom_c, comprobante, "", "", "", 0, 0, 0, referencia, monto_total_ret
+                ))
+                continue
+            
+            # Distribución Real
+            factor = monto_total_ret / total_iva_grupo
+            nota_factor = "⚠️ Revisar %" if (factor > 1.01 or factor < 0.70) else "OK"
+            
+            for item in facturas_encontradas:
+                iva_factura = item['info']['monto_iva']
+                ret_individual = round(iva_factura * factor, 2)
+                
+                # Datos de Libro (Más precisos)
+                rif_final = item['info'].get('rif', rif_c)
+                nom_final = item['info'].get('nombre', nom_c)
+                
                 try:
                     f_fac = pd.to_datetime(item['info']['fecha_factura']).strftime('%d/%m/%Y')
                     f_comp = pd.to_datetime(row[col_fecha]).strftime('%d/%m/%Y')
                 except: f_fac=""; f_comp=""
-                nro = item['num'].zfill(10)
-                filas_txt.append(f"FAC\t{nro}\t0\t{comprobante}\t{ret_ind:.2f}\t{f_comp}\t{f_fac}")
-                reporte_excel.append(crear_fila('GENERADO OK', note, r_final, n_final, comprobante, nro, f_fac, f_comp, iva_ind, factor, ret_ind, referencia, monto_total_ret))
+                
+                nro_factura = item['num'].zfill(10)
+                linea = f"FAC\t{nro_factura}\t0\t{comprobante}\t{ret_individual:.2f}\t{f_comp}\t{f_fac}"
+                filas_txt.append(linea)
+                
+                reporte_excel.append(crear_fila('GENERADO OK', nota_factor, rif_final, nom_final, comprobante, nro_factura, f_fac, f_comp, iva_factura, factor, ret_individual, referencia, monto_total_ret))
 
-    cols = ['Estatus', 'Mensaje', 'RIF', 'Nombre', 'Comprobante', 'Factura', 'Fecha Factura', 'Fecha Comprobante', 'Base IVA (Galac)', '% Calc', 'Monto Retenido', 'Referencia Original', 'Monto Softland']
-    df_fin = pd.DataFrame(reporte_excel)
-    if not df_fin.empty: df_fin = df_fin.reindex(columns=cols)
-    return filas_txt, df_fin
+    # Ordenar y Retornar
+    cols_order = ['Estatus', 'Mensaje', 'RIF', 'Nombre', 'Comprobante', 'Factura', 'Fecha Factura', 'Fecha Comprobante', 'Base IVA (Galac)', '% Calc', 'Monto Retenido', 'Referencia Original', 'Monto Softland']
+    df_final = pd.DataFrame(reporte_excel)
+    if not df_final.empty: df_final = df_final.reindex(columns=cols_order)
+
+    return filas_txt, df_final
