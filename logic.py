@@ -3273,7 +3273,7 @@ def limpiar_string_factura(txt):
     return str(int(num)) if num else ""
     
 def indexar_libro_ventas(file_libro, log_messages):
-    """Indexa el Libro de Ventas detectando periodos y retenciones ya registradas."""
+    """Versión Pro: Limpieza inteligente de montos y detección de comprobantes."""
     db_ventas = {}
     periodo_final = "000000"
     
@@ -3287,8 +3287,7 @@ def indexar_libro_ventas(file_libro, log_messages):
             if "DEL" in fila_txt and "AL" in fila_txt:
                 match_fecha = re.findall(r'(\d{2}/\d{2}/\d{4})', fila_txt)
                 if match_fecha:
-                    fecha_dt = pd.to_datetime(match_fecha[0], dayfirst=True)
-                    periodo_final = fecha_dt.strftime('%Y%m')
+                    periodo_final = pd.to_datetime(match_fecha[0], dayfirst=True).strftime('%Y%m')
                     log_messages.append(f"🎯 PERIODO DEL LIBRO: {periodo_final}")
                     break
 
@@ -3305,14 +3304,26 @@ def indexar_libro_ventas(file_libro, log_messages):
         df = pd.read_excel(file_libro, header=header_idx)
         df.columns = [str(c).strip().upper() for c in df.columns]
         
-        # Mapeo de columnas (Incluyendo la de Comprobante ya registrado)
-        col_fac = next((c for c in df.columns if 'N' in c and 'FACTURA' in c), None)
-        col_iva = next((c for c in df.columns if 'IMPUESTO IVA G' in c) or (c for c in df.columns if 'IVA RETENIDO' in c), None)
-        col_fecha = next((c for c in df.columns if 'FECHA' in c and 'FACTURA' in c), None)
-        # Identificar columna de comprobante de retención ya existente
-        col_comp_existente = next((c for c in df.columns if 'NUMERO COMPROBANTE RETENCION' in c or 'Nº COMPROBANTE RETENCION' in c), None)
+        # Identificar columnas con nombres exactos del Libro de Ventas Galac
+        col_fac = next((c for c in df.columns if 'N DE FACTURA' in c or 'Nº FACTURA' in c), None)
+        col_iva = next((c for c in df.columns if 'IMPUESTO IVA G' in c or 'IVA RETENIDO' in c), None)
+        col_fecha = next((c for c in df.columns if 'FECHA FACTURA' in c), None)
+        col_comp_existente = next((c for c in df.columns if 'NUMERO COMPROBANTE RETENCION' in c or 'NUMERO COMPROBANTE RETENCI' in c), None)
 
-        # 3. LLENADO DE MEMORIA
+        # 3. FUNCIÓN INTERNA DE LIMPIEZA INTELIGENTE
+        def safe_float(valor):
+            if pd.isna(valor) or str(valor).strip() == "": return 0.0
+            if isinstance(valor, (int, float)): return float(valor)
+            # Si es texto, limpiar formato latino (1.234,56)
+            t = str(valor).strip()
+            if ',' in t and '.' in t:
+                if t.rfind(',') > t.rfind('.'): t = t.replace('.', '').replace(',', '.')
+                else: t = t.replace(',', '')
+            elif ',' in t: t = t.replace(',', '.')
+            try: return float(t)
+            except: return 0.0
+
+        # 4. LLENADO DE MEMORIA
         for _, row in df.iterrows():
             f_raw = row.get(col_fac)
             if pd.isna(f_raw): continue
@@ -3321,32 +3332,29 @@ def indexar_libro_ventas(file_libro, log_messages):
             if f_key:
                 f_key = str(int(f_key))
                 
-                # Capturar si ya existe un comprobante (limpiando espacios)
-                comp_existente = str(row.get(col_comp_existente, "")).strip()
-                if comp_existente in ["nan", "None", "0", "0.0", ""]:
-                    comp_existente = None
-
-                # Limpieza robusta de montos (para evitar los ceros infinitos)
-                monto_raw = str(row.get(col_iva, 0)).replace('.', '').replace(',', '.')
-                try:
-                    iva_limpio = float(monto_raw)
-                except:
-                    iva_limpio = 0.0
+                # Detectar comprobante ya registrado
+                c_reg = row.get(col_comp_existente)
+                # Si el valor es numérico o texto con números, es un comprobante válido
+                if pd.notna(c_reg) and re.sub(r'\D', '', str(c_reg)) != "":
+                    comp_val = str(c_reg).strip()
+                else:
+                    comp_val = None
 
                 db_ventas[f_key] = {
                     'fecha': pd.to_datetime(row.get(col_fecha), dayfirst=True, errors='coerce'),
-                    'iva': iva_limpio,
-                    'comp_ya_registrado': comp_existente
+                    'iva': safe_float(row.get(col_iva)),
+                    'comp_ya_registrado': comp_val
                 }
         
+        log_messages.append(f"✅ Libro indexado correctamente ({len(db_ventas)} registros).")
         return db_ventas, periodo_final
 
     except Exception as e:
-        log_messages.append(f"❌ Error Indexando: {str(e)}")
+        log_messages.append(f"❌ Error Crítico: {str(e)}")
         return {}, "000000"
 
 def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
-    """Generador de TXT con filtro de retenciones ya registradas en GALAC."""
+    """Generador de TXT con protección contra duplicados y montos corregidos."""
     db_ventas, periodo_libro = indexar_libro_ventas(file_libro, log_messages)
     
     try:
@@ -3366,72 +3374,68 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
         ref = str(row.get(col_ref, "")).strip()
         if not ref or "/" not in ref: continue
         
-        iva_origen_softland = float(str(row.get(col_monto, 0)).replace(',', '.'))
-        if iva_origen_softland <= 0: continue
+        # Limpieza del monto de Softland
+        def clean_soft_monto(val):
+            if isinstance(val, (int, float)): return float(val)
+            return float(str(val).replace(',', '.')) if val else 0.0
 
-        rif_softland = str(row.get(col_rif_s, "ND")).strip()
-        nombre_softland = str(row.get(col_nom_s, "ND")).strip()
+        iva_soft = clean_soft_monto(row.get(col_monto))
+        if iva_soft <= 0: continue
+
         comprobante = re.sub(r'\D', '', ref.split('/')[0])
-        periodo_voucher = comprobante[:6]
+        p_voucher = comprobante[:6]
+        es_anterior = (p_voucher < periodo_libro) if periodo_libro != "000000" else False
         
-        if periodo_libro == "000000" or periodo_voucher == periodo_libro:
-            es_anterior = False
-        else:
-            es_anterior = periodo_voucher < periodo_libro
+        # Ignorar si es el mismo periodo pero el comprobante del libro es distinto al que queremos generar
+        # (Esto es opcional, pero ayuda a la lógica de duplicados)
         
-        facturas_soft = [re.sub(r'\D', '', f) for f in ref.split('/')[1:]]
-        facturas_soft = [str(int(f)) for f in facturas_soft if f]
+        f_nums = [str(int(re.sub(r'\D', '', f))) for f in ref.split('/')[1:] if re.sub(r'\D', '', f)]
+        encontradas = [db_ventas.get(fn) for fn in f_nums]
+        total_iva_galac = sum(f['iva'] for f in encontradas if f)
         
-        encontradas = [db_ventas.get(f) for f in facturas_soft]
-        total_iva_libro = sum(f['iva'] for f in encontradas if f)
-        
-        for i, f_num in enumerate(facturas_soft):
-            f_txt = f_num.zfill(10)
-            f_comp = pd.to_datetime(row[col_fecha]).strftime('%d/%m/%Y')
-            info_libro = encontradas[i]
+        for i, f_n in enumerate(f_nums):
+            f_txt = f_n.zfill(10)
+            f_c = pd.to_datetime(row[col_fecha]).strftime('%d/%m/%Y')
+            info = encontradas[i]
             
-            iva_galac = 0.0
-            porcentaje_ret = 0.0
+            iva_g = 0.0
+            p_ret = 0.0
             ya_existe = False
 
             if es_anterior:
-                m_ret_galac = iva_origen_softland / len(facturas_soft)
-                f_fac = f_comp
+                m_ret = iva_soft / len(f_nums)
+                f_f = f_c
                 est = "OK - PERIODO ANTERIOR"
-            elif info_libro is None:
-                m_ret_galac = iva_origen_softland / len(facturas_soft)
-                f_fac = f_comp
+            elif info is None:
+                m_ret = iva_soft / len(f_nums)
+                f_f = f_c
                 est = "⚠️ NO ENCONTRADA EN LIBRO"
             else:
-                iva_galac = info_libro['iva']
-                # VERIFICACIÓN DE RETENCIÓN YA REGISTRADA
-                if info_libro.get('comp_ya_registrado'):
-                    est = f"🚫 RETENCIÓN YA REGISTRADA ({info_libro['comp_ya_registrado']})"
+                iva_g = info['iva']
+                if info.get('comp_ya_registrado'):
+                    est = f"🚫 YA REGISTRADA ({info['comp_ya_registrado']})"
                     ya_existe = True
-                    m_ret_galac = iva_origen_softland / len(facturas_soft) # Solo informativo para el Excel
+                    m_ret = iva_soft / len(f_nums) # Informativo
                 else:
-                    factor = iva_origen_softland / total_iva_libro if total_iva_libro > 0 else 0
-                    m_ret_galac = round(iva_galac * factor, 2)
-                    porcentaje_ret = factor
+                    factor = iva_soft / total_iva_galac if total_iva_galac > 0 else 0
+                    m_ret = round(iva_g * factor, 2)
+                    p_ret = factor
                     est = "GENERADO OK"
-                
-                f_fac = info_libro['fecha'].strftime('%d/%m/%Y')
+                f_f = info['fecha'].strftime('%d/%m/%Y')
 
-            # SOLO agregar al TXT si no existe previamente en GALAC
             if not ya_existe:
-                linea = f"FAC\t{f_txt}\t0\t{comprobante}\t{m_ret_galac:.2f}\t{f_comp}\t{f_fac}"
-                filas_txt.append(linea)
+                filas_txt.append(f"FAC\t{f_txt}\t0\t{comprobante}\t{m_ret:.2f}\t{f_c}\t{f_f}")
             
             audit.append({
                 'Estatus': est,
-                'Rif Origen Softland': rif_softland,
-                'Nombre proveedor Origen Softland': nombre_softland,
+                'Rif Origen Softland': row.get(col_rif_s, "ND"),
+                'Nombre proveedor Origen Softland': row.get(col_nom_s, "ND"),
                 'Comprobante': comprobante,
                 'Factura': f_txt,
-                'IVA Origen Softland': iva_origen_softland,
-                'IVA GALAC (Base)': iva_galac,
-                '% Retención': porcentaje_ret,
-                'Monto Retenido GALAC': m_ret_galac,
+                'IVA Origen Softland': iva_soft,
+                'IVA GALAC (Base)': iva_g,
+                '% Retención': p_ret,
+                'Monto Retenido GALAC': m_ret,
                 'Referencia Original': ref
             })
 
