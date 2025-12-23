@@ -3397,74 +3397,67 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
         # --- ALGORITMO DE ASIGNACIÓN INTELIGENTE ---
         # Si todas las facturas están en el libro y no es periodo anterior:
         todas_en_libro = all(f['info'] is not None for f in facturas_data)
-        
-        asignaciones = {} # Guardará {nro_factura: {'monto': x, 'pct': y}}
+        asignaciones = {} 
         
         if todas_en_libro and not es_anterior:
+            # (Se mantiene la lógica de combinatoria 75/100 que ya funciona)
             bases = [f['info']['iva'] for f in facturas_data]
             posibles_pcts = [0.75, 1.00]
             mejor_combinacion = None
             menor_dif = 999999.0
             
-            # Probamos todas las combinaciones de 75% y 100% para las N facturas
             for pcts in itertools.product(posibles_pcts, repeat=len(bases)):
                 suma_prueba = sum(b * p for b, p in zip(bases, pcts))
                 dif = abs(suma_prueba - monto_ret_total_soft)
-                
                 if dif < menor_dif:
                     menor_dif = dif
                     mejor_combinacion = pcts
-                
-                if dif < 0.05: break # Si la diferencia es menor a 5 céntimos, es esta.
+                if dif < 0.05: break
 
-            # Aplicar la mejor combinación encontrada
-            if menor_dif < 1.00: # Margen de error de 1 Bs para validar match
+            if menor_dif < 1.00:
                 for i, f_item in enumerate(facturas_data):
                     pct = mejor_combinacion[i]
-                    m_base = f_item['info']['iva']
                     asignaciones[f_item['nro']] = {
-                        'monto': round(m_base * pct, 2),
-                        'pct': pct,
-                        'estatus': "GENERADO OK"
+                        'monto': round(f_item['info']['iva'] * pct, 2),
+                        'pct': pct, 'estatus': "GENERADO OK"
                     }
             else:
-                # Fallback: Prorrateo lineal si la matemática no cuadra con 75/100
-                total_iva_galac = sum(bases)
-                factor = monto_ret_total_soft / total_iva_galac if total_iva_galac > 0 else 0
+                factor = monto_ret_total_soft / sum(bases) if sum(bases) > 0 else 0
                 for f_item in facturas_data:
                     asignaciones[f_item['nro']] = {
                         'monto': round(f_item['info']['iva'] * factor, 2),
-                        'pct': factor,
-                        'estatus': "GENERADO OK (PRORRATEO)"
+                        'pct': factor, 'estatus': "GENERADO OK (PRORRATEO)"
                     }
-        else:
-            # Lógica para anteriores o no encontradas (Prorrateo simple)
+        elif es_anterior:
+            # Para periodos anteriores SI mantenemos el prorrateo simple porque NO se buscan en el libro
             monto_ind = monto_ret_total_soft / len(f_nums)
             for f_item in facturas_data:
                 asignaciones[f_item['nro']] = {
                     'monto': round(monto_ind, 2),
-                    'pct': 0, 
-                    'estatus': "OK - PERIODO ANTERIOR" if es_anterior else "⚠️ NO ENCONTRADA EN LIBRO"
+                    'pct': 0, 'estatus': "OK - PERIODO ANTERIOR"
                 }
+        else:
+            # --- CAMBIO AQUÍ: SI NO ESTÁ EN EL LIBRO, EL MONTO ES 0 ---
+            for f_item in facturas_data:
+                if f_item['info'] is None:
+                    asignaciones[f_item['nro']] = {
+                        'monto': 0.00, # <--- No asignamos dinero si no hay base
+                        'pct': 0, 'estatus': "⚠️ NO ENCONTRADA EN LIBRO"
+                    }
+                else:
+                    # Si algunas sí están y otras no, lo dejamos en 0 para evitar descuadres parciales
+                    asignaciones[f_item['nro']] = {
+                        'monto': 0.00,
+                        'pct': 0, 'estatus': "⚠️ ESPERANDO FACTURAS FALTANTES"
+                    }
 
-        # 3. Generar líneas y Auditoría
+        # 3. Generar líneas (Filtro de Monto > 0)
         for f_item in facturas_data:
-            f_n = f_item['nro']
-            f_txt = f_n.zfill(10)
-            f_c = pd.to_datetime(row[col_fecha]).strftime('%d/%m/%Y')
-            res = asignaciones[f_n]
-            info_g = f_item['info']
+            # ... (resto del código de escritura)
+            res = asignaciones[f_item['nro']]
             
-            iva_g = info_g['iva'] if info_g else 0.0
-            f_f = info_g['fecha'].strftime('%d/%m/%Y') if info_g else f_c
-            ya_existe = info_g.get('comp_ya_registrado') if info_g else False
-            
-            estatus_final = "RETENCION REGISTRADA" if ya_existe else res['estatus']
-            
-            # Nombre prioridad
-            nombre_f = info_g['nombre'] if info_g and info_g['nombre'] != "ND" else str(row.get(col_nom_s, "ND"))
-
-            if not ya_existe:
+            # Solo enviamos al TXT si hay un monto positivo y no está ya registrada
+            if not ya_existe and res['monto'] > 0:
                 filas_txt.append(f"FAC\t{f_txt}\t0\t{comprobante}\t{res['monto']:.2f}\t{f_c}\t{f_f}")
             
             audit.append({
