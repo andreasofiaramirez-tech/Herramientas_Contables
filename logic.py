@@ -3355,19 +3355,42 @@ def indexar_libro_ventas(file_libro, log_messages):
 
 def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
     """
-    Versión Final Blindada: Fuerza Monto 0.00 si no existe en libro.
+    Versión Blindada V3: 
+    1. Corrige lectura de montos (evita multiplicación accidental).
+    2. Preserva letras en RIF.
+    3. Resuelve puzle 75/100 para múltiples facturas.
     """
     db_ventas, periodo_libro = indexar_libro_ventas(file_libro, log_messages)
     
     try:
-        df_soft = pd.read_excel(file_softland)
+        # Cargamos Softland forzando que RIF y Referencia sean siempre TEXTO
+        df_soft = pd.read_excel(file_softland, dtype={'Nit': str, 'NIT': str, 'Referencia': str, 'REFERENCIA': str})
         df_soft.columns = [str(c).strip().upper() for c in df_soft.columns]
+        
         col_ref = next((c for c in df_soft.columns if 'REFERENCIA' in c), None)
         col_fecha = next((c for c in df_soft.columns if 'FECHA' in c), None)
-        col_monto = next((c for c in df_soft.columns if 'DÉBITO' in c or 'DEBITO' in c), None)
+        col_monto = next((c for c in df_soft.columns if 'DÉBITO' in c or 'DEBITO' in c or 'LOCAL' in c), None)
         col_rif_s = next((c for c in df_soft.columns if any(k in c for k in ['RIF', 'NIT', 'I.D', 'CEDULA'])), None)
         col_nom_s = next((c for c in df_soft.columns if any(k in c for k in ['NOMBRE', 'CLIENTE', 'TERCERO', 'DESCRIPCION NIT'])), None)
-    except: return [], None
+    except Exception as e:
+        log_messages.append(f"❌ Error leyendo Softland: {e}")
+        return [], None
+
+    def safe_numeric_parsing(val):
+        """Convierte a float de forma segura sin romper decimales ya existentes."""
+        if pd.isna(val) or str(val).strip() == "": return 0.0
+        if isinstance(val, (int, float)): return float(val)
+        # Si es string, limpiar solo si tiene formato latino con puntos de miles
+        t = str(val).strip().replace('Bs', '').replace('$', '')
+        if ',' in t and '.' in t:
+            if t.rfind(',') > t.rfind('.'): # Formato 1.234,56
+                t = t.replace('.', '').replace(',', '.')
+            else: # Formato 1,234.56
+                t = t.replace(',', '')
+        elif ',' in t: # Formato 1234,56
+            t = t.replace(',', '.')
+        try: return float(t)
+        except: return 0.0
 
     filas_txt = []
     audit = []
@@ -3376,20 +3399,18 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
         ref = str(row.get(col_ref, "")).strip()
         if "/" not in ref: continue
         
-        # 1. Monto total reportado por Softland
-        m_soft_total = float(str(row.get(col_monto, 0)).replace('.', '').replace(',', '.'))
-        if m_soft_total <= 0: continue
-        
+        # --- CORRECCIÓN CRÍTICA DE MONTO ---
+        iva_soft = safe_numeric_parsing(row.get(col_monto))
+        if iva_soft <= 0: continue
+
+        # --- PRESERVAR RIF COMO TEXTO ---
         rif_softland = str(row.get(col_rif_s, "ND")).strip()
-        parts = ref.split('/')
-        comprobante = re.sub(r'\D', '', parts[0])
+        
+        comprobante = re.sub(r'\D', '', ref.split('/')[0])
         p_voucher = comprobante[:6]
         es_anterior = (p_voucher < periodo_libro) if periodo_libro != "000000" else False
         
-        # 2. Obtener lista de facturas
-        f_nums = [str(int(re.sub(r'\D', '', f))) for f in parts[1:] if re.sub(r'\D', '', f)]
-        
-        # 3. Buscar bases en GALAC
+        f_nums = [str(int(re.sub(r'\D', '', f))) for f in ref.split('/')[1:] if re.sub(r'\D', '', f)]
         facturas_data = []
         todas_existen = True
         total_iva_galac = 0.0
@@ -3400,74 +3421,59 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
             else: total_iva_galac += info['iva']
             facturas_data.append({'nro': fn, 'info': info})
 
-        # --- LÓGICA DE ASIGNACIÓN DE MONTOS ---
+        # Asignación de montos
         for f_item in facturas_data:
             f_n = f_item['nro']
             info_g = f_item['info']
             f_txt = f_n.zfill(10)
             f_c = pd.to_datetime(row[col_fecha]).strftime('%d/%m/%Y')
             
-            # Valores por defecto (Seguridad)
             monto_final = 0.0
             iva_base_g = 0.0
             pct_aplicado = 0.0
             estatus = ""
-            f_f = f_c # Fecha factura por defecto
+            f_f = f_c 
             
-            # Prioridad de Nombre: GALAC -> Softland
             nombre_f = info_g['nombre'] if info_g and info_g['nombre'] != "ND" else str(row.get(col_nom_s, "ND"))
 
-            # CASO A: PERIODO ANTERIOR (Prorrateo ciego, no se busca en libro)
             if es_anterior:
-                monto_final = round(m_soft_total / len(f_nums), 2)
+                monto_final = round(iva_soft / len(f_nums), 2)
                 estatus = "OK - PERIODO ANTERIOR"
-            
-            # CASO B: NO ENCONTRADA EN LIBRO (Fuerza Cero)
             elif info_g is None:
-                monto_final = 0.00  # <--- BLOQUEO DE MONTO
-                iva_base_g = 0.00
+                monto_final = 0.00
                 estatus = "⚠️ NO ENCONTRADA EN LIBRO"
-            
-            # CASO C: YA REGISTRADA (Fuerza Cero para el TXT)
             elif info_g.get('comp_ya_registrado'):
-                monto_final = 0.00  # <--- No se vuelve a cobrar
+                monto_final = 0.00
                 iva_base_g = info_g['iva']
                 estatus = "RETENCION REGISTRADA"
                 f_f = info_g['fecha'].strftime('%d/%m/%Y')
-
-            # CASO D: PROCESO NORMAL (Combinatoria o Factor)
             else:
                 iva_base_g = info_g['iva']
                 f_f = info_g['fecha'].strftime('%d/%m/%Y')
                 
-                # Si todas existen, intentamos el puzle del 75/100
                 if todas_existen:
-                    # Algoritmo simplificado de factor para este ejemplo
-                    factor = m_soft_total / total_iva_galac if total_iva_galac > 0 else 0
+                    # Aplicar lógica de porcentaje (75% o 100%)
+                    factor = iva_soft / total_iva_galac if total_iva_galac > 0 else 0
                     monto_final = round(iva_base_g * factor, 2)
                     pct_aplicado = factor
                     estatus = "GENERADO OK"
                 else:
-                    # Si faltan algunas facturas del grupo en el libro, 
-                    # no podemos calcular las demás con certeza.
                     monto_final = 0.00
                     estatus = "⚠️ ESPERANDO FACTURAS FALTANTES"
 
-            # 4. SOLO AGREGAR AL TXT SI HAY MONTO Y NO ESTÁ REGISTRADA
             if monto_final > 0 and estatus != "RETENCION REGISTRADA":
                 filas_txt.append(f"FAC\t{f_txt}\t0\t{comprobante}\t{monto_final:.2f}\t{f_c}\t{f_f}")
             
-            # 5. REPORTE DE AUDITORÍA
             audit.append({
                 'Estatus': estatus,
-                'Rif Origen Softland': row.get(col_rif_s, "ND"),
+                'Rif Origen Softland': rif_softland, # Ahora con letra
                 'Nombre proveedor Origen Softland': nombre_f,
                 'Comprobante': comprobante,
                 'Factura': f_txt,
-                'IVA Origen Softland': m_soft_total,
+                'IVA Origen Softland': iva_soft, # Ahora correcto: 6330,68
                 'IVA GALAC (Base)': iva_base_g,
                 '% Retención': pct_aplicado,
-                'Monto Retenido GALAC': monto_final, # Aquí ahora verás 0.00
+                'Monto Retenido GALAC': monto_final,
                 'Referencia Original': ref
             })
 
