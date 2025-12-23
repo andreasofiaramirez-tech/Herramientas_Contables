@@ -3271,8 +3271,9 @@ def limpiar_string_factura(txt):
     # Quitar cualquier letra o caracter no numérico y luego ceros iniciales
     num = re.sub(r'\D', '', str(txt))
     return str(int(num)) if num else ""
+    
 def indexar_libro_ventas(file_libro, log_messages):
-    """Indexa el Libro de Ventas y detecta el periodo de transacciones."""
+    """Indexa el Libro de Ventas detectando periodos y retenciones ya registradas."""
     db_ventas = {}
     periodo_final = "000000"
     
@@ -3280,19 +3281,16 @@ def indexar_libro_ventas(file_libro, log_messages):
         file_libro.seek(0)
         df_raw = pd.read_excel(file_libro, header=None)
         
-        # 1. DETECCIÓN DE PERIODO (Blindada contra fecha de emisión)
+        # 1. DETECCIÓN DE PERIODO
         for i, row in df_raw.head(15).iterrows():
             fila_txt = " ".join([str(x).upper() for x in row.values if pd.notna(x)])
-            
-            # Buscamos la línea que contiene "DEL ... AL" (Periodo de transacciones)
             if "DEL" in fila_txt and "AL" in fila_txt:
                 match_fecha = re.findall(r'(\d{2}/\d{2}/\d{4})', fila_txt)
                 if match_fecha:
-                    # Tomamos la primera fecha del rango (el inicio del mes)
                     fecha_dt = pd.to_datetime(match_fecha[0], dayfirst=True)
                     periodo_final = fecha_dt.strftime('%Y%m')
-                    log_messages.append(f"🎯 PERIODO DEL LIBRO FIJADO: {periodo_final}")
-                    break # Detener búsqueda para no capturar la fecha de emisión
+                    log_messages.append(f"🎯 PERIODO DEL LIBRO: {periodo_final}")
+                    break
 
         # 2. LOCALIZAR TABLA
         header_idx = None
@@ -3307,22 +3305,38 @@ def indexar_libro_ventas(file_libro, log_messages):
         df = pd.read_excel(file_libro, header=header_idx)
         df.columns = [str(c).strip().upper() for c in df.columns]
         
+        # Mapeo de columnas (Incluyendo la de Comprobante ya registrado)
         col_fac = next((c for c in df.columns if 'N' in c and 'FACTURA' in c), None)
-        col_iva = next((c for c in df.columns if 'IVA RETENIDO' in c) or (c for c in df.columns if 'IMPUESTO IVA G' in c), None)
+        col_iva = next((c for c in df.columns if 'IMPUESTO IVA G' in c) or (c for c in df.columns if 'IVA RETENIDO' in c), None)
         col_fecha = next((c for c in df.columns if 'FECHA' in c and 'FACTURA' in c), None)
+        # Identificar columna de comprobante de retención ya existente
+        col_comp_existente = next((c for c in df.columns if 'NUMERO COMPROBANTE RETENCION' in c or 'Nº COMPROBANTE RETENCION' in c), None)
 
         # 3. LLENADO DE MEMORIA
         for _, row in df.iterrows():
             f_raw = row.get(col_fac)
             if pd.isna(f_raw): continue
             
-            # Normalizar número de factura (quitar letras y ceros a la izquierda)
             f_key = re.sub(r'\D', '', str(f_raw))
             if f_key:
                 f_key = str(int(f_key))
+                
+                # Capturar si ya existe un comprobante (limpiando espacios)
+                comp_existente = str(row.get(col_comp_existente, "")).strip()
+                if comp_existente in ["nan", "None", "0", "0.0", ""]:
+                    comp_existente = None
+
+                # Limpieza robusta de montos (para evitar los ceros infinitos)
+                monto_raw = str(row.get(col_iva, 0)).replace('.', '').replace(',', '.')
+                try:
+                    iva_limpio = float(monto_raw)
+                except:
+                    iva_limpio = 0.0
+
                 db_ventas[f_key] = {
                     'fecha': pd.to_datetime(row.get(col_fecha), dayfirst=True, errors='coerce'),
-                    'iva': float(str(row.get(col_iva, 0)).replace('.', '').replace(',', '.')) if pd.notna(row.get(col_iva)) else 0.0
+                    'iva': iva_limpio,
+                    'comp_ya_registrado': comp_existente
                 }
         
         return db_ventas, periodo_final
@@ -3332,18 +3346,17 @@ def indexar_libro_ventas(file_libro, log_messages):
         return {}, "000000"
 
 def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
-    """Generador de TXT con trazabilidad de IVA GALAC y % de Retención."""
+    """Generador de TXT con filtro de retenciones ya registradas en GALAC."""
     db_ventas, periodo_libro = indexar_libro_ventas(file_libro, log_messages)
     
     try:
         df_soft = pd.read_excel(file_softland)
         df_soft.columns = [str(c).strip().upper() for c in df_soft.columns]
-        
         col_ref = next((c for c in df_soft.columns if 'REFERENCIA' in c), None)
         col_fecha = next((c for c in df_soft.columns if 'FECHA' in c), None)
         col_monto = next((c for c in df_soft.columns if 'DÉBITO' in c or 'DEBITO' in c), None)
         col_rif_s = next((c for c in df_soft.columns if any(k in c for k in ['RIF', 'NIT', 'I.D', 'CEDULA'])), None)
-        col_nom_s = next((c for c in df_soft.columns if any(k in c for k in ['DESCRIPCION NIT', 'DESCRIPCIÓN NIT', 'NOMBRE', 'CLIENTE', 'TERCERO'])), None)
+        col_nom_s = next((c for c in df_soft.columns if any(k in c for k in ['NOMBRE', 'CLIENTE', 'TERCERO'])), None)
     except: return [], None
 
     filas_txt = []
@@ -3358,11 +3371,9 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
 
         rif_softland = str(row.get(col_rif_s, "ND")).strip()
         nombre_softland = str(row.get(col_nom_s, "ND")).strip()
-        
         comprobante = re.sub(r'\D', '', ref.split('/')[0])
         periodo_voucher = comprobante[:6]
         
-        # Lógica de Periodo
         if periodo_libro == "000000" or periodo_voucher == periodo_libro:
             es_anterior = False
         else:
@@ -3381,6 +3392,7 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
             
             iva_galac = 0.0
             porcentaje_ret = 0.0
+            ya_existe = False
 
             if es_anterior:
                 m_ret_galac = iva_origen_softland / len(facturas_soft)
@@ -3391,19 +3403,24 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
                 f_fac = f_comp
                 est = "⚠️ NO ENCONTRADA EN LIBRO"
             else:
-                # Datos desde GALAC
                 iva_galac = info_libro['iva']
-                # Cálculo de Prorrateo
-                factor = iva_origen_softland / total_iva_libro if total_iva_libro > 0 else 0
-                m_ret_galac = round(iva_galac * factor, 2)
-                
-                # Porcentaje de retención real aplicado
-                porcentaje_ret = factor # Ejemplo: 0.75 o 1.00
+                # VERIFICACIÓN DE RETENCIÓN YA REGISTRADA
+                if info_libro.get('comp_ya_registrado'):
+                    est = f"🚫 RETENCIÓN YA REGISTRADA ({info_libro['comp_ya_registrado']})"
+                    ya_existe = True
+                    m_ret_galac = iva_origen_softland / len(facturas_soft) # Solo informativo para el Excel
+                else:
+                    factor = iva_origen_softland / total_iva_libro if total_iva_libro > 0 else 0
+                    m_ret_galac = round(iva_galac * factor, 2)
+                    porcentaje_ret = factor
+                    est = "GENERADO OK"
                 
                 f_fac = info_libro['fecha'].strftime('%d/%m/%Y')
-                est = "GENERADO OK"
 
-            filas_txt.append(f"FAC\t{f_txt}\t0\t{comprobante}\t{m_ret_galac:.2f}\t{f_comp}\t{f_fac}")
+            # SOLO agregar al TXT si no existe previamente en GALAC
+            if not ya_existe:
+                linea = f"FAC\t{f_txt}\t0\t{comprobante}\t{m_ret_galac:.2f}\t{f_comp}\t{f_fac}"
+                filas_txt.append(linea)
             
             audit.append({
                 'Estatus': est,
