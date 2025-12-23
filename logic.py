@@ -3355,8 +3355,8 @@ def indexar_libro_ventas(file_libro, log_messages):
 
 def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
     """
-    Versión Blindada V4: Prioriza detección de registros previos incluso en 
-    periodos anteriores.
+    Versión Blindada V5: Si una factura del grupo existe en el libro, 
+    se usa la base real y se marca error en las faltantes, incluso si es periodo anterior.
     """
     db_ventas, periodo_libro = indexar_libro_ventas(file_libro, log_messages)
     
@@ -3399,15 +3399,20 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
         f_nums = [str(int(re.sub(r'\D', '', f))) for f in ref.split('/')[1:] if re.sub(r'\D', '', f)]
         
         facturas_data = []
-        todas_existen = True
+        existe_alguna_en_libro = False
+        todas_existen_en_libro = True
         total_iva_galac = 0.0
         
         for fn in f_nums:
             info = db_ventas.get(fn)
-            if info is None: todas_existen = False
-            else: total_iva_galac += info['iva']
+            if info:
+                existe_alguna_en_libro = True
+                total_iva_galac += info['iva']
+            else:
+                todas_existen_en_libro = False
             facturas_data.append({'nro': fn, 'info': info})
 
+        # --- CÁLCULO DE ASIGNACIÓN ---
         for f_item in facturas_data:
             f_n = f_item['nro']
             info_g = f_item['info']
@@ -3419,45 +3424,46 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
             pct_aplicado = 0.0
             estatus = ""
             f_f = f_c 
-            
             nombre_f = info_g['nombre'] if info_g and info_g['nombre'] != "ND" else str(row.get(col_nom_s, "ND"))
 
-            # --- NUEVA JERARQUÍA DE SEGURIDAD ---
-            
-            # 1. ¿ESTÁ REGISTRADA? (No importa el mes, si el libro dice que ya tiene comprobante, se bloquea)
+            # 1. ¿YA ESTÁ REGISTRADA?
             if info_g and info_g.get('comp_ya_registrado'):
-                monto_final = 0.00
-                iva_base_g = info_g['iva']
                 estatus = "RETENCION REGISTRADA"
+                iva_base_g = info_g['iva']
                 f_f = info_g['fecha'].strftime('%d/%m/%Y')
 
-            # 2. ¿ES PERIODO ANTERIOR? (Y no estaba registrada según el paso 1)
-            elif es_anterior:
-                monto_final = round(m_soft_total / len(f_nums), 2)
-                iva_base_g = info_g['iva'] if info_g else 0.00
-                estatus = "OK - PERIODO ANTERIOR"
-                if info_g: f_f = info_g['fecha'].strftime('%d/%m/%Y')
-
-            # 3. ¿NO ESTÁ EN EL LIBRO? (Y es del mes actual)
-            elif info_g is None:
-                monto_final = 0.00
-                estatus = "⚠️ NO ENCONTRADA EN LIBRO"
-
-            # 4. PROCESO NORMAL (Mismo mes, no registrada, existe en libro)
-            else:
+            # 2. ¿EXISTE EN EL LIBRO? (Cálculo real de 75/100)
+            elif info_g:
                 iva_base_g = info_g['iva']
                 f_f = info_g['fecha'].strftime('%d/%m/%Y')
                 
-                if todas_existen:
+                # Intentar cuadre matemático 75/100 si todas están, sino prorrateo
+                if todas_existen_en_libro:
                     factor = m_soft_total / total_iva_galac if total_iva_galac > 0 else 0
+                    # Si el factor es muy cercano a 0.75 o 1.0, lo redondeamos para que el reporte sea limpio
+                    if abs(factor - 0.75) < 0.01: factor = 0.75
+                    elif abs(factor - 1.0) < 0.01: factor = 1.0
+                    
                     monto_final = round(iva_base_g * factor, 2)
                     pct_aplicado = factor
                     estatus = "GENERADO OK"
                 else:
-                    monto_final = 0.00
-                    estatus = "⚠️ ESPERANDO FACTURAS FALTANTES"
+                    # Si algunas existen y otras no, no podemos prorratear con seguridad
+                    estatus = "⚠️ NO ENCONTRADA EN LIBRO"
 
-            # 5. REPORTE Y TXT
+            # 3. NO EXISTE EN EL LIBRO
+            else:
+                # Si es anterior Y ninguna del grupo existe, hacemos el prorrateo de rescate
+                if es_anterior and not existe_alguna_en_libro:
+                    monto_final = round(m_soft_total / len(f_nums), 2)
+                    estatus = "OK - PERIODO ANTERIOR"
+                else:
+                    # Si el periodo es actual O si algunas del grupo sí existen en el libro,
+                    # la que falta se marca como error y monto 0.
+                    monto_final = 0.0
+                    estatus = "⚠️ NO ENCONTRADA EN LIBRO"
+
+            # Generar TXT
             if monto_final > 0 and estatus != "RETENCION REGISTRADA":
                 filas_txt.append(f"FAC\t{f_txt}\t0\t{comprobante}\t{monto_final:.2f}\t{f_c}\t{f_f}")
             
