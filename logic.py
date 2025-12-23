@@ -3273,7 +3273,7 @@ def limpiar_string_factura(txt):
     return str(int(num)) if num else ""
     
 def indexar_libro_ventas(file_libro, log_messages):
-    """Indexa el Libro de Ventas rescatando nombres, IVA y comprobantes previos."""
+    """Radar Mejorado: Busca la base imponible del IVA para evitar los 0.00."""
     db_ventas = {}
     periodo_final = "000000"
     
@@ -3303,12 +3303,18 @@ def indexar_libro_ventas(file_libro, log_messages):
         df = pd.read_excel(file_libro, header=header_idx)
         df.columns = [str(c).strip().upper() for c in df.columns]
         
-        # Mapeo de columnas del Libro Galac
+        # --- RADAR DE COLUMNAS MEJORADO ---
         col_fac = next((c for c in df.columns if 'N DE FACTURA' in c or 'Nº FACTURA' in c), None)
-        col_iva = next((c for c in df.columns if 'IMPUESTO IVA G' in c or 'IVA RETENIDO' in c), None)
+        
+        # Priorizamos 'IMPUESTO IVA G' que es donde Galac guarda el IVA de la factura
+        col_iva = next((c for c in df.columns if 'IMPUESTO IVA G' in c), None)
+        # Si no existe, buscamos alternativas
+        if not col_iva:
+            col_iva = next((c for c in df.columns if 'IVA RETENIDO' in c or 'TOTAL IVA' in c), None)
+            
         col_fecha = next((c for c in df.columns if 'FECHA FACTURA' in c), None)
         col_nom = next((c for c in df.columns if 'NOMBRE' in c or 'RAZON' in c), None)
-        col_comp_existente = next((c for c in df.columns if 'NUMERO COMPROBANTE RETENCION' in c or 'NUMERO COMPROBANTE RETENCI' in c or 'Nº COMPROBANTE' in c), None)
+        col_comp_existente = next((c for c in df.columns if 'NUMERO COMPROBANTE RETENCION' in c or 'Nº COMPROBANTE' in c), None)
 
         def safe_float(valor):
             if pd.isna(valor) or str(valor).strip() == "": return 0.0
@@ -3330,16 +3336,12 @@ def indexar_libro_ventas(file_libro, log_messages):
             if f_key:
                 f_key = str(int(f_key))
                 
-                # Detectar si ya tiene número de comprobante
                 c_reg = row.get(col_comp_existente)
-                if pd.notna(c_reg) and re.sub(r'\D', '', str(c_reg)) != "":
-                    comp_val = str(c_reg).strip()
-                else:
-                    comp_val = None
+                comp_val = str(c_reg).strip() if pd.notna(c_reg) and re.sub(r'\D', '', str(c_reg)) != "" else None
 
                 db_ventas[f_key] = {
                     'fecha': pd.to_datetime(row.get(col_fecha), dayfirst=True, errors='coerce'),
-                    'iva': safe_float(row.get(col_iva)),
+                    'iva': safe_float(row.get(col_iva)), # <-- Aquí cargamos la base detectada
                     'nombre': str(row.get(col_nom, "ND")).strip(),
                     'comp_ya_registrado': comp_val
                 }
