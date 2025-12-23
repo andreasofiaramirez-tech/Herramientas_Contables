@@ -34,8 +34,6 @@ from logic import (
     run_conciliation_deudores_empleados_me,
     run_cuadre_cb_cg,
     validar_coincidencia_empresa,
-    run_cross_check_imprenta,
-    generar_txt_retenciones_galac
 )
 
 # --- BLOQUE 3: IMPORTAR UTILS ---
@@ -45,8 +43,6 @@ from utils import (
     generar_excel_saldos_abiertos,
     generar_reporte_paquete_cc,
     generar_reporte_cuadre,
-    generar_reporte_imprenta,
-    generar_archivo_txt
 )
 
 def mostrar_error_amigable(e, contexto=""):
