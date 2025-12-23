@@ -3266,7 +3266,10 @@ def run_cross_check_imprenta(file_sales, file_retentions, log_messages):
 # --- PARTE B: GENERACIÓN (Excel Softland -> TXT) ---
 
 def indexar_libro_ventas(file_libro, log_messages):
-    """Indexa el Excel del Libro de Ventas con búsqueda robusta de columnas."""
+    """
+    Crea un diccionario del Libro de Ventas (GALAC).
+    CORREGIDO: Fuerza formato de fecha DD/MM/AAAA para evitar errores de periodo.
+    """
     db_ventas = {}
     
     def limpiar_monto_excel(valor):
@@ -3281,6 +3284,7 @@ def indexar_libro_ventas(file_libro, log_messages):
         except: return 0.0
 
     try:
+        # 1. Leer buscando la cabecera
         df_raw = pd.read_excel(file_libro, header=None)
         header_idx = None
         for i, row in df_raw.head(20).iterrows():
@@ -3301,7 +3305,7 @@ def indexar_libro_ventas(file_libro, log_messages):
         col_nom = next((c for c in df.columns if 'NOMBRE' in c or 'RAZON' in c), None)
 
         if not col_fac or not col_iva:
-            log_messages.append("❌ Error: Faltan columnas 'Factura' o 'IVA' en Libro.")
+            log_messages.append("❌ Error: Faltan columnas 'Factura' o 'Impuesto/IVA' en Libro Ventas.")
             return {}
 
         for _, row in df.iterrows():
@@ -3310,19 +3314,31 @@ def indexar_libro_ventas(file_libro, log_messages):
             if not fac_limpia: continue
             fac_int = str(int(fac_limpia))
             
+            # --- CORRECCIÓN DE FECHA ---
+            fecha_raw = row[col_fecha] if col_fecha else None
+            fecha_dt = None
+            if pd.notna(fecha_raw):
+                # Forzamos conversión con día primero para evitar confusión US/VE
+                try:
+                    fecha_dt = pd.to_datetime(fecha_raw, dayfirst=True)
+                except:
+                    # Fallback si falla
+                    fecha_dt = pd.to_datetime(fecha_raw, errors='coerce')
+            
             db_ventas[fac_int] = {
-                'fecha_factura': row[col_fecha] if col_fecha else None,
+                'fecha_factura': fecha_dt, # Guardamos objeto datetime
                 'monto_iva': limpiar_monto_excel(row[col_iva]),
                 'factura_original': raw_fac,
                 'rif': str(row[col_rif]).strip() if col_rif else "ND",
                 'nombre': str(row[col_nom]).strip() if col_nom else "ND"
             }
-        log_messages.append(f"✅ Libro de Ventas indexado ({len(db_ventas)} facs).")
+            
+        log_messages.append(f"✅ Libro de Ventas indexado ({len(db_ventas)} facturas).")
         return db_ventas
+
     except Exception as e:
         log_messages.append(f"❌ Error leyendo Libro Ventas: {str(e)}")
         return {}
-
 def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
     """
     Genera TXT cruzando Softland y Libro de Ventas.
