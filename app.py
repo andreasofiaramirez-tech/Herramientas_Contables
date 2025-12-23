@@ -15,25 +15,30 @@ from guides import (
     LOGICA_POR_CUENTA, 
     GUIA_COMPLETA_RETENCIONES,
     GUIA_PAQUETE_CC,
-    GUIA_IMPRENTA
+    GUIA_IMPRENTA,
+    GUIA_GENERADOR
 )
 
 # --- BLOQUE 2: IMPORTAR LÓGICA (Verifica las comas) ---
 from logic import (
+    # Conciliaciones
     run_conciliation_fondos_en_transito,
     run_conciliation_fondos_por_depositar,
     run_conciliation_devoluciones_proveedores,
     run_conciliation_viajes,
     run_conciliation_retenciones,
-    run_analysis_paquete_cc,
     run_conciliation_cobros_viajeros,
     run_conciliation_otras_cxp,
     run_conciliation_haberes_clientes,
     run_conciliation_cdc_factoring,
     run_conciliation_asientos_por_clasificar,
     run_conciliation_deudores_empleados_me,
+    run_conciliation_deudores_empleados_bs,
+    run_analysis_paquete_cc,
     run_cuadre_cb_cg,
     validar_coincidencia_empresa,
+    run_cross_check_imprenta,
+    generar_txt_retenciones_galac
 )
 
 # --- BLOQUE 3: IMPORTAR UTILS ---
@@ -43,6 +48,9 @@ from utils import (
     generar_excel_saldos_abiertos,
     generar_reporte_paquete_cc,
     generar_reporte_cuadre,
+    generar_reporte_imprenta,
+    generar_reporte_auditoria_txt,
+    generar_archivo_txt
 )
 
 def mostrar_error_amigable(e, contexto=""):
