@@ -3355,40 +3355,29 @@ def indexar_libro_ventas(file_libro, log_messages):
 
 def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
     """
-    Versión Blindada V3: 
-    1. Corrige lectura de montos (evita multiplicación accidental).
-    2. Preserva letras en RIF.
-    3. Resuelve puzle 75/100 para múltiples facturas.
+    Versión Blindada V4: Prioriza detección de registros previos incluso en 
+    periodos anteriores.
     """
     db_ventas, periodo_libro = indexar_libro_ventas(file_libro, log_messages)
     
     try:
-        # Cargamos Softland forzando que RIF y Referencia sean siempre TEXTO
-        df_soft = pd.read_excel(file_softland, dtype={'Nit': str, 'NIT': str, 'Referencia': str, 'REFERENCIA': str})
+        df_soft = pd.read_excel(file_softland, dtype={'Nit': str, 'NIT': str, 'Referencia': str})
         df_soft.columns = [str(c).strip().upper() for c in df_soft.columns]
-        
         col_ref = next((c for c in df_soft.columns if 'REFERENCIA' in c), None)
         col_fecha = next((c for c in df_soft.columns if 'FECHA' in c), None)
         col_monto = next((c for c in df_soft.columns if 'DÉBITO' in c or 'DEBITO' in c or 'LOCAL' in c), None)
         col_rif_s = next((c for c in df_soft.columns if any(k in c for k in ['RIF', 'NIT', 'I.D', 'CEDULA'])), None)
         col_nom_s = next((c for c in df_soft.columns if any(k in c for k in ['NOMBRE', 'CLIENTE', 'TERCERO', 'DESCRIPCION NIT'])), None)
-    except Exception as e:
-        log_messages.append(f"❌ Error leyendo Softland: {e}")
-        return [], None
+    except: return [], None
 
     def safe_numeric_parsing(val):
-        """Convierte a float de forma segura sin romper decimales ya existentes."""
         if pd.isna(val) or str(val).strip() == "": return 0.0
         if isinstance(val, (int, float)): return float(val)
-        # Si es string, limpiar solo si tiene formato latino con puntos de miles
         t = str(val).strip().replace('Bs', '').replace('$', '')
         if ',' in t and '.' in t:
-            if t.rfind(',') > t.rfind('.'): # Formato 1.234,56
-                t = t.replace('.', '').replace(',', '.')
-            else: # Formato 1,234.56
-                t = t.replace(',', '')
-        elif ',' in t: # Formato 1234,56
-            t = t.replace(',', '.')
+            if t.rfind(',') > t.rfind('.'): t = t.replace('.', '').replace(',', '.')
+            else: t = t.replace(',', '')
+        elif ',' in t: t = t.replace(',', '.')
         try: return float(t)
         except: return 0.0
 
@@ -3399,18 +3388,16 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
         ref = str(row.get(col_ref, "")).strip()
         if "/" not in ref: continue
         
-        # --- CORRECCIÓN CRÍTICA DE MONTO ---
-        iva_soft = safe_numeric_parsing(row.get(col_monto))
-        if iva_soft <= 0: continue
-
-        # --- PRESERVAR RIF COMO TEXTO ---
-        rif_softland = str(row.get(col_rif_s, "ND")).strip()
+        m_soft_total = safe_numeric_parsing(row.get(col_monto))
+        if m_soft_total <= 0: continue
         
+        rif_s = str(row.get(col_rif_s, "ND")).strip()
         comprobante = re.sub(r'\D', '', ref.split('/')[0])
         p_voucher = comprobante[:6]
         es_anterior = (p_voucher < periodo_libro) if periodo_libro != "000000" else False
         
         f_nums = [str(int(re.sub(r'\D', '', f))) for f in ref.split('/')[1:] if re.sub(r'\D', '', f)]
+        
         facturas_data = []
         todas_existen = True
         total_iva_galac = 0.0
@@ -3421,7 +3408,6 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
             else: total_iva_galac += info['iva']
             facturas_data.append({'nro': fn, 'info': info})
 
-        # Asignación de montos
         for f_item in facturas_data:
             f_n = f_item['nro']
             info_g = f_item['info']
@@ -3436,24 +3422,34 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
             
             nombre_f = info_g['nombre'] if info_g and info_g['nombre'] != "ND" else str(row.get(col_nom_s, "ND"))
 
-            if es_anterior:
-                monto_final = round(iva_soft / len(f_nums), 2)
-                estatus = "OK - PERIODO ANTERIOR"
-            elif info_g is None:
-                monto_final = 0.00
-                estatus = "⚠️ NO ENCONTRADA EN LIBRO"
-            elif info_g.get('comp_ya_registrado'):
+            # --- NUEVA JERARQUÍA DE SEGURIDAD ---
+            
+            # 1. ¿ESTÁ REGISTRADA? (No importa el mes, si el libro dice que ya tiene comprobante, se bloquea)
+            if info_g and info_g.get('comp_ya_registrado'):
                 monto_final = 0.00
                 iva_base_g = info_g['iva']
                 estatus = "RETENCION REGISTRADA"
                 f_f = info_g['fecha'].strftime('%d/%m/%Y')
+
+            # 2. ¿ES PERIODO ANTERIOR? (Y no estaba registrada según el paso 1)
+            elif es_anterior:
+                monto_final = round(m_soft_total / len(f_nums), 2)
+                iva_base_g = info_g['iva'] if info_g else 0.00
+                estatus = "OK - PERIODO ANTERIOR"
+                if info_g: f_f = info_g['fecha'].strftime('%d/%m/%Y')
+
+            # 3. ¿NO ESTÁ EN EL LIBRO? (Y es del mes actual)
+            elif info_g is None:
+                monto_final = 0.00
+                estatus = "⚠️ NO ENCONTRADA EN LIBRO"
+
+            # 4. PROCESO NORMAL (Mismo mes, no registrada, existe en libro)
             else:
                 iva_base_g = info_g['iva']
                 f_f = info_g['fecha'].strftime('%d/%m/%Y')
                 
                 if todas_existen:
-                    # Aplicar lógica de porcentaje (75% o 100%)
-                    factor = iva_soft / total_iva_galac if total_iva_galac > 0 else 0
+                    factor = m_soft_total / total_iva_galac if total_iva_galac > 0 else 0
                     monto_final = round(iva_base_g * factor, 2)
                     pct_aplicado = factor
                     estatus = "GENERADO OK"
@@ -3461,16 +3457,17 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
                     monto_final = 0.00
                     estatus = "⚠️ ESPERANDO FACTURAS FALTANTES"
 
+            # 5. REPORTE Y TXT
             if monto_final > 0 and estatus != "RETENCION REGISTRADA":
                 filas_txt.append(f"FAC\t{f_txt}\t0\t{comprobante}\t{monto_final:.2f}\t{f_c}\t{f_f}")
             
             audit.append({
                 'Estatus': estatus,
-                'Rif Origen Softland': rif_softland, # Ahora con letra
+                'Rif Origen Softland': rif_s,
                 'Nombre proveedor Origen Softland': nombre_f,
                 'Comprobante': comprobante,
                 'Factura': f_txt,
-                'IVA Origen Softland': iva_soft, # Ahora correcto: 6330,68
+                'IVA Origen Softland': m_soft_total,
                 'IVA GALAC (Base)': iva_base_g,
                 '% Retención': pct_aplicado,
                 'Monto Retenido GALAC': monto_final,
