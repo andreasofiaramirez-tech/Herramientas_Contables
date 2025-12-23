@@ -1396,103 +1396,65 @@ def generar_reporte_cuadre(df_resultado, df_huerfanos, nombre_empresa):
 
     return output.getvalue()
 
+# ==============================================================================
+# UTILS PARA IMPRENTA
+# ==============================================================================
+
+def generar_archivo_txt(lineas):
+    """Crea el archivo TXT para descargar."""
+    output = BytesIO()
+    # Usamos \r\n para mayor compatibilidad con Windows (Galac)
+    contenido = "\r\n".join(lineas)
+    output.write(contenido.encode('latin-1', errors='ignore')) 
+    return output.getvalue()
+
 def generar_reporte_imprenta(df_resultado):
-    """Genera el Excel de resultados del Cruce de Imprenta."""
+    """Excel para Validación (Pestaña 1)."""
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         df_resultado.to_excel(writer, index=False, sheet_name='Resultados')
-        
         workbook = writer.book
         ws = writer.sheets['Resultados']
         
-        # Formatos
-        header_fmt = workbook.add_format({'bold': True, 'fg_color': '#D9EAD3', 'border': 1})
-        red_fmt = workbook.add_format({'bg_color': '#FFC7CE', 'font_color': '#9C0006'})
-        green_fmt = workbook.add_format({'bg_color': '#C6EFCE', 'font_color': '#006100'})
+        red = workbook.add_format({'bg_color': '#FFC7CE', 'font_color': '#9C0006'})
+        green = workbook.add_format({'bg_color': '#C6EFCE', 'font_color': '#006100'})
         
-        # Aplicar formato condicional a la columna Estado (E)
-        ws.conditional_format('E2:E5000', {
-            'type': 'text',
-            'criteria': 'containing',
-            'value': 'ERROR',
-            'format': red_fmt
-        })
-        ws.conditional_format('E2:E5000', {
-            'type': 'text',
-            'criteria': 'containing',
-            'value': 'OK',
-            'format': green_fmt
-        })
-        
-        ws.set_column('A:A', 10) # Línea
-        ws.set_column('B:B', 50) # Contenido Original
-        ws.set_column('C:D', 15) # Tipo/Factura
-        ws.set_column('E:E', 40) # Estado
-        
-    return output.getvalue()
-
-def generar_archivo_txt(lineas):
-    """
-    Convierte una lista de strings en un archivo TXT en memoria.
-    """
-    output = BytesIO()
-    contenido = "\n".join(lineas)
-    output.write(contenido.encode('utf-8')) # O 'latin-1' si Galac es viejo
+        ws.conditional_format('E2:E5000', {'type': 'text', 'criteria': 'containing', 'value': 'ERROR', 'format': red})
+        ws.conditional_format('E2:E5000', {'type': 'text', 'criteria': 'containing', 'value': 'OK', 'format': green})
+        ws.set_column('A:E', 20)
     return output.getvalue()
 
 def generar_reporte_auditoria_txt(df_audit):
-    """
-    Genera el Excel de Auditoría.
-    Actualizado para dar formato a RIF y Nombre.
-    """
+    """Excel para Generación (Pestaña 2)."""
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         df_audit.to_excel(writer, index=False, sheet_name='Auditoria')
-        
         workbook = writer.book
         ws = writer.sheets['Auditoria']
         
-        header_fmt = workbook.add_format({'bold': True, 'fg_color': '#D9EAD3', 'border': 1, 'align': 'center'})
-        text_fmt = workbook.add_format({'border': 1})
-        money_fmt = workbook.add_format({'num_format': '#,##0.00', 'border': 1})
-        percent_fmt = workbook.add_format({'num_format': '0.0%', 'border': 1})
+        header = workbook.add_format({'bold': True, 'fg_color': '#D9EAD3', 'border': 1})
+        money = workbook.add_format({'num_format': '#,##0.00'})
+        pct = workbook.add_format({'num_format': '0.0%'})
+        red = workbook.add_format({'bg_color': '#FFC7CE'})
+        green = workbook.add_format({'bg_color': '#C6EFCE'})
         
-        red_fmt = workbook.add_format({'bg_color': '#FFC7CE', 'font_color': '#9C0006', 'border': 1})
-        green_fmt = workbook.add_format({'bg_color': '#C6EFCE', 'font_color': '#006100', 'border': 1})
-        
-        # Encabezados
-        for col_num, value in enumerate(df_audit.columns.values):
-            ws.write(0, col_num, value, header_fmt)
+        for idx, col in enumerate(df_audit.columns):
+            ws.write(0, idx, col, header)
             
-        # Filas
-        for row_idx, row in df_audit.iterrows():
-            excel_row = row_idx + 1
-            estatus = str(row['Estatus'])
+        for r_idx, row in df_audit.iterrows():
+            fmt = green if 'OK' in str(row['Estatus']) else red
+            ws.write(r_idx+1, 0, row['Estatus'], fmt)
             
-            cell_fmt = green_fmt if 'OK' in estatus else red_fmt
-            ws.write(excel_row, 0, estatus, cell_fmt)
-            
-            for col_idx, col_name in enumerate(df_audit.columns):
-                if col_idx == 0: continue
-                
-                val = row[col_name]
+            for c_idx, col in enumerate(df_audit.columns):
+                if c_idx == 0: continue
+                val = row[col]
                 if pd.isna(val): val = ""
                 
-                current_fmt = text_fmt
-                if col_name in ['Monto Retenido', 'Base IVA (Galac)', 'Monto Softland', 'Monto Softland Total']:
-                    current_fmt = money_fmt
-                elif col_name == '% Calc':
-                    current_fmt = percent_fmt
+                c_fmt = None
+                if col in ['Monto Retenido', 'Base IVA (Galac)', 'Monto Softland']: c_fmt = money
+                elif col == '% Calc': c_fmt = pct
                 
-                ws.write(excel_row, col_idx, val, current_fmt)
-                
-        # --- AJUSTE DE ANCHOS ---
-        ws.set_column('A:A', 20) # Estatus
-        ws.set_column('B:B', 30) # Mensaje
-        # RIF y Nombre suelen estar en las primeras columnas después del mensaje
-        # Si el orden es Estatus, Mensaje, RIF, Nombre...
-        ws.set_column('C:C', 15) # RIF
-        ws.set_column('D:D', 40) # Nombre (Ancho)
-        ws.set_column('E:Z', 15) # Resto
-
+                ws.write(r_idx+1, c_idx, val, c_fmt)
+        
+        ws.set_column('A:M', 18)
     return output.getvalue()
