@@ -1425,33 +1425,36 @@ def generar_reporte_imprenta(df_resultado):
     return output.getvalue()
 
 def generar_reporte_auditoria_txt(df_audit):
-    """Excel para Generación de Imprenta con formato de moneda en nuevas columnas."""
+    """Excel para Generación de Imprenta con IVA GALAC y % de Retención."""
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         df_audit.to_excel(writer, index=False, sheet_name='Auditoria')
         workbook = writer.book
         ws = writer.sheets['Auditoria']
         
-        # Estilos
-        header_fmt = workbook.add_format({'bold': True, 'fg_color': '#D9EAD3', 'border': 1})
+        # Estilos mejorados
+        header_fmt = workbook.add_format({'bold': True, 'fg_color': '#D9EAD3', 'border': 1, 'align': 'center'})
         money_fmt = workbook.add_format({'num_format': '#,##0.00'})
+        pct_fmt = workbook.add_format({'num_format': '0.0%'}) # Formato de porcentaje con 1 decimal
         red_fmt = workbook.add_format({'bg_color': '#FFC7CE'})
         green_fmt = workbook.add_format({'bg_color': '#C6EFCE'})
         
-        # Aplicar formatos
         for idx, col in enumerate(df_audit.columns):
             ws.write(0, idx, col, header_fmt)
             
-            # Anchos de columna inteligentes
-            if 'Nombre' in col: ws.set_column(idx, idx, 40)
-            elif 'Referencia' in col: ws.set_column(idx, idx, 35)
-            else: ws.set_column(idx, idx, 18)
+            # Anchos
+            if 'Nombre' in col: ws.set_column(idx, idx, 35)
+            elif 'Referencia' in col: ws.set_column(idx, idx, 30)
+            elif 'Estatus' in col: ws.set_column(idx, idx, 22)
+            else: ws.set_column(idx, idx, 15)
 
-            # Formato de Moneda para las columnas de montos
-            if col in ['IVA Origen Softland', 'Monto Retenido GALAC']:
-                ws.set_column(idx, idx, 18, money_fmt)
+            # Formatos específicos de datos
+            if col in ['IVA Origen Softland', 'IVA GALAC (Base)', 'Monto Retenido GALAC']:
+                ws.set_column(idx, idx, 16, money_fmt)
+            elif col == '% Retención':
+                ws.set_column(idx, idx, 12, pct_fmt)
         
-        # Color en la columna Estatus
+        # Aplicar colores de estatus
         for r_idx, row in df_audit.iterrows():
             status = str(row['Estatus'])
             fmt = green_fmt if 'OK' in status else red_fmt
