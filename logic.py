@@ -7,7 +7,8 @@ from itertools import combinations
 from io import BytesIO
 import unicodedata
 import xlsxwriter
-from difflib import SequenceMatcher
+from difflib import SequenceMatcher  # Necesario para la detección de errores de tipeo
+import pdfplumber                    # Necesario para leer los PDFs de Tesorería/Contabilidad
 from utils import generar_reporte_retenciones
 
 # --- Constantes de Tolerancia ---
