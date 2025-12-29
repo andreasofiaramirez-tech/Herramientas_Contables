@@ -2081,6 +2081,26 @@ CUENTAS_BANCO = {normalize_account(acc) for acc in [
     '1.1.1.02.6.013'
 ]}
 
+def es_palabra_similiar(texto_completo, palabra_objetivo, umbral=0.85):
+    """
+    Busca si 'palabra_objetivo' está en 'texto_completo' permitiendo errores de tipeo.
+    Ej: Detecta 'TRANSPASO' si buscamos 'TRASPASO'.
+    """
+    # Limpiamos y dividimos el texto en palabras
+    palabras = re.sub(r'[^A-Z\s]', '', str(texto_completo).upper()).split()
+    
+    for palabra in palabras:
+        # Si la palabra es idéntica, retorna True rápido
+        if palabra == palabra_objetivo:
+            return True
+        
+        # Si no, calculamos similitud
+        ratio = SequenceMatcher(None, palabra, palabra_objetivo).ratio()
+        if ratio >= umbral:
+            return True
+            
+    return False
+
 def _get_base_classification(cuentas_del_asiento, referencia_completa, fuente_completa, referencia_limpia_palabras, monto_suma, monto_max_abs, is_reverso_check=False):
     """
     Clasifica el asiento basándose en reglas de jerarquía.
@@ -2122,7 +2142,12 @@ def _get_base_classification(cuentas_del_asiento, referencia_completa, fuente_co
 
     # --- PRIORIDAD 5: Traspasos vs. Devoluciones (Grupo 10 y 7) ---
     if normalize_account('4.1.1.21.4.001') in cuentas_del_asiento:
-        if 'TRASPASO' in referencia_completa: return "Grupo 10: Traspasos"
+        
+        # CAMBIO INTELIGENTE: Detecta 'TRASPASO', 'TRANSPASO', 'TRAPASO', etc.
+        es_traspaso = es_palabra_similiar(referencia_completa, 'TRASPASO')
+        
+        if es_traspaso and abs(monto_suma) <= TOLERANCIA_MAX_USD: 
+            return "Grupo 10: Traspasos"
         
         if is_reverso_check: return "Grupo 7: Devoluciones y Rebajas"
         
@@ -2131,8 +2156,17 @@ def _get_base_classification(cuentas_del_asiento, referencia_completa, fuente_co
             if monto_max_abs <= 5: 
                 return "Grupo 7: Devoluciones y Rebajas - Limpieza (<= $5)"
             else: 
-                keywords_autorizadas = ['TRASLADO', 'APLICAR', 'CRUCE', 'RECLASIFICACION', 'CORRECCION']
-                if any(k in referencia_completa for k in keywords_autorizadas):
+                # Reutilizamos la lógica inteligente aquí también para traslados
+                keywords_autorizadas = ['TRASLADO', 'APLICAR', 'CRUCE', 'RECLASIFICACION', 'CORRECCION', 'TRASPASO']
+                
+                # Verificamos si ALGUNA palabra clave está presente (con tolerancia a errores)
+                es_autorizado = False
+                for key in keywords_autorizadas:
+                    if es_palabra_similiar(referencia_completa, key):
+                        es_autorizado = True
+                        break
+                
+                if es_autorizado:
                      return "Grupo 7: Devoluciones y Rebajas - Traslados/Cruce"
                 return "Grupo 7: Devoluciones y Rebajas - Limpieza (> $5)"
         else: 
@@ -2251,24 +2285,26 @@ def _validar_asiento(asiento_group):
         if (asiento_group['Monto_USD'].abs() > 25).any():
             return "Incidencia: Movimiento mayor al límite permitido ($25)."
             
-    # --- GRUPO 7: DEVOLUCIONES (VALIDACIÓN SEMÁNTICA AGREGADA) ---
+    # --- GRUPO 7: DEVOLUCIONES ---
     elif grupo.startswith("Grupo 7:"):
+        # Regla Semántica (Diferencial)
         referencia_upper = str(asiento_group['Referencia'].iloc[0]).upper()
-        
-        # 1. REGLA DE COHERENCIA CONTABLE (Nueva)
-        # Si dice "Diferencial", "Tasa" o "Cambio", no debería estar en Devoluciones.
         keywords_error_cuenta = ['DIFERENCIAL', 'DIF. CAMBIARIO', 'DIF CAMBIARIO', 'TASA', 'DIFF', 'CAMBIO']
-        
-        # Verificamos si alguna palabra "prohibida" está en la referencia
-        if any(k in referencia_upper for k in keywords_error_cuenta):
-            # Excepción: A veces dicen "DIFERENCIA DE PRECIO" (que sí es devolución)
-            if "PRECIO" not in referencia_upper:
-                return "Incidencia: Referencia indica 'Diferencial/Tasa' pero usa cuenta de Devoluciones."
+        if any(k in referencia_upper for k in keywords_error_cuenta) and "PRECIO" not in referencia_upper:
+            return "Incidencia: Referencia indica 'Diferencial/Tasa' pero usa cuenta de Devoluciones."
 
-        # 2. REGLA DE MONTO (Existente)
+        # Regla de Monto con Inteligencia Artificial
         if (asiento_group['Monto_USD'].abs() > 5).any():
-            keywords_autorizadas = ['TRASLADO', 'APLICAR', 'CRUCE', 'RECLASIFICACION', 'CORRECCION']
-            if not any(k in referencia_upper for k in keywords_autorizadas):
+            keywords_autorizadas = ['TRASLADO', 'APLICAR', 'CRUCE', 'RECLASIFICACION', 'CORRECCION', 'TRASPASO']
+            
+            # Verificamos si alguna de las palabras autorizadas está en la referencia (con fuzzy match)
+            es_valido = False
+            for key in keywords_autorizadas:
+                if es_palabra_similiar(referencia_upper, key):
+                    es_valido = True
+                    break
+            
+            if not es_valido:
                 return "Incidencia: Movimiento mayor a $5 (y no indica ser Traslado/Cruce)."
 
     # GRUPO 9: RETENCIONES
