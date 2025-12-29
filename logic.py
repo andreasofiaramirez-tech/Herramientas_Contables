@@ -2081,21 +2081,33 @@ CUENTAS_BANCO = {normalize_account(acc) for acc in [
     '1.1.1.02.6.013'
 ]}
 
-def es_palabra_similiar(texto_completo, palabra_objetivo, umbral=0.85):
+def es_palabra_similiar(texto_completo, palabra_objetivo, umbral=0.80):
     """
     Busca si 'palabra_objetivo' está en 'texto_completo' permitiendo errores de tipeo.
-    Ej: Detecta 'TRANSPASO' si buscamos 'TRASPASO'.
+    MEJORA: Separa palabras por cualquier símbolo para evitar uniones accidentales.
     """
-    # Limpiamos y dividimos el texto en palabras
-    palabras = re.sub(r'[^A-Z\s]', '', str(texto_completo).upper()).split()
+    if not texto_completo: return False
+    
+    # 1. Reemplazar cualquier carácter que NO sea letra o número por ESPACIO
+    # Ej: "TRANSPASO-SALDO" -> "TRANSPASO SALDO"
+    texto_limpio = re.sub(r'[^A-Z0-9]', ' ', str(texto_completo).upper())
+    
+    # 2. Dividir en palabras
+    palabras = texto_limpio.split()
+    
+    objetivo = palabra_objetivo.upper()
     
     for palabra in palabras:
-        # Si la palabra es idéntica, retorna True rápido
-        if palabra == palabra_objetivo:
+        # Coincidencia Exacta
+        if palabra == objetivo:
             return True
+            
+        # Optimización: Si la longitud varía mucho, no es la misma palabra (ahorra proceso)
+        if abs(len(palabra) - len(objetivo)) > 3:
+            continue
         
-        # Si no, calculamos similitud
-        ratio = SequenceMatcher(None, palabra, palabra_objetivo).ratio()
+        # Coincidencia Difusa (Fuzzy)
+        ratio = SequenceMatcher(None, palabra, objetivo).ratio()
         if ratio >= umbral:
             return True
             
