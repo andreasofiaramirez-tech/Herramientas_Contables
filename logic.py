@@ -2769,6 +2769,12 @@ MAPEO_CB_CG_SILLACA = {
     "0501E":  {"cta": "1.1.1.03.6.024", "moneda": "USD"},
     "0501E2": {"cta": "1.1.1.03.6.024", "moneda": "USD"}, # Duplicado intencional
     "2407E":  {"cta": "1.1.1.06.6.003", "moneda": "USD"},
+    "0104L2": {"cta": "1.1.1.02.1.112", "moneda": "VES"}, # Venecredito VES (2)
+    "0105E2": {"cta": "1.1.1.02.6.001", "moneda": "USD"}, # Mercantil USD (2)
+    "0105L2": {"cta": "1.1.1.02.1.009", "moneda": "VES"}, # Mercantil VES (2)
+    "0174E2": {"cta": "1.1.1.02.6.010", "moneda": "USD"}, # Banplus USD (2)
+    "0205E2": {"cta": "1.1.1.03.6.026", "moneda": "USD"}, # Mercantil Panama (2)
+    "0501E2": {"cta": "1.1.1.03.6.024", "moneda": "USD"}, # BVC Cayman (2)
 }
 
 def limpiar_monto_pdf(texto):
