@@ -3543,27 +3543,23 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
 def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empresa, log_messages):
     """
     Motor de cálculo para el impuesto del 9%.
-    MEJORA: Búsqueda flexible de nombre de empresa en Nómina.
+    MEJORA: Detecta automáticamente la fila de encabezados en la Nómina.
     """
     log_messages.append(f"--- INICIANDO CÁLCULO DE PENSIONES (9%) - {nombre_empresa} ---")
     
     # 1. Mapeo de Nombres (Selector App -> Excel Nómina)
-    # El Excel tiene nombres cortos ("Quincalla", "Beval, C.A."), el selector tiene nombres largos.
     mapa_nombres = {
         "FEBECA, C.A": "FEBECA",
         "MAYOR BEVAL, C.A": "BEVAL",
-        "PRISMA, C.A": "PRISMA", # Busca PRISMA en general (cubre 01 y 99 si se suman)
+        "PRISMA, C.A": "PRISMA",
         "FEBECA, C.A (QUINCALLA)": "QUINCALLA"
     }
-    
-    # Palabra clave a buscar en el Excel
     keyword_empresa = mapa_nombres.get(nombre_empresa, nombre_empresa).upper()
-    log_messages.append(f"🔍 Buscando en Nómina por la palabra clave: '{keyword_empresa}'")
 
     mes_detectado = None
     nombres_meses = {1: 'ENERO', 2: 'FEBRERO', 3: 'MARZO', 4: 'ABRIL', 5: 'MAYO', 6: 'JUNIO', 7: 'JULIO', 8: 'AGOSTO', 9: 'SEPTIEMBRE', 10: 'OCTUBRE', 11: 'NOVIEMBRE', 12: 'DICIEMBRE'}
 
-    # --- 1. PROCESAR MAYOR CONTABLE (Igual que antes) ---
+    # --- 1. PROCESAR MAYOR CONTABLE (Igual) ---
     try:
         df_mayor = pd.read_excel(file_mayor)
         df_mayor.columns = [str(c).strip().upper() for c in df_mayor.columns]
@@ -3603,7 +3599,6 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
         
         df_filtrado['CC_Agrupado'] = df_filtrado[col_cc].astype(str).str.slice(0, 10)
         df_agrupado = df_filtrado.groupby(['CC_Agrupado', col_cta]).agg({'Base_Neta': 'sum'}).reset_index()
-        
         df_agrupado.rename(columns={'CC_Agrupado': 'Centro de Costo (Padre)', col_cta: 'Cuenta Contable'}, inplace=True)
         
         df_agrupado['Impuesto (9%)'] = df_agrupado['Base_Neta'] * 0.09
@@ -3614,7 +3609,7 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
         log_messages.append(f"❌ Error procesando Mayor: {str(e)}")
         return None, None, None, None
 
-    # --- 2. PROCESAR NÓMINA (BÚSQUEDA FLEXIBLE) ---
+    # --- 2. PROCESAR NÓMINA (CON DETECCIÓN DE ENCABEZADO) ---
     total_base_nomina = 0.0
     try:
         if file_nomina:
@@ -3627,19 +3622,35 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
                         hoja_objetivo = hoja; break
             if not hoja_objetivo: hoja_objetivo = hojas[0]
             
-            df_nom = pd.read_excel(xls_nomina, sheet_name=hoja_objetivo)
+            # 1. Leer sin header para buscar la fila correcta
+            df_preview = pd.read_excel(xls_nomina, sheet_name=hoja_objetivo, header=None, nrows=15)
+            
+            header_idx = 0
+            found_header = False
+            for i, row in df_preview.iterrows():
+                row_str = row.astype(str).str.upper().values
+                # Buscamos palabras clave de la cabecera
+                if any("EMPRESA" in s for s in row_str) and any("SALARIO" in s for s in row_str):
+                    header_idx = i
+                    found_header = True
+                    break
+            
+            if found_header:
+                # Recargar con el header correcto
+                df_nom = pd.read_excel(xls_nomina, sheet_name=hoja_objetivo, header=header_idx)
+            else:
+                df_nom = pd.read_excel(xls_nomina, sheet_name=hoja_objetivo) # Fallback
+
             df_nom.columns = [str(c).strip().upper() for c in df_nom.columns]
             
             col_empresa = next((c for c in df_nom.columns if 'EMPRESA' in c), None)
             col_sal = next((c for c in df_nom.columns if 'SALARIO' in c), None)
-            col_tkt = next((c for c in df_nom.columns if 'TICKET' in c), None)
+            col_tkt = next((c for c in df_nom.columns if 'TICKET' in c or 'ALIMENTACION' in c), None)
             
             if col_empresa and col_sal and col_tkt:
-                # Búsqueda por palabra clave (Contiene)
                 filas_encontradas = df_nom[df_nom[col_empresa].astype(str).str.upper().str.contains(keyword_empresa, na=False)]
                 
                 if not filas_encontradas.empty:
-                    # Sumamos todas las filas encontradas (útil para Prisma que tiene 01 y 99)
                     sum_sal = filas_encontradas[col_sal].apply(clean_float).sum()
                     sum_tkt = filas_encontradas[col_tkt].apply(clean_float).sum()
                     total_base_nomina = sum_sal + sum_tkt
@@ -3650,9 +3661,11 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
                     else:
                         log_messages.append(f"⚠️ ALERTA DESCUADRE: Contabilidad ({total_base_contable:,.2f}) vs Nómina ({total_base_nomina:,.2f}).")
                 else:
-                    log_messages.append(f"⚠️ No se encontró la empresa '{keyword_empresa}' en la columna '{col_empresa}' de Nómina.")
+                    # Debug: Mostrar qué empresas se encontraron para ayudar al usuario
+                    empresas_vistas = df_nom[col_empresa].unique()[:5]
+                    log_messages.append(f"⚠️ No se encontró '{keyword_empresa}'. Empresas vistas en el archivo: {list(empresas_vistas)}")
             else:
-                log_messages.append("⚠️ No se identificaron columnas en Nómina.")
+                log_messages.append(f"⚠️ No se hallaron columnas. Buscado: EMPRESA, SALARIO, TICKET. Encontrado: {df_nom.columns.tolist()}")
     except Exception as e:
         log_messages.append(f"⚠️ Error leyendo Nómina: {str(e)}")
 
