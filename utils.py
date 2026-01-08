@@ -1556,139 +1556,130 @@ def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, nombre_empresa, 
             ws3 = workbook.add_worksheet('3. Asiento Contable')
             ws3.hide_gridlines(2)
             
-            # --- SECCIÓN SUPERIOR ---
-            # A1: Compañía
-            ws3.write('A1', "COMPAÑÍA:", fmt_bold_left)
-            # C1-F1: Nombre Empresa (Subrayado abajo)
-            ws3.merge_range('C1:F1', nombre_empresa, box_border_bottom)
-            # G1: N°
-            ws3.write('G1', "Nº.", fmt_bold_right)
-            # H1: 004
-            ws3.write('H1', "004", box_border_bottom)
+            # --- 1. ENCABEZADO ---
+            ws3.write('A1', "COMPAÑÍA:", fmt_title_label)
+            # Combinamos C a F para el nombre
+            ws3.merge_range('C1:F1', nombre_empresa, fmt_company)
+            ws3.write('G1', "Nº.", workbook.add_format({'bold': True, 'align': 'right'}))
+            ws3.write('H1', "004", workbook.add_format({'bold': True, 'align': 'center', 'bottom': 1}))
 
-            # Instrucciones (Columna C)
-            ws3.write('C3', "PARA ASENTAR EN DIARIO Y CUENTAS:", fmt_bold_left)
-            ws3.write('C4', "1) Escríbase con máquina de escribir.", fmt_small)
-            ws3.write('C5', "2) Entréguese a Contabilidad.", fmt_small)
-            ws3.write('C6', "3) Anéxese documentación original, si la hay.", fmt_small)
-            ws3.write('C7', "4) En caso de no anexarla. Indíquese dónde se archiva.", fmt_small)
+            # --- 2. INSTRUCCIONES (Lado Izquierdo) ---
+            ws3.write('B3', "PARA ASENTAR EN DIARIO Y CUENTAS:", fmt_title_label)
+            ws3.write('B4', "1) Escríbase con máquina de escribir.", small_text)
+            ws3.write('B5', "2) Entréguese a Contabilidad.", small_text)
+            ws3.write('B6', "3) Anéxese documentación original, si la hay.", small_text)
+            ws3.write('B7', "4) En caso de no anexarla. Indíquese dónde se archiva.", small_text)
 
-            # Cuadro ASENTADO (Columna G-H-I-J)
-            ws3.merge_range('G3:H3', "A S E N T A D O", box_all_bold)
+            # --- 3. CUADRO 'ASENTADO' (Lado Derecho) ---
+            # Cuadro principal
+            ws3.merge_range('G3:H3', "A S E N T A D O", box_header)
             
-            # Operación No. y Fecha
-            ws3.write('G4', "Operación No.: _______", fmt_bold_right)
+            # Fila de Operación / Fecha
+            ws3.write('G4', "Operación No.:", workbook.add_format({'align': 'right', 'valign': 'vcenter'}))
             fecha_str = fecha_cierre.strftime('%d/%m/%Y') if fecha_cierre else ""
-            ws3.merge_range('H4:I4', fecha_str, box_highlight) # FECHA
+            # La fecha va en H, con fondo naranja
+            ws3.write('H4', fecha_str, fmt_calc_orange)
             
-            # Comprobante
-            ws3.write('G5', "Comprob. N°.: _______", fmt_bold_right)
-            ws3.merge_range('H5:I5', "", box_all_borders) # Espacio vacío para escribir
+            # Fila de Comprobante
+            ws3.write('G5', "Comprob. N°.:", workbook.add_format({'align': 'right', 'valign': 'vcenter'}))
+            # El número de comprobante va en H, con fondo amarillo (vacío para llenar)
+            ws3.write('H5', "", fmt_input_yellow)
 
-            # --- TABLA DE DATOS (Encabezados) ---
-            # Fila 9 (Índice 8)
-            row_h1 = 8
-            # NUMERO DE CUENTA (B-C)
-            ws3.merge_range(row_h1, 1, row_h1, 2, "NUMERO DE CUENTA", box_all_borders)
-            # TITULO DE CUENTA (D-F)
-            ws3.merge_range(row_h1, 3, row_h1, 5, "TITULO DE CUENTA", box_all_borders)
-            # MONTO BOLIVARES (G-H)
-            ws3.merge_range(row_h1, 6, row_h1, 7, "MONTO BOLÍVARES", box_all_borders)
-            # MONTO DOLARES (I-J)
-            ws3.merge_range(row_h1, 8, row_h1, 9, "MONTO DOLARES", box_all_borders)
-
-            # Fila 10 (Índice 9) - Subtítulos
-            row_h2 = 9
-            ws3.write(row_h2, 0, "OFIC.", box_all_borders)
-            ws3.write(row_h2, 1, "CENTRO DE COSTO", box_all_borders)
-            ws3.write(row_h2, 2, "CTA.", box_all_borders)
-            # D-F combinadas vacías para título
-            ws3.merge_range(row_h2, 3, row_h2, 5, "", box_all_borders)
+            # --- 4. TABLA DE ASIENTOS ---
+            start_row = 8
+            # Títulos Superiores
+            ws3.merge_range(start_row, 0, start_row, 2, "NUMERO DE CUENTA", box_header)
+            ws3.merge_range(start_row, 3, start_row, 5, "TITULO DE CUENTA", box_header)
+            ws3.merge_range(start_row, 6, start_row, 7, "MONTO BOLÍVARES", box_header)
+            ws3.merge_range(start_row, 8, start_row, 9, "MONTO DOLARES", box_header)
             
-            ws3.write(row_h2, 6, "DEBE (D)", box_all_borders)
-            ws3.write(row_h2, 7, "HABER (H)", box_all_borders)
-            ws3.write(row_h2, 8, "DEBE (D)", box_all_borders)
-            ws3.write(row_h2, 9, "HABER (H)", box_all_borders)
-
-            # --- LLENADO DE DATOS ---
-            data_start_row = 10
-            current_row = data_start_row
+            # Títulos Inferiores
+            ws3.write(start_row+1, 0, "OFIC.", box_header)
+            ws3.write(start_row+1, 1, "CENTRO DE COSTO", box_header)
+            ws3.write(start_row+1, 2, "CTA.", box_header)
+            ws3.merge_range(start_row+1, 3, start_row+1, 5, "", box_header) # Espacio para título cuenta
+            ws3.write(start_row+1, 6, "DEBE (D)", box_header)
+            ws3.write(start_row+1, 7, "HABER (H)", box_header)
+            ws3.write(start_row+1, 8, "DEBE (D)", box_header)
+            ws3.write(start_row+1, 9, "HABER (H)", box_header)
             
+            row_idx = start_row + 2
+            
+            # Datos del DataFrame
             for _, row in df_asiento.iterrows():
-                ws3.write(current_row, 0, "01", cell_data)
-                ws3.write(current_row, 1, row['Centro Costo'], cell_data)
-                ws3.write(current_row, 2, row['Cuenta Contable'], cell_data)
-                ws3.merge_range(current_row, 3, current_row, 5, row['Descripción'], cell_desc)
+                ws3.write(row_idx, 0, "01", box_data_center)
+                ws3.write(row_idx, 1, row['Centro Costo'], box_data_center)
+                ws3.write(row_idx, 2, row['Cuenta Contable'], box_data_center)
+                # Título de cuenta
+                ws3.merge_range(row_idx, 3, row_idx, 5, row['Descripción'], box_data_left)
                 
-                # Montos (Si es 0, dejamos vacío o guion visual)
+                # Montos (Uso de write para soportar vacíos y 0.00)
                 d_v = row['Débito VES']; h_v = row['Crédito VES']
                 d_u = row['Débito USD']; h_u = row['Crédito USD']
                 
-                ws3.write(current_row, 6, d_v if d_v > 0 else "", cell_money)
-                ws3.write(current_row, 7, h_v if h_v > 0 else "", cell_money)
-                ws3.write(current_row, 8, d_u if d_u > 0 else "", cell_money)
-                ws3.write(current_row, 9, h_u if h_u > 0 else "", cell_money)
+                ws3.write(row_idx, 6, d_v if d_v > 0 else "", box_money)
+                ws3.write(row_idx, 7, h_v if h_v > 0 else "", box_money)
+                ws3.write(row_idx, 8, d_u if d_u > 0 else "", box_money)
+                ws3.write(row_idx, 9, h_u if h_u > 0 else "", box_money)
                 
-                current_row += 1
+                row_idx += 1
             
-            # --- TOTALES ---
-            ws3.write(current_row, 6, df_asiento['Débito VES'].sum(), cell_money_bold)
-            ws3.write(current_row, 7, df_asiento['Crédito VES'].sum(), cell_money_bold)
-            ws3.write(current_row, 8, df_asiento['Débito USD'].sum(), cell_money_bold)
-            ws3.write(current_row, 9, df_asiento['Crédito USD'].sum(), cell_money_bold)
+            # Totales de la Tabla
+            ws3.write(row_idx, 6, df_asiento['Débito VES'].sum(), box_money_bold)
+            ws3.write(row_idx, 7, df_asiento['Crédito VES'].sum(), box_money_bold)
+            ws3.write(row_idx, 8, df_asiento['Débito USD'].sum(), box_money_bold)
+            ws3.write(row_idx, 9, df_asiento['Crédito USD'].sum(), box_money_bold)
             
-            current_row += 2 # Espacio antes de los textos
+            row_idx += 2 # Espacio
 
-            # --- TEXTOS EXPLICATIVOS ---
+            # --- 5. BLOQUES DE DESCRIPCIÓN (Debe/Haber) ---
             mes_txt = fecha_cierre.strftime('%b').upper() if fecha_cierre else "MES"
             anio_txt = fecha_cierre.strftime('%y') if fecha_cierre else "AA"
-            # Ejemplo: APORTE PENSIONES DIC.25
             texto_concepto = f"APORTE PENSIONES {mes_txt}.{anio_txt}"
 
             # Bloque DEBE
-            ws3.write(current_row, 3, "(Máximo 40 posiciones, incluyendo N°. de contra-cuenta cuando se requiera)", fmt_small)
-            ws3.write(current_row+1, 0, "TEXTO DEL DEBE", fmt_bold_left)
-            # Caja de texto
-            ws3.merge_range(current_row+1, 3, current_row+1, 5, texto_concepto, box_all_borders)
-            # Totales repetidos a la derecha
-            ws3.write(current_row+1, 7, df_asiento['Crédito VES'].sum(), cell_money)
-            ws3.write(current_row+1, 9, df_asiento['Crédito USD'].sum(), cell_money)
-            
-            current_row += 4
+            ws3.write(row_idx, 3, "(Máximo 40 posiciones, incluyendo N°. de contra-cuenta cuando se requiera)", small_text)
+            ws3.write(row_idx+1, 0, "TEXTO DEL DEBE", fmt_title_label)
+            # Caja Naranja para el texto
+            ws3.merge_range(row_idx+1, 3, row_idx+1, 5, texto_concepto, fmt_calc_orange)
+            # Totales a la derecha
+            ws3.write(row_idx+1, 7, df_asiento['Crédito VES'].sum(), text_center) # Igualamos al Haber para cuadrar visualmente
+            ws3.write(row_idx+1, 9, df_asiento['Crédito USD'].sum(), text_center)
+            row_idx += 4
 
             # Bloque HABER
-            ws3.write(current_row, 3, "(Máximo 40 posiciones, incluyendo N°. de contra-cuenta cuando se requiera)", fmt_small)
-            ws3.write(current_row+1, 0, "TEXTO DEL HABER", fmt_bold_left)
-            # Caja de texto
-            ws3.merge_range(current_row+1, 3, current_row+1, 5, texto_concepto, box_all_borders)
-            ws3.write(current_row+1, 7, df_asiento['Crédito VES'].sum(), cell_money)
-            ws3.write(current_row+1, 9, df_asiento['Crédito USD'].sum(), cell_money)
-            
-            current_row += 3
+            ws3.write(row_idx, 3, "(Máximo 40 posiciones...)", small_text)
+            ws3.write(row_idx+1, 0, "TEXTO DEL HABER", fmt_title_label)
+            ws3.merge_range(row_idx+1, 3, row_idx+1, 5, texto_concepto, fmt_calc_orange)
+            ws3.write(row_idx+1, 7, df_asiento['Crédito VES'].sum(), text_center)
+            ws3.write(row_idx+1, 9, df_asiento['Crédito USD'].sum(), text_center)
+            row_idx += 3
 
-            # --- PIE DE PÁGINA (FIRMAS) ---
-            # Etiquetas
-            ws3.write(current_row, 0, "Hecho por:", workbook.add_format({'top': 1, 'font_size': 9}))
-            ws3.merge_range(current_row, 3, current_row, 4, "Aprobado por:", workbook.add_format({'top': 1, 'font_size': 9}))
-            ws3.merge_range(current_row, 6, current_row, 7, "Procesado por:", workbook.add_format({'top': 1, 'font_size': 9}))
-            ws3.merge_range(current_row, 8, current_row, 9, "Revisado por:", workbook.add_format({'top': 1, 'font_size': 9}))
+            # --- 6. PIE DE PÁGINA (FIRMAS) ---
+            # Etiquetas superiores
+            top_line = workbook.add_format({'top': 1, 'font_size': 9})
+            ws3.write(row_idx, 0, "Hecho por:", top_line)
+            ws3.merge_range(row_idx, 3, row_idx, 4, "Aprobado por:", top_line)
+            ws3.merge_range(row_idx, 6, row_idx, 7, "Procesado por:", top_line)
+            ws3.merge_range(row_idx, 8, row_idx, 9, "Revisado por:", top_line)
             
-            # Nombre ARAMIREZ (Resaltado en caja)
-            ws3.merge_range(current_row+1, 0, current_row+1, 2, "ARAMIREZ", box_all_bold)
+            # Espacio para firma (Usuario NO fijo, amarillo para llenar)
+            ws3.merge_range(row_idx+1, 0, row_idx+1, 2, "", fmt_input_yellow) 
             
-            # Lugar y Fecha (Caja final)
-            ws3.write(current_row, 8, "Lugar y Fecha:", workbook.add_format({'top': 1, 'left':1, 'right':1, 'font_size': 9}))
+            # Caja Lugar y Fecha
+            box_corner = workbook.add_format({'top': 1, 'left':1, 'right':1, 'font_size': 9})
+            ws3.write(row_idx, 8, "Lugar y Fecha:", box_corner)
             lugar_fecha = f"VALENCIA, {fecha_str}"
-            ws3.merge_range(current_row+1, 8, current_row+1, 9, lugar_fecha, box_highlight)
+            ws3.merge_range(row_idx+1, 8, row_idx+1, 9, lugar_fecha, fmt_calc_orange)
             
-            # Footer
-            ws3.merge_range(current_row+3, 3, current_row+3, 6, "ORIGINAL: CONTABILIDAD", fmt_bold_center)
+            # Footer Final
+            ws3.merge_range(row_idx+3, 4, row_idx+3, 6, "ORIGINAL: CONTABILIDAD", workbook.add_format({'bold': True, 'align': 'center'}))
 
-            # --- AJUSTE ANCHOS FINALES (Para calzar con la imagen) ---
-            ws3.set_column('A:A', 6)  # OFIC (Estrecha)
-            ws3.set_column('B:B', 18) # CC
-            ws3.set_column('C:C', 16) # CTA
-            ws3.set_column('D:F', 14) # Descripciones
-            ws3.set_column('G:J', 16) # Montos
+            # --- 7. AJUSTE DE ANCHOS (Clave para que no salga #####) ---
+            ws3.set_column('A:A', 5)  # Ofic (Estrecho)
+            ws3.set_column('B:B', 15) # CC
+            ws3.set_column('C:C', 15) # CTA
+            ws3.set_column('D:F', 12) # Texto
+            ws3.set_column('G:J', 18) # Montos (Ancho suficiente para miles de millones)
 
     return output.getvalue()
