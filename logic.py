@@ -3543,21 +3543,32 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
 def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empresa, log_messages):
     """
     Motor de cálculo para el impuesto del 9%.
-    MEJORA FINAL: Estrategia Híbrida (Nombre + Posición) para leer Nómina.
+    MEJORA: Limpieza numérica blindada contra espacios invisibles (\xa0).
     """
     log_messages.append(f"--- INICIANDO CÁLCULO DE PENSIONES (9%) - {nombre_empresa} ---")
     
-    # 0. HERRAMIENTAS INTERNAS
+    # 0. HERRAMIENTA DE LIMPIEZA NUMÉRICA (NIVEL NUCLEAR)
     def limpiar_monto_inteligente(valor):
         if pd.isna(valor) or str(valor).strip() == '': return 0.0
-        t = str(valor).strip().replace('Bs', '').replace(' ', '')
+        
+        # Si ya es número, retornar
         if isinstance(valor, (int, float)): return float(valor)
+        
+        # 1. Limpieza de caracteres invisibles y moneda
+        # \xa0 es el 'non-breaking space' común en exports de sistemas web/excel
+        t = str(valor).strip().replace('Bs', '').replace(' ', '').replace('\xa0', '')
+        
+        # 2. Lógica Venezuela: 5.765.460,16
         if ',' in t and '.' in t:
-            if t.rfind(',') > t.rfind('.'): t = t.replace('.', '').replace(',', '.')
-            else: t = t.replace(',', '')
-        elif ',' in t: t = t.replace(',', '.')
-        elif '.' in t: # Posible miles
+            if t.rfind(',') > t.rfind('.'): # Coma al final (Decimal)
+                t = t.replace('.', '').replace(',', '.')
+            else: # Punto al final (Decimal US)
+                t = t.replace(',', '')
+        elif ',' in t: # Solo coma (123,45) -> Decimal
+            t = t.replace(',', '.')
+        elif '.' in t: # Solo punto (1.000) -> Miles
              if len(t.split('.')[-1]) == 3: t = t.replace('.', '')
+             
         try: return float(t)
         except: return 0.0
 
@@ -3567,8 +3578,11 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
         "PRISMA, C.A": "PRISMA", "FEBECA, C.A (QUINCALLA)": "QUINCALLA"
     }
     keyword_empresa = mapa_nombres.get(nombre_empresa, nombre_empresa).upper()
-    
-    # --- 1. PROCESAR MAYOR CONTABLE ---
+
+    mes_detectado = None
+    nombres_meses = {1: 'ENERO', 2: 'FEBRERO', 3: 'MARZO', 4: 'ABRIL', 5: 'MAYO', 6: 'JUNIO', 7: 'JULIO', 8: 'AGOSTO', 9: 'SEPTIEMBRE', 10: 'OCTUBRE', 11: 'NOVIEMBRE', 12: 'DICIEMBRE'}
+
+    # --- 1. PROCESAR MAYOR CONTABLE (IGUAL) ---
     try:
         df_mayor = pd.read_excel(file_mayor)
         df_mayor.columns = [str(c).strip().upper() for c in df_mayor.columns]
@@ -3582,16 +3596,15 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
         if not (col_cta and col_cc and col_deb and col_cre):
             log_messages.append("❌ Error: Faltan columnas críticas en el Mayor.")
             return None, None, None, None
-        
-        mes_detectado = None
+            
         if col_fecha:
             try:
                 fechas = pd.to_datetime(df_mayor[col_fecha], errors='coerce').dropna()
                 if not fechas.empty:
                     mes_num = fechas.dt.month.mode()[0]
-                    mapa_meses = {1:'ENERO', 2:'FEBRERO', 3:'MARZO', 4:'ABRIL', 5:'MAYO', 6:'JUNIO', 7:'JULIO', 8:'AGOSTO', 9:'SEPTIEMBRE', 10:'OCTUBRE', 11:'NOVIEMBRE', 12:'DICIEMBRE'}
-                    mes_detectado = mapa_meses[mes_num]
-                    log_messages.append(f"📅 Mes detectado en Mayor: {mes_detectado}")
+                    year_num = fechas.dt.year.mode()[0]
+                    mes_detectado = nombres_meses[mes_num]
+                    log_messages.append(f"📅 Periodo detectado: {mes_detectado} {year_num}")
             except: pass
 
         cuentas_base = ['7.1.1.01.1.001', '7.1.1.09.1.003']
@@ -3606,7 +3619,6 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
         df_agrupado.rename(columns={'CC_Agrupado': 'Centro de Costo (Padre)', col_cta: 'Cuenta Contable'}, inplace=True)
         df_agrupado['Impuesto (9%)'] = df_agrupado['Base_Neta'] * 0.09
         
-        # Totales Contables
         base_salarios_cont = df_agrupado[df_agrupado['Cuenta Contable'].astype(str).str.contains('7.1.1.01', na=False)]['Base_Neta'].sum()
         base_tickets_cont = df_agrupado[df_agrupado['Cuenta Contable'].astype(str).str.contains('7.1.1.09', na=False)]['Base_Neta'].sum()
         total_base_contable = base_salarios_cont + base_tickets_cont
@@ -3615,7 +3627,7 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
         log_messages.append(f"❌ Error procesando Mayor: {str(e)}")
         return None, None, None, None
 
-    # --- 2. PROCESAR NÓMINA (ESTRATEGIA BLINDADA) ---
+    # --- 2. PROCESAR NÓMINA (DEBUGGER ACTIVADO) ---
     val_salarios_nom = 0.0
     val_tickets_nom = 0.0
     val_impuesto_nom = 0.0
@@ -3627,95 +3639,59 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
             if mes_detectado:
                 for h in xls_nomina.sheet_names:
                     if mes_detectado in h.upper(): hoja_objetivo = h; break
-
-            log_messages.append(f"📂 Leyendo hoja de Nómina: '{hoja_objetivo}'")
             
-            # DIAGNÓSTICO 1: Leer crudo para ver dónde está el encabezado
-            df_raw = pd.read_excel(xls_nomina, sheet_name=hoja_objetivo, header=None, nrows=20)
-            
-            header_idx = None
+            # Detectar fila de encabezado
+            df_raw = pd.read_excel(xls_nomina, sheet_name=hoja_objetivo, header=None, nrows=15)
+            header_idx = 0
             for i, row in df_raw.iterrows():
                 row_str = [str(x).upper().replace('\n', ' ').strip() for x in row.values]
-                # Logueamos qué ve en cada fila para que tú lo veas
-                # log_messages.append(f"   Fila {i}: {row_str[:5]}...") 
-                
-                # Buscamos palabras clave
-                if any("EMPRESA" in s for s in row_str) and any("TOTAL" in s for s in row_str):
-                    header_idx = i
-                    log_messages.append(f"🎯 Encabezado detectado en Fila {i+1} (Indice {i})")
-                    break
+                if any("EMPRESA" in s for s in row_str) and (any("SALARIO" in s for s in row_str) or any("TOTAL" in s for s in row_str)):
+                    header_idx = i; break
             
-            if header_idx is None:
-                log_messages.append("❌ NO se detectó encabezado con 'EMPRESA' y 'TOTAL'. Usando fila 0 por defecto.")
-                header_idx = 0
-            
-            # Cargar con el encabezado correcto
             df_nom = pd.read_excel(xls_nomina, sheet_name=hoja_objetivo, header=header_idx)
-            
-            # Normalizar columnas (Quitar saltos de línea es CRÍTICO)
-            raw_cols = df_nom.columns.tolist()
             df_nom.columns = [str(c).strip().upper().replace('\n', ' ') for c in df_nom.columns]
             
-            log_messages.append(f"📋 Columnas leídas: {df_nom.columns.tolist()}")
-
-            # Identificar columnas
-            col_empresa = next((c for c in df_nom.columns if 'EMPRESA' in c), None)
-            
-            # Búsqueda flexible de Salario
+            col_emp = next((c for c in df_nom.columns if 'EMPRESA' in c), None)
             col_sal = next((c for c in df_nom.columns if 'SALARIO' in c and '711' in c), None)
             if not col_sal: col_sal = next((c for c in df_nom.columns if 'SALARIO' in c), None)
-            
             col_tkt = next((c for c in df_nom.columns if 'TICKET' in c or 'ALIMENTACION' in c), None)
             col_imp = next((c for c in df_nom.columns if 'APARTADO' in c), None)
             
-            if col_empresa:
-                # DIAGNÓSTICO 2: Ver qué empresas existen en el archivo
-                empresas_en_archivo = df_nom[col_empresa].astype(str).unique().tolist()
-                log_messages.append(f"🏢 Empresas encontradas en columna '{col_empresa}':")
-                for emp in empresas_en_archivo:
-                    log_messages.append(f"   - '{emp}'")
-                
-                # Filtrado
-                mask = df_nom[col_empresa].astype(str).str.upper().str.contains(keyword_empresa, na=False)
+            if col_emp:
+                mask = df_nom[col_emp].astype(str).str.upper().str.contains(keyword_empresa, na=False)
                 filas_encontradas = df_nom[mask]
                 
                 if not filas_encontradas.empty:
-                    log_messages.append(f"✅ Se encontraron {len(filas_encontradas)} filas para '{keyword_empresa}'.")
+                    # --- DEBUGGER: VER EL VALOR CRUDO ---
+                    valor_crudo_sal = filas_encontradas.iloc[0][col_sal]
+                    log_messages.append(f"🔍 DEBUG: Valor crudo leído en Excel para Salarios: '{valor_crudo_sal}' (Tipo: {type(valor_crudo_sal)})")
                     
-                    if col_sal: 
-                        val_salarios_nom = filas_encontradas[col_sal].apply(limpiar_monto_inteligente).sum()
-                    else: log_messages.append("⚠️ Columna SALARIOS no identificada.")
-                        
-                    if col_tkt:
-                        val_tickets_nom = filas_encontradas[col_tkt].apply(limpiar_monto_inteligente).sum()
-                    else: log_messages.append("⚠️ Columna TICKETS no identificada.")
-                        
+                    val_salarios_nom = filas_encontradas[col_sal].apply(limpiar_monto_inteligente).sum()
+                    val_tickets_nom = filas_encontradas[col_tkt].apply(limpiar_monto_inteligente).sum()
                     if col_imp:
                         val_impuesto_nom = filas_encontradas[col_imp].apply(limpiar_monto_inteligente).sum()
-                    else: log_messages.append("⚠️ Columna APARTADO no identificada.")
-
+                    
+                    log_messages.append(f"📊 Nómina detectada ({keyword_empresa}): Salarios={val_salarios_nom:,.2f}, Tickets={val_tickets_nom:,.2f}")
                 else:
-                    log_messages.append(f"❌ NO hubo coincidencia para '{keyword_empresa}'. Revisa la lista de empresas arriba.")
+                    log_messages.append(f"⚠️ No se encontró '{keyword_empresa}' en Nómina.")
             else:
                 log_messages.append("❌ Columna EMPRESA no encontrada.")
 
     except Exception as e:
-        log_messages.append(f"⚠️ Error crítico leyendo Nómina: {str(e)}")
+        log_messages.append(f"⚠️ Error leyendo Nómina: {str(e)}")
 
-    # --- 3. GENERAR ASIENTO ---
+    # --- 3. GENERAR ASIENTO (IGUAL) ---
     asiento_data = df_agrupado.groupby('Centro de Costo (Padre)')['Impuesto (9%)'].sum().reset_index()
     asiento_data.rename(columns={'Centro de Costo (Padre)': 'Centro Costo', 'Impuesto (9%)': 'Débito VES'}, inplace=True)
     asiento_data['Cuenta Contable'] = '7.1.1.07.1.001'
     asiento_data['Descripción'] = 'Contribucion ley de Pensiones'
     asiento_data['Crédito VES'] = 0.0
-    
     total_impuesto_contable = asiento_data['Débito VES'].sum()
     
     linea_pasivo = pd.DataFrame([{
         'Centro Costo': '00.00.000.00', 'Cuenta Contable': '2.1.3.02.3.005', 
         'Descripción': 'Contribuciones Sociales por Pagar', 'Débito VES': 0.0, 'Crédito VES': total_impuesto_contable
     }])
-    
     df_asiento = pd.concat([asiento_data, linea_pasivo], ignore_index=True)
     
     if tasa_cambio > 0:
@@ -3725,19 +3701,19 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
     else:
         df_asiento['Débito USD'] = 0; df_asiento['Crédito USD'] = 0; df_asiento['Tasa'] = 0
 
-    # --- 4. RESUMEN VALIDACIÓN ---
+    # --- 4. RESUMEN ---
     dif_salarios = base_salarios_cont - val_salarios_nom
     dif_tickets = base_tickets_cont - val_tickets_nom
     dif_impuesto = total_impuesto_contable - val_impuesto_nom
-    total_base_nomina = val_salarios_nom + val_tickets_nom
     
-    estado_val = "OK" if (abs(dif_salarios) < 1 and abs(dif_tickets) < 1) else "DESCUADRE"
+    # Tolerancia de 1.00 para errores de redondeo
+    estado_val = "OK" if (abs(dif_salarios) < 1.00 and abs(dif_tickets) < 1.00) else "DESCUADRE"
 
     resumen_validacion = {
         'salario_cont': base_salarios_cont, 'salario_nom': val_salarios_nom, 'dif_salario': dif_salarios,
         'ticket_cont': base_tickets_cont, 'ticket_nom': val_tickets_nom, 'dif_ticket': dif_tickets,
-        'total_base_cont': total_base_contable, 'total_base_nom': total_base_nomina,
-        'dif_base_total': total_base_contable - total_base_nomina,
+        'total_base_cont': total_base_contable, 'total_base_nom': val_salarios_nom + val_tickets_nom,
+        'dif_base_total': total_base_contable - (val_salarios_nom + val_tickets_nom),
         'imp_calc': total_impuesto_contable, 'imp_nom': val_impuesto_nom, 'dif_imp': dif_impuesto,
         'estado': estado_val
     }
