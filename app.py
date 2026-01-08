@@ -846,13 +846,8 @@ def render_pensiones():
                     # Mostrar resultados en pantalla
                     total_pagar = df_asiento['Crédito VES'].sum()
                     st.success(f"✅ Cálculo exitoso para {empresa_sel}. Total a Pagar: Bs. {total_pagar:,.2f}")
-                    
-                    # ... (dentro de if df_asiento is not None:) ...
-                
-                total_pagar = df_asiento['Crédito VES'].sum()
-                st.success(f"✅ Cálculo exitoso para {empresa_sel}. Total a Pagar: Bs. {total_pagar:,.2f}")
-                
-                st.subheader("Vista Previa del Asiento")
+
+                    st.subheader("Vista Previa del Asiento")
 
                 # --- MEJORA DE VISUALIZACIÓN ---
                 # 1. Definir orden lógico de columnas (Débito al lado de Crédito)
