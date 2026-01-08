@@ -3543,12 +3543,17 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
 def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, log_messages):
     """
     Motor de cálculo para el impuesto del 9%.
-    1. Procesa Mayor Contable (Base Real).
-    2. Procesa Archivo Nómina (Validación).
-    3. Genera DataFrames para Reporte y Asiento.
+    MEJORA: Detecta el mes del Mayor y busca la pestaña correspondiente en la Nómina.
     """
     log_messages.append("--- INICIANDO CÁLCULO DE PENSIONES (9%) ---")
     
+    # Variables para cruce de fechas
+    mes_detectado = None
+    nombres_meses = {
+        1: 'ENERO', 2: 'FEBRERO', 3: 'MARZO', 4: 'ABRIL', 5: 'MAYO', 6: 'JUNIO',
+        7: 'JULIO', 8: 'AGOSTO', 9: 'SEPTIEMBRE', 10: 'OCTUBRE', 11: 'NOVIEMBRE', 12: 'DICIEMBRE'
+    }
+
     # --- 1. PROCESAR MAYOR CONTABLE ---
     try:
         df_mayor = pd.read_excel(file_mayor)
@@ -3559,20 +3564,34 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, log_message
         col_cc = next((c for c in df_mayor.columns if 'CENTRO' in c and 'COSTO' in c), None)
         col_deb = next((c for c in df_mayor.columns if 'DÉBITO' in c or 'DEBITO' in c), None)
         col_cre = next((c for c in df_mayor.columns if 'CRÉDITO' in c or 'CREDITO' in c), None)
+        col_fecha = next((c for c in df_mayor.columns if 'FECHA' in c), None) # Nueva búsqueda
         
         if not (col_cta and col_cc and col_deb and col_cre):
             log_messages.append("❌ Error: Faltan columnas críticas en el Mayor (Cuenta, CC, Débito, Crédito).")
             return None, None, None
+            
+        # --- DETECCIÓN DEL MES DEL MAYOR ---
+        if col_fecha:
+            try:
+                # Convertimos a fecha y sacamos la moda (el mes que más se repite)
+                fechas = pd.to_datetime(df_mayor[col_fecha], errors='coerce').dropna()
+                if not fechas.empty:
+                    mes_num = fechas.dt.month.mode()[0]
+                    year_num = fechas.dt.year.mode()[0]
+                    mes_detectado = nombres_meses[mes_num]
+                    log_messages.append(f"📅 Periodo detectado en Contabilidad: {mes_detectado} {year_num}")
+            except:
+                log_messages.append("⚠️ No se pudo determinar el mes automáticamente del Mayor.")
+        # -----------------------------------
 
         # Filtrar Cuentas Base (Nómina y Cestaticket)
         cuentas_base = ['7.1.1.01.1.001', '7.1.1.09.1.003']
-        # Normalizamos la columna cuenta para asegurar match
         df_filtrado = df_mayor[df_mayor[col_cta].astype(str).str.strip().isin(cuentas_base)].copy()
         
         # Limpieza de montos
         def clean_float(x):
             if pd.isna(x): return 0.0
-            x = str(x).replace('Bs', '').replace(' ', '').replace(',', '') # Asumiendo formato Excel numérico o texto simple
+            x = str(x).replace('Bs', '').replace(' ', '').replace(',', '') 
             try: return float(x)
             except: return 0.0
 
@@ -3580,13 +3599,9 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, log_message
         df_filtrado['Monto_Cre'] = df_filtrado[col_cre].apply(clean_float)
         df_filtrado['Base_Neta'] = df_filtrado['Monto_Deb'] - df_filtrado['Monto_Cre']
         
-        # AGRUPACIÓN POR CENTRO DE COSTO Y CUENTA (Hoja 1)
-        df_agrupado = df_filtrado.groupby([col_cc, col_cta]).agg({
-            'Base_Neta': 'sum'
-        }).reset_index()
-        
+        # AGRUPACIÓN
+        df_agrupado = df_filtrado.groupby([col_cc, col_cta]).agg({'Base_Neta': 'sum'}).reset_index()
         df_agrupado['Impuesto (9%)'] = df_agrupado['Base_Neta'] * 0.09
-        
         total_base_contable = df_agrupado['Base_Neta'].sum()
         log_messages.append(f"✅ Base Contable calculada: {total_base_contable:,.2f} Bs.")
 
@@ -3594,20 +3609,37 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, log_message
         log_messages.append(f"❌ Error procesando Mayor: {str(e)}")
         return None, None, None
 
-    # --- 2. PROCESAR ARCHIVO NÓMINA (VALIDACIÓN) ---
+    # --- 2. PROCESAR ARCHIVO NÓMINA (SELECCIÓN INTELIGENTE DE PESTAÑA) ---
     total_base_nomina = 0.0
     try:
         if file_nomina:
-            df_nom = pd.read_excel(file_nomina)
+            # Usamos ExcelFile para ver las hojas sin cargar todo
+            xls_nomina = pd.ExcelFile(file_nomina)
+            hojas = xls_nomina.sheet_names
+            hoja_objetivo = None
+            
+            # Buscamos la hoja que contenga el nombre del mes detectado
+            if mes_detectado:
+                for hoja in hojas:
+                    if mes_detectado in hoja.upper():
+                        hoja_objetivo = hoja
+                        break
+            
+            if hoja_objetivo:
+                log_messages.append(f"📂 Usando pestaña de nómina: '{hoja_objetivo}'")
+                df_nom = pd.read_excel(xls_nomina, sheet_name=hoja_objetivo)
+            else:
+                hoja_default = hojas[0]
+                log_messages.append(f"⚠️ No se encontró pestaña con nombre '{mes_detectado}'. Usando la primera: '{hoja_default}'")
+                df_nom = pd.read_excel(xls_nomina, sheet_name=hoja_default)
+
             df_nom.columns = [str(c).strip().upper() for c in df_nom.columns]
             
-            # Buscar columnas de totales (Salarios + Tickets)
-            # Según imagen: 'SALARIOS 711...', 'TICKETS ALIMENTACION'
+            # Buscar columnas de totales
             col_sal = next((c for c in df_nom.columns if 'SALARIO' in c), None)
             col_tkt = next((c for c in df_nom.columns if 'TICKET' in c), None)
             
             if col_sal and col_tkt:
-                # Limpiar y sumar
                 sum_sal = df_nom[col_sal].apply(clean_float).sum()
                 sum_tkt = df_nom[col_tkt].apply(clean_float).sum()
                 total_base_nomina = sum_sal + sum_tkt
@@ -3622,29 +3654,21 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, log_message
     except Exception as e:
         log_messages.append(f"⚠️ Error leyendo archivo Nómina: {str(e)}")
 
-    # --- 3. GENERAR DATA ASIENTO (Hoja 3) ---
-    # El asiento agrupa el Gasto por Centro de Costo, y el Pasivo es Global.
-    
-    # A. Lado del Gasto (Débitos) - Agrupado por CC
+    # --- 3. GENERAR DATA ASIENTO ---
     asiento_data = df_agrupado.groupby(col_cc)['Impuesto (9%)'].sum().reset_index()
     asiento_data.rename(columns={col_cc: 'Centro Costo', 'Impuesto (9%)': 'Débito VES'}, inplace=True)
-    asiento_data['Cuenta Contable'] = '7.1.1.07.1.001' # Cta Gasto Contribucion Pensiones
+    asiento_data['Cuenta Contable'] = '7.1.1.07.1.001'
     asiento_data['Descripción'] = 'Contribucion ley de Pensiones'
     asiento_data['Crédito VES'] = 0.0
     
-    # B. Lado del Pasivo (Crédito) - Global
     total_impuesto = asiento_data['Débito VES'].sum()
     linea_pasivo = pd.DataFrame([{
-        'Centro Costo': '00.00.000.00',
-        'Cuenta Contable': '2.1.3.02.3.005', # Cta Pasivo
-        'Descripción': 'Contribuciones Sociales por Pagar',
-        'Débito VES': 0.0,
-        'Crédito VES': total_impuesto
+        'Centro Costo': '00.00.000.00', 'Cuenta Contable': '2.1.3.02.3.005', 
+        'Descripción': 'Contribuciones Sociales por Pagar', 'Débito VES': 0.0, 'Crédito VES': total_impuesto
     }])
     
     df_asiento = pd.concat([asiento_data, linea_pasivo], ignore_index=True)
     
-    # Conversión a Dólares
     if tasa_cambio > 0:
         df_asiento['Débito USD'] = (df_asiento['Débito VES'] / tasa_cambio).round(2)
         df_asiento['Crédito USD'] = (df_asiento['Crédito VES'] / tasa_cambio).round(2)
