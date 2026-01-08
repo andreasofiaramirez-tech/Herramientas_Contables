@@ -3543,15 +3543,14 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
 def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empresa, log_messages):
     """
     Motor de cálculo para el impuesto del 9%.
-    MEJORA: Filtra la fila de Nómina según la empresa seleccionada.
+    MEJORA: Agrupa Centros de Costo por los primeros 10 dígitos (Nivel Padre).
     """
     log_messages.append(f"--- INICIANDO CÁLCULO DE PENSIONES (9%) - {nombre_empresa} ---")
     
-    # Variables de fechas
     mes_detectado = None
     nombres_meses = {1: 'ENERO', 2: 'FEBRERO', 3: 'MARZO', 4: 'ABRIL', 5: 'MAYO', 6: 'JUNIO', 7: 'JULIO', 8: 'AGOSTO', 9: 'SEPTIEMBRE', 10: 'OCTUBRE', 11: 'NOVIEMBRE', 12: 'DICIEMBRE'}
 
-    # --- 1. PROCESAR MAYOR CONTABLE (Igual que antes) ---
+    # --- 1. PROCESAR MAYOR CONTABLE ---
     try:
         df_mayor = pd.read_excel(file_mayor)
         df_mayor.columns = [str(c).strip().upper() for c in df_mayor.columns]
@@ -3589,7 +3588,17 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
         df_filtrado['Monto_Cre'] = df_filtrado[col_cre].apply(clean_float)
         df_filtrado['Base_Neta'] = df_filtrado['Monto_Deb'] - df_filtrado['Monto_Cre']
         
-        df_agrupado = df_filtrado.groupby([col_cc, col_cta]).agg({'Base_Neta': 'sum'}).reset_index()
+        # --- CAMBIO AQUÍ: AGRUPACIÓN POR 10 DÍGITOS ---
+        # Cortamos el string del Centro de Costo a 10 caracteres
+        # Ej: "01.01.089.01" -> "01.01.089."
+        df_filtrado['CC_Agrupado'] = df_filtrado[col_cc].astype(str).str.slice(0, 10)
+        
+        # Agrupamos usando el CC recortado
+        df_agrupado = df_filtrado.groupby(['CC_Agrupado', col_cta]).agg({'Base_Neta': 'sum'}).reset_index()
+        # Renombramos para que el reporte se vea bien
+        df_agrupado.rename(columns={'CC_Agrupado': 'Centro de Costo (Padre)'}, inplace=True)
+        # ----------------------------------------------
+        
         df_agrupado['Impuesto (9%)'] = df_agrupado['Base_Neta'] * 0.09
         total_base_contable = df_agrupado['Base_Neta'].sum()
         log_messages.append(f"✅ Base Contable calculada: {total_base_contable:,.2f} Bs.")
@@ -3598,61 +3607,50 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
         log_messages.append(f"❌ Error procesando Mayor: {str(e)}")
         return None, None, None
 
-    # --- 2. PROCESAR NÓMINA (FILTRADO POR EMPRESA) ---
+    # --- 2. PROCESAR NÓMINA ---
     total_base_nomina = 0.0
     try:
         if file_nomina:
             xls_nomina = pd.ExcelFile(file_nomina)
             hojas = xls_nomina.sheet_names
             hoja_objetivo = None
-            
             if mes_detectado:
                 for hoja in hojas:
                     if mes_detectado in hoja.upper():
                         hoja_objetivo = hoja; break
-            
             if not hoja_objetivo: hoja_objetivo = hojas[0]
             
             df_nom = pd.read_excel(xls_nomina, sheet_name=hoja_objetivo)
             df_nom.columns = [str(c).strip().upper() for c in df_nom.columns]
             
-            # Buscamos columnas
             col_empresa = next((c for c in df_nom.columns if 'EMPRESA' in c), None)
             col_sal = next((c for c in df_nom.columns if 'SALARIO' in c), None)
             col_tkt = next((c for c in df_nom.columns if 'TICKET' in c), None)
             
             if col_empresa and col_sal and col_tkt:
-                # --- AQUÍ ESTÁ EL CAMBIO CLAVE ---
-                # Buscamos la fila que contenga el nombre de la empresa seleccionada
-                # Ej: Si seleccionó 'FEBECA', buscamos 'FEBECA, C.A.'
-                
                 fila_empresa = None
                 for idx, row in df_nom.iterrows():
                     nombre_en_fila = str(row[col_empresa]).upper()
                     if nombre_empresa in nombre_en_fila:
-                        fila_empresa = row
-                        break
+                        fila_empresa = row; break
                 
                 if fila_empresa is not None:
                     sum_sal = clean_float(fila_empresa[col_sal])
                     sum_tkt = clean_float(fila_empresa[col_tkt])
                     total_base_nomina = sum_sal + sum_tkt
-                    
                     diff = abs(total_base_contable - total_base_nomina)
                     if diff < 1.00:
                         log_messages.append(f"✅ VALIDACIÓN NÓMINA ({nombre_empresa}): Cuadra perfecto (Dif: {diff:.2f}).")
                     else:
                         log_messages.append(f"⚠️ ALERTA DESCUADRE: Contabilidad ({total_base_contable:,.2f}) vs Nómina ({total_base_nomina:,.2f}). Dif: {diff:,.2f}")
-                else:
-                    log_messages.append(f"⚠️ No se encontró la empresa '{nombre_empresa}' en el archivo de Nómina.")
-            else:
-                log_messages.append("⚠️ No se identificaron columnas Empresa/Salario/Tickets en Nómina.")
-    except Exception as e:
-        log_messages.append(f"⚠️ Error leyendo Nómina: {str(e)}")
+                else: log_messages.append(f"⚠️ No se encontró la empresa '{nombre_empresa}' en Nómina.")
+            else: log_messages.append("⚠️ No se identificaron columnas en Nómina.")
+    except Exception as e: log_messages.append(f"⚠️ Error leyendo Nómina: {str(e)}")
 
-    # --- 3. GENERAR ASIENTO ---
-    asiento_data = df_agrupado.groupby(col_cc)['Impuesto (9%)'].sum().reset_index()
-    asiento_data.rename(columns={col_cc: 'Centro Costo', 'Impuesto (9%)': 'Débito VES'}, inplace=True)
+    # --- 3. GENERAR ASIENTO (Agrupado por CC Padre) ---
+    # Usamos la columna 'Centro de Costo (Padre)' que creamos en el df_agrupado
+    asiento_data = df_agrupado.groupby('Centro de Costo (Padre)')['Impuesto (9%)'].sum().reset_index()
+    asiento_data.rename(columns={'Centro de Costo (Padre)': 'Centro Costo', 'Impuesto (9%)': 'Débito VES'}, inplace=True)
     asiento_data['Cuenta Contable'] = '7.1.1.07.1.001'
     asiento_data['Descripción'] = 'Contribucion ley de Pensiones'
     asiento_data['Crédito VES'] = 0.0
