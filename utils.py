@@ -1549,25 +1549,42 @@ def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, resumen_validaci
         
         current_row += 3 
 
-        # --- TABLA DE VALIDACIÓN ---
+       # Títulos
         ws1.merge_range(current_row, 0, current_row, 3, "VALIDACIÓN CRUZADA (CONTABILIDAD vs NÓMINA)", header_green)
+        ws1.write(current_row+1, 1, "BASE (Salario + Ticket)", header_green)
+        ws1.write(current_row+1, 2, "IMPUESTO (Apartado)", header_green)
+        ws1.write(current_row+1, 3, "DIFERENCIA", header_green)
+        current_row += 2
+        
+        # Fila 1: Contabilidad
+        ws1.write(current_row, 0, "Según Contabilidad:", text_left)
+        ws1.write_number(current_row, 1, resumen_validacion['base_contable'], money_fmt)
+        ws1.write_number(current_row, 2, resumen_validacion['imp_contable'], money_fmt)
+        ws1.write(current_row, 3, "-", text_center)
         current_row += 1
         
-        ws1.merge_range(current_row, 0, current_row, 1, "Total Base Según Contabilidad:", text_left)
-        ws1.merge_range(current_row, 2, current_row, 3, resumen_validacion['base_contable'], money_fmt)
+        # Fila 2: Nómina
+        ws1.write(current_row, 0, "Según Nómina (Archivo):", text_left)
+        ws1.write_number(current_row, 1, resumen_validacion['base_nomina'], money_fmt)
+        ws1.write_number(current_row, 2, resumen_validacion['imp_nomina'], money_fmt)
+        ws1.write(current_row, 3, "-", text_center)
         current_row += 1
         
-        ws1.merge_range(current_row, 0, current_row, 1, "Total Base Según Nómina:", text_left)
-        ws1.merge_range(current_row, 2, current_row, 3, resumen_validacion['base_nomina'], money_fmt)
-        current_row += 1
+        # Fila 3: Diferencias
+        dif_base = resumen_validacion['dif_base']
+        dif_imp = resumen_validacion['dif_imp']
         
-        dif = resumen_validacion['diferencia']
-        estilo_dif = fmt_green if abs(dif) < 1.00 else fmt_red
+        fmt_dif_base = fmt_green if abs(dif_base) < 1.00 else fmt_red
+        fmt_dif_imp = fmt_green if abs(dif_imp) < 1.00 else fmt_red
         
-        ws1.merge_range(current_row, 0, current_row, 1, "Diferencia:", total_fmt)
-        ws1.merge_range(current_row, 2, current_row, 3, dif, estilo_dif)
+        ws1.write(current_row, 0, "DIFERENCIA:", total_fmt)
+        ws1.write_number(current_row, 1, dif_base, fmt_dif_base)
+        ws1.write_number(current_row, 2, dif_imp, fmt_dif_imp)
         
-        ws1.set_column('A:B', 20); ws1.set_column('C:D', 18)
+        # ---------------------------------
+        
+        ws1.set_column('A:A', 25)
+        ws1.set_column('B:D', 18)
 
         # ==========================================
         # HOJA 2: DETALLE MAYOR
