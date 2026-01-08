@@ -3627,57 +3627,78 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
             if mes_detectado:
                 for h in xls_nomina.sheet_names:
                     if mes_detectado in h.upper(): hoja_objetivo = h; break
+
+            log_messages.append(f"📂 Leyendo hoja de Nómina: '{hoja_objetivo}'")
             
-            # Buscar fila de encabezado
-            df_raw = pd.read_excel(xls_nomina, sheet_name=hoja_objetivo, header=None, nrows=15)
-            header_idx = 0
+            # DIAGNÓSTICO 1: Leer crudo para ver dónde está el encabezado
+            df_raw = pd.read_excel(xls_nomina, sheet_name=hoja_objetivo, header=None, nrows=20)
+            
+            header_idx = None
             for i, row in df_raw.iterrows():
-                s = row.astype(str).str.upper().values
-                if any("EMPRESA" in x for x in s) and (any("SALARIO" in x for x in s) or any("TOTAL" in x for x in s)):
-                    header_idx = i; break
+                row_str = [str(x).upper().replace('\n', ' ').strip() for x in row.values]
+                # Logueamos qué ve en cada fila para que tú lo veas
+                # log_messages.append(f"   Fila {i}: {row_str[:5]}...") 
+                
+                # Buscamos palabras clave
+                if any("EMPRESA" in s for s in row_str) and any("TOTAL" in s for s in row_str):
+                    header_idx = i
+                    log_messages.append(f"🎯 Encabezado detectado en Fila {i+1} (Indice {i})")
+                    break
             
+            if header_idx is None:
+                log_messages.append("❌ NO se detectó encabezado con 'EMPRESA' y 'TOTAL'. Usando fila 0 por defecto.")
+                header_idx = 0
+            
+            # Cargar con el encabezado correcto
             df_nom = pd.read_excel(xls_nomina, sheet_name=hoja_objetivo, header=header_idx)
             
-            # Estrategia A: Por Nombres de Columna
+            # Normalizar columnas (Quitar saltos de línea es CRÍTICO)
+            raw_cols = df_nom.columns.tolist()
             df_nom.columns = [str(c).strip().upper().replace('\n', ' ') for c in df_nom.columns]
-            col_emp = next((c for c in df_nom.columns if 'EMPRESA' in c), None)
-            col_sal = next((c for c in df_nom.columns if 'SALARIO' in c), None)
+            
+            log_messages.append(f"📋 Columnas leídas: {df_nom.columns.tolist()}")
+
+            # Identificar columnas
+            col_empresa = next((c for c in df_nom.columns if 'EMPRESA' in c), None)
+            
+            # Búsqueda flexible de Salario
+            col_sal = next((c for c in df_nom.columns if 'SALARIO' in c and '711' in c), None)
+            if not col_sal: col_sal = next((c for c in df_nom.columns if 'SALARIO' in c), None)
+            
             col_tkt = next((c for c in df_nom.columns if 'TICKET' in c or 'ALIMENTACION' in c), None)
             col_imp = next((c for c in df_nom.columns if 'APARTADO' in c), None)
             
-            # Estrategia B: Por Posición (Si fallan nombres)
-            # Asumimos estructura: [0]Empresa, [1]Salario, [2]Ticket, [5]Apartado
-            usa_posicion = False
-            if not (col_emp and col_sal and col_tkt):
-                log_messages.append("⚠️ Nombres de columnas no coinciden. Usando estrategia posicional (Col 1, 2, 5).")
-                usa_posicion = True
-                # Renombramos genéricamente para poder filtrar
-                df_nom.columns = [f"COL_{i}" for i in range(len(df_nom.columns))]
-            
-            # Filtrado de Empresa
-            filas_encontradas = pd.DataFrame()
-            target_col = col_emp if not usa_posicion else "COL_0"
-            
-            # Búsqueda tolerante a espacios
-            mask = df_nom[target_col].astype(str).str.upper().str.contains(keyword_empresa, na=False)
-            filas_encontradas = df_nom[mask]
-            
-            if not filas_encontradas.empty:
-                if usa_posicion:
-                    # Índices fijos según imagen: 1=Salario, 2=Ticket, 5=Apartado
-                    val_salarios_nom = filas_encontradas.iloc[:, 1].apply(limpiar_monto_inteligente).sum()
-                    val_tickets_nom = filas_encontradas.iloc[:, 2].apply(limpiar_monto_inteligente).sum()
-                    try: val_impuesto_nom = filas_encontradas.iloc[:, 5].apply(limpiar_monto_inteligente).sum()
-                    except: val_impuesto_nom = 0.0
-                else:
-                    val_salarios_nom = filas_encontradas[col_sal].apply(limpiar_monto_inteligente).sum()
-                    val_tickets_nom = filas_encontradas[col_tkt].apply(limpiar_monto_inteligente).sum()
-                    val_impuesto_nom = filas_encontradas[col_imp].apply(limpiar_monto_inteligente).sum()
-                    
-                log_messages.append(f"📊 Nómina detectada ({keyword_empresa}): Salarios={val_salarios_nom:,.2f}, Tickets={val_tickets_nom:,.2f}")
-            else:
-                log_messages.append(f"⚠️ No se encontró la empresa '{keyword_empresa}' en la columna '{target_col}'.")
+            if col_empresa:
+                # DIAGNÓSTICO 2: Ver qué empresas existen en el archivo
+                empresas_en_archivo = df_nom[col_empresa].astype(str).unique().tolist()
+                log_messages.append(f"🏢 Empresas encontradas en columna '{col_empresa}':")
+                for emp in empresas_en_archivo:
+                    log_messages.append(f"   - '{emp}'")
                 
+                # Filtrado
+                mask = df_nom[col_empresa].astype(str).str.upper().str.contains(keyword_empresa, na=False)
+                filas_encontradas = df_nom[mask]
+                
+                if not filas_encontradas.empty:
+                    log_messages.append(f"✅ Se encontraron {len(filas_encontradas)} filas para '{keyword_empresa}'.")
+                    
+                    if col_sal: 
+                        val_salarios_nom = filas_encontradas[col_sal].apply(limpiar_monto_inteligente).sum()
+                    else: log_messages.append("⚠️ Columna SALARIOS no identificada.")
+                        
+                    if col_tkt:
+                        val_tickets_nom = filas_encontradas[col_tkt].apply(limpiar_monto_inteligente).sum()
+                    else: log_messages.append("⚠️ Columna TICKETS no identificada.")
+                        
+                    if col_imp:
+                        val_impuesto_nom = filas_encontradas[col_imp].apply(limpiar_monto_inteligente).sum()
+                    else: log_messages.append("⚠️ Columna APARTADO no identificada.")
+
+                else:
+                    log_messages.append(f"❌ NO hubo coincidencia para '{keyword_empresa}'. Revisa la lista de empresas arriba.")
+            else:
+                log_messages.append("❌ Columna EMPRESA no encontrada.")
+
     except Exception as e:
         log_messages.append(f"⚠️ Error crítico leyendo Nómina: {str(e)}")
 
