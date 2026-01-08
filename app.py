@@ -830,6 +830,17 @@ def render_pensiones():
                 with st.spinner("Procesando mayor contable y cruzando con nómina..."):
                     # Ejecutar lógica principal (Recibe 4 variables ahora)
                     df_calc, df_base, df_asiento, dict_val = procesar_calculo_pensiones(file_mayor, file_nomina, tasa, empresa_sel, log)
+
+                # --- NUEVA ESTRUCTURA DE ALERTA ---
+                if dict_val.get('estado') == 'OK':
+                    st.success(f"✅ Cálculo exitoso. Nómina cuadra perfectamente.")
+                else:
+                    st.warning(
+                        f"⚠️ Atención: Descuadres detectados (Ver Hoja 1).\n"
+                        f"• Dif. Salarios: {dict_val.get('dif_salario', 0):,.2f}\n"
+                        f"• Dif. Tickets: {dict_val.get('dif_ticket', 0):,.2f}\n"
+                        f"• Dif. Impuesto: {dict_val.get('dif_imp', 0):,.2f}"
+                    )
                 
                 if df_asiento is not None and not df_asiento.empty:
                     # Mostrar resultados en pantalla
