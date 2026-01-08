@@ -3543,7 +3543,7 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
 def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empresa, log_messages):
     """
     Motor de cálculo para el impuesto del 9%.
-    MEJORA FINAL: Valida Base vs Columna 'TOTAL' y Aporte vs Columna 'APARTADO'.
+    MEJORA FINAL: Desglose detallado de Salarios vs Tickets para validación.
     """
     log_messages.append(f"--- INICIANDO CÁLCULO DE PENSIONES (9%) - {nombre_empresa} ---")
     
@@ -3601,20 +3601,25 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
         df_filtrado['CC_Agrupado'] = df_filtrado[col_cc].astype(str).str.slice(0, 10)
         df_agrupado = df_filtrado.groupby(['CC_Agrupado', col_cta]).agg({'Base_Neta': 'sum'}).reset_index()
         
-        # Renombrar columnas
         df_agrupado.rename(columns={'CC_Agrupado': 'Centro de Costo (Padre)', col_cta: 'Cuenta Contable'}, inplace=True)
         
         df_agrupado['Impuesto (9%)'] = df_agrupado['Base_Neta'] * 0.09
-        total_base_contable = df_agrupado['Base_Neta'].sum()
+        
+        # Totales Contables por Tipo
+        base_salarios_cont = df_agrupado[df_agrupado['Cuenta Contable'].astype(str).str.contains('7.1.1.01', na=False)]['Base_Neta'].sum()
+        base_tickets_cont = df_agrupado[df_agrupado['Cuenta Contable'].astype(str).str.contains('7.1.1.09', na=False)]['Base_Neta'].sum()
+        total_base_contable = base_salarios_cont + base_tickets_cont
+
         log_messages.append(f"✅ Base Contable calculada: {total_base_contable:,.2f} Bs.")
 
     except Exception as e:
         log_messages.append(f"❌ Error procesando Mayor: {str(e)}")
         return None, None, None, None
 
-    # --- 2. PROCESAR NÓMINA (VALIDACIÓN EXACTA) ---
-    val_base_nomina = 0.0
-    val_impuesto_nomina = 0.0
+    # --- 2. PROCESAR NÓMINA (VALIDACIÓN DETALLADA) ---
+    val_salarios_nom = 0.0
+    val_tickets_nom = 0.0
+    val_impuesto_nom = 0.0
     
     try:
         if file_nomina:
@@ -3643,18 +3648,20 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
 
             df_nom.columns = [str(c).strip().upper() for c in df_nom.columns]
             
-            # Identificar columnas
             col_empresa = next((c for c in df_nom.columns if 'EMPRESA' in c), None)
-            col_base = next((c for c in df_nom.columns if 'TOTAL' in c and 'SALARIO' not in c and 'APARTADO' not in c), None)
-            col_impuesto = next((c for c in df_nom.columns if 'APARTADO' in c), None)
+            col_sal = next((c for c in df_nom.columns if 'SALARIO' in c and '711' in c), None)
+            col_tkt = next((c for c in df_nom.columns if 'TICKET' in c or 'ALIMENTACION' in c), None)
+            col_imp = next((c for c in df_nom.columns if 'APARTADO' in c), None)
             
-            if col_empresa and col_base and col_impuesto:
+            if col_empresa and col_sal and col_tkt and col_imp:
                 filas_encontradas = df_nom[df_nom[col_empresa].astype(str).str.upper().str.contains(keyword_empresa, na=False)]
                 
                 if not filas_encontradas.empty:
-                    val_base_nomina = filas_encontradas[col_base].apply(clean_float).sum()
-                    val_impuesto_nomina = filas_encontradas[col_impuesto].apply(clean_float).sum()
-                    log_messages.append(f"📊 Nómina: Base={val_base_nomina:,.2f}, Apartado={val_impuesto_nomina:,.2f}")
+                    val_salarios_nom = filas_encontradas[col_sal].apply(clean_float).sum()
+                    val_tickets_nom = filas_encontradas[col_tkt].apply(clean_float).sum()
+                    val_impuesto_nom = filas_encontradas[col_imp].apply(clean_float).sum()
+                    
+                    log_messages.append(f"📊 Nómina: Salarios={val_salarios_nom:,.2f}, Tickets={val_tickets_nom:,.2f}")
                 else:
                     log_messages.append(f"⚠️ No se encontró la empresa '{keyword_empresa}' en Nómina.")
             else:
@@ -3669,7 +3676,6 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
     asiento_data['Descripción'] = 'Contribucion ley de Pensiones'
     asiento_data['Crédito VES'] = 0.0
     
-    # Variable crítica corregida
     total_impuesto_contable = asiento_data['Débito VES'].sum()
     
     linea_pasivo = pd.DataFrame([{
@@ -3687,22 +3693,29 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
         df_asiento['Débito USD'] = 0; df_asiento['Crédito USD'] = 0; df_asiento['Tasa'] = 0
 
     # --- 4. RESUMEN VALIDACIÓN ---
-    dif_base = total_base_contable - val_base_nomina
-    dif_impuesto = total_impuesto_contable - val_impuesto_nomina
+    dif_salarios = base_salarios_cont - val_salarios_nom
+    dif_tickets = base_tickets_cont - val_tickets_nom
+    dif_impuesto = total_impuesto_contable - val_impuesto_nom
     
-    estado_val = "OK" if (abs(dif_base) < 1.00 and abs(dif_impuesto) < 1.00) else "DESCUADRE"
+    estado_val = "OK" if (abs(dif_salarios) < 1 and abs(dif_tickets) < 1 and abs(dif_impuesto) < 1) else "DESCUADRE"
     
     if estado_val == "OK":
         log_messages.append("✅ VALIDACIÓN TOTAL: Bases e Impuestos cuadran.")
     else:
-        log_messages.append(f"⚠️ DESCUADRE: Dif Base: {dif_base:,.2f}, Dif Impuesto: {dif_impuesto:,.2f}")
+        log_messages.append(f"⚠️ DESCUADRE DETECTADO.")
 
     resumen_validacion = {
-        'base_contable': total_base_contable,
-        'base_nomina': val_base_nomina,
-        'dif_base': dif_base,
-        'imp_contable': total_impuesto_contable,
-        'imp_nomina': val_impuesto_nomina,
+        'salario_cont': base_salarios_cont,
+        'salario_nom': val_salarios_nom,
+        'dif_salario': dif_salarios,
+        'ticket_cont': base_tickets_cont,
+        'ticket_nom': val_tickets_nom,
+        'dif_ticket': dif_tickets,
+        'total_base_cont': total_base_contable,
+        'total_base_nom': val_salarios_nom + val_tickets_nom,
+        'dif_base_total': total_base_contable - (val_salarios_nom + val_tickets_nom),
+        'imp_calc': total_impuesto_contable,
+        'imp_nom': val_impuesto_nom,
         'dif_imp': dif_impuesto,
         'estado': estado_val
     }
