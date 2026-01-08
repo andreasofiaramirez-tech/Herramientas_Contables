@@ -3587,10 +3587,6 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
         df_filtrado['Monto_Deb'] = df_filtrado[col_deb].apply(clean_float)
         df_filtrado['Monto_Cre'] = df_filtrado[col_cre].apply(clean_float)
         df_filtrado['Base_Neta'] = df_filtrado['Monto_Deb'] - df_filtrado['Monto_Cre']
-        
-        # --- CAMBIO AQUÍ: AGRUPACIÓN POR 10 DÍGITOS ---
-        # Cortamos el string del Centro de Costo a 10 caracteres
-        # Ej: "01.01.089.01" -> "01.01.089."
         df_filtrado['CC_Agrupado'] = df_filtrado[col_cc].astype(str).str.slice(0, 10)
         
         # Agrupamos usando el CC recortado
@@ -3671,4 +3667,14 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
     else:
         df_asiento['Débito USD'] = 0; df_asiento['Crédito USD'] = 0; df_asiento['Tasa'] = 0
 
-    return df_agrupado, df_filtrado, df_asiento
+    # --- NUEVO: PREPARAR RESUMEN DE VALIDACIÓN ---
+    diferencia = total_base_contable - total_base_nomina
+    estado_val = "OK" if abs(diferencia) < 1.00 else "DESCUADRE"
+    
+    resumen_validacion = {
+        'base_contable': total_base_contable,
+        'base_nomina': total_base_nomina,
+        'diferencia': diferencia,
+        'estado': estado_val
+
+    return df_agrupado, df_filtrado, df_asiento, resumen_validacion
