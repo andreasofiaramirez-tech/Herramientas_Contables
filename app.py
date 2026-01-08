@@ -828,82 +828,60 @@ def render_pensiones():
                 from utils import generar_reporte_pensiones
                 
                 with st.spinner("Procesando mayor contable y cruzando con nómina..."):
-                    # Ejecutar lógica principal (Recibe 4 variables ahora)
+                    # Ejecutar lógica principal
                     df_calc, df_base, df_asiento, dict_val = procesar_calculo_pensiones(file_mayor, file_nomina, tasa, empresa_sel, log)
-
-                # --- NUEVA ESTRUCTURA DE ALERTA ---
-                if dict_val.get('estado') == 'OK':
-                    st.success(f"✅ Cálculo exitoso. Nómina cuadra perfectamente.")
-                else:
-                    st.warning(
-                        f"⚠️ Atención: Descuadres detectados (Ver Hoja 1).\n"
-                        f"• Dif. Salarios: {dict_val.get('dif_salario', 0):,.2f}\n"
-                        f"• Dif. Tickets: {dict_val.get('dif_ticket', 0):,.2f}\n"
-                        f"• Dif. Impuesto: {dict_val.get('dif_imp', 0):,.2f}"
-                    )
                 
                 if df_asiento is not None and not df_asiento.empty:
                     # Mostrar resultados en pantalla
                     total_pagar = df_asiento['Crédito VES'].sum()
-                    st.success(f"✅ Cálculo exitoso para {empresa_sel}. Total a Pagar: Bs. {total_pagar:,.2f}")
-
+                    
+                    # Alertas de Validación
+                    if dict_val.get('estado') == 'OK':
+                        st.success(f"✅ Cálculo exitoso para {empresa_sel}. Total a Pagar: Bs. {total_pagar:,.2f}")
+                    else:
+                        st.warning(
+                            f"⚠️ Atención: Descuadres detectados (Ver Hoja 1).\n"
+                            f"• Dif. Salarios: {dict_val.get('dif_salario', 0):,.2f}\n"
+                            f"• Dif. Tickets: {dict_val.get('dif_ticket', 0):,.2f}\n"
+                            f"• Dif. Impuesto: {dict_val.get('dif_imp', 0):,.2f}"
+                        )
+                    
                     st.subheader("Vista Previa del Asiento")
 
-                # --- MEJORA DE VISUALIZACIÓN ---
-                # 1. Definir orden lógico de columnas (Débito al lado de Crédito)
-                cols_orden = [
-                    'Centro Costo', 'Cuenta Contable', 'Descripción', 
-                    'Débito VES', 'Crédito VES', 
-                    'Débito USD', 'Crédito USD', 'Tasa'
-                ]
-                
-                # Crear copia para visualización
-                df_view = df_asiento[cols_orden].copy()
-                
-                # 2. Calcular Totales
-                totales = {
-                    'Centro Costo': 'TOTALES',
-                    'Cuenta Contable': '', 'Descripción': '',
-                    'Débito VES': df_view['Débito VES'].sum(),
-                    'Crédito VES': df_view['Crédito VES'].sum(),
-                    'Débito USD': df_view['Débito USD'].sum(),
-                    'Crédito USD': df_view['Crédito USD'].sum(),
-                    'Tasa': ''
-                }
-                
-                # Agregar fila de totales al final
-                df_view = pd.concat([df_view, pd.DataFrame([totales])], ignore_index=True)
-                
-                # 3. Aplicar Formato Venezolano (1.000,00)
-                # Función auxiliar local para formatear
-                def fmt_ve(x):
-                    if isinstance(x, (float, int)):
-                        # Formato: Miles con punto, Decimales con coma
-                        return "{:,.2f}".format(x).replace(",", "X").replace(".", ",").replace("X", ".")
-                    return x
+                    # --- MEJORA VISUAL EN PANTALLA ---
+                    # 1. Ordenar columnas
+                    cols_orden = ['Centro Costo', 'Cuenta Contable', 'Descripción', 'Débito VES', 'Crédito VES', 'Débito USD', 'Crédito USD', 'Tasa']
+                    df_view = df_asiento[cols_orden].copy()
+                    
+                    # 2. Fila de Totales
+                    totales = {
+                        'Centro Costo': 'TOTALES', 'Cuenta Contable': '', 'Descripción': '',
+                        'Débito VES': df_view['Débito VES'].sum(), 'Crédito VES': df_view['Crédito VES'].sum(),
+                        'Débito USD': df_view['Débito USD'].sum(), 'Crédito USD': df_view['Crédito USD'].sum(), 'Tasa': ''
+                    }
+                    df_view = pd.concat([df_view, pd.DataFrame([totales])], ignore_index=True)
+                    
+                    # 3. Formato Venezolano (1.000,00)
+                    def fmt_ve(x):
+                        if isinstance(x, (float, int)):
+                            return "{:,.2f}".format(x).replace(",", "X").replace(".", ",").replace("X", ".")
+                        return x
 
-                cols_num = ['Débito VES', 'Crédito VES', 'Débito USD', 'Crédito USD', 'Tasa']
-                for col in cols_num:
-                    df_view[col] = df_view[col].apply(fmt_ve)
+                    for col in ['Débito VES', 'Crédito VES', 'Débito USD', 'Crédito USD', 'Tasa']:
+                        df_view[col] = df_view[col].apply(fmt_ve)
 
-                # Mostrar tabla mejorada
-                st.dataframe(df_view, use_container_width=True, hide_index=True)
-                # -------------------------------
+                    st.dataframe(df_view, use_container_width=True, hide_index=True)
+                    # ---------------------------------
                     
                     # --- PREPARACIÓN PARA EXCEL ---
-                    # Intentamos detectar la fecha de cierre basada en el archivo cargado
                     fecha_cierre = pd.Timestamp.today()
                     try:
-                        # Buscamos columna fecha sin importar mayúsculas
-                        col_fecha = next((c for c in df_base.columns if 'FECHA' in c.upper()), None)
-                        if col_fecha:
-                            # Tomamos la primera fecha válida y calculamos el último día de ese mes
-                            primera_fecha = pd.to_datetime(df_base[col_fecha].iloc[0])
+                        if 'FECHA' in df_base.columns:
+                            primera_fecha = pd.to_datetime(df_base['FECHA'].iloc[0])
                             fecha_cierre = primera_fecha + pd.offsets.MonthEnd(0)
-                    except:
-                        pass # Si falla, usa fecha de hoy
+                    except: pass
                     
-                    # Generar Reporte Excel (Pasando dict_val también)
+                    # Generar Reporte
                     excel_data = generar_reporte_pensiones(df_calc, df_base, df_asiento, dict_val, empresa_sel, tasa, fecha_cierre)
                     
                     st.download_button(
@@ -914,7 +892,7 @@ def render_pensiones():
                         use_container_width=True
                     )
                 else:
-                    st.error("No se pudo generar el cálculo. Por favor revisa el log para ver el detalle del error.")
+                    st.error("No se pudo generar el cálculo. Por favor revisa el log.")
 
                 # Mostrar Log
                 with st.expander("Ver Log de Proceso"):
