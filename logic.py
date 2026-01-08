@@ -3543,7 +3543,7 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
 def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empresa, log_messages):
     """
     Motor de cálculo para el impuesto del 9%.
-    MEJORA: Agrupa Centros de Costo por los primeros 10 dígitos (Nivel Padre).
+    MEJORA: Agrupa CC por 10 dígitos, Valida con Nómina y retorna Resumen de Validación.
     """
     log_messages.append(f"--- INICIANDO CÁLCULO DE PENSIONES (9%) - {nombre_empresa} ---")
     
@@ -3563,7 +3563,7 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
         
         if not (col_cta and col_cc and col_deb and col_cre):
             log_messages.append("❌ Error: Faltan columnas críticas en el Mayor.")
-            return None, None, None
+            return None, None, None, None
             
         if col_fecha:
             try:
@@ -3587,22 +3587,25 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
         df_filtrado['Monto_Deb'] = df_filtrado[col_deb].apply(clean_float)
         df_filtrado['Monto_Cre'] = df_filtrado[col_cre].apply(clean_float)
         df_filtrado['Base_Neta'] = df_filtrado['Monto_Deb'] - df_filtrado['Monto_Cre']
+        
+        # --- AGRUPACIÓN POR 10 DÍGITOS ---
         df_filtrado['CC_Agrupado'] = df_filtrado[col_cc].astype(str).str.slice(0, 10)
         
-        # Agrupamos usando el CC recortado
         df_agrupado = df_filtrado.groupby(['CC_Agrupado', col_cta]).agg({'Base_Neta': 'sum'}).reset_index()
-        # Renombramos para que el reporte se vea bien
+        
+        # Renombrar para el reporte
         df_agrupado.rename(columns={
             'CC_Agrupado': 'Centro de Costo (Padre)',
-            col_cta: 'Cuenta Contable'  # <--- ESTO SOLUCIONA EL KEYERROR
+            col_cta: 'Cuenta Contable' 
         }, inplace=True)
+        
         df_agrupado['Impuesto (9%)'] = df_agrupado['Base_Neta'] * 0.09
         total_base_contable = df_agrupado['Base_Neta'].sum()
         log_messages.append(f"✅ Base Contable calculada: {total_base_contable:,.2f} Bs.")
 
     except Exception as e:
         log_messages.append(f"❌ Error procesando Mayor: {str(e)}")
-        return None, None, None
+        return None, None, None, None
 
     # --- 2. PROCESAR NÓMINA ---
     total_base_nomina = 0.0
@@ -3644,8 +3647,7 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
             else: log_messages.append("⚠️ No se identificaron columnas en Nómina.")
     except Exception as e: log_messages.append(f"⚠️ Error leyendo Nómina: {str(e)}")
 
-    # --- 3. GENERAR ASIENTO (Agrupado por CC Padre) ---
-    # Usamos la columna 'Centro de Costo (Padre)' que creamos en el df_agrupado
+    # --- 3. GENERAR ASIENTO ---
     asiento_data = df_agrupado.groupby('Centro de Costo (Padre)')['Impuesto (9%)'].sum().reset_index()
     asiento_data.rename(columns={'Centro de Costo (Padre)': 'Centro Costo', 'Impuesto (9%)': 'Débito VES'}, inplace=True)
     asiento_data['Cuenta Contable'] = '7.1.1.07.1.001'
@@ -3667,7 +3669,7 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
     else:
         df_asiento['Débito USD'] = 0; df_asiento['Crédito USD'] = 0; df_asiento['Tasa'] = 0
 
-    # --- NUEVO: PREPARAR RESUMEN DE VALIDACIÓN ---
+    # --- 4. PREPARAR RESUMEN VALIDACIÓN ---
     diferencia = total_base_contable - total_base_nomina
     estado_val = "OK" if abs(diferencia) < 1.00 else "DESCUADRE"
     
@@ -3676,5 +3678,6 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
         'base_nomina': total_base_nomina,
         'diferencia': diferencia,
         'estado': estado_val
+    }
 
     return df_agrupado, df_filtrado, df_asiento, resumen_validacion
