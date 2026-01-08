@@ -3543,14 +3543,27 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
 def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empresa, log_messages):
     """
     Motor de cálculo para el impuesto del 9%.
-    MEJORA: Agrupa CC por 10 dígitos, Valida con Nómina y retorna Resumen de Validación.
+    MEJORA: Búsqueda flexible de nombre de empresa en Nómina.
     """
     log_messages.append(f"--- INICIANDO CÁLCULO DE PENSIONES (9%) - {nombre_empresa} ---")
     
+    # 1. Mapeo de Nombres (Selector App -> Excel Nómina)
+    # El Excel tiene nombres cortos ("Quincalla", "Beval, C.A."), el selector tiene nombres largos.
+    mapa_nombres = {
+        "FEBECA, C.A": "FEBECA",
+        "MAYOR BEVAL, C.A": "BEVAL",
+        "PRISMA, C.A": "PRISMA", # Busca PRISMA en general (cubre 01 y 99 si se suman)
+        "FEBECA, C.A (QUINCALLA)": "QUINCALLA"
+    }
+    
+    # Palabra clave a buscar en el Excel
+    keyword_empresa = mapa_nombres.get(nombre_empresa, nombre_empresa).upper()
+    log_messages.append(f"🔍 Buscando en Nómina por la palabra clave: '{keyword_empresa}'")
+
     mes_detectado = None
     nombres_meses = {1: 'ENERO', 2: 'FEBRERO', 3: 'MARZO', 4: 'ABRIL', 5: 'MAYO', 6: 'JUNIO', 7: 'JULIO', 8: 'AGOSTO', 9: 'SEPTIEMBRE', 10: 'OCTUBRE', 11: 'NOVIEMBRE', 12: 'DICIEMBRE'}
 
-    # --- 1. PROCESAR MAYOR CONTABLE ---
+    # --- 1. PROCESAR MAYOR CONTABLE (Igual que antes) ---
     try:
         df_mayor = pd.read_excel(file_mayor)
         df_mayor.columns = [str(c).strip().upper() for c in df_mayor.columns]
@@ -3588,16 +3601,10 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
         df_filtrado['Monto_Cre'] = df_filtrado[col_cre].apply(clean_float)
         df_filtrado['Base_Neta'] = df_filtrado['Monto_Deb'] - df_filtrado['Monto_Cre']
         
-        # --- AGRUPACIÓN POR 10 DÍGITOS ---
         df_filtrado['CC_Agrupado'] = df_filtrado[col_cc].astype(str).str.slice(0, 10)
-        
         df_agrupado = df_filtrado.groupby(['CC_Agrupado', col_cta]).agg({'Base_Neta': 'sum'}).reset_index()
         
-        # Renombrar para el reporte
-        df_agrupado.rename(columns={
-            'CC_Agrupado': 'Centro de Costo (Padre)',
-            col_cta: 'Cuenta Contable' 
-        }, inplace=True)
+        df_agrupado.rename(columns={'CC_Agrupado': 'Centro de Costo (Padre)', col_cta: 'Cuenta Contable'}, inplace=True)
         
         df_agrupado['Impuesto (9%)'] = df_agrupado['Base_Neta'] * 0.09
         total_base_contable = df_agrupado['Base_Neta'].sum()
@@ -3607,7 +3614,7 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
         log_messages.append(f"❌ Error procesando Mayor: {str(e)}")
         return None, None, None, None
 
-    # --- 2. PROCESAR NÓMINA ---
+    # --- 2. PROCESAR NÓMINA (BÚSQUEDA FLEXIBLE) ---
     total_base_nomina = 0.0
     try:
         if file_nomina:
@@ -3628,24 +3635,26 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
             col_tkt = next((c for c in df_nom.columns if 'TICKET' in c), None)
             
             if col_empresa and col_sal and col_tkt:
-                fila_empresa = None
-                for idx, row in df_nom.iterrows():
-                    nombre_en_fila = str(row[col_empresa]).upper()
-                    if nombre_empresa in nombre_en_fila:
-                        fila_empresa = row; break
+                # Búsqueda por palabra clave (Contiene)
+                filas_encontradas = df_nom[df_nom[col_empresa].astype(str).str.upper().str.contains(keyword_empresa, na=False)]
                 
-                if fila_empresa is not None:
-                    sum_sal = clean_float(fila_empresa[col_sal])
-                    sum_tkt = clean_float(fila_empresa[col_tkt])
+                if not filas_encontradas.empty:
+                    # Sumamos todas las filas encontradas (útil para Prisma que tiene 01 y 99)
+                    sum_sal = filas_encontradas[col_sal].apply(clean_float).sum()
+                    sum_tkt = filas_encontradas[col_tkt].apply(clean_float).sum()
                     total_base_nomina = sum_sal + sum_tkt
+                    
                     diff = abs(total_base_contable - total_base_nomina)
                     if diff < 1.00:
-                        log_messages.append(f"✅ VALIDACIÓN NÓMINA ({nombre_empresa}): Cuadra perfecto (Dif: {diff:.2f}).")
+                        log_messages.append(f"✅ VALIDACIÓN NÓMINA: Cuadra perfecto (Dif: {diff:.2f}).")
                     else:
-                        log_messages.append(f"⚠️ ALERTA DESCUADRE: Contabilidad ({total_base_contable:,.2f}) vs Nómina ({total_base_nomina:,.2f}). Dif: {diff:,.2f}")
-                else: log_messages.append(f"⚠️ No se encontró la empresa '{nombre_empresa}' en Nómina.")
-            else: log_messages.append("⚠️ No se identificaron columnas en Nómina.")
-    except Exception as e: log_messages.append(f"⚠️ Error leyendo Nómina: {str(e)}")
+                        log_messages.append(f"⚠️ ALERTA DESCUADRE: Contabilidad ({total_base_contable:,.2f}) vs Nómina ({total_base_nomina:,.2f}).")
+                else:
+                    log_messages.append(f"⚠️ No se encontró la empresa '{keyword_empresa}' en la columna '{col_empresa}' de Nómina.")
+            else:
+                log_messages.append("⚠️ No se identificaron columnas en Nómina.")
+    except Exception as e:
+        log_messages.append(f"⚠️ Error leyendo Nómina: {str(e)}")
 
     # --- 3. GENERAR ASIENTO ---
     asiento_data = df_agrupado.groupby('Centro de Costo (Padre)')['Impuesto (9%)'].sum().reset_index()
@@ -3669,7 +3678,7 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
     else:
         df_asiento['Débito USD'] = 0; df_asiento['Crédito USD'] = 0; df_asiento['Tasa'] = 0
 
-    # --- 4. PREPARAR RESUMEN VALIDACIÓN ---
+    # --- 4. RESUMEN VALIDACIÓN ---
     diferencia = total_base_contable - total_base_nomina
     estado_val = "OK" if abs(diferencia) < 1.00 else "DESCUADRE"
     
