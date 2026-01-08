@@ -16,7 +16,8 @@ from guides import (
     GUIA_COMPLETA_RETENCIONES,
     GUIA_PAQUETE_CC,
     GUIA_IMPRENTA,
-    GUIA_GENERADOR
+    GUIA_GENERADOR,
+    GUIA_PENSIONES
 )
 
 # --- BLOQUE 2: IMPORTAR LÓGICA (Verifica las comas) ---
@@ -37,7 +38,8 @@ from logic import (
     run_cuadre_cb_cg,
     validar_coincidencia_empresa,
     run_cross_check_imprenta,
-    generar_txt_retenciones_galac
+    generar_txt_retenciones_galac,
+    procesar_calculo_pensiones
 )
 
 # --- BLOQUE 3: IMPORTAR UTILS ---
@@ -49,7 +51,8 @@ from utils import (
     generar_reporte_cuadre,
     generar_reporte_imprenta,
     generar_reporte_auditoria_txt,
-    generar_archivo_txt
+    generar_archivo_txt,
+    generar_reporte_pensiones
 )
 
 def mostrar_error_amigable(e, contexto=""):
@@ -307,6 +310,7 @@ def render_inicio():
     with col1:
         st.button("📄 Especificaciones", on_click=set_page, args=['especificaciones'], use_container_width=True)
         st.button("📦 Análisis de Paquete CC", on_click=set_page, args=['paquete_cc'], use_container_width=True)
+        st.button("🪪 Calculo Pensiones", on_click=set_page, args=['pensiones'], use_container_width=True)
         st.button("💵 Reservas y Apartados", on_click=set_page, args=['reservas'], use_container_width=True, disabled=True)
         
     with col2:
@@ -790,6 +794,58 @@ def render_imprenta():
                     with st.expander("Log"): st.write(log)
                 except Exception as e: mostrar_error_amigable(e, "Generación")
 
+def render_pensiones():
+    st.title("🛡️ Cálculo Ley Protección Pensiones (9%)", anchor=False)
+    
+    with st.expander("📖 Guía de Uso"):
+        st.markdown(GUIA_PENSIONES)
+
+    if st.button("⬅️ Volver al Inicio", key="back_pen"):
+        set_page('inicio')
+        st.rerun()
+        
+    c1, c2, c3 = st.columns([1.5, 1.5, 1])
+    with c1:
+        file_mayor = st.file_uploader("1. Mayor Contable (Excel)", type=['xlsx'])
+    with c2:
+        file_nomina = st.file_uploader("2. Resumen Nómina (Validación)", type=['xlsx'])
+    with c3:
+        tasa = st.number_input("Tasa de Cambio", min_value=0.01, value=1.0, format="%.4f")
+
+    if file_mayor and tasa > 0:
+        if st.button("Calcular Impuesto", type="primary", use_container_width=True):
+            log = []
+            try:
+                from logic import procesar_calculo_pensiones
+                from utils import generar_reporte_pensiones
+                
+                df_calc, df_base, df_asiento = procesar_calculo_pensiones(file_mayor, file_nomina, tasa, log)
+                
+                if df_asiento is not None:
+                    total_pagar = df_asiento['Crédito VES'].sum()
+                    st.success(f"✅ Cálculo exitoso. Total a Pagar: Bs. {total_pagar:,.2f}")
+                    
+                    st.subheader("Vista Previa del Asiento")
+                    st.dataframe(df_asiento, use_container_width=True)
+                    
+                    excel_data = generar_reporte_pensiones(df_calc, df_base, df_asiento)
+                    
+                    st.download_button(
+                        "⬇️ Descargar Reporte Completo (Excel)",
+                        excel_data,
+                        "Calculo_Pensiones_9_Porciento.xlsx",
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True
+                    )
+                else:
+                    st.error("No se pudo generar el cálculo. Revisa el log.")
+
+                with st.expander("Ver Log de Proceso"):
+                    st.write(log)
+                    
+            except Exception as e:
+                mostrar_error_amigable(e, "el Cálculo de Pensiones")
+
 # ==============================================================================
 # FLUJO PRINCIPAL DE LA APLICACIÓN (ROUTER)
 # ==============================================================================
@@ -801,6 +857,7 @@ def main():
         'paquete_cc': render_paquete_cc, 
         'cuadre': render_cuadre,
         'imprenta': render_imprenta,
+        'pensiones': render_pensiones,
         'reservas': lambda: render_proximamente("Reservas y Apartados"),
         'proximamente': lambda: render_proximamente("Próximamente")
     }
