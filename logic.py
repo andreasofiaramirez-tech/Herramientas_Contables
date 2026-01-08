@@ -3597,26 +3597,25 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
         df_filtrado['Monto_Cre'] = df_filtrado[col_cre].apply(clean_float)
         df_filtrado['Base_Neta'] = df_filtrado['Monto_Deb'] - df_filtrado['Monto_Cre']
         
-        # Agrupación por 10 dígitos
+        # Agrupación
         df_filtrado['CC_Agrupado'] = df_filtrado[col_cc].astype(str).str.slice(0, 10)
         df_agrupado = df_filtrado.groupby(['CC_Agrupado', col_cta]).agg({'Base_Neta': 'sum'}).reset_index()
-        
         df_agrupado.rename(columns={'CC_Agrupado': 'Centro de Costo (Padre)', col_cta: 'Cuenta Contable'}, inplace=True)
         
         df_agrupado['Impuesto (9%)'] = df_agrupado['Base_Neta'] * 0.09
         
-        # Totales Contables por Tipo
+        # --- DESGLOSE CONTABLE PARA VALIDACIÓN ---
         base_salarios_cont = df_agrupado[df_agrupado['Cuenta Contable'].astype(str).str.contains('7.1.1.01', na=False)]['Base_Neta'].sum()
         base_tickets_cont = df_agrupado[df_agrupado['Cuenta Contable'].astype(str).str.contains('7.1.1.09', na=False)]['Base_Neta'].sum()
         total_base_contable = base_salarios_cont + base_tickets_cont
 
-        log_messages.append(f"✅ Base Contable calculada: {total_base_contable:,.2f} Bs.")
+        log_messages.append(f"✅ Base Contable: {total_base_contable:,.2f} (Salarios: {base_salarios_cont:,.2f} + Ticket: {base_tickets_cont:,.2f})")
 
     except Exception as e:
         log_messages.append(f"❌ Error procesando Mayor: {str(e)}")
         return None, None, None, None
 
-    # --- 2. PROCESAR NÓMINA (VALIDACIÓN DETALLADA) ---
+    # --- 2. PROCESAR NÓMINA ---
     val_salarios_nom = 0.0
     val_tickets_nom = 0.0
     val_impuesto_nom = 0.0
@@ -3661,7 +3660,7 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
                     val_tickets_nom = filas_encontradas[col_tkt].apply(clean_float).sum()
                     val_impuesto_nom = filas_encontradas[col_imp].apply(clean_float).sum()
                     
-                    log_messages.append(f"📊 Nómina: Salarios={val_salarios_nom:,.2f}, Tickets={val_tickets_nom:,.2f}")
+                    log_messages.append(f"📊 Nómina encontrada: Salarios={val_salarios_nom:,.2f}, Tickets={val_tickets_nom:,.2f}")
                 else:
                     log_messages.append(f"⚠️ No se encontró la empresa '{keyword_empresa}' en Nómina.")
             else:
@@ -3692,7 +3691,7 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
     else:
         df_asiento['Débito USD'] = 0; df_asiento['Crédito USD'] = 0; df_asiento['Tasa'] = 0
 
-    # --- 4. RESUMEN VALIDACIÓN ---
+    # --- 4. RESUMEN VALIDACIÓN (DETALLADO) ---
     dif_salarios = base_salarios_cont - val_salarios_nom
     dif_tickets = base_tickets_cont - val_tickets_nom
     dif_impuesto = total_impuesto_contable - val_impuesto_nom
