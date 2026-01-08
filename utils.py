@@ -1465,8 +1465,6 @@ def generar_reporte_auditoria_txt(df_audit):
 def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, nombre_empresa, tasa_cambio, fecha_cierre):
     """
     Genera Excel Profesional de Pensiones.
-    Hoja 3: Réplica exacta del Comprobante Contable (Fondo Blanco Limpio).
-    CORREGIDO: Definición de fecha_str para el pie de página.
     """
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
@@ -1479,6 +1477,10 @@ def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, nombre_empresa, 
         total_fmt = workbook.add_format({'bold': True, 'bg_color': '#D9EAD3', 'border': 1, 'align': 'center'})
         text_center = workbook.add_format({'align': 'center', 'border': 1, 'valign': 'vcenter'})
         text_left = workbook.add_format({'align': 'left', 'border': 1, 'valign': 'vcenter'})
+        
+        # Estilos Validación (Rojo/Verde)
+        fmt_red = workbook.add_format({'bold': True, 'bg_color': '#FFC7CE', 'font_color': '#9C0006', 'num_format': '#,##0.00', 'border': 1})
+        fmt_green = workbook.add_format({'bold': True, 'bg_color': '#C6EFCE', 'font_color': '#006100', 'num_format': '#,##0.00', 'border': 1})
         
         # --- ESTILOS ESPECÍFICOS ASIENTO (HOJA 3) ---
         title_company = workbook.add_format({'bold': True, 'font_size': 12, 'align': 'center', 'valign': 'vcenter'})
@@ -1543,6 +1545,32 @@ def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, nombre_empresa, 
         ws1.write(current_row, 1, "Total General", total_fmt)
         ws1.write_number(current_row, 2, df_agrupado['Base_Neta'].sum(), money_bold)
         ws1.write_number(current_row, 3, df_agrupado['Impuesto (9%)'].sum(), money_bold)
+        ws1.set_column('A:B', 20); ws1.set_column('C:D', 18)
+
+        current_row += 3 # Dejamos espacio
+
+        # --- NUEVA TABLA DE VALIDACIÓN ---
+        ws1.merge_range(current_row, 0, current_row, 3, "VALIDACIÓN CRUZADA (CONTABILIDAD vs NÓMINA)", header_green)
+        current_row += 1
+        
+        # Fila 1: Contabilidad
+        ws1.merge_range(current_row, 0, current_row, 1, "Total Base Según Contabilidad:", text_left)
+        ws1.merge_range(current_row, 2, current_row, 3, resumen_validacion['base_contable'], money_fmt)
+        current_row += 1
+        
+        # Fila 2: Nómina
+        ws1.merge_range(current_row, 0, current_row, 1, "Total Base Según Nómina:", text_left)
+        ws1.merge_range(current_row, 2, current_row, 3, resumen_validacion['base_nomina'], money_fmt)
+        current_row += 1
+        
+        # Fila 3: Diferencia
+        dif = resumen_validacion['diferencia']
+        estilo_dif = fmt_green if abs(dif) < 1.00 else fmt_red
+        
+        ws1.merge_range(current_row, 0, current_row, 1, "Diferencia:", total_fmt)
+        ws1.merge_range(current_row, 2, current_row, 3, dif, estilo_dif)
+        # ---------------------------------
+        
         ws1.set_column('A:B', 20); ws1.set_column('C:D', 18)
 
         # ==========================================
