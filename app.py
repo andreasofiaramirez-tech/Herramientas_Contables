@@ -828,14 +828,20 @@ def render_pensiones():
                 from utils import generar_reporte_pensiones
                 
                 with st.spinner("Procesando mayor contable y cruzando con nómina..."):
-                    # Ejecutar lógica principal
-                    df_calc, df_base, df_asiento = procesar_calculo_pensiones(file_mayor, file_nomina, tasa, empresa_sel, log)
+                    # Ejecutar lógica principal (Recibe 4 variables ahora)
+                    df_calc, df_base, df_asiento, dict_val = procesar_calculo_pensiones(file_mayor, file_nomina, tasa, empresa_sel, log)
                 
                 if df_asiento is not None and not df_asiento.empty:
                     # Mostrar resultados en pantalla
                     total_pagar = df_asiento['Crédito VES'].sum()
                     st.success(f"✅ Cálculo exitoso para {empresa_sel}. Total a Pagar: Bs. {total_pagar:,.2f}")
                     
+                    # Alerta visual rápida de validación
+                    if dict_val and dict_val['estado'] == 'OK':
+                        st.info(f"👌 Validación con Nómina correcta. Diferencia: {dict_val['diferencia']:.2f}")
+                    elif dict_val:
+                        st.warning(f"⚠️ Atención: Hay un descuadre con Nómina de {dict_val['diferencia']:,.2f}. Revisa el reporte.")
+
                     st.subheader("Vista Previa del Asiento")
                     st.dataframe(df_asiento, use_container_width=True)
                     
@@ -843,15 +849,17 @@ def render_pensiones():
                     # Intentamos detectar la fecha de cierre basada en el archivo cargado
                     fecha_cierre = pd.Timestamp.today()
                     try:
-                        if 'FECHA' in df_base.columns:
+                        # Buscamos columna fecha sin importar mayúsculas
+                        col_fecha = next((c for c in df_base.columns if 'FECHA' in c.upper()), None)
+                        if col_fecha:
                             # Tomamos la primera fecha válida y calculamos el último día de ese mes
-                            primera_fecha = pd.to_datetime(df_base['FECHA'].iloc[0])
+                            primera_fecha = pd.to_datetime(df_base[col_fecha].iloc[0])
                             fecha_cierre = primera_fecha + pd.offsets.MonthEnd(0)
                     except:
                         pass # Si falla, usa fecha de hoy
                     
-                    # Generar Reporte Excel (Pasando los nuevos parámetros)
-                    excel_data = generar_reporte_pensiones(df_calc, df_base, df_asiento, empresa_sel, tasa, fecha_cierre)
+                    # Generar Reporte Excel (Pasando dict_val también)
+                    excel_data = generar_reporte_pensiones(df_calc, df_base, df_asiento, dict_val, empresa_sel, tasa, fecha_cierre)
                     
                     st.download_button(
                         "⬇️ Descargar Reporte Completo (Excel)",
