@@ -1465,7 +1465,7 @@ def generar_reporte_auditoria_txt(df_audit):
 def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, nombre_empresa, tasa_cambio, fecha_cierre):
     """
     Genera Excel Profesional de Pensiones.
-    CORREGIDO: Usa ws.write en lugar de ws.write_number para soportar celdas vacías "".
+    CORREGIDO: Usa 'ws3.write' universalmente en la Hoja 3 para soportar celdas vacías ("").
     """
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
@@ -1497,7 +1497,7 @@ def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, nombre_empresa, 
         current_row = 1
         
         # 1. Bloque Nómina (7.1.1.01)
-        nomina = df_agrupado[df_agrupado['Cuenta Contable'].str.contains('7.1.1.01', na=False)]
+        nomina = df_agrupado[df_agrupado['Cuenta Contable'].astype(str).str.contains('7.1.1.01', na=False)]
         if not nomina.empty:
             for _, row in nomina.iterrows():
                 ws1.write(current_row, 0, row['Centro de Costo (Padre)'], text_left)
@@ -1512,7 +1512,7 @@ def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, nombre_empresa, 
             current_row += 2
 
         # 2. Bloque Cestaticket (7.1.1.09)
-        ticket = df_agrupado[df_agrupado['Cuenta Contable'].str.contains('7.1.1.09', na=False)]
+        ticket = df_agrupado[df_agrupado['Cuenta Contable'].astype(str).str.contains('7.1.1.09', na=False)]
         if not ticket.empty:
             for _, row in ticket.iterrows():
                 ws1.write(current_row, 0, row['Centro de Costo (Padre)'], text_left)
@@ -1544,7 +1544,7 @@ def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, nombre_empresa, 
             ws2.set_column('A:Z', 15)
 
         # ==========================================
-        # HOJA 3: ASIENTO CONTABLE
+        # HOJA 3: ASIENTO CONTABLE (CORREGIDA)
         # ==========================================
         if df_asiento is not None:
             ws3 = workbook.add_worksheet('3. Asiento Contable')
@@ -1583,7 +1583,8 @@ def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, nombre_empresa, 
                 # Bs
                 debe_bs = row['Débito VES']
                 haber_bs = row['Crédito VES']
-                # --- CAMBIO AQUI: ws.write en lugar de ws.write_number ---
+                
+                # --- USO DE ws3.write PARA SOPORTAR CADENAS VACÍAS ---
                 ws3.write(row_idx, 7, debe_bs if debe_bs > 0 else "", box_money)
                 ws3.write(row_idx, 8, haber_bs if haber_bs > 0 else "", box_money)
                 
@@ -1592,11 +1593,11 @@ def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, nombre_empresa, 
                 haber_usd = row['Crédito USD']
                 ws3.write(row_idx, 9, debe_usd if debe_usd > 0 else "", box_money)
                 ws3.write(row_idx, 10, haber_usd if haber_usd > 0 else "", box_money)
-                # ---------------------------------------------------------
+                # -----------------------------------------------------
                 
                 row_idx += 1
             
-            # Totales
+            # Totales (También usamos write por seguridad, aunque sum() devuelve float)
             ws3.write(row_idx, 7, df_asiento['Débito VES'].sum(), box_header)
             ws3.write(row_idx, 8, df_asiento['Crédito VES'].sum(), box_header)
             ws3.write(row_idx, 9, df_asiento['Débito USD'].sum(), box_header)
