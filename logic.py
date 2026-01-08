@@ -3611,6 +3611,7 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
 
     # --- 2. PROCESAR NÓMINA (CON DETECCIÓN DE ENCABEZADO) ---
     total_base_nomina = 0.0
+    val_impuesto_nomina = 0.0
     try:
         if file_nomina:
             xls_nomina = pd.ExcelFile(file_nomina)
@@ -3622,50 +3623,43 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
                         hoja_objetivo = hoja; break
             if not hoja_objetivo: hoja_objetivo = hojas[0]
             
-            # 1. Leer sin header para buscar la fila correcta
+            # Leer buscando encabezado
             df_preview = pd.read_excel(xls_nomina, sheet_name=hoja_objetivo, header=None, nrows=15)
-            
             header_idx = 0
             found_header = False
             for i, row in df_preview.iterrows():
                 row_str = row.astype(str).str.upper().values
-                # Buscamos palabras clave de la cabecera
-                if any("EMPRESA" in s for s in row_str) and any("SALARIO" in s for s in row_str):
-                    header_idx = i
-                    found_header = True
-                    break
+                # Buscamos las columnas clave que mencionaste
+                if any("EMPRESA" in s for s in row_str) and any("APARTADO" in s for s in row_str):
+                    header_idx = i; found_header = True; break
             
             if found_header:
-                # Recargar con el header correcto
                 df_nom = pd.read_excel(xls_nomina, sheet_name=hoja_objetivo, header=header_idx)
             else:
-                df_nom = pd.read_excel(xls_nomina, sheet_name=hoja_objetivo) # Fallback
+                df_nom = pd.read_excel(xls_nomina, sheet_name=hoja_objetivo)
 
             df_nom.columns = [str(c).strip().upper() for c in df_nom.columns]
             
+            # Identificar columnas
             col_empresa = next((c for c in df_nom.columns if 'EMPRESA' in c), None)
-            col_sal = next((c for c in df_nom.columns if 'SALARIO' in c), None)
-            col_tkt = next((c for c in df_nom.columns if 'TICKET' in c or 'ALIMENTACION' in c), None)
+            # Columna TOTAL (Base de Nómina) - Evitamos confundir con "Total General"
+            col_base = next((c for c in df_nom.columns if 'TOTAL' in c and 'SALARIO' not in c and 'APARTADO' not in c), None)
+            # Columna APARTADO (Impuesto Nómina)
+            col_impuesto = next((c for c in df_nom.columns if 'APARTADO' in c), None)
             
-            if col_empresa and col_sal and col_tkt:
+            if col_empresa and col_base and col_impuesto:
                 filas_encontradas = df_nom[df_nom[col_empresa].astype(str).str.upper().str.contains(keyword_empresa, na=False)]
                 
                 if not filas_encontradas.empty:
-                    sum_sal = filas_encontradas[col_sal].apply(clean_float).sum()
-                    sum_tkt = filas_encontradas[col_tkt].apply(clean_float).sum()
-                    total_base_nomina = sum_sal + sum_tkt
+                    # Sumar (por si hay varias líneas de la misma empresa)
+                    val_base_nomina = filas_encontradas[col_base].apply(clean_float).sum()
+                    val_impuesto_nomina = filas_encontradas[col_impuesto].apply(clean_float).sum()
                     
-                    diff = abs(total_base_contable - total_base_nomina)
-                    if diff < 1.00:
-                        log_messages.append(f"✅ VALIDACIÓN NÓMINA: Cuadra perfecto (Dif: {diff:.2f}).")
-                    else:
-                        log_messages.append(f"⚠️ ALERTA DESCUADRE: Contabilidad ({total_base_contable:,.2f}) vs Nómina ({total_base_nomina:,.2f}).")
+                    log_messages.append(f"📊 Datos Nómina encontrados para {keyword_empresa}: Base={val_base_nomina:,.2f}, Apartado={val_impuesto_nomina:,.2f}")
                 else:
-                    # Debug: Mostrar qué empresas se encontraron para ayudar al usuario
-                    empresas_vistas = df_nom[col_empresa].unique()[:5]
-                    log_messages.append(f"⚠️ No se encontró '{keyword_empresa}'. Empresas vistas en el archivo: {list(empresas_vistas)}")
+                    log_messages.append(f"⚠️ No se encontró la empresa '{keyword_empresa}' en Nómina.")
             else:
-                log_messages.append(f"⚠️ No se hallaron columnas. Buscado: EMPRESA, SALARIO, TICKET. Encontrado: {df_nom.columns.tolist()}")
+                log_messages.append(f"⚠️ Columnas no halladas. Buscado: EMPRESA, TOTAL, APARTADO. Visto: {df_nom.columns.tolist()}")
     except Exception as e:
         log_messages.append(f"⚠️ Error leyendo Nómina: {str(e)}")
 
@@ -3692,13 +3686,23 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
         df_asiento['Débito USD'] = 0; df_asiento['Crédito USD'] = 0; df_asiento['Tasa'] = 0
 
     # --- 4. RESUMEN VALIDACIÓN ---
-    diferencia = total_base_contable - total_base_nomina
-    estado_val = "OK" if abs(diferencia) < 1.00 else "DESCUADRE"
+    dif_base = total_base_contable - val_base_nomina
+    dif_impuesto = total_impuesto_contable - val_impuesto_nomina
     
+    estado_val = "OK" if (abs(dif_base) < 1.00 and abs(dif_impuesto) < 1.00) else "DESCUADRE"
+    
+    if estado_val == "OK":
+        log_messages.append("✅ VALIDACIÓN TOTAL: Bases e Impuestos cuadran con Nómina.")
+    else:
+        log_messages.append(f"⚠️ DESCUADRE: Dif Base: {dif_base:,.2f}, Dif Impuesto: {dif_impuesto:,.2f}")
+
     resumen_validacion = {
         'base_contable': total_base_contable,
-        'base_nomina': total_base_nomina,
-        'diferencia': diferencia,
+        'base_nomina': val_base_nomina,
+        'dif_base': dif_base,
+        'imp_contable': total_impuesto_contable,
+        'imp_nomina': val_impuesto_nomina,
+        'dif_imp': dif_impuesto,
         'estado': estado_val
     }
 
