@@ -3596,9 +3596,10 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
         # Agrupamos usando el CC recortado
         df_agrupado = df_filtrado.groupby(['CC_Agrupado', col_cta]).agg({'Base_Neta': 'sum'}).reset_index()
         # Renombramos para que el reporte se vea bien
-        df_agrupado.rename(columns={'CC_Agrupado': 'Centro de Costo (Padre)'}, inplace=True)
-        # ----------------------------------------------
-        
+        df_agrupado.rename(columns={
+            'CC_Agrupado': 'Centro de Costo (Padre)',
+            col_cta: 'Cuenta Contable'  # <--- ESTO SOLUCIONA EL KEYERROR
+        }, inplace=True)
         df_agrupado['Impuesto (9%)'] = df_agrupado['Base_Neta'] * 0.09
         total_base_contable = df_agrupado['Base_Neta'].sum()
         log_messages.append(f"✅ Base Contable calculada: {total_base_contable:,.2f} Bs.")
