@@ -804,42 +804,54 @@ def render_pensiones():
         set_page('inicio')
         st.rerun()
         
-    # --- CAMBIO 1: SELECTOR DE EMPRESA ---
-    # Usamos las palabras clave que probablemente aparezcan en el Excel de Nómina
+    # 1. Configuración de Empresa
     EMPRESAS_NOMINA = ["FEBECA", "BEVAL", "PRISMA", "QUINCALLA"]
-    
-    c_sel, _ = st.columns([1, 1])
-    with c_sel:
+    col_emp, _ = st.columns([1, 1])
+    with col_emp:
         empresa_sel = st.selectbox("Seleccione la Empresa:", EMPRESAS_NOMINA, key="empresa_pensiones")
-    # -------------------------------------
 
+    # 2. Carga de Archivos
     c1, c2, c3 = st.columns([1.5, 1.5, 1])
     with c1:
-        file_mayor = st.file_uploader("1. Mayor Contable (Excel)", type=['xlsx'])
+        file_mayor = st.file_uploader("1. Mayor Contable (Excel)", type=['xlsx'], key="pen_mayor")
     with c2:
-        file_nomina = st.file_uploader("2. Resumen Nómina (Validación)", type=['xlsx'])
+        file_nomina = st.file_uploader("2. Resumen Nómina (Validación)", type=['xlsx'], key="pen_nom")
     with c3:
-        tasa = st.number_input("Tasa de Cambio", min_value=0.01, value=1.0, format="%.4f")
+        tasa = st.number_input("Tasa de Cambio", min_value=0.01, value=1.0, format="%.4f", key="pen_tasa")
 
+    # 3. Botón de Acción
     if file_mayor and tasa > 0:
-        if st.button("Calcular Impuesto", type="primary", use_container_width=True):
+        if st.button("Calcular Impuesto", type="primary", use_container_width=True, key="btn_calc_pen"):
             log = []
             try:
                 from logic import procesar_calculo_pensiones
                 from utils import generar_reporte_pensiones
                 
-                # --- CAMBIO 2: PASAMOS LA EMPRESA A LA FUNCIÓN ---
-                df_calc, df_base, df_asiento = procesar_calculo_pensiones(file_mayor, file_nomina, tasa, empresa_sel, log)
-                # -------------------------------------------------
+                with st.spinner("Procesando mayor contable y cruzando con nómina..."):
+                    # Ejecutar lógica principal
+                    df_calc, df_base, df_asiento = procesar_calculo_pensiones(file_mayor, file_nomina, tasa, empresa_sel, log)
                 
-                if df_asiento is not None:
+                if df_asiento is not None and not df_asiento.empty:
+                    # Mostrar resultados en pantalla
                     total_pagar = df_asiento['Crédito VES'].sum()
                     st.success(f"✅ Cálculo exitoso para {empresa_sel}. Total a Pagar: Bs. {total_pagar:,.2f}")
                     
                     st.subheader("Vista Previa del Asiento")
                     st.dataframe(df_asiento, use_container_width=True)
                     
-                    excel_data = generar_reporte_pensiones(df_calc, df_base, df_asiento)
+                    # --- PREPARACIÓN PARA EXCEL ---
+                    # Intentamos detectar la fecha de cierre basada en el archivo cargado
+                    fecha_cierre = pd.Timestamp.today()
+                    try:
+                        if 'FECHA' in df_base.columns:
+                            # Tomamos la primera fecha válida y calculamos el último día de ese mes
+                            primera_fecha = pd.to_datetime(df_base['FECHA'].iloc[0])
+                            fecha_cierre = primera_fecha + pd.offsets.MonthEnd(0)
+                    except:
+                        pass # Si falla, usa fecha de hoy
+                    
+                    # Generar Reporte Excel (Pasando los nuevos parámetros)
+                    excel_data = generar_reporte_pensiones(df_calc, df_base, df_asiento, empresa_sel, tasa, fecha_cierre)
                     
                     st.download_button(
                         "⬇️ Descargar Reporte Completo (Excel)",
@@ -849,8 +861,9 @@ def render_pensiones():
                         use_container_width=True
                     )
                 else:
-                    st.error("No se pudo generar el cálculo. Revisa el log.")
+                    st.error("No se pudo generar el cálculo. Por favor revisa el log para ver el detalle del error.")
 
+                # Mostrar Log
                 with st.expander("Ver Log de Proceso"):
                     st.write(log)
                     
