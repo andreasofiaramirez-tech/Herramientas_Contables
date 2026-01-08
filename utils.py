@@ -1461,3 +1461,53 @@ def generar_reporte_auditoria_txt(df_audit):
             ws.write(r_idx + 1, 0, status, fmt)
             
     return output.getvalue()
+
+def generar_reporte_pensiones(df_agrupado, df_base, df_asiento):
+    """
+    Genera Excel con: 1. Cálculo, 2. Base de Datos, 3. Asiento Contable.
+    """
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        workbook = writer.book
+        
+        # Formatos
+        header_fmt = workbook.add_format({'bold': True, 'fg_color': '#D9EAD3', 'border': 1, 'align': 'center'})
+        money_fmt = workbook.add_format({'num_format': '#,##0.00', 'border': 1})
+        text_fmt = workbook.add_format({'border': 1})
+        
+        # --- HOJA 1: CÁLCULO AGRUPADO ---
+        if df_agrupado is not None:
+            df_agrupado.to_excel(writer, sheet_name='1. Calculo y Base', index=False)
+            ws1 = writer.sheets['1. Calculo y Base']
+            ws1.set_column('A:B', 20) # CC y Cuenta
+            ws1.set_column('C:D', 18, money_fmt) # Montos
+            
+            # Encabezados
+            for col_num, value in enumerate(df_agrupado.columns.values):
+                ws1.write(0, col_num, value, header_fmt)
+
+        # --- HOJA 2: BASE DE DATOS (DETALLE) ---
+        if df_base is not None:
+            df_base.to_excel(writer, sheet_name='2. Detalle Mayor', index=False)
+            ws2 = writer.sheets['2. Detalle Mayor']
+            ws2.set_column('A:Z', 15)
+
+        # --- HOJA 3: ASIENTO CONTABLE ---
+        if df_asiento is not None:
+            # Reordenar columnas para que se vea como un asiento
+            cols_asiento = ['Centro Costo', 'Cuenta Contable', 'Descripción', 'Débito VES', 'Crédito VES', 'Tasa', 'Débito USD', 'Crédito USD']
+            df_asiento = df_asiento[cols_asiento]
+            
+            df_asiento.to_excel(writer, sheet_name='3. Asiento Contable', index=False)
+            ws3 = writer.sheets['3. Asiento Contable']
+            
+            for col_num, value in enumerate(df_asiento.columns.values):
+                ws3.write(0, col_num, value, header_fmt)
+            
+            ws3.set_column('A:B', 18) # CC, Cuenta
+            ws3.set_column('C:C', 40) # Descripción
+            ws3.set_column('D:E', 18, money_fmt) # Bs
+            ws3.set_column('F:F', 12, money_fmt) # Tasa
+            ws3.set_column('G:H', 18, money_fmt) # USD
+            
+    return output.getvalue()
