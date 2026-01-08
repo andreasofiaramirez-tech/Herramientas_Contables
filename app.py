@@ -804,6 +804,15 @@ def render_pensiones():
         set_page('inicio')
         st.rerun()
         
+    # --- CAMBIO 1: SELECTOR DE EMPRESA ---
+    # Usamos las palabras clave que probablemente aparezcan en el Excel de Nómina
+    EMPRESAS_NOMINA = ["FEBECA", "BEVAL", "PRISMA", "QUINCALLA"]
+    
+    c_sel, _ = st.columns([1, 1])
+    with c_sel:
+        empresa_sel = st.selectbox("Seleccione la Empresa:", EMPRESAS_NOMINA, key="empresa_pensiones")
+    # -------------------------------------
+
     c1, c2, c3 = st.columns([1.5, 1.5, 1])
     with c1:
         file_mayor = st.file_uploader("1. Mayor Contable (Excel)", type=['xlsx'])
@@ -819,11 +828,13 @@ def render_pensiones():
                 from logic import procesar_calculo_pensiones
                 from utils import generar_reporte_pensiones
                 
-                df_calc, df_base, df_asiento = procesar_calculo_pensiones(file_mayor, file_nomina, tasa, log)
+                # --- CAMBIO 2: PASAMOS LA EMPRESA A LA FUNCIÓN ---
+                df_calc, df_base, df_asiento = procesar_calculo_pensiones(file_mayor, file_nomina, tasa, empresa_sel, log)
+                # -------------------------------------------------
                 
                 if df_asiento is not None:
                     total_pagar = df_asiento['Crédito VES'].sum()
-                    st.success(f"✅ Cálculo exitoso. Total a Pagar: Bs. {total_pagar:,.2f}")
+                    st.success(f"✅ Cálculo exitoso para {empresa_sel}. Total a Pagar: Bs. {total_pagar:,.2f}")
                     
                     st.subheader("Vista Previa del Asiento")
                     st.dataframe(df_asiento, use_container_width=True)
@@ -833,7 +844,7 @@ def render_pensiones():
                     st.download_button(
                         "⬇️ Descargar Reporte Completo (Excel)",
                         excel_data,
-                        "Calculo_Pensiones_9_Porciento.xlsx",
+                        f"Calculo_Pensiones_{empresa_sel}.xlsx",
                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         use_container_width=True
                     )
