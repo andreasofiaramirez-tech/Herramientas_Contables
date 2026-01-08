@@ -3543,11 +3543,11 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
 def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empresa, log_messages):
     """
     Motor de cálculo para el impuesto del 9%.
-    MEJORA: Detecta automáticamente la fila de encabezados en la Nómina.
+    MEJORA FINAL: Valida Base vs Columna 'TOTAL' y Aporte vs Columna 'APARTADO'.
     """
     log_messages.append(f"--- INICIANDO CÁLCULO DE PENSIONES (9%) - {nombre_empresa} ---")
     
-    # 1. Mapeo de Nombres (Selector App -> Excel Nómina)
+    # Mapeo de nombres para búsqueda en nómina
     mapa_nombres = {
         "FEBECA, C.A": "FEBECA",
         "MAYOR BEVAL, C.A": "BEVAL",
@@ -3559,7 +3559,7 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
     mes_detectado = None
     nombres_meses = {1: 'ENERO', 2: 'FEBRERO', 3: 'MARZO', 4: 'ABRIL', 5: 'MAYO', 6: 'JUNIO', 7: 'JULIO', 8: 'AGOSTO', 9: 'SEPTIEMBRE', 10: 'OCTUBRE', 11: 'NOVIEMBRE', 12: 'DICIEMBRE'}
 
-    # --- 1. PROCESAR MAYOR CONTABLE (Igual) ---
+    # --- 1. PROCESAR MAYOR CONTABLE ---
     try:
         df_mayor = pd.read_excel(file_mayor)
         df_mayor.columns = [str(c).strip().upper() for c in df_mayor.columns]
@@ -3597,8 +3597,11 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
         df_filtrado['Monto_Cre'] = df_filtrado[col_cre].apply(clean_float)
         df_filtrado['Base_Neta'] = df_filtrado['Monto_Deb'] - df_filtrado['Monto_Cre']
         
+        # Agrupación por 10 dígitos
         df_filtrado['CC_Agrupado'] = df_filtrado[col_cc].astype(str).str.slice(0, 10)
         df_agrupado = df_filtrado.groupby(['CC_Agrupado', col_cta]).agg({'Base_Neta': 'sum'}).reset_index()
+        
+        # Renombrar columnas
         df_agrupado.rename(columns={'CC_Agrupado': 'Centro de Costo (Padre)', col_cta: 'Cuenta Contable'}, inplace=True)
         
         df_agrupado['Impuesto (9%)'] = df_agrupado['Base_Neta'] * 0.09
@@ -3609,9 +3612,10 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
         log_messages.append(f"❌ Error procesando Mayor: {str(e)}")
         return None, None, None, None
 
-    # --- 2. PROCESAR NÓMINA (CON DETECCIÓN DE ENCABEZADO) ---
-    total_base_nomina = 0.0
+    # --- 2. PROCESAR NÓMINA (VALIDACIÓN EXACTA) ---
+    val_base_nomina = 0.0
     val_impuesto_nomina = 0.0
+    
     try:
         if file_nomina:
             xls_nomina = pd.ExcelFile(file_nomina)
@@ -3623,13 +3627,12 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
                         hoja_objetivo = hoja; break
             if not hoja_objetivo: hoja_objetivo = hojas[0]
             
-            # Leer buscando encabezado
+            # Buscar encabezado
             df_preview = pd.read_excel(xls_nomina, sheet_name=hoja_objetivo, header=None, nrows=15)
             header_idx = 0
             found_header = False
             for i, row in df_preview.iterrows():
                 row_str = row.astype(str).str.upper().values
-                # Buscamos las columnas clave que mencionaste
                 if any("EMPRESA" in s for s in row_str) and any("APARTADO" in s for s in row_str):
                     header_idx = i; found_header = True; break
             
@@ -3642,24 +3645,20 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
             
             # Identificar columnas
             col_empresa = next((c for c in df_nom.columns if 'EMPRESA' in c), None)
-            # Columna TOTAL (Base de Nómina) - Evitamos confundir con "Total General"
             col_base = next((c for c in df_nom.columns if 'TOTAL' in c and 'SALARIO' not in c and 'APARTADO' not in c), None)
-            # Columna APARTADO (Impuesto Nómina)
             col_impuesto = next((c for c in df_nom.columns if 'APARTADO' in c), None)
             
             if col_empresa and col_base and col_impuesto:
                 filas_encontradas = df_nom[df_nom[col_empresa].astype(str).str.upper().str.contains(keyword_empresa, na=False)]
                 
                 if not filas_encontradas.empty:
-                    # Sumar (por si hay varias líneas de la misma empresa)
                     val_base_nomina = filas_encontradas[col_base].apply(clean_float).sum()
                     val_impuesto_nomina = filas_encontradas[col_impuesto].apply(clean_float).sum()
-                    
-                    log_messages.append(f"📊 Datos Nómina encontrados para {keyword_empresa}: Base={val_base_nomina:,.2f}, Apartado={val_impuesto_nomina:,.2f}")
+                    log_messages.append(f"📊 Nómina: Base={val_base_nomina:,.2f}, Apartado={val_impuesto_nomina:,.2f}")
                 else:
                     log_messages.append(f"⚠️ No se encontró la empresa '{keyword_empresa}' en Nómina.")
             else:
-                log_messages.append(f"⚠️ Columnas no halladas. Buscado: EMPRESA, TOTAL, APARTADO. Visto: {df_nom.columns.tolist()}")
+                log_messages.append(f"⚠️ Columnas faltantes en Nómina.")
     except Exception as e:
         log_messages.append(f"⚠️ Error leyendo Nómina: {str(e)}")
 
@@ -3670,10 +3669,12 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
     asiento_data['Descripción'] = 'Contribucion ley de Pensiones'
     asiento_data['Crédito VES'] = 0.0
     
-    total_impuesto = asiento_data['Débito VES'].sum()
+    # Variable crítica corregida
+    total_impuesto_contable = asiento_data['Débito VES'].sum()
+    
     linea_pasivo = pd.DataFrame([{
         'Centro Costo': '00.00.000.00', 'Cuenta Contable': '2.1.3.02.3.005', 
-        'Descripción': 'Contribuciones Sociales por Pagar', 'Débito VES': 0.0, 'Crédito VES': total_impuesto
+        'Descripción': 'Contribuciones Sociales por Pagar', 'Débito VES': 0.0, 'Crédito VES': total_impuesto_contable
     }])
     
     df_asiento = pd.concat([asiento_data, linea_pasivo], ignore_index=True)
@@ -3692,7 +3693,7 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
     estado_val = "OK" if (abs(dif_base) < 1.00 and abs(dif_impuesto) < 1.00) else "DESCUADRE"
     
     if estado_val == "OK":
-        log_messages.append("✅ VALIDACIÓN TOTAL: Bases e Impuestos cuadran con Nómina.")
+        log_messages.append("✅ VALIDACIÓN TOTAL: Bases e Impuestos cuadran.")
     else:
         log_messages.append(f"⚠️ DESCUADRE: Dif Base: {dif_base:,.2f}, Dif Impuesto: {dif_impuesto:,.2f}")
 
