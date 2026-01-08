@@ -1598,19 +1598,17 @@ def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, resumen_validaci
             cols_drop = ['CC_Agrupado', 'Monto_Deb', 'Monto_Cre', 'Base_Neta']
             df_clean = df_base.drop(columns=cols_drop, errors='ignore')
             
-            # 1. Asegurar que la fecha sea datetime
+            # --- CORRECCIÓN DEFINITIVA DE FECHA ---
             if 'FECHA' in df_clean.columns:
-                df_clean['FECHA'] = pd.to_datetime(df_clean['FECHA'], errors='coerce')
+                # Convertimos a datetime y luego FORZAMOS el formato texto 'dd/mm/yyyy'
+                # Esto elimina cualquier rastro de la hora (12:00:00 a.m.)
+                df_clean['FECHA'] = pd.to_datetime(df_clean['FECHA'], errors='coerce').dt.strftime('%d/%m/%Y')
+            # --------------------------------------
 
-            # 2. Escribir datos
             df_clean.to_excel(writer, sheet_name='2. Detalle Mayor', index=False)
             
-            # 3. Aplicar formato visual de fecha a la Columna A
-            ws2 = writer.sheets['2. Detalle Mayor']
-            fmt_fecha_col = workbook.add_format({'num_format': 'dd/mm/yyyy', 'align': 'left'})
-            
-            ws2.set_column('A:A', 15, fmt_fecha_col) # Columna A con formato fecha
-            ws2.set_column('B:Z', 18) # Resto de columnas ancho normal
+            # Ajuste de ancho para que se lea bien
+            writer.sheets['2. Detalle Mayor'].set_column('A:Z', 18)
 
         # ==========================================
         # HOJA 3: ASIENTO CONTABLE
