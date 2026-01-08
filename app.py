@@ -847,20 +847,53 @@ def render_pensiones():
                     total_pagar = df_asiento['Crédito VES'].sum()
                     st.success(f"✅ Cálculo exitoso para {empresa_sel}. Total a Pagar: Bs. {total_pagar:,.2f}")
                     
-                    # Alerta visual rápida de validación
-                    if dict_val.get('estado') == 'OK':
-                        st.success(f"✅ Cálculo exitoso para {empresa_sel}. Total a Pagar: Bs. {total_pagar:,.2f}")
-                    else:
-                        # Si hay descuadre, mostramos el detalle específico (Base e Impuesto)
-                        st.warning(
-                            f"⚠️ Atención: Se detectaron diferencias con Nómina.\n\n"
-                            f"• Dif. en Base: {dict_val.get('dif_base', 0):,.2f}\n"
-                            f"• Dif. en Impuesto: {dict_val.get('dif_imp', 0):,.2f}\n\n"
-                            f"Revisa la Hoja 1 del reporte para más detalle."
-                        )
+                    # ... (dentro de if df_asiento is not None:) ...
+                
+                total_pagar = df_asiento['Crédito VES'].sum()
+                st.success(f"✅ Cálculo exitoso para {empresa_sel}. Total a Pagar: Bs. {total_pagar:,.2f}")
+                
+                st.subheader("Vista Previa del Asiento")
 
-                    st.subheader("Vista Previa del Asiento")
-                    st.dataframe(df_asiento, use_container_width=True)
+                # --- MEJORA DE VISUALIZACIÓN ---
+                # 1. Definir orden lógico de columnas (Débito al lado de Crédito)
+                cols_orden = [
+                    'Centro Costo', 'Cuenta Contable', 'Descripción', 
+                    'Débito VES', 'Crédito VES', 
+                    'Débito USD', 'Crédito USD', 'Tasa'
+                ]
+                
+                # Crear copia para visualización
+                df_view = df_asiento[cols_orden].copy()
+                
+                # 2. Calcular Totales
+                totales = {
+                    'Centro Costo': 'TOTALES',
+                    'Cuenta Contable': '', 'Descripción': '',
+                    'Débito VES': df_view['Débito VES'].sum(),
+                    'Crédito VES': df_view['Crédito VES'].sum(),
+                    'Débito USD': df_view['Débito USD'].sum(),
+                    'Crédito USD': df_view['Crédito USD'].sum(),
+                    'Tasa': ''
+                }
+                
+                # Agregar fila de totales al final
+                df_view = pd.concat([df_view, pd.DataFrame([totales])], ignore_index=True)
+                
+                # 3. Aplicar Formato Venezolano (1.000,00)
+                # Función auxiliar local para formatear
+                def fmt_ve(x):
+                    if isinstance(x, (float, int)):
+                        # Formato: Miles con punto, Decimales con coma
+                        return "{:,.2f}".format(x).replace(",", "X").replace(".", ",").replace("X", ".")
+                    return x
+
+                cols_num = ['Débito VES', 'Crédito VES', 'Débito USD', 'Crédito USD', 'Tasa']
+                for col in cols_num:
+                    df_view[col] = df_view[col].apply(fmt_ve)
+
+                # Mostrar tabla mejorada
+                st.dataframe(df_view, use_container_width=True, hide_index=True)
+                # -------------------------------
                     
                     # --- PREPARACIÓN PARA EXCEL ---
                     # Intentamos detectar la fecha de cierre basada en el archivo cargado
