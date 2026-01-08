@@ -1465,7 +1465,7 @@ def generar_reporte_auditoria_txt(df_audit):
 def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, nombre_empresa, tasa_cambio, fecha_cierre):
     """
     Genera Excel Profesional de Pensiones.
-    Hoja 3: Formato Asiento Contable (Fondo Blanco Limpio).
+    Hoja 3: Réplica exacta del Comprobante Contable (Fondo Blanco Limpio).
     """
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
@@ -1480,18 +1480,26 @@ def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, nombre_empresa, 
         text_left = workbook.add_format({'align': 'left', 'border': 1, 'valign': 'vcenter'})
         
         # --- ESTILOS ESPECÍFICOS ASIENTO (HOJA 3) ---
-        title_company = workbook.add_format({'bold': True, 'font_size': 12, 'align': 'center', 'valign': 'vcenter'})
         
-        # Celdas de Datos (Ahora TODAS Blancas #FFFFFF)
+        # 1. Definición de la variable faltante y otros títulos
+        fmt_title_label = workbook.add_format({'bold': True, 'align': 'left', 'valign': 'vcenter'})
+        fmt_company = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'bottom': 1})
+        
+        # 2. Celdas de Datos (TODO BLANCO #FFFFFF)
+        # Para celdas que el usuario debe llenar (antes amarillas)
         fmt_input = workbook.add_format({'bg_color': '#FFFFFF', 'border': 1, 'align': 'center', 'bold': True})
-        fmt_date_input = workbook.add_format({'bg_color': '#FFFFFF', 'border': 1, 'align': 'center', 'bold': True, 'num_format': 'dd/mm/yyyy'})
+        # Para celdas calculadas (antes naranjas)
+        fmt_calc = workbook.add_format({'bg_color': '#FFFFFF', 'border': 1, 'align': 'center', 'bold': True})
+        fmt_date_calc = workbook.add_format({'bg_color': '#FFFFFF', 'border': 1, 'align': 'center', 'bold': True, 'num_format': 'dd/mm/yyyy'})
         
-        # Cajas y Bordes
+        # 3. Cajas y Bordes
         box_header = workbook.add_format({'bold': True, 'border': 1, 'align': 'center', 'valign': 'vcenter', 'text_wrap': True, 'bg_color': '#FFFFFF'})
-        box_data = workbook.add_format({'border': 1, 'align': 'center', 'valign': 'vcenter'})
+        box_data_center = workbook.add_format({'border': 1, 'align': 'center', 'valign': 'vcenter'})
+        box_data_left = workbook.add_format({'border': 1, 'align': 'left', 'valign': 'vcenter'})
         box_money = workbook.add_format({'border': 1, 'num_format': '#,##0.00', 'valign': 'vcenter'})
-        box_desc = workbook.add_format({'border': 1, 'align': 'left', 'valign': 'vcenter'})
+        box_money_bold = workbook.add_format({'border': 1, 'num_format': '#,##0.00', 'valign': 'vcenter', 'bold': True})
         
+        # Texto Pequeño
         small_text = workbook.add_format({'font_size': 9, 'italic': True, 'align': 'left'})
         
         # ==========================================
@@ -1537,7 +1545,6 @@ def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, nombre_empresa, 
         ws1.write(current_row, 1, "Total General", total_fmt)
         ws1.write_number(current_row, 2, df_agrupado['Base_Neta'].sum(), money_bold)
         ws1.write_number(current_row, 3, df_agrupado['Impuesto (9%)'].sum(), money_bold)
-        
         ws1.set_column('A:B', 20); ws1.set_column('C:D', 18)
 
         # ==========================================
@@ -1550,7 +1557,7 @@ def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, nombre_empresa, 
             writer.sheets['2. Detalle Mayor'].set_column('A:Z', 15)
 
         # ==========================================
-        # HOJA 3: ASIENTO CONTABLE (BLANCO LIMPIO)
+        # HOJA 3: ASIENTO CONTABLE
         # ==========================================
         if df_asiento is not None:
             ws3 = workbook.add_worksheet('3. Asiento Contable')
