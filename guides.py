@@ -352,3 +352,17 @@ GUIA_GENERADOR = """
 ### ⚙️ Generación de TXT
 Crea el archivo de retenciones calculando el prorrateo de montos desde Softland.
 """
+
+GUIA_PENSIONES = """
+### 🛡️ Cálculo Ley Protección de Pensiones (9%)
+
+Esta herramienta automatiza el cálculo del aporte del 9% sobre la nómina integral.
+
+**Reglas de Negocio:**
+1.  **Base de Cálculo:** Sumatoria de los saldos netos (Débitos - Créditos) de las cuentas:
+    *   `7.1.1.01.1.001`: Sueldos y Salarios.
+    *   `7.1.1.09.1.003`: Ticket de Alimentación.
+2.  **Cálculo del Aporte:** 9% sobre la Base Total por Centro de Costo.
+3.  **Validación:** Compara la base contable extraída del Mayor contra el archivo resumen de Nómina.
+4.  **Asiento Contable:** Genera el asiento del Gasto (por Centro de Costo) contra el Pasivo (`2.1.3.02.3.005`), convirtiendo a USD según la tasa indicada.
+"""
