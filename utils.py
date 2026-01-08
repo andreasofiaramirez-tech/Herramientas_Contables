@@ -1465,9 +1465,8 @@ def generar_reporte_auditoria_txt(df_audit):
 def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, resumen_validacion, nombre_empresa, tasa_cambio, fecha_cierre):
     """
     Genera Excel Profesional de Pensiones.
-    Argumentos: 7 (Incluye resumen_validacion).
-    Hoja 1: Cálculo + Tabla de Validación.
-    Hoja 3: Asiento Contable (Fondo Blanco).
+    Hoja 3: Réplica exacta del Comprobante Contable (Fondo Blanco Limpio).
+    CORREGIDO: Nombres de variables de estilo unificados.
     """
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
@@ -1481,22 +1480,27 @@ def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, resumen_validaci
         text_center = workbook.add_format({'align': 'center', 'border': 1, 'valign': 'vcenter'})
         text_left = workbook.add_format({'align': 'left', 'border': 1, 'valign': 'vcenter'})
         
-        # Estilos Validación (Rojo/Verde)
+        # Estilos Validación
         fmt_red = workbook.add_format({'bold': True, 'bg_color': '#FFC7CE', 'font_color': '#9C0006', 'num_format': '#,##0.00', 'border': 1})
         fmt_green = workbook.add_format({'bold': True, 'bg_color': '#C6EFCE', 'font_color': '#006100', 'num_format': '#,##0.00', 'border': 1})
 
-        # --- ESTILOS ASIENTO (HOJA 3) ---
-        title_company = workbook.add_format({'bold': True, 'font_size': 12, 'align': 'center', 'valign': 'vcenter'})
+        # --- ESTILOS ESPECÍFICOS ASIENTO (HOJA 3) ---
+        # 1. Títulos
+        fmt_company = workbook.add_format({'bold': True, 'font_size': 12, 'align': 'center', 'valign': 'vcenter', 'bottom': 1})
         fmt_title_label = workbook.add_format({'bold': True, 'align': 'left', 'valign': 'vcenter'})
+        
+        # 2. Celdas de Datos (TODO BLANCO #FFFFFF)
         fmt_input = workbook.add_format({'bg_color': '#FFFFFF', 'border': 1, 'align': 'center', 'bold': True})
         fmt_date_calc = workbook.add_format({'bg_color': '#FFFFFF', 'border': 1, 'align': 'center', 'bold': True, 'num_format': 'dd/mm/yyyy'})
         fmt_calc = workbook.add_format({'bg_color': '#FFFFFF', 'border': 1, 'align': 'center', 'bold': True})
         
+        # 3. Cajas y Bordes
         box_header = workbook.add_format({'bold': True, 'border': 1, 'align': 'center', 'valign': 'vcenter', 'text_wrap': True, 'bg_color': '#FFFFFF'})
         box_data_center = workbook.add_format({'border': 1, 'align': 'center', 'valign': 'vcenter'})
         box_data_left = workbook.add_format({'border': 1, 'align': 'left', 'valign': 'vcenter'})
         box_money = workbook.add_format({'border': 1, 'num_format': '#,##0.00', 'valign': 'vcenter'})
         box_money_bold = workbook.add_format({'border': 1, 'num_format': '#,##0.00', 'valign': 'vcenter', 'bold': True})
+        
         small_text = workbook.add_format({'font_size': 9, 'italic': True, 'align': 'left'})
         
         # ==========================================
@@ -1545,7 +1549,7 @@ def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, resumen_validaci
         
         current_row += 3 
 
-        # --- NUEVA TABLA DE VALIDACIÓN ---
+        # --- TABLA DE VALIDACIÓN ---
         ws1.merge_range(current_row, 0, current_row, 3, "VALIDACIÓN CRUZADA (CONTABILIDAD vs NÓMINA)", header_green)
         current_row += 1
         
@@ -1581,7 +1585,9 @@ def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, resumen_validaci
             ws3 = workbook.add_worksheet('3. Asiento Contable')
             ws3.hide_gridlines(2)
             
+            # --- ENCABEZADO ---
             ws3.write('A1', "COMPAÑÍA:", fmt_title_label)
+            # AQUI SE USA LA VARIABLE CORREGIDA fmt_company
             ws3.merge_range('C1:F1', nombre_empresa, fmt_company)
             ws3.write('G1', "Nº.", workbook.add_format({'bold': True, 'align': 'right'}))
             ws3.write('H1', "004", workbook.add_format({'bold': True, 'align': 'center', 'bottom': 1}))
@@ -1594,10 +1600,15 @@ def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, resumen_validaci
 
             ws3.merge_range('G3:H3', "A S E N T A D O", box_header)
             ws3.write('G4', "Operación No.: _______", workbook.add_format({'align': 'right', 'valign': 'vcenter'}))
-            ws3.write('H4', fecha_cierre if fecha_cierre else "DD/MM/AAAA", fmt_date_calc)
+            
+            # Fecha válida
+            fecha_val = fecha_cierre if fecha_cierre else "DD/MM/AAAA"
+            ws3.write('H4', fecha_val, fmt_date_calc)
+            
             ws3.write('G5', "Comprob. N°.: _______", workbook.add_format({'align': 'right', 'valign': 'vcenter'}))
             ws3.write('H5', "", fmt_input)
 
+            # --- TABLA ---
             start_row = 8
             ws3.merge_range(start_row, 0, start_row, 2, "NUMERO DE CUENTA", box_header)
             ws3.merge_range(start_row, 3, start_row, 5, "TITULO DE CUENTA", box_header)
@@ -1621,6 +1632,7 @@ def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, resumen_validaci
                 ws3.write(row_idx, 2, row['Cuenta Contable'], box_data_center)
                 ws3.merge_range(row_idx, 3, row_idx, 5, row['Descripción'], box_data_left)
                 
+                # Montos con write
                 d_v = row['Débito VES']; h_v = row['Crédito VES']
                 d_u = row['Débito USD']; h_u = row['Crédito USD']
                 
@@ -1628,18 +1640,23 @@ def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, resumen_validaci
                 ws3.write(row_idx, 7, h_v if h_v > 0 else "", box_money)
                 ws3.write(row_idx, 8, d_u if d_u > 0 else "", box_money)
                 ws3.write(row_idx, 9, h_u if h_u > 0 else "", box_money)
+                
                 row_idx += 1
             
+            # Totales
             ws3.write(row_idx, 6, df_asiento['Débito VES'].sum(), box_money_bold)
             ws3.write(row_idx, 7, df_asiento['Crédito VES'].sum(), box_money_bold)
             ws3.write(row_idx, 8, df_asiento['Débito USD'].sum(), box_money_bold)
             ws3.write(row_idx, 9, df_asiento['Crédito USD'].sum(), box_money_bold)
+            
             row_idx += 2 
 
+            # --- TEXTOS EXPLICATIVOS ---
             mes_txt = fecha_cierre.strftime('%b').upper() if fecha_cierre else "MES"
             anio_txt = fecha_cierre.strftime('%y') if fecha_cierre else "AA"
             texto_concepto = f"APORTE PENSIONES {mes_txt}.{anio_txt}"
 
+            # Debe
             ws3.write(row_idx, 3, "(Máximo 40 posiciones...)", small_text)
             ws3.write(row_idx+1, 0, "TEXTO DEL DEBE", fmt_title_label)
             ws3.merge_range(row_idx+1, 3, row_idx+1, 5, texto_concepto, fmt_calc)
@@ -1647,6 +1664,7 @@ def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, resumen_validaci
             ws3.write(row_idx+1, 9, df_asiento['Crédito USD'].sum(), text_center)
             row_idx += 4
 
+            # Haber
             ws3.write(row_idx, 3, "(Máximo 40 posiciones...)", small_text)
             ws3.write(row_idx+1, 0, "TEXTO DEL HABER", fmt_title_label)
             ws3.merge_range(row_idx+1, 3, row_idx+1, 5, texto_concepto, fmt_calc)
@@ -1654,21 +1672,26 @@ def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, resumen_validaci
             ws3.write(row_idx+1, 9, df_asiento['Crédito USD'].sum(), text_center)
             row_idx += 3
 
+            # --- PIE DE PÁGINA ---
             top_line = workbook.add_format({'top': 1, 'font_size': 9})
             ws3.write(row_idx, 0, "Hecho por:", top_line)
             ws3.merge_range(row_idx, 3, row_idx, 4, "Aprobado por:", top_line)
             ws3.merge_range(row_idx, 6, row_idx, 7, "Procesado por:", top_line)
             ws3.merge_range(row_idx, 8, row_idx, 9, "Revisado por:", top_line)
             
+            # Firma vacía (Blanco)
             ws3.merge_range(row_idx+1, 0, row_idx+1, 2, "", fmt_input) 
             
+            # Lugar y Fecha (Con variable corregida)
             box_corner = workbook.add_format({'top': 1, 'left':1, 'right':1, 'font_size': 9})
             ws3.write(row_idx, 8, "Lugar y Fecha:", box_corner)
-            lugar_fecha = f"VALENCIA, {fecha_str}" if 'fecha_str' in locals() else f"VALENCIA, {fecha_cierre.strftime('%d/%m/%Y')}"
+            fecha_str = fecha_cierre.strftime('%d/%m/%Y') if fecha_cierre else ""
+            lugar_fecha = f"VALENCIA, {fecha_str}"
             ws3.merge_range(row_idx+1, 8, row_idx+1, 9, lugar_fecha, fmt_calc)
             
             ws3.merge_range(row_idx+3, 4, row_idx+3, 6, "ORIGINAL: CONTABILIDAD", workbook.add_format({'bold': True, 'align': 'center'}))
 
+            # Anchos
             ws3.set_column('A:A', 8); ws3.set_column('B:B', 15); ws3.set_column('C:C', 15)
             ws3.set_column('D:F', 15); ws3.set_column('G:J', 18)
 
