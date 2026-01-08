@@ -837,10 +837,16 @@ def render_pensiones():
                     st.success(f"✅ Cálculo exitoso para {empresa_sel}. Total a Pagar: Bs. {total_pagar:,.2f}")
                     
                     # Alerta visual rápida de validación
-                    if dict_val and dict_val['estado'] == 'OK':
-                        st.info(f"👌 Validación con Nómina correcta. Diferencia: {dict_val['diferencia']:.2f}")
-                    elif dict_val:
-                        st.warning(f"⚠️ Atención: Hay un descuadre con Nómina de {dict_val['diferencia']:,.2f}. Revisa el reporte.")
+                    if dict_val.get('estado') == 'OK':
+                        st.success(f"✅ Cálculo exitoso para {empresa_sel}. Total a Pagar: Bs. {total_pagar:,.2f}")
+                    else:
+                        # Si hay descuadre, mostramos el detalle específico (Base e Impuesto)
+                        st.warning(
+                            f"⚠️ Atención: Se detectaron diferencias con Nómina.\n\n"
+                            f"• Dif. en Base: {dict_val.get('dif_base', 0):,.2f}\n"
+                            f"• Dif. en Impuesto: {dict_val.get('dif_imp', 0):,.2f}\n\n"
+                            f"Revisa la Hoja 1 del reporte para más detalle."
+                        )
 
                     st.subheader("Vista Previa del Asiento")
                     st.dataframe(df_asiento, use_container_width=True)
