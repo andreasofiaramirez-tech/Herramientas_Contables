@@ -1465,7 +1465,7 @@ def generar_reporte_auditoria_txt(df_audit):
 def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, resumen_validacion, nombre_empresa, tasa_cambio, fecha_cierre):
     """
     Genera Excel Profesional de Pensiones.
-    Hoja 1: Cálculo + Tabla de Validación Detallada (Salario, Ticket, Impuesto).
+    Hoja 1: Dos tablas comparativas (Por Cuenta y Por Centro de Costo) + Validación.
     Hoja 3: Asiento Contable (Fondo Blanco).
     """
     output = BytesIO()
@@ -1484,21 +1484,24 @@ def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, resumen_validaci
         fmt_red = workbook.add_format({'bold': True, 'bg_color': '#FFC7CE', 'font_color': '#9C0006', 'num_format': '#,##0.00', 'border': 1})
         fmt_green = workbook.add_format({'bold': True, 'bg_color': '#C6EFCE', 'font_color': '#006100', 'num_format': '#,##0.00', 'border': 1})
 
-        # --- ESTILOS ESPECÍFICOS ASIENTO (HOJA 3) ---
+        # Estilos Títulos Hoja 1
+        fmt_main_title = workbook.add_format({'bold': True, 'font_size': 14, 'align': 'center', 'valign': 'vcenter'})
+        fmt_sub_title = workbook.add_format({'bold': True, 'font_size': 11, 'align': 'left', 'valign': 'vcenter'})
+        fmt_periodo = workbook.add_format({'bold': True, 'font_size': 11, 'align': 'right', 'valign': 'vcenter'})
+        fmt_table_title = workbook.add_format({'bold': True, 'font_size': 11, 'align': 'center', 'valign': 'vcenter', 'bg_color': '#F2F2F2', 'border': 1})
+
+        # --- ESTILOS ASIENTO (HOJA 3) ---
         title_company = workbook.add_format({'bold': True, 'font_size': 12, 'align': 'center', 'valign': 'vcenter'})
         fmt_title_label = workbook.add_format({'bold': True, 'align': 'left', 'valign': 'vcenter'})
-        fmt_company = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'bottom': 1}) # RE-DEFINIDO AQUÍ PARA EVITAR ERROR
-        
+        fmt_company = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'bottom': 1})
         fmt_input = workbook.add_format({'bg_color': '#FFFFFF', 'border': 1, 'align': 'center', 'bold': True})
         fmt_date_calc = workbook.add_format({'bg_color': '#FFFFFF', 'border': 1, 'align': 'center', 'bold': True, 'num_format': 'dd/mm/yyyy'})
         fmt_calc = workbook.add_format({'bg_color': '#FFFFFF', 'border': 1, 'align': 'center', 'bold': True})
-        
         box_header = workbook.add_format({'bold': True, 'border': 1, 'align': 'center', 'valign': 'vcenter', 'text_wrap': True, 'bg_color': '#FFFFFF'})
         box_data_center = workbook.add_format({'border': 1, 'align': 'center', 'valign': 'vcenter'})
         box_data_left = workbook.add_format({'border': 1, 'align': 'left', 'valign': 'vcenter'})
         box_money = workbook.add_format({'border': 1, 'num_format': '#,##0.00', 'valign': 'vcenter'})
         box_money_bold = workbook.add_format({'border': 1, 'num_format': '#,##0.00', 'valign': 'vcenter', 'bold': True})
-        
         small_text = workbook.add_format({'font_size': 9, 'italic': True, 'align': 'left'})
         
         # ==========================================
@@ -1507,46 +1510,91 @@ def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, resumen_validaci
         ws1 = workbook.add_worksheet('1. Calculo y Base')
         ws1.hide_gridlines(2)
         
-        headers = ['Centro de Costo', 'Cuenta Contable', 'Base', 'Impuesto (9%)']
-        ws1.write_row('A1', headers, header_green)
+        # 1. ENCABEZADO CORPORATIVO
+        if fecha_cierre:
+            meses_es = {1: "ENERO", 2: "FEBRERO", 3: "MARZO", 4: "ABRIL", 5: "MAYO", 6: "JUNIO", 7: "JULIO", 8: "AGOSTO", 9: "SEPTIEMBRE", 10: "OCTUBRE", 11: "NOVIEMBRE", 12: "DICIEMBRE"}
+            periodo_txt = f"{meses_es.get(fecha_cierre.month, '')} {fecha_cierre.year}"
+        else:
+            periodo_txt = "PERIODO NO DEFINIDO"
+
+        ws1.merge_range('A1:I1', "CÁLCULO LEY DE PROTECCIÓN DE PENSIONES (9%)", fmt_main_title)
+        ws1.merge_range('A2:D2', f"EMPRESA: {nombre_empresa}", fmt_sub_title)
+        ws1.merge_range('G2:I2', f"PERIODO: {periodo_txt}", fmt_periodo)
         
-        current_row = 1
+        # 2. TÍTULOS DE LAS TABLAS (FILA 4)
+        # Tabla Izquierda (Detallada)
+        ws1.merge_range('A4:D4', "SUMATORIA POR CUENTA CONTABLE", fmt_table_title)
+        # Tabla Derecha (Resumida) - Dejamos Columna E como separador
+        ws1.merge_range('G4:I4', "SUMATORIA POR CENTRO DE COSTO", fmt_table_title)
+
+        # 3. ENCABEZADOS DE COLUMNAS (FILA 5)
+        headers_left = ['Centro de Costo', 'Cuenta Contable', 'Base', 'Impuesto (9%)']
+        ws1.write_row('A5', headers_left, header_green)
+
+        headers_right = ['Centro de Costo', 'Total Nomina', 'Total Aporte']
+        ws1.write_row('G5', headers_right, header_green)
         
-        # Nómina
+        # ---------------------------------------------------------
+        # TABLA IZQUIERDA (DETALLE POR TIPO NOMINA)
+        # ---------------------------------------------------------
+        row_left = 5
+        
+        # Bloque Nómina
         nomina = df_agrupado[df_agrupado['Cuenta Contable'].astype(str).str.contains('7.1.1.01', na=False)]
         if not nomina.empty:
             for _, row in nomina.iterrows():
-                ws1.write(current_row, 0, row['Centro de Costo (Padre)'], text_left)
-                ws1.write(current_row, 1, row['Cuenta Contable'], text_center)
-                ws1.write_number(current_row, 2, row['Base_Neta'], money_fmt)
-                ws1.write_number(current_row, 3, row['Impuesto (9%)'], money_fmt)
-                current_row += 1
-            ws1.write(current_row, 1, "Total Nomina", total_fmt)
-            ws1.write_number(current_row, 2, nomina['Base_Neta'].sum(), money_bold)
-            ws1.write_number(current_row, 3, nomina['Impuesto (9%)'].sum(), money_bold)
-            current_row += 2
+                ws1.write(row_left, 0, row['Centro de Costo (Padre)'], text_left)
+                ws1.write(row_left, 1, row['Cuenta Contable'], text_center)
+                ws1.write_number(row_left, 2, row['Base_Neta'], money_fmt)
+                ws1.write_number(row_left, 3, row['Impuesto (9%)'], money_fmt)
+                row_left += 1
+            ws1.write(row_left, 1, "Total Nomina", total_fmt)
+            ws1.write_number(row_left, 2, nomina['Base_Neta'].sum(), money_bold)
+            ws1.write_number(row_left, 3, nomina['Impuesto (9%)'].sum(), money_bold)
+            row_left += 2
 
-        # Cestaticket
+        # Bloque Cestaticket
         ticket = df_agrupado[df_agrupado['Cuenta Contable'].astype(str).str.contains('7.1.1.09', na=False)]
         if not ticket.empty:
             for _, row in ticket.iterrows():
-                ws1.write(current_row, 0, row['Centro de Costo (Padre)'], text_left)
-                ws1.write(current_row, 1, row['Cuenta Contable'], text_center)
-                ws1.write_number(current_row, 2, row['Base_Neta'], money_fmt)
-                ws1.write_number(current_row, 3, row['Impuesto (9%)'], money_fmt)
-                current_row += 1
-            ws1.write(current_row, 1, "Total Cestaticket", total_fmt)
-            ws1.write_number(current_row, 2, ticket['Base_Neta'].sum(), money_bold)
-            ws1.write_number(current_row, 3, ticket['Impuesto (9%)'].sum(), money_bold)
-            current_row += 2
+                ws1.write(row_left, 0, row['Centro de Costo (Padre)'], text_left)
+                ws1.write(row_left, 1, row['Cuenta Contable'], text_center)
+                ws1.write_number(row_left, 2, row['Base_Neta'], money_fmt)
+                ws1.write_number(row_left, 3, row['Impuesto (9%)'], money_fmt)
+                row_left += 1
+            ws1.write(row_left, 1, "Total Cestaticket", total_fmt)
+            ws1.write_number(row_left, 2, ticket['Base_Neta'].sum(), money_bold)
+            ws1.write_number(row_left, 3, ticket['Impuesto (9%)'].sum(), money_bold)
+            row_left += 2
 
-        # Total General
-        ws1.write(current_row, 1, "Total General", total_fmt)
-        ws1.write_number(current_row, 2, df_agrupado['Base_Neta'].sum(), money_bold)
-        ws1.write_number(current_row, 3, df_agrupado['Impuesto (9%)'].sum(), money_bold)
-        current_row += 3 
+        # Total General Izquierda
+        ws1.write(row_left, 1, "Total General", total_fmt)
+        ws1.write_number(row_left, 2, df_agrupado['Base_Neta'].sum(), money_bold)
+        ws1.write_number(row_left, 3, df_agrupado['Impuesto (9%)'].sum(), money_bold)
+        
+        # ---------------------------------------------------------
+        # TABLA DERECHA (RESUMEN POR CENTRO DE COSTO)
+        # ---------------------------------------------------------
+        # Preparamos datos agrupados
+        df_cc = df_agrupado.groupby('Centro de Costo (Padre)')[['Base_Neta', 'Impuesto (9%)']].sum().reset_index()
+        
+        row_right = 5
+        for _, row in df_cc.iterrows():
+            ws1.write(row_right, 6, row['Centro de Costo (Padre)'], text_left) # Col G
+            ws1.write_number(row_right, 7, row['Base_Neta'], money_fmt)       # Col H
+            ws1.write_number(row_right, 8, row['Impuesto (9%)'], money_fmt)   # Col I
+            row_right += 1
+        
+        # Total General Derecha
+        ws1.write(row_right, 6, "Total General", total_fmt)
+        ws1.write_number(row_right, 7, df_cc['Base_Neta'].sum(), money_bold)
+        ws1.write_number(row_right, 8, df_cc['Impuesto (9%)'].sum(), money_bold)
 
-        # --- TABLA DE VALIDACIÓN DETALLADA (Estilo Turno 23) ---
+        # ---------------------------------------------------------
+        # TABLA DE VALIDACIÓN (Al final de la más larga)
+        # ---------------------------------------------------------
+        current_row = max(row_left, row_right) + 3
+
         ws1.merge_range(current_row, 1, current_row, 4, "VALIDACIÓN CRUZADA DETALLADA (CONTABILIDAD vs NÓMINA)", header_green)
         current_row += 1
         
@@ -1589,7 +1637,11 @@ def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, resumen_validaci
         ws1.write_number(current_row, 3, resumen_validacion['imp_nom'], money_bold)
         ws1.write_number(current_row, 4, dif_imp, fmt_imp)
         
-        ws1.set_column('A:B', 20); ws1.set_column('C:D', 18); ws1.set_column('E:E', 18)
+        # Ajuste de Anchos
+        ws1.set_column('A:B', 20)
+        ws1.set_column('C:D', 18)
+        ws1.set_column('E:F', 2) # Separador visual
+        ws1.set_column('G:I', 18)
 
         # ==========================================
         # HOJA 2: DETALLE MAYOR
@@ -1597,18 +1649,8 @@ def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, resumen_validaci
         if df_base is not None:
             cols_drop = ['CC_Agrupado', 'Monto_Deb', 'Monto_Cre', 'Base_Neta']
             df_clean = df_base.drop(columns=cols_drop, errors='ignore')
-            
-            # --- CORRECCIÓN DEFINITIVA DE FECHA ---
-            if 'FECHA' in df_clean.columns:
-                # Convertimos a datetime y luego FORZAMOS el formato texto 'dd/mm/yyyy'
-                # Esto elimina cualquier rastro de la hora (12:00:00 a.m.)
-                df_clean['FECHA'] = pd.to_datetime(df_clean['FECHA'], errors='coerce').dt.strftime('%d/%m/%Y')
-            # --------------------------------------
-
             df_clean.to_excel(writer, sheet_name='2. Detalle Mayor', index=False)
-            
-            # Ajuste de ancho para que se lea bien
-            writer.sheets['2. Detalle Mayor'].set_column('A:Z', 18)
+            writer.sheets['2. Detalle Mayor'].set_column('A:Z', 15)
 
         # ==========================================
         # HOJA 3: ASIENTO CONTABLE
@@ -1699,7 +1741,6 @@ def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, resumen_validaci
             
             box_corner = workbook.add_format({'top': 1, 'left':1, 'right':1, 'font_size': 9})
             ws3.write(row_idx, 8, "Lugar y Fecha:", box_corner)
-            
             fecha_str = fecha_cierre.strftime('%d/%m/%Y') if fecha_cierre else ""
             lugar_fecha = f"VALENCIA, {fecha_str}"
             ws3.merge_range(row_idx+1, 8, row_idx+1, 9, lugar_fecha, fmt_calc)
