@@ -3543,7 +3543,7 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
 def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empresa, log_messages):
     """
     Motor de cálculo para el impuesto del 9%.
-    CORREGIDO: Selección de Hoja de Nómina estricta por MES + AÑO.
+    MEJORA: Suma global de filas de nómina (Caso Prisma) y valida año del mayor.
     """
     log_messages.append(f"--- INICIANDO CÁLCULO DE PENSIONES (9%) - {nombre_empresa} ---")
     
@@ -3564,7 +3564,6 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
     mapa_nombres = { "FEBECA, C.A": "FEBECA", "MAYOR BEVAL, C.A": "BEVAL", "PRISMA, C.A": "PRISMA", "FEBECA, C.A (QUINCALLA)": "QUINCALLA" }
     keyword_empresa = mapa_nombres.get(nombre_empresa, nombre_empresa).upper()
     
-    # Variables de tiempo
     mes_detectado = None
     anio_detectado = None
     nombres_meses = {1: 'ENERO', 2: 'FEBRERO', 3: 'MARZO', 4: 'ABRIL', 5: 'MAYO', 6: 'JUNIO', 7: 'JULIO', 8: 'AGOSTO', 9: 'SEPTIEMBRE', 10: 'OCTUBRE', 11: 'NOVIEMBRE', 12: 'DICIEMBRE'}
@@ -3590,7 +3589,6 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
                 if not fechas.empty:
                     mes_num = fechas.dt.month.mode()[0]
                     year_num = fechas.dt.year.mode()[0]
-                    
                     mes_detectado = nombres_meses[mes_num]
                     anio_detectado = str(year_num)
                     log_messages.append(f"📅 Periodo detectado en Mayor: {mes_detectado} {anio_detectado}")
@@ -3616,7 +3614,7 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
         log_messages.append(f"❌ Error procesando Mayor: {str(e)}")
         return None, None, None, None
 
-    # --- 2. PROCESAR NÓMINA (SELECCIÓN DE HOJA INTELIGENTE) ---
+    # --- 2. PROCESAR NÓMINA (SUMA GLOBAL PRISMA) ---
     val_salarios_nom = 0.0
     val_tickets_nom = 0.0
     val_impuesto_nom = 0.0
@@ -3627,31 +3625,24 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
             hojas = xls_nomina.sheet_names
             hoja_objetivo = None
             
-            # 2.1 ESTRATEGIA: BUSCAR MES + AÑO (Ej: DICIEMBRE 2025)
+            # Buscar Hoja por Mes + Año
             if mes_detectado and anio_detectado:
-                anio_corto = anio_detectado[-2:] # "25"
+                anio_corto = anio_detectado[-2:]
                 for h in hojas:
                     h_upper = h.upper()
-                    # Si contiene el MES y (el año completo O el año corto)
                     if mes_detectado in h_upper and (anio_detectado in h_upper or anio_corto in h_upper):
-                        hoja_objetivo = h
-                        log_messages.append(f"📂 Hoja seleccionada por Mes+Año: '{h}'")
-                        break
+                        hoja_objetivo = h; break
             
-            # 2.2 FALLBACK: SOLO MES (Si no encontró año)
             if not hoja_objetivo and mes_detectado:
                 for h in hojas:
                     if mes_detectado in h.upper():
-                        hoja_objetivo = h
-                        log_messages.append(f"⚠️ Advertencia: Se seleccionó hoja '{h}' solo por nombre del mes.")
-                        break
+                        hoja_objetivo = h; log_messages.append(f"⚠️ Aviso: Se usó hoja '{h}' por mes (sin validar año)."); break
             
-            # 2.3 FALLBACK FINAL: Primera hoja
-            if not hoja_objetivo:
+            if not hoja_objetivo: 
                 hoja_objetivo = hojas[0]
-                log_messages.append(f"⚠️ Usando primera hoja por defecto: '{hoja_objetivo}'")
+                log_messages.append(f"⚠️ Usando primera hoja: '{hoja_objetivo}'")
             
-            # Detectar fila de encabezado
+            # Leer encabezado
             df_raw = pd.read_excel(xls_nomina, sheet_name=hoja_objetivo, header=None, nrows=20)
             header_idx = 0
             for i, row in df_raw.iterrows():
@@ -3663,35 +3654,46 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
             df_nom.columns = [str(c).strip().upper().replace('\n', ' ') for c in df_nom.columns]
             
             col_emp = next((c for c in df_nom.columns if 'EMPRESA' in c), None)
-            col_sal = next((c for c in df_nom.columns if 'SALARIO' in c and '711' in c), None)
-            if not col_sal: col_sal = next((c for c in df_nom.columns if 'SALARIO' in c), None)
+            col_sal = next((c for c in df_nom.columns if 'SALARIO' in c), None)
             col_tkt = next((c for c in df_nom.columns if 'TICKET' in c or 'ALIMENTACION' in c), None)
             col_imp = next((c for c in df_nom.columns if 'APARTADO' in c), None)
             
             if col_emp:
+                # Filtrar filas que contengan la palabra clave (ej: PRISMA)
                 mask = df_nom[col_emp].astype(str).str.upper().str.contains(keyword_empresa, na=False)
                 filas_encontradas = df_nom[mask]
                 
                 if not filas_encontradas.empty:
-                    if col_sal: val_salarios_nom = filas_encontradas[col_sal].apply(limpiar_monto_inteligente).sum()
-                    if col_tkt: val_tickets_nom = filas_encontradas[col_tkt].apply(limpiar_monto_inteligente).sum()
-                    if col_imp: val_impuesto_nom = filas_encontradas[col_imp].apply(limpiar_monto_inteligente).sum()
+                    log_messages.append(f"🔎 Filas encontradas para '{keyword_empresa}': {len(filas_encontradas)}")
                     
-                    log_messages.append(f"📊 Nómina leída: Salarios={val_salarios_nom:,.2f}, Tickets={val_tickets_nom:,.2f}")
+                    # Sumar todas las filas encontradas (Prisma 01 + Prisma 99)
+                    for idx, row in filas_encontradas.iterrows():
+                        v_sal = cleaning_sal = limpiar_monto_inteligente(row[col_sal]) if col_sal else 0
+                        v_tkt = cleaning_tkt = limpiar_monto_inteligente(row[col_tkt]) if col_tkt else 0
+                        
+                        val_salarios_nom += v_sal
+                        val_tickets_nom += v_tkt
+                        if col_imp: val_impuesto_nom += limpiar_monto_inteligente(row[col_imp])
+
+                        # Log para verificar que sumó ambas
+                        log_messages.append(f"   + Sumando: {row[col_emp]} (Salario: {v_sal:,.2f})")
+                    
+                    log_messages.append(f"📊 Total Nómina Global: {val_salarios_nom:,.2f}")
                 else:
-                    log_messages.append(f"⚠️ No se encontró la empresa '{keyword_empresa}' en la hoja '{hoja_objetivo}'.")
+                    log_messages.append(f"⚠️ No se encontró '{keyword_empresa}' en Nómina.")
             else:
                 log_messages.append("❌ Columna EMPRESA no encontrada.")
 
     except Exception as e:
         log_messages.append(f"⚠️ Error leyendo Nómina: {str(e)}")
 
-    # --- 3. GENERAR ASIENTO (IGUAL) ---
+    # --- 3. GENERAR ASIENTO ---
     asiento_data = df_agrupado.groupby('Centro de Costo (Padre)')['Impuesto (9%)'].sum().reset_index()
     asiento_data.rename(columns={'Centro de Costo (Padre)': 'Centro Costo', 'Impuesto (9%)': 'Débito VES'}, inplace=True)
     asiento_data['Cuenta Contable'] = '7.1.1.07.1.001'
     asiento_data['Descripción'] = 'Contribucion ley de Pensiones'
     asiento_data['Crédito VES'] = 0.0
+    
     total_impuesto_contable = asiento_data['Débito VES'].sum()
     
     linea_pasivo = pd.DataFrame([{
