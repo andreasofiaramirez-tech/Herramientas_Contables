@@ -1649,9 +1649,22 @@ def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, resumen_validaci
         if df_base is not None:
             cols_drop = ['CC_Agrupado', 'Monto_Deb', 'Monto_Cre', 'Base_Neta']
             df_clean = df_base.drop(columns=cols_drop, errors='ignore')
-            df_clean.to_excel(writer, sheet_name='2. Detalle Mayor', index=False)
-            writer.sheets['2. Detalle Mayor'].set_column('A:Z', 15)
+            
+            # --- CORRECCIÓN FECHA: Convertir a Texto Corto ---
+            # Buscamos la columna de fecha (puede llamarse FECHA, Fecha, etc.)
+            col_fecha = next((c for c in df_clean.columns if 'FECHA' in c.upper()), None)
+            
+            if col_fecha:
+                # Convertimos a string dd/mm/yyyy para evitar que excel ponga la hora o #####
+                df_clean[col_fecha] = pd.to_datetime(df_clean[col_fecha], errors='coerce').dt.strftime('%d/%m/%Y')
+                # Rellenamos NaT con vacío
+                df_clean[col_fecha] = df_clean[col_fecha].fillna('')
+            # -------------------------------------------------
 
+            df_clean.to_excel(writer, sheet_name='2. Detalle Mayor', index=False)
+            
+            # Aumentamos ancho de columna para que quepa todo
+            writer.sheets['2. Detalle Mayor'].set_column('A:Z', 20)
         # ==========================================
         # HOJA 3: ASIENTO CONTABLE
         # ==========================================
