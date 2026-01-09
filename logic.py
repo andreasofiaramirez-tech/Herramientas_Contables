@@ -3543,7 +3543,7 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
 def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empresa, log_messages):
     """
     Motor de cálculo para el impuesto del 9%.
-    MEJORA CRÍTICA: Selección de pestaña por MES y AÑO para evitar tomar años anteriores.
+    MEJORA: Búsqueda dinámica de encabezados y columnas en el Mayor Contable.
     """
     log_messages.append(f"--- INICIANDO CÁLCULO DE PENSIONES (9%) - {nombre_empresa} ---")
     
@@ -3566,60 +3566,102 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
 
     mapa_nombres = { "FEBECA, C.A": "FEBECA", "MAYOR BEVAL, C.A": "BEVAL", "PRISMA, C.A": "PRISMA", "FEBECA, C.A (QUINCALLA)": "QUINCALLA" }
     keyword_empresa = mapa_nombres.get(nombre_empresa, nombre_empresa).upper()
-    
     mes_detectado = None
-    anio_detectado = None # Variable nueva
     nombres_meses = {1: 'ENERO', 2: 'FEBRERO', 3: 'MARZO', 4: 'ABRIL', 5: 'MAYO', 6: 'JUNIO', 7: 'JULIO', 8: 'AGOSTO', 9: 'SEPTIEMBRE', 10: 'OCTUBRE', 11: 'NOVIEMBRE', 12: 'DICIEMBRE'}
 
-    # --- 1. PROCESAR MAYOR CONTABLE ---
+    # --- 1. PROCESAR MAYOR CONTABLE (Robustez Mejorada) ---
     try:
-        df_mayor = pd.read_excel(file_mayor)
+        # Paso A: Leer buscando la fila de encabezados correcta
+        df_raw = pd.read_excel(file_mayor, header=None, nrows=15)
+        header_idx = 0
+        found_header = False
+        
+        for i, row in df_raw.iterrows():
+            row_str = [str(x).upper() for x in row.values]
+            # Buscamos palabras clave que seguro están en el encabezado
+            if any("CUENTA" in s or "CTA" in s for s in row_str) and \
+               (any("DEBITO" in s or "DÉBITO" in s for s in row_str) or any("DEBE" in s for s in row_str)):
+                header_idx = i
+                found_header = True
+                break
+        
+        # Paso B: Cargar datos con el encabezado correcto
+        if found_header:
+            df_mayor = pd.read_excel(file_mayor, header=header_idx)
+        else:
+            df_mayor = pd.read_excel(file_mayor) # Intento por defecto
+
+        # Normalizamos nombres de columnas (Mayúsculas y sin espacios extra)
         df_mayor.columns = [str(c).strip().upper() for c in df_mayor.columns]
         
-        col_cta = next((c for c in df_mayor.columns if 'CUENTA' in c), None)
-        col_cc = next((c for c in df_mayor.columns if 'CENTRO' in c and 'COSTO' in c), None)
-        col_deb = next((c for c in df_mayor.columns if 'DÉBITO' in c or 'DEBITO' in c), None)
-        col_cre = next((c for c in df_mayor.columns if 'CRÉDITO' in c or 'CREDITO' in c), None)
+        # Log para depuración
+        log_messages.append(f"📋 Columnas Mayor detectadas: {df_mayor.columns.tolist()}")
+
+        # Paso C: Identificar columnas con lista ampliada de sinónimos
+        col_cta = next((c for c in df_mayor.columns if any(k in c for k in ['CUENTA', 'CTA', 'CODIGO'])), None)
+        col_cc = next((c for c in df_mayor.columns if any(k in c for k in ['CENTRO', 'COSTO', 'CC'])), None)
+        
+        # Para Débito y Crédito buscamos palabras raíz
+        col_deb = next((c for c in df_mayor.columns if any(k in c for k in ['DÉBITO', 'DEBITO', 'DEBE', 'CARGO'])), None)
+        col_cre = next((c for c in df_mayor.columns if any(k in c for k in ['CRÉDITO', 'CREDITO', 'HABER', 'ABONO'])), None)
+        
         col_fecha = next((c for c in df_mayor.columns if 'FECHA' in c), None)
         
+        # Verificación estricta
         if not (col_cta and col_cc and col_deb and col_cre):
-            log_messages.append("❌ Error: Faltan columnas críticas en el Mayor.")
+            faltantes = []
+            if not col_cta: faltantes.append("CUENTA")
+            if not col_cc: faltantes.append("CENTRO COSTO")
+            if not col_deb: faltantes.append("DEBITO")
+            if not col_cre: faltantes.append("CREDITO")
+            
+            log_messages.append(f"❌ Error: Faltan columnas críticas en el Mayor: {', '.join(faltantes)}")
             return None, None, None, None
             
+        # ... (Resto de la lógica de fechas y filtrado se mantiene igual) ...
         if col_fecha:
             try:
                 fechas = pd.to_datetime(df_mayor[col_fecha], errors='coerce').dropna()
                 if not fechas.empty:
                     mes_num = fechas.dt.month.mode()[0]
-                    year_num = fechas.dt.year.mode()[0] # Capturamos el año
-                    
+                    year_num = fechas.dt.year.mode()[0]
                     mes_detectado = nombres_meses[mes_num]
-                    anio_detectado = year_num
-                    
-                    log_messages.append(f"📅 Periodo detectado en Mayor: {mes_detectado} {anio_detectado}")
+                    log_messages.append(f"📅 Periodo detectado: {mes_detectado} {year_num}")
             except: pass
 
         cuentas_base = ['7.1.1.01.1.001', '7.1.1.09.1.003']
+        # Aseguramos que la columna cuenta sea string para la búsqueda
         df_filtrado = df_mayor[df_mayor[col_cta].astype(str).str.strip().isin(cuentas_base)].copy()
         
         df_filtrado['Monto_Deb'] = df_filtrado[col_deb].apply(limpiar_monto_inteligente)
         df_filtrado['Monto_Cre'] = df_filtrado[col_cre].apply(limpiar_monto_inteligente)
         df_filtrado['Base_Neta'] = df_filtrado['Monto_Deb'] - df_filtrado['Monto_Cre']
+        
+        # Agrupación por 10 dígitos
         df_filtrado['CC_Agrupado'] = df_filtrado[col_cc].astype(str).str.slice(0, 10)
         
         df_agrupado = df_filtrado.groupby(['CC_Agrupado', col_cta]).agg({'Base_Neta': 'sum'}).reset_index()
-        df_agrupado.rename(columns={'CC_Agrupado': 'Centro de Costo (Padre)', col_cta: 'Cuenta Contable'}, inplace=True)
+        
+        # Renombrar para el reporte
+        df_agrupado.rename(columns={
+            'CC_Agrupado': 'Centro de Costo (Padre)',
+            col_cta: 'Cuenta Contable' 
+        }, inplace=True)
+        
         df_agrupado['Impuesto (9%)'] = df_agrupado['Base_Neta'] * 0.09
         
+        # Totales Contables
         base_salarios_cont = df_agrupado[df_agrupado['Cuenta Contable'].astype(str).str.contains('7.1.1.01', na=False)]['Base_Neta'].sum()
         base_tickets_cont = df_agrupado[df_agrupado['Cuenta Contable'].astype(str).str.contains('7.1.1.09', na=False)]['Base_Neta'].sum()
         total_base_contable = base_salarios_cont + base_tickets_cont
+
+        log_messages.append(f"✅ Base Contable calculada: {total_base_contable:,.2f} Bs.")
 
     except Exception as e:
         log_messages.append(f"❌ Error procesando Mayor: {str(e)}")
         return None, None, None, None
 
-    # --- 2. PROCESAR NÓMINA (SELECCIÓN DE HOJA POR AÑO) ---
+    # --- 2. PROCESAR NÓMINA (Igual que antes) ---
     val_salarios_nom = 0.0
     val_tickets_nom = 0.0
     val_impuesto_nom = 0.0
@@ -3628,45 +3670,18 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
         if file_nomina:
             xls_nomina = pd.ExcelFile(file_nomina)
             hojas = xls_nomina.sheet_names
-            hoja_objetivo = None
+            hoja_objetivo = hojas[0]
+            if mes_detectado:
+                for h in xls_nomina.sheet_names:
+                    if mes_detectado in h.upper(): hoja_objetivo = h; break
             
-            if mes_detectado and anio_detectado:
-                anio_str = str(anio_detectado)     # Ej: "2025"
-                anio_corto = anio_str[-2:]         # Ej: "25"
-                
-                # Buscamos coincidencias estrictas (MES + AÑO)
-                for h in hojas:
-                    h_upper = h.upper()
-                    # Debe tener el MES y (el año completo O el año corto)
-                    # Ej: "DICIEMBRE 2025" o "DIC-25"
-                    if mes_detectado in h_upper or mes_detectado[:3] in h_upper:
-                        if anio_str in h_upper or anio_corto in h_upper:
-                            hoja_objetivo = h
-                            break
-            
-            # Si no encontramos con año, intentamos solo mes pero avisamos
-            if not hoja_objetivo and mes_detectado:
-                for h in hojas:
-                    if mes_detectado in h.upper():
-                        hoja_objetivo = h
-                        log_messages.append(f"⚠️ Advertencia: Se seleccionó la hoja '{h}' por mes, pero no se validó el año.")
-                        break
-            
-            # Si nada funciona, tomamos la primera
-            if not hoja_objetivo: 
-                hoja_objetivo = hojas[0]
-                log_messages.append(f"⚠️ No se pudo determinar la hoja correcta. Usando la primera: '{hoja_objetivo}'")
-            
-            log_messages.append(f"📂 Leyendo hoja de Nómina: '{hoja_objetivo}'")
-            
-            # Detectar fila de encabezado
+            # Detectar fila de encabezado Nómina
             df_raw = pd.read_excel(xls_nomina, sheet_name=hoja_objetivo, header=None, nrows=20)
             header_idx = 0
-            found_header = False
             for i, row in df_raw.iterrows():
                 s = [str(x).upper().replace('\n', ' ').strip() for x in row.values]
                 if any("EMPRESA" in x for x in s) and (any("SALARIO" in x for x in s) or any("TOTAL" in x for x in s)):
-                    header_idx = i; found_header = True; break
+                    header_idx = i; break
             
             df_nom = pd.read_excel(xls_nomina, sheet_name=hoja_objetivo, header=header_idx)
             df_nom.columns = [str(c).strip().upper().replace('\n', ' ') for c in df_nom.columns]
@@ -3682,37 +3697,32 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
                 filas_encontradas = df_nom[mask]
                 
                 if not filas_encontradas.empty:
-                    # Debug del valor crudo encontrado para asegurar
-                    try:
-                        v_debug = filas_encontradas.iloc[0][col_sal] if col_sal else "ND"
-                        log_messages.append(f"🔍 Valor Excel crudo (Salarios): {v_debug}")
-                    except: pass
-
                     if col_sal: val_salarios_nom = filas_encontradas[col_sal].apply(limpiar_monto_inteligente).sum()
                     if col_tkt: val_tickets_nom = filas_encontradas[col_tkt].apply(limpiar_monto_inteligente).sum()
                     if col_imp: val_impuesto_nom = filas_encontradas[col_imp].apply(limpiar_monto_inteligente).sum()
                     
-                    log_messages.append(f"📊 Nómina ({keyword_empresa}): Salarios={val_salarios_nom:,.2f}, Tickets={val_tickets_nom:,.2f}")
+                    log_messages.append(f"📊 Nómina detectada ({keyword_empresa}): Salarios={val_salarios_nom:,.2f}, Tickets={val_tickets_nom:,.2f}")
                 else:
-                    log_messages.append(f"⚠️ No se encontró la empresa '{keyword_empresa}' en la hoja '{hoja_objetivo}'.")
+                    log_messages.append(f"⚠️ No se encontró '{keyword_empresa}' en Nómina.")
             else:
-                log_messages.append("❌ Columna EMPRESA no encontrada.")
-
+                log_messages.append(f"⚠️ No se identificaron todas las columnas en Nómina.")
     except Exception as e:
         log_messages.append(f"⚠️ Error leyendo Nómina: {str(e)}")
 
-    # --- 3. GENERAR ASIENTO ---
+    # --- 3. GENERAR ASIENTO (Igual) ---
     asiento_data = df_agrupado.groupby('Centro de Costo (Padre)')['Impuesto (9%)'].sum().reset_index()
     asiento_data.rename(columns={'Centro de Costo (Padre)': 'Centro Costo', 'Impuesto (9%)': 'Débito VES'}, inplace=True)
     asiento_data['Cuenta Contable'] = '7.1.1.07.1.001'
     asiento_data['Descripción'] = 'Contribucion ley de Pensiones'
     asiento_data['Crédito VES'] = 0.0
+    
     total_impuesto_contable = asiento_data['Débito VES'].sum()
     
     linea_pasivo = pd.DataFrame([{
         'Centro Costo': '00.00.000.00', 'Cuenta Contable': '2.1.3.02.3.005', 
         'Descripción': 'Contribuciones Sociales por Pagar', 'Débito VES': 0.0, 'Crédito VES': total_impuesto_contable
     }])
+    
     df_asiento = pd.concat([asiento_data, linea_pasivo], ignore_index=True)
     
     if tasa_cambio > 0:
@@ -3722,7 +3732,7 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
     else:
         df_asiento['Débito USD'] = 0; df_asiento['Crédito USD'] = 0; df_asiento['Tasa'] = 0
 
-    # --- 4. RESUMEN ---
+    # --- 4. RESUMEN (Igual) ---
     dif_salarios = base_salarios_cont - val_salarios_nom
     dif_tickets = base_tickets_cont - val_tickets_nom
     dif_impuesto = total_impuesto_contable - val_impuesto_nom
