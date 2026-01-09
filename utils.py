@@ -1672,10 +1672,28 @@ def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, resumen_validaci
             ws3 = workbook.add_worksheet('3. Asiento Contable')
             ws3.hide_gridlines(2)
             
+            # --- MAPEO DE CÓDIGOS DINÁMICO ---
+            mapa_codigos = {
+                "FEBECA": "004",
+                "BEVAL": "207",
+                "PRISMA": "298",
+                "QUINCALLA": "071",
+                "SILLACA": "071"
+            }
+            codigo_empresa = "000" # Default
+            # Buscamos coincidencias (ej: "FEBECA, C.A" contiene "FEBECA")
+            for k, v in mapa_codigos.items():
+                if k in str(nombre_empresa).upper():
+                    codigo_empresa = v
+                    break
+            # --------------------------------
+
             ws3.write('A1', "COMPAÑÍA:", fmt_title_label)
             ws3.merge_range('C1:F1', nombre_empresa, fmt_company)
             ws3.write('G1', "Nº.", workbook.add_format({'bold': True, 'align': 'right'}))
-            ws3.write('H1', "004", workbook.add_format({'bold': True, 'align': 'center', 'bottom': 1}))
+            
+            # USO DEL CÓDIGO DINÁMICO
+            ws3.write('H1', codigo_empresa, fmt_code_company)
 
             ws3.write('B3', "PARA ASENTAR EN DIARIO Y CUENTAS:", fmt_title_label)
             ws3.write('B4', "1) Escríbase con máquina de escribir.", small_text)
