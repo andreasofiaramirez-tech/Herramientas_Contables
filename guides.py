@@ -354,15 +354,43 @@ Crea el archivo de retenciones calculando el prorrateo de montos desde Softland.
 """
 
 GUIA_PENSIONES = """
-### 🛡️ Cálculo Ley Protección de Pensiones (9%)
+### 🛡️ Manual de Usuario: Cálculo Ley Protección de Pensiones (9%)
 
-Esta herramienta automatiza el cálculo del aporte del 9% sobre la nómina integral.
+Esta herramienta automatiza el cálculo del aporte del 9%, genera el asiento contable listo para firmar y audita las cifras contra el reporte de RRHH.
 
-**Reglas de Negocio:**
-1.  **Base de Cálculo:** Sumatoria de los saldos netos (Débitos - Créditos) de las cuentas:
-    *   `7.1.1.01.1.001`: Sueldos y Salarios.
-    *   `7.1.1.09.1.003`: Ticket de Alimentación.
-2.  **Cálculo del Aporte:** 9% sobre la Base Total por Centro de Costo.
-3.  **Validación:** Compara la base contable extraída del Mayor contra el archivo resumen de Nómina.
-4.  **Asiento Contable:** Genera el asiento del Gasto (por Centro de Costo) contra el Pasivo (`2.1.3.02.3.005`), convirtiendo a USD según la tasa indicada.
+---
+
+#### 📂 1. Documentos Requeridos
+
+**A. Mayor Analítico (Contabilidad)**
+*   **Fuente:** Sistema Administrativo (Profit/Softland).
+*   **Formato:** Excel (`.xlsx`).
+*   **Filtros:** Debe descargar el movimiento del mes a declarar.
+*   **Cuentas Obligatorias:** El archivo **debe contener** movimientos en:
+    *   `7.1.1.01.1.001` (Sueldos y Salarios)
+    *   `7.1.1.09.1.003` (Ticket de Alimentación)
+*   **Columnas Clave:** Cuenta, Centro de Costo, Débito, Crédito, Fecha.
+
+**B. Resumen de Nómina (RRHH)**
+*   **Fuente:** Departamento de Nómina.
+*   **Formato:** Excel (`.xlsx`) tipo resumen gerencial.
+*   **Pestañas:** El archivo debe tener una pestaña identificada con el **Mes y Año** del cálculo (Ej: "Diciembre 2025" o "Dic-25").
+*   **Columnas Requeridas:**
+    *   `EMPRESA`: Nombre de la compañía (Febeca, Beval, etc.).
+    *   `SALARIOS...`: Monto base de sueldos.
+    *   `TICKETS...` o `ALIMENTACION`: Monto base de cestaticket.
+    *   `APARTADO`: El monto del impuesto calculado por Nómina (para validar).
+
+---
+
+#### ⚙️ Paso a Paso para una Conciliación Exitosa
+
+1.  **Seleccione la Empresa:** Elija en el menú la compañía a procesar (Ej: QUINCALLA).
+2.  **Cargue los Archivos:** Suba el Mayor Contable y el Resumen de Nómina en sus casillas.
+3.  **Indique la Tasa:** Ingrese la tasa de cambio (BCV) para que el asiento calcule los Dólares correctamente.
+4.  **Ejecute:** Haga clic en "Calcular Impuesto".
+
+#### 🔍 Interpretación de Resultados
+*   **✅ Éxito:** Si la Base Contable coincide con la Base de Nómina (Diferencia < 1 Bs), el reporte está listo para imprimir.
+*   **⚠️ Descuadre:** Si aparece una alerta amarilla, descargue el Excel y revise la **Hoja 1**. Allí verá una tabla comparativa que le indicará si la diferencia está en los **Salarios** o en los **Tickets**.
 """
