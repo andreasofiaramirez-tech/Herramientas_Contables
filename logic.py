@@ -3688,31 +3688,52 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
         log_messages.append(f"⚠️ Error leyendo Nómina: {str(e)}")
 
     # --- 3. GENERAR ASIENTO ---
+    # A. Agrupamos Gasto por Centro de Costo (Débitos)
     asiento_data = df_agrupado.groupby('Centro de Costo (Padre)')['Impuesto (9%)'].sum().reset_index()
+    # Redondeo explícito tras la suma
+    asiento_data['Impuesto (9%)'] = asiento_data['Impuesto (9%)'].round(2)
+    
     asiento_data.rename(columns={'Centro de Costo (Padre)': 'Centro Costo', 'Impuesto (9%)': 'Débito VES'}, inplace=True)
     asiento_data['Cuenta Contable'] = '7.1.1.07.1.001'
     asiento_data['Descripción'] = 'Contribucion ley de Pensiones'
     asiento_data['Crédito VES'] = 0.0
+    asiento_data['Crédito USD'] = 0.0
     
-    total_impuesto_contable = asiento_data['Débito VES'].sum()
-    
-    linea_pasivo = pd.DataFrame([{
-        'Centro Costo': '00.00.000.00', 'Cuenta Contable': '2.1.3.02.3.005', 
-        'Descripción': 'Contribuciones Sociales por Pagar', 'Débito VES': 0.0, 'Crédito VES': total_impuesto_contable
-    }])
-    df_asiento = pd.concat([asiento_data, linea_pasivo], ignore_index=True)
-    
+    # B. Cálculo de Dólares por línea (Gasto)
     if tasa_cambio > 0:
-        df_asiento['Débito USD'] = (df_asiento['Débito VES'] / tasa_cambio).round(2)
-        df_asiento['Crédito USD'] = (df_asiento['Crédito VES'] / tasa_cambio).round(2)
-        df_asiento['Tasa'] = tasa_cambio
+        asiento_data['Débito USD'] = (asiento_data['Débito VES'] / tasa_cambio).round(2)
+        asiento_data['Tasa'] = tasa_cambio
     else:
-        df_asiento['Débito USD'] = 0; df_asiento['Crédito USD'] = 0; df_asiento['Tasa'] = 0
+        asiento_data['Débito USD'] = 0.0
+        asiento_data['Tasa'] = 0.0
 
-    # --- 4. RESUMEN ---
-    dif_salarios = base_salarios_cont - val_salarios_nom
-    dif_tickets = base_tickets_cont - val_tickets_nom
-    dif_impuesto = total_impuesto_contable - val_impuesto_nom
+    # C. Calcular Totales para el Pasivo (Contrapartida)
+    # Importante: El Crédito en Bs es la suma de los Débitos en Bs.
+    total_impuesto_ves = asiento_data['Débito VES'].sum().round(2)
+    
+    # Importante: El Crédito en USD es la suma de los Débitos en USD (para que cuadre el asiento en moneda extranjera)
+    # Si convirtiéramos el total en Bs, podría haber diferencia de céntimos.
+    total_impuesto_usd = asiento_data['Débito USD'].sum().round(2)
+    
+    # D. Crear línea del Pasivo
+    linea_pasivo = pd.DataFrame([{
+        'Centro Costo': '00.00.000.00', 
+        'Cuenta Contable': '2.1.3.02.3.005', 
+        'Descripción': 'Contribuciones Sociales por Pagar', 
+        'Débito VES': 0.0, 
+        'Crédito VES': total_impuesto_ves,
+        'Débito USD': 0.0,
+        'Crédito USD': total_impuesto_usd,
+        'Tasa': tasa_cambio if tasa_cambio > 0 else 0
+    }])
+    
+    df_asiento = pd.concat([asiento_data, linea_pasivo], ignore_index=True)
+
+    # --- 4. RESUMEN Y VALIDACIÓN ---
+    dif_salarios = round(base_salarios_cont - val_salarios_nom, 2)
+    dif_tickets = round(base_tickets_cont - val_tickets_nom, 2)
+    dif_impuesto = round(total_impuesto_ves - val_impuesto_nom, 2)
+    
     total_base_nomina = val_salarios_nom + val_tickets_nom
     
     estado_val = "OK" if (abs(dif_salarios) < 1.00 and abs(dif_tickets) < 1.00) else "DESCUADRE"
@@ -3721,8 +3742,8 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
         'salario_cont': base_salarios_cont, 'salario_nom': val_salarios_nom, 'dif_salario': dif_salarios,
         'ticket_cont': base_tickets_cont, 'ticket_nom': val_tickets_nom, 'dif_ticket': dif_tickets,
         'total_base_cont': total_base_contable, 'total_base_nom': total_base_nomina,
-        'dif_base_total': total_base_contable - total_base_nomina,
-        'imp_calc': total_impuesto_contable, 'imp_nom': val_impuesto_nom, 'dif_imp': dif_impuesto,
+        'dif_base_total': round(total_base_contable - total_base_nomina, 2),
+        'imp_calc': total_impuesto_ves, 'imp_nom': val_impuesto_nom, 'dif_imp': dif_impuesto,
         'estado': estado_val
     }
 
