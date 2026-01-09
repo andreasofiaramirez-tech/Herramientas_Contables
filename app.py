@@ -877,18 +877,29 @@ def render_pensiones():
                     fecha_cierre = pd.Timestamp.today()
                     try:
                         if 'FECHA' in df_base.columns:
+                            # Tomamos la primera fecha válida y calculamos el último día de ese mes
                             primera_fecha = pd.to_datetime(df_base['FECHA'].iloc[0])
                             fecha_cierre = primera_fecha + pd.offsets.MonthEnd(0)
-                    except: pass
+                    except:
+                        pass # Si falla, usa fecha de hoy
                     
-                    # Generar Reporte
+                    # --- NUEVO: NOMBRE DE ARCHIVO DINÁMICO ---
+                    # Formato: Calculo_Pensiones_EMPRESA_MES.YY.xlsx
+                    meses_abr = {1:"ENE", 2:"FEB", 3:"MAR", 4:"ABR", 5:"MAY", 6:"JUN", 7:"JUL", 8:"AGO", 9:"SEP", 10:"OCT", 11:"NOV", 12:"DIC"}
+                    mes_txt = meses_abr.get(fecha_cierre.month, "MES")
+                    anio_txt = str(fecha_cierre.year)[-2:]
+                    
+                    nombre_archivo_final = f"Calculo_Pensiones_{empresa_sel}_{mes_txt}.{anio_txt}.xlsx"
+                    # ------------------------------------------
+                    
+                    # Generar Reporte Excel
                     excel_data = generar_reporte_pensiones(df_calc, df_base, df_asiento, dict_val, empresa_sel, tasa, fecha_cierre)
                     
                     st.download_button(
                         "⬇️ Descargar Reporte Completo (Excel)",
                         excel_data,
-                        f"Calculo_Pensiones_{empresa_sel}.xlsx",
-                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        file_name=nombre_archivo_final, # <--- CAMBIO AQUÍ
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         use_container_width=True
                     )
                 else:
