@@ -227,6 +227,7 @@ def _crear_formatos(workbook):
         'usd': workbook.add_format({'num_format': '$#,##0.00'}),
         'tasa': workbook.add_format({'num_format': '#,##0.0000'}),
         'fecha': workbook.add_format({'num_format': 'dd/mm/yyyy'}),
+        'text': workbook.add_format({'align': 'left'}), 
         'total_label': workbook.add_format({'bold': True, 'align': 'right', 'top': 2}),
         'total_usd': workbook.add_format({'bold': True, 'num_format': '$#,##0.00', 'top': 2, 'bottom': 1}),
         'total_bs': workbook.add_format({'bold': True, 'num_format': '#,##0.00', 'top': 2, 'bottom': 1}),
