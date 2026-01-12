@@ -296,15 +296,25 @@ def render_especificaciones():
     with st.expander("📖 Guía de Uso"): st.markdown(GUIA_GENERAL_ESPECIFICACIONES + "\n\n" + LOGICA_POR_CUENTA.get(cta_sel, ""))
 
     est = ESTRATEGIAS[cta_sel]
+    
+    # Aviso de columnas requeridas
+    cols_req = est.get("columnas_requeridas", [])
+    if cols_req:
+        st.info(f"📋 El archivo debe contener: {', '.join(cols_req)}")
+
     c1, c2 = st.columns(2)
-    with c1: f_act = st.file_uploader(est["label_actual"], type="xlsx")
-    with c2: f_ant = st.file_uploader(est["label_anterior"], type="xlsx")
+    with c1: f_act = st.file_uploader(est["label_actual"], type="xlsx", key="f_act")
+    with c2: f_ant = st.file_uploader(est["label_anterior"], type="xlsx", key="f_ant")
 
     if f_act and f_ant:
         if st.button("▶️ Conciliar", type="primary"):
             log = []; prog = st.empty()
             try:
-                df_full = cargar_y_limpiar_datos(f_act, f_ant, log)
+                # --- CAMBIO 1: PASAR COLUMNAS REQUERIDAS ---
+                with st.spinner('Cargando y validando estructura de archivos...'):
+                    df_full = cargar_y_limpiar_datos(f_act, f_ant, log, columnas_requeridas=cols_req)
+                # -------------------------------------------
+                
                 if df_full is not None:
                     prog.progress(0, "Conciliando...")
                     df_res = est["funcion_principal"](df_full.copy(), log, progress_bar=prog)
@@ -312,24 +322,46 @@ def render_especificaciones():
                     st.session_state.df_open = df_res[~df_res['Conciliado']].copy()
                     st.session_state.df_closed = df_res[df_res['Conciliado']].copy()
                     
+                    # Generar Nombres
                     cod = CODIGOS_EMPRESA.get(c_sel, "000")
                     num = cta_sel.split(" - ")[0].strip()
                     fecha = df_full['Fecha'].max()
                     f_txt = f"{['ENE','FEB','MAR','ABR','MAY','JUN','JUL','AGO','SEP','OCT','NOV','DIC'][fecha.month-1]}.{str(fecha.year)[-2:]}" if pd.notna(fecha) else "ND"
                     
-                    name_rep = f"{cod}_{num} {f_txt}.xlsx"
-                    name_saldo = f"Saldos_{cod}_{num} {f_txt}.xlsx"
+                    st.session_state.name_rep = f"{cod}_{num} {f_txt}.xlsx"
+                    st.session_state.name_sal = f"Saldos_{cod}_{num} {f_txt}.xlsx"
 
-                    xls_rep = generar_reporte_excel(df_full, st.session_state.df_open, st.session_state.df_closed, est, c_sel, cta_sel)
-                    xls_sal = generar_excel_saldos_abiertos(st.session_state.df_open)
+                    # Generar Archivos
+                    st.session_state.xls_rep = generar_reporte_excel(df_full, st.session_state.df_open, st.session_state.df_closed, est, c_sel, cta_sel)
+                    st.session_state.xls_sal = generar_excel_saldos_abiertos(st.session_state.df_open)
+                    st.session_state.log_messages = log
                     
-                    st.success("✅ Listo!")
-                    d1, d2 = st.columns(2)
-                    d1.download_button("⬇️ Reporte", xls_rep, name_rep, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-                    d2.download_button("⬇️ Saldos Próximo Mes", xls_sal, name_saldo, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                    st.session_state.processing_complete = True
+                    st.rerun() # Recargar para mostrar resultados limpios
                     
-                    with st.expander("Log"): st.text('\n'.join(log))
             except Exception as e: mostrar_error_amigable(e, "Conciliación")
+
+    # --- PANTALLA DE RESULTADOS (Se muestra tras el rerun) ---
+    if st.session_state.get('processing_complete', False):
+        st.success("✅ ¡Conciliación completada con éxito!")
+        
+        # --- CAMBIO 2: MÉTRICAS VISUALES RESTAURADAS ---
+        met1, met2, met3 = st.columns(3)
+        met1.metric("Total Movimientos", len(st.session_state.df_closed) + len(st.session_state.df_open))
+        met2.metric("Conciliados (Cerrados)", len(st.session_state.df_closed), delta="Listo")
+        met3.metric("Pendientes (Abiertos)", len(st.session_state.df_open), delta="-Por revisar", delta_color="inverse")
+        st.divider()
+        # -----------------------------------------------
+
+        d1, d2 = st.columns(2)
+        d1.download_button("⬇️ Reporte Completo", st.session_state.xls_rep, st.session_state.name_rep, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+        d2.download_button("⬇️ Saldos Próximo Mes", st.session_state.xls_sal, st.session_state.name_sal, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+        
+        with st.expander("Ver registro detallado (Log)"):
+            st.text('\n'.join(st.session_state.log_messages))
+            
+        st.subheader("Previsualización de Saldos Pendientes", anchor=False)
+        st.dataframe(st.session_state.df_open.head(50), use_container_width=True) # Limitamos a 50 para no colgar la vista
 
 def render_paquete_cc():
     st.title('📦 Análisis Paquete CC')
