@@ -779,11 +779,12 @@ def _generar_hoja_pendientes_cdc(workbook, formatos, df_saldos, estrategia, casa
 def _generar_hoja_pendientes_corrida(workbook, formatos, df_saldos, estrategia, casa, fecha_maxima):
     """
     Genera hoja de pendientes como LISTADO CORRIDO (Cronológico).
-    Ideal para: Fondos en Tránsito, Fondos por Depositar.
+    CORREGIDO: Formato de fecha, limpieza de filas basura y alias de columnas.
     """
-    ws = workbook.add_worksheet(estrategia.get("nombre_hoja_excel", "Pendientes"))
-    cols = estrategia["columnas_reporte"]
+    nombre_hoja = estrategia.get("nombre_hoja_excel", "Pendientes")
+    ws = workbook.add_worksheet(nombre_hoja)
     ws.hide_gridlines(2)
+    cols = estrategia["columnas_reporte"]
     
     # Encabezados
     if pd.notna(fecha_maxima):
@@ -801,35 +802,78 @@ def _generar_hoja_pendientes_corrida(workbook, formatos, df_saldos, estrategia, 
     if df_saldos.empty: return
 
     df = df_saldos.copy()
+    
+    # --- 1. LIMPIEZA DE FILAS BASURA (Total Contabilidad, nan, etc) ---
+    # Convertimos a string y mayúsculas para filtrar
+    if 'NIT' in df.columns:
+        mask_basura = df['NIT'].astype(str).str.upper().str.contains('CONTABILIDAD|TOTAL|NAN|SIN_NIT', na=False)
+        # También verificamos si la descripción tiene "TOTAL"
+        if 'Descripcion NIT' in df.columns:
+            mask_basura |= df['Descripcion NIT'].astype(str).str.upper().str.contains('TOTAL', na=False)
+            
+        df = df[~mask_basura]
+    # ------------------------------------------------------------------
+
     df['Monto Dólar'] = pd.to_numeric(df.get('Monto_USD'), errors='coerce').fillna(0)
     df['Bs.'] = pd.to_numeric(df.get('Monto_BS'), errors='coerce').fillna(0)
     df['Monto Bolivar'] = df['Bs.']
     df['Tasa'] = np.where(df['Monto Dólar'].abs() != 0, df['Bs.'].abs() / df['Monto Dólar'].abs(), 0)
     
-    # ORDENAMIENTO CRONOLÓGICO
-    df = df.sort_values(by=['Fecha', 'Asiento'])
+    # ORDENAMIENTO
+    if estrategia['id'] == 'haberes_clientes':
+        df = df.sort_values(by=['Fecha', 'NIT'], ascending=[True, True])
+    else:
+        df = df.sort_values(by=['Fecha', 'Asiento'], ascending=[True, True])
 
     current_row = 5
-    usd_idx = get_col_idx(pd.DataFrame(columns=cols), ['Monto Dólar', 'Monto USD'])
-    bs_idx = get_col_idx(pd.DataFrame(columns=cols), ['Bs.', 'Monto Bolivar', 'Monto Bs'])
+    
+    # Buscamos índices para el total
+    # Creamos un DF dummy con las columnas para buscar índices
+    dummy_df = pd.DataFrame(columns=cols)
+    usd_idx = get_col_idx(dummy_df, ['Monto Dólar', 'Monto USD'])
+    bs_idx = get_col_idx(dummy_df, ['Bs.', 'Monto Bolivar', 'Monto Bs'])
     
     for _, row in df.iterrows():
         for c_idx, col_name in enumerate(cols):
-            val = row.get(col_name)
-            if col_name == 'Fecha' and pd.notna(val): ws.write_datetime(current_row, c_idx, val, formatos['fecha'])
-            elif col_name in ['Monto Dólar', 'Monto USD']: ws.write_number(current_row, c_idx, val or 0, formatos['usd'])
-            elif col_name in ['Bs.', 'Monto Bolivar', 'Monto Bs']: ws.write_number(current_row, c_idx, val or 0, formatos['bs'])
-            elif col_name == 'Tasa': ws.write_number(current_row, c_idx, val or 0, formatos['tasa'])
-            else: ws.write(current_row, c_idx, val if pd.notna(val) else '')
+            
+            # --- MAPEO DE ALIAS ---
+            val = None
+            if col_name == 'Fecha Origen Acreencia': val = row.get('Fecha')
+            elif col_name == 'Numero de Documento': val = row.get('Fuente')
+            else: val = row.get(col_name)
+            # ----------------------
+            
+            # Escritura con formato
+            if col_name in ['Fecha', 'Fecha Origen Acreencia']:
+                # Asegurar que es fecha válida para Excel
+                val_dt = pd.to_datetime(val, errors='coerce')
+                if pd.notna(val_dt):
+                    ws.write_datetime(current_row, c_idx, val_dt, formatos['fecha'])
+                else:
+                    ws.write(current_row, c_idx, str(val) if val else "", formatos['text'])
+                    
+            elif col_name in ['Monto Dólar', 'Monto USD']: 
+                ws.write_number(current_row, c_idx, val or 0, formatos['usd'])
+            elif col_name in ['Bs.', 'Monto Bolivar', 'Monto Bs']: 
+                ws.write_number(current_row, c_idx, val or 0, formatos['bs'])
+            elif col_name == 'Tasa': 
+                ws.write_number(current_row, c_idx, val or 0, formatos['tasa'])
+            else: 
+                ws.write(current_row, c_idx, val if pd.notna(val) else '')
         current_row += 1
         
     # SALDO TOTAL AL FINAL
     current_row += 1
-    lbl_idx = max(0, (usd_idx if usd_idx != -1 else bs_idx) - 1)
+    # Ubicar etiqueta antes de los montos
+    indices_montos = [i for i in [usd_idx, bs_idx] if i != -1]
+    lbl_idx = max(0, min(indices_montos) - 1) if indices_montos else 0
+    
     ws.write(current_row, lbl_idx, "SALDO TOTAL", formatos['total_label'])
+    
     if usd_idx != -1: ws.write_number(current_row, usd_idx, df['Monto Dólar'].sum(), formatos['total_usd'])
     if bs_idx != -1: ws.write_number(current_row, bs_idx, df['Bs.'].sum(), formatos['total_bs'])
 
+    # Ajuste anchos
     ws.set_column(0, 0, 18)
     ws.set_column(1, 1, 55)
     ws.set_column(2, 2, 15)
