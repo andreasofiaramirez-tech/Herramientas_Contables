@@ -1,34 +1,27 @@
 # mappings.py
 # ==============================================================================
-# ARCHIVO DE CONFIGURACIÓN Y DATOS MAESTROS
+# ARCHIVO DE CONFIGURACIÓN Y MAPEOS (MAPPINGS)
 # ==============================================================================
-import re
 
 def normalize_account(acc):
-    """Normaliza cuentas eliminando caracteres no numéricos."""
+    """Auxiliar para normalizar cuentas en los sets (Solo números)."""
+    import re
     return re.sub(r'\D', '', str(acc))
 
 # --- CONSTANTES DE TOLERANCIA ---
 TOLERANCIA_MAX_BS = 0.02
 TOLERANCIA_MAX_USD = 0.50
 
-# --- LISTAS DE SELECCIÓN PARA APP.PY ---
-# Unificamos Sillaca dentro de Febeca Quincalla
-LISTA_EMPRESAS = [
-    "MAYOR BEVAL, C.A", 
-    "FEBECA, C.A", 
-    "FEBECA, C.A (QUINCALLA)", 
-    "PRISMA, C.A"
-]
-
-CODIGOS_EMPRESAS = {
+# --- CÓDIGOS DE EMPRESA (Para nombres de archivo y reportes) ---
+CODIGOS_EMPRESA = {
     "FEBECA, C.A": "004",
     "MAYOR BEVAL, C.A": "207",
     "PRISMA, C.A": "298",
-    "FEBECA, C.A (QUINCALLA)": "071"
+    "FEBECA, C.A (QUINCALLA)": "071",
+    "SILLACA, C.A.": "071" # Alias apuntando al mismo código
 }
 
-# --- DIRECTORIOS DE CUENTAS (PAQUETE CC) ---
+# --- PAQUETE CC: CUENTAS CONOCIDAS ---
 CUENTAS_CONOCIDAS = {normalize_account(acc) for acc in [
     '1.1.3.01.1.001', '1.1.3.01.1.901', '7.1.3.45.1.997', '6.1.1.12.1.001',
     '4.1.1.22.4.001', '2.1.3.04.1.001', '7.1.3.19.1.012', '2.1.2.05.1.108',
@@ -38,12 +31,10 @@ CUENTAS_CONOCIDAS = {normalize_account(acc) for acc in [
     '1.1.1.02.1.016', '1.1.1.02.1.112', '1.1.1.02.1.124', '1.1.1.02.1.132',
     '1.1.1.02.6.002', '1.1.1.02.6.003', '1.1.1.02.6.005', '1.1.1.02.6.010',
     '1.1.1.03.6.012', '1.1.1.03.6.024', '1.1.1.03.6.026', '1.1.1.03.6.031',
-    # Bancos adicionales
     '1.1.1.02.1.002', '1.1.1.02.1.005', '1.1.1.02.6.001', '1.1.1.02.1.003',
     '4.1.1.21.4.001', '2.1.3.04.1.001', '4.1.1.22.4.001',
-    # Cuentas Grupos Nuevos
-    '1.9.1.01.3.008', '1.9.1.01.3.009', '7.1.3.01.1.001',
-    '1.1.4.01.7.044', '2.1.2.05.1.005'
+    '1.9.1.01.3.008', '1.9.1.01.3.009', '7.1.3.01.1.001', '1.1.4.01.7.044',
+    '2.1.2.05.1.005'
 ]}
 
 CUENTAS_BANCO = {normalize_account(acc) for acc in [
@@ -51,11 +42,11 @@ CUENTAS_BANCO = {normalize_account(acc) for acc in [
     '1.1.1.02.1.009', '1.1.1.02.1.016', '1.1.1.02.1.112', '1.1.1.02.1.124',
     '1.1.1.02.1.132', '1.1.1.02.6.002', '1.1.1.02.6.003', '1.1.1.02.6.005',
     '1.1.1.02.6.010', '1.1.1.03.6.012', '1.1.1.03.6.024', '1.1.1.03.6.026',
-    '1.1.1.03.6.031',
-    '1.1.1.02.1.002', '1.1.1.02.1.005', '1.1.1.02.6.001', '1.1.1.02.1.003'
+    '1.1.1.03.6.031', '1.1.1.02.1.002', '1.1.1.02.1.005', '1.1.1.02.6.001',
+    '1.1.1.02.1.003'
 ]}
 
-# --- NOMBRES OFICIALES DE CUENTAS (CUADRE CB-CG) ---
+# --- CUADRE CB-CG: DICCIONARIO DE NOMBRES ---
 NOMBRES_CUENTAS_OFICIALES = {
     '1.1.1.02.1.000': 'Bancos del País',
     '1.1.1.02.1.002': 'Banco Venezolano de Credito, S.A.',
@@ -111,7 +102,8 @@ NOMBRES_CUENTAS_OFICIALES = {
     '1.1.1.01.6.002': 'Cuenta Euros'
 }
 
-# --- MAPEOS DE CUADRE (CB vs CG) ---
+# --- CUADRE CB-CG: MAPEOS POR EMPRESA ---
+
 MAPEO_CB_CG_BEVAL = {
     "0102E":  {"cta": "1.1.1.02.6.003", "moneda": "USD"},
     "0102EU": {"cta": "1.1.1.02.6.213", "moneda": "EUR"},
@@ -207,6 +199,5 @@ MAPEO_CB_CG_PRISMA = {
     "0501E":  {"cta": "1.1.1.03.6.024", "moneda": "USD"},
 }
 
-# QUINCALLA USA EL MISMO DICCIONARIO QUE FEBECA + SILLACA (UNIFICADO)
-MAPEO_CB_CG_QUINCALLA = MAPEO_CB_CG_FEBECA
-
+# QUINCALLA Y SILLACA USAN EL MISMO (COPIA DEL DE FEBECA CON ALIAS)
+MAPEO_CB_CG_QUINCALLA = MAPEO_CB_CG_FEBECA.copy()
