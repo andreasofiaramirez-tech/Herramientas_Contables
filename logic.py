@@ -1026,6 +1026,7 @@ def validar_coincidencia_empresa(file_obj, nombre_empresa_sel):
         # Mensaje de error personalizado
         str_keys = " / ".join(keywords)
         return False, f"El archivo **'{file_obj.name}'** no parece corresponder a **{empresa_sel_upper}**. No se encontró ninguna de estas marcas en el encabezado: [{str_keys}]."
+
 def extraer_saldos_cb(archivo, log_messages):
     datos = {}; name = getattr(archivo, 'name', '').lower()
     if name.endswith('.pdf'):
@@ -1088,59 +1089,151 @@ def extraer_saldos_cg(archivo, log_messages):
     return datos
 
 def run_cuadre_cb_cg(file_cb, file_cg, nombre_empresa, log_messages):
-    emp = nombre_empresa.upper()
-    if "PRISMA" in emp: mapa = MAPEO_CB_CG_PRISMA
-    elif "QUINCALLA" in emp or "SILLACA" in emp: mapa = MAPEO_CB_CG_QUINCALLA
-    elif "FEBECA" in emp: mapa = MAPEO_CB_CG_FEBECA
-    else: mapa = MAPEO_CB_CG_BEVAL
+    """
+    Función Principal: Cruza Tesorería vs Contabilidad.
+    INCLUYE DETECCIÓN DE HUÉRFANOS Y AGRUPACIÓN DE SALDOS.
+    """
+    # 1. Configuración (Selección de Diccionario)
+    empresa_upper = str(nombre_empresa).upper()
     
-    d_cb = extraer_saldos_cb(file_cb, log_messages)
-    d_cg = extraer_saldos_cg(file_cg, log_messages)
+    if "PRISMA" in empresa_upper:
+        mapeo_actual = MAPEO_CB_CG_PRISMA
+        log_messages.append(f"🏢 Configuración activa: PRISMA")
+    elif "QUINCALLA" in empresa_upper or "SILLACA" in empresa_upper:
+        # Usa el mapeo de Quincalla (que es copia de Febeca con ajustes si aplica)
+        mapeo_actual = MAPEO_CB_CG_QUINCALLA
+        log_messages.append(f"🏢 Configuración activa: FEBECA QUINCALLA (SILLACA)")
+    elif "FEBECA" in empresa_upper:
+        mapeo_actual = MAPEO_CB_CG_FEBECA
+        log_messages.append(f"🏢 Configuración activa: FEBECA FERRETERÍA")
+    else:
+        mapeo_actual = MAPEO_CB_CG_BEVAL
+        log_messages.append(f"🏢 Configuración activa: MAYOR BEVAL")
+
+    # 2. Extracción de Datos
+    data_cb = extraer_saldos_cb(file_cb, log_messages)
+    data_cg = extraer_saldos_cg(file_cg, log_messages)
     
-    # Agrupación N:1
-    suma_cb = {}
-    for cod, cfg in mapa.items():
-        cta = cfg['cta']
-        suma_cb[cta] = suma_cb.get(cta, 0) + d_cb.get(cod, {}).get('final', 0)
-        
-    res = []; huerfanos = []
+    # Sets para control de integridad (Huérfanos)
+    cb_encontrados = set(data_cb.keys())
+    cg_encontrados = set(data_cg.keys())
+    cb_mapeados = set()
+    cg_mapeados = set()
     
-    for cod, cfg in mapa.items():
-        cta = cfg['cta']
-        mon = cfg['moneda']
+    # 3. Pre-cálculo de agrupación (Lógica N:1)
+    # Sumamos los saldos de Tesorería que apuntan a la misma Cuenta Contable
+    suma_cb_por_cuenta = {}
+    for codigo_cb, config in mapeo_actual.items():
+        cuenta_cg = config['cta']
+        saldo_individual = data_cb.get(codigo_cb, {}).get('final', 0.0)
         
-        i_cb = d_cb.get(cod, {'inicial':0, 'debitos':0, 'creditos':0, 'final':0, 'nombre':'NO ENCONTRADO'})
-        i_cg_full = d_cg.get(cta, {})
-        i_cg = i_cg_full.get('VES' if mon=='VES' else 'USD', {'inicial':0, 'debitos':0, 'creditos':0, 'final':0})
-        desc = i_cg_full.get('descripcion', NOMBRES_CUENTAS_OFICIALES.get(cta, 'ND'))
+        if cuenta_cg not in suma_cb_por_cuenta: 
+            suma_cb_por_cuenta[cuenta_cg] = 0.0
+        suma_cb_por_cuenta[cuenta_cg] += saldo_individual
+
+    resultados = []
+
+    # 4. Cruce y Generación de Resultados
+    for codigo_cb, config in mapeo_actual.items():
+        # Marcar como mapeados
+        cb_mapeados.add(codigo_cb)
+        cg_mapeados.add(config['cta'])
         
-        diff = round(suma_cb.get(cta, 0) - i_cg['final'], 2)
-        estado = "OK" if diff == 0 else "DESCUADRE"
-        s_cg_vis = i_cb['final'] if diff == 0 else i_cg['final'] # Truco visual si cuadra
+        cuenta_cg = config['cta']
+        moneda = config['moneda']
         
-        res.append({
-            'Moneda': mon, 'Banco (Tesorería)': cod, 'Cuenta Contable': cta, 'Descripción': desc,
-            'Saldo Final CB': i_cb['final'], 'Saldo Final CG': s_cg_vis, 'Diferencia': diff, 'Estado': estado,
-            'CB Inicial': i_cb['inicial'], 'CB Débitos': i_cb['debitos'], 'CB Créditos': i_cb['creditos'],
-            'CG Inicial': i_cg['inicial'], 'CG Débitos': i_cg['debitos'], 'CG Créditos': i_cg['creditos']
-        })
+        # Datos CB Individuales
+        info_cb = data_cb.get(codigo_cb, {'inicial':0, 'debitos':0, 'creditos':0, 'final':0, 'nombre':'NO ENCONTRADO'})
+        saldo_cb_individual = info_cb.get('final', 0)
         
-    # Detección de Huérfanos
-    mapped_cb = set(mapa.keys())
-    mapped_cg = set(cfg['cta'] for cfg in mapa.values())
-    
-    for cod in set(d_cb.keys()) - mapped_cb:
-        if d_cb[cod]['final'] != 0:
-            huerfanos.append({'Origen': 'CB', 'Código/Cuenta': cod, 'Descripción/Nombre': d_cb[cod]['nombre'], 'Saldo Final': d_cb[cod]['final'], 'Mensaje': 'No mapeado'})
+        # Datos CG (Totales de la cuenta)
+        # Seleccionamos la columna correcta según la moneda configurada
+        clave_cg = 'VES' if moneda == 'VES' else 'USD'
+        info_cg_full = data_cg.get(cuenta_cg, {})
+        info_cg = info_cg_full.get(clave_cg, {'inicial':0, 'debitos':0, 'creditos':0, 'final':0})
+        saldo_cg_total_real = info_cg.get('final', 0)
+        
+        # Obtener descripción oficial o la leída del PDF
+        desc_cg = info_cg_full.get('descripcion', NOMBRES_CUENTAS_OFICIALES.get(cuenta_cg, 'NO DEFINIDO'))
+        
+        # --- COMPARACIÓN INTELIGENTE ---
+        # Comparamos la SUMA DEL GRUPO de Tesorería contra el Saldo Contable
+        saldo_cb_grupo_total = suma_cb_por_cuenta.get(cuenta_cg, 0.0)
+        diferencia_grupo = round(saldo_cb_grupo_total - saldo_cg_total_real, 2)
+        
+        if diferencia_grupo == 0:
+            estado = "OK"
+            diferencia_visual = 0.0
+            # Truco visual: Si cuadra, mostramos en la columna CG el mismo valor que CB para no confundir
+            saldo_cg_visual = saldo_cb_individual 
+        else:
+            estado = "DESCUADRE"
+            diferencia_visual = diferencia_grupo 
+            saldo_cg_visual = saldo_cg_total_real
             
-    for cta in set(d_cg.keys()) - mapped_cg:
-        if (cta.startswith('1.1.1.02') or cta.startswith('1.1.1.03') or cta.startswith('1.1.1.06')) and not cta.endswith('.000'):
-            s = d_cg[cta]
-            if s['VES']['final'] != 0 or s['USD']['final'] != 0:
-                huerfanos.append({'Origen': 'CG', 'Código/Cuenta': cta, 'Descripción/Nombre': s['descripcion'], 'Saldo Final': f"Bs:{s['VES']['final']} $:{s['USD']['final']}", 'Mensaje': 'No mapeado'})
+        # Filtro de visualización: Si todo es cero (inactivo), se puede omitir o dejar.
+        # Aquí lo dejamos comentado para mostrar TODO el mapa configurado.
+        # if saldo_cb_individual == 0 and saldo_cg_total_real == 0 and info_cb.get('debitos', 0) == 0 and diferencia_grupo == 0:
+        #     continue
 
-    return pd.DataFrame(res), pd.DataFrame(huerfanos)
+        resultados.append({
+            'Moneda': moneda,
+            'Banco (Tesorería)': codigo_cb, 
+            'Cuenta Contable': cuenta_cg,
+            'Descripción': desc_cg,
+            'Saldo Final CB': saldo_cb_individual,
+            'Saldo Final CG': saldo_cg_visual,
+            'Diferencia': diferencia_visual,
+            'Estado': estado,
+            'CB Inicial': info_cb.get('inicial', 0),
+            'CB Débitos': info_cb.get('debitos', 0),
+            'CB Créditos': info_cb.get('creditos', 0),
+            'CG Inicial': info_cg.get('inicial', 0),
+            'CG Débitos': info_cg.get('debitos', 0),
+            'CG Créditos': info_cg.get('creditos', 0)
+        })
 
+    # 5. ANÁLISIS DE HUÉRFANOS (Cuentas con saldo no configuradas)
+    huerfanos = []
+    
+    # A. Huérfanos Tesorería (Códigos que aparecieron en el PDF pero no en el mapa)
+    sobrantes_cb = cb_encontrados - cb_mapeados
+    for cod in sobrantes_cb:
+        info = data_cb[cod]
+        # Solo reportamos si tiene movimiento o saldo
+        if info['final'] != 0 or info['debitos'] != 0:
+            huerfanos.append({
+                'Origen': 'TESORERÍA (CB)',
+                'Código/Cuenta': cod,
+                'Descripción/Nombre': info.get('nombre', 'Desconocido'),
+                'Saldo Final': info['final'],
+                'Mensaje': 'Código en reporte CB pero no en diccionario.'
+            })
+            
+    # B. Huérfanos Contabilidad (Cuentas contables con saldo no mapeadas)
+    sobrantes_cg = cg_encontrados - cg_mapeados
+    for cta in sobrantes_cg:
+        # Filtro de seguridad: Solo cuentas que parecen bancos reales (1.1.1.02... / 03... / 06...)
+        es_banco = (cta.startswith('1.1.1.02') or 
+                    cta.startswith('1.1.1.03') or 
+                    cta.startswith('1.1.1.06'))
+        es_agrupadora = cta.endswith('.000') # Ignoramos cuentas madre
+        
+        if es_banco and not es_agrupadora:
+            info = data_cg[cta]
+            s_ves = info['VES']['final']
+            s_usd = info['USD']['final']
+            
+            if s_ves != 0 or s_usd != 0:
+                huerfanos.append({
+                    'Origen': 'CONTABILIDAD (CG)',
+                    'Código/Cuenta': cta,
+                    'Descripción/Nombre': info.get('descripcion', 'Desconocido'),
+                    'Saldo Final': f"Bs: {s_ves} | $: {s_usd}",
+                    'Mensaje': 'Cuenta contable con saldo, no mapeada.'
+                })
+
+    return pd.DataFrame(resultados), pd.DataFrame(huerfanos)
 # ==============================================================================
 # 6. MÓDULO GESTIÓN DE IMPRENTA (RETENCIONES IVA)
 # ==============================================================================
