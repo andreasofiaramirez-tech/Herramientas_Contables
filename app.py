@@ -303,25 +303,40 @@ def set_page(page_name):
     st.session_state.page = page_name
 
 def render_inicio():
-    st.title("🤖 Portal de Herramientas Contables")
-    st.markdown("Seleccione la herramienta que desea utilizar:")
-    col1, col2 = st.columns(2)
-    with col1:
-        st.button("📄 Especificaciones", on_click=set_page, args=['especificaciones'], use_container_width=True)
-        st.button("📦 Análisis de Paquete CC", on_click=set_page, args=['paquete_cc'], use_container_width=True)
-        st.button("🪪 Calculo Pensiones", on_click=set_page, args=['pensiones'], use_container_width=True)
-        st.button("💵 Reservas y Apartados", on_click=set_page, args=['reservas'], use_container_width=True, disabled=True)
-        
-    with col2:
-        st.button("⚖️ Cuadre CB - CG", on_click=set_page, args=['cuadre'], use_container_width=True)
-        st.button("🧾 Relación de Retenciones", on_click=set_page, args=['retenciones'], use_container_width=True)
-        st.button("🖨️ Cruce Imprenta", on_click=set_page, args=['imprenta'], use_container_width=True)
-        st.button("🔜 Próximamente", on_click=set_page, args=['proximamente'], use_container_width=True, disabled=True)    
+    # --- CABECERA CON LOGOS ---
+    st.markdown("<br>", unsafe_allow_html=True)
+    _, col_logos, _ = st.columns([1, 10, 1])
+    with col_logos:
+        l1, l2, l3 = st.columns(3)
+        with l1:
+            try: st.image("assets/logo_febeca.png", use_container_width=True)
+            except: st.write("**FEBECA**")
+        with l2:
+            try: st.image("assets/logo_beval.png", use_container_width=True)
+            except: st.write("**BEVAL**")
+        with l3:
+            try: st.image("assets/logo_sillaca.png", use_container_width=True)
+            except: st.write("**SILLACA**")
+    st.divider()
 
-def render_proximamente(titulo):
-    st.title(f"🛠️ {titulo}")
-    st.info("Esta funcionalidad estará disponible en futuras versiones.")
-    st.button("⬅️ Volver al Inicio", on_click=set_page, args=['inicio'])
+    st.title("🤖 Portal de Herramientas Contables")
+    st.markdown("Seleccione una herramienta para comenzar:")
+
+    c1, c2 = st.columns(2, gap="medium")
+    with c1:
+        st.subheader("📊 Análisis y Conciliación")
+        st.button("📄 Especificaciones", on_click=set_page, args=['especificaciones'], use_container_width=True)
+        st.button("📦 Análisis Paquete CC", on_click=set_page, args=['paquete_cc'], use_container_width=True)
+        st.button("⚖️ Cuadre CB - CG", on_click=set_page, args=['cuadre'], use_container_width=True)
+
+    with c2:
+        st.subheader("⚙️ Procesos Fiscales y Nómina")
+        st.button("🛡️ Cálculo Pensiones (9%)", on_click=set_page, args=['pensiones'], use_container_width=True)
+        st.button("🧾 Relación Retenciones", on_click=set_page, args=['retenciones'], use_container_width=True)
+        st.button("🖨️ Gestión Imprenta (TXT)", on_click=set_page, args=['imprenta'], use_container_width=True)
+
+    st.markdown("---")
+    st.caption("v2.1 - Sistema Integral de Automatización Contable.")
 
 def render_retenciones():
     st.title("🧾 Herramienta de Auditoría de Retenciones", anchor=False)
