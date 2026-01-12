@@ -855,7 +855,7 @@ def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrate
         cuentas_resumen = ['deudores_empleados_me', 'deudores_empleados_bs']
         
         # LISTA B: Cuentas CORRIDAS (Sin agrupar por NIT, orden fecha)
-        cuentas_corridas = ['fondos_transito', 'fondos_depositar']
+        cuentas_corridas = ['fondos_transito', 'fondos_depositar','haberes_clientes']
         
         # LISTA C: Cuentas FACTORING (Agrupado especial)
         # (Se maneja en el elif)
@@ -864,7 +864,6 @@ def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrate
             _generar_hoja_pendientes_resumida(workbook, formatos, df_saldos_abiertos, _estrategia, casa_seleccionada, fecha_max)
             
         elif _estrategia['id'] in cuentas_corridas:
-            # ¡AQUÍ USAMOS LA NUEVA FUNCIÓN CORRIDA!
             _generar_hoja_pendientes_corrida(workbook, formatos, df_saldos_abiertos, _estrategia, casa_seleccionada, fecha_max)
             
         elif _estrategia['id'] == 'cdc_factoring':
