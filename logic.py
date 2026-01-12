@@ -975,20 +975,57 @@ def run_analysis_paquete_cc(df_diario, log_messages):
 # ==============================================================================
 
 def validar_coincidencia_empresa(file_obj, nombre_empresa_sel):
-    key = "BEVAL" if "BEVAL" in nombre_empresa_sel else ("FEBECA" if "FEBECA" in nombre_empresa_sel else ("PRISMA" if "PRISMA" in nombre_empresa_sel else "SILLACA"))
-    file_obj.seek(0)
-    try:
-        if file_obj.name.lower().endswith('.pdf'):
-            with pdfplumber.open(file_obj) as pdf: text = pdf.pages[0].extract_text().upper() if pdf.pages else ""
-        else:
-            text = pd.read_excel(file_obj, header=None, nrows=10).to_string().upper()
-    except: text = ""
-    file_obj.seek(0)
+    """
+    Verifica si el archivo subido pertenece a la empresa seleccionada.
+    Maneja alias (Ej: Quincalla acepta archivos que digan 'Sillaca').
+    """
+    empresa_sel_upper = str(nombre_empresa_sel).upper()
     
-    if key in text: return True, ""
-    if key == "FEBECA" and "FEBECA" in text: return True, "" # Quincalla fix
-    return False, f"Archivo no parece ser de {key}"
+    # --- LÓGICA DE ALIAS ---
+    # Definimos qué palabras clave buscamos en el archivo según la selección
+    if "QUINCALLA" in empresa_sel_upper:
+        # Si selecciona Quincalla, aceptamos archivos que digan: FEBECA, QUINCALLA o SILLACA
+        keywords = ["FEBECA", "QUINCALLA", "SILLACA"]
+    elif "FEBECA" in empresa_sel_upper: # Febeca (Ferretería)
+        keywords = ["FEBECA"]
+    elif "BEVAL" in empresa_sel_upper:
+        keywords = ["BEVAL"]
+    elif "PRISMA" in empresa_sel_upper:
+        keywords = ["PRISMA"]
+    else:
+        # Caso fallback
+        return True, ""
 
+    # 2. Leer el encabezado del archivo
+    file_obj.seek(0)
+    texto_cabecera = ""
+    
+    try:
+        nombre_archivo = getattr(file_obj, 'name', '').lower()
+        if nombre_archivo.endswith('.pdf'):
+            with pdfplumber.open(file_obj) as pdf:
+                if pdf.pages:
+                    texto_cabecera = pdf.pages[0].extract_text() or ""
+                    texto_cabecera = texto_cabecera.upper()
+        else:
+            df = pd.read_excel(file_obj, header=None, nrows=10)
+            texto_cabecera = df.to_string().upper()
+    except Exception:
+        file_obj.seek(0)
+        return True, "" # Si no se puede leer, dejamos pasar (fail-open)
+
+    file_obj.seek(0)
+
+    # 3. Comparación Flexible
+    # Verificamos si ALGUNA de las palabras clave está en la cabecera
+    match_encontrado = any(k in texto_cabecera for k in keywords)
+    
+    if match_encontrado:
+        return True, ""
+    else:
+        # Mensaje de error personalizado
+        str_keys = " / ".join(keywords)
+        return False, f"El archivo **'{file_obj.name}'** no parece corresponder a **{empresa_sel_upper}**. No se encontró ninguna de estas marcas en el encabezado: [{str_keys}]."
 def extraer_saldos_cb(archivo, log_messages):
     datos = {}; name = getattr(archivo, 'name', '').lower()
     if name.endswith('.pdf'):
