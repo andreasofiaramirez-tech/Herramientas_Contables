@@ -309,7 +309,7 @@ def render_cuadre():
     st.title("⚖️ Cuadre CB - CG")
     if st.button("⬅️ Volver", key="b3"): set_page('inicio'); st.rerun()
     
-    c_sel = st.selectbox("Empresa:", ["MAYOR BEVAL, C.A", "FEBECA, C.A", "FEBECA, C.A (QUINCALLA)", "PRISMA, C.A", "SILLACA, C.A."])
+    c_sel = st.selectbox("Empresa:", ["MAYOR BEVAL, C.A", "FEBECA, C.A", "FEBECA, C.A (QUINCALLA)", "PRISMA, C.A"])
     c1, c2 = st.columns(2)
     with c1: f_cb = st.file_uploader("1. Tesorería (PDF/XLS)", type=['pdf','xlsx'])
     with c2: f_cg = st.file_uploader("2. Contabilidad (PDF/XLS)", type=['pdf','xlsx'])
