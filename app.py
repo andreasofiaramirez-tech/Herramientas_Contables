@@ -213,7 +213,7 @@ if not st.session_state.get("password_correct", False):
 # ==============================================================================
 def set_page(page_name): st.session_state.page = page_name
 
-ddef render_inicio():
+def render_inicio():
     # --- SECCIÓN DE LOGOS (Cabecera) ---
     st.markdown("<br>", unsafe_allow_html=True) # Espacio superior
     
