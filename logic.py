@@ -570,7 +570,212 @@ def run_conciliation_asientos_por_clasificar(df, log_messages, progress_bar=None
     return df
 
 # ==============================================================================
-# 3. MÓDULO PAQUETE CC
+# 3. AUDITORÍA DE RETENCIONES (COMPRAS)
+# ==============================================================================
+
+# --- FUNCIONES DE NORMALIZACIÓN ESPECÍFICAS ---
+def _normalizar_rif(valor):
+    if pd.isna(valor): return ''
+    val_str = str(valor).strip().upper()
+    val_str = re.sub(r'[^A-Z0-9]', '', val_str)
+    if val_str.startswith(('J', 'V', 'E', 'G')) and len(val_str) > 8:
+        return val_str[1:]
+    return val_str
+
+def _normalizar_numerico(valor):
+    if pd.isna(valor): return ''
+    val_str = str(valor).strip()
+    solo_digitos = re.sub(r'[^0-9]', '', val_str)
+    if not solo_digitos: return ''
+    return str(int(solo_digitos))
+
+def _extraer_factura_cp(aplicacion):
+    if pd.isna(aplicacion): return ''
+    match = re.search(r'([\w-]+)$', str(aplicacion).strip())
+    if match:
+        return _normalizar_numerico(match.group(1))
+    return ''
+
+# --- FUNCIONES DE PREPARACIÓN ---
+def preparar_df_cp(file_cp):
+    df = pd.read_excel(file_cp, header=4, dtype=str)
+    df.columns = [str(col).strip() for col in df.columns]
+    
+    rename_map = {}
+    for col in df.columns:
+        c = col.upper()
+        if c in ['PROVEEDOR', 'RIF']: rename_map[col] = 'RIF'
+        elif c in ['NOMBRE', 'NOMBRE PROVEEDOR']: rename_map[col] = 'Nombre_Proveedor'
+        elif 'ASIENTO' in c: rename_map[col] = 'Asiento'
+        elif 'TIPO' in c: rename_map[col] = 'Tipo'
+        elif 'FECHA' in c: rename_map[col] = 'Fecha'
+        elif 'NUMERO' in c or 'COMPROBANTE' in c: rename_map[col] = 'Comprobante'
+        elif 'MONTO' in c: rename_map[col] = 'Monto'
+        elif 'APLICACION' in c or 'APLICACIÓN' in c: rename_map[col] = 'Aplicacion'
+        elif 'SUBTIPO' in c: rename_map[col] = 'Subtipo'
+    
+    df.rename(columns=rename_map, inplace=True)
+    df = df.loc[:, ~df.columns.duplicated()] # Seguridad contra duplicados
+    
+    if 'RIF' not in df.columns: raise KeyError("Falta columna RIF en CP")
+    
+    df['RIF_norm'] = df['RIF'].apply(_normalizar_rif)
+    df['Comprobante_norm'] = df.get('Comprobante', '').apply(_normalizar_numerico)
+    df['Factura_norm'] = df.get('Aplicacion', '').apply(_extraer_factura_cp)
+    
+    if 'Monto' in df.columns:
+        df['Monto'] = df['Monto'].astype(str).str.replace(',', '.', regex=False)
+        df['Monto'] = pd.to_numeric(df['Monto'], errors='coerce').fillna(0)
+    else: df['Monto'] = 0.0
+    
+    return df
+
+def preparar_df_galac_simple(file_obj):
+    # Función genérica para leer IVA/ISLR/MUNICIPAL
+    # Intenta buscar encabezado en primeras filas
+    try:
+        df = pd.read_excel(file_obj, header=None)
+        header_idx = 0
+        for i, row in df.head(10).iterrows():
+            s = row.astype(str).str.upper().values
+            if any("RIF" in x for x in s) and any("MONTO" in x or "RETENIDO" in x for x in s):
+                header_idx = i; break
+        
+        df = pd.read_excel(file_obj, header=header_idx, dtype=str)
+        
+        # Mapeo básico
+        ren = {}
+        for c in df.columns:
+            cu = str(c).upper()
+            if 'RIF' in cu: ren[c] = 'RIF'
+            elif 'NOMBRE' in cu: ren[c] = 'Nombre_Proveedor'
+            elif 'COMPROBANTE' in cu: ren[c] = 'Comprobante'
+            elif 'DOCUMENTO' in cu or 'FACTURA' in cu: ren[c] = 'Factura'
+            elif 'MONTO' in cu or 'RETENIDO' in cu: ren[c] = 'Monto'
+        
+        df.rename(columns=ren, inplace=True)
+        
+        # Normalizar
+        if 'RIF' in df.columns: df['RIF_norm'] = df['RIF'].apply(_normalizar_rif)
+        if 'Comprobante' in df.columns: df['Comprobante_norm'] = df['Comprobante'].apply(_normalizar_numerico)
+        if 'Factura' in df.columns: df['Factura_norm'] = df['Factura'].apply(_normalizar_numerico)
+        if 'Monto' in df.columns: 
+            df['Monto'] = df['Monto'].astype(str).str.replace(',', '.', regex=False)
+            df['Monto'] = pd.to_numeric(df['Monto'], errors='coerce').fillna(0)
+            
+        return df
+    except: return pd.DataFrame()
+
+# --- LÓGICA DE CRUCE ---
+def _conciliar_impuesto(cp_row, df_galac):
+    rif = cp_row.get('RIF_norm', '')
+    comp = cp_row.get('Comprobante_norm', '')
+    fac = cp_row.get('Factura_norm', '')
+    monto = cp_row.get('Monto', 0)
+    
+    # 1. Match por RIF y Comprobante
+    match = df_galac[(df_galac['RIF_norm'] == rif) & (df_galac['Comprobante_norm'] == comp)]
+    
+    if match.empty:
+        # Intento de rescate por Monto y Factura
+        match = df_galac[(df_galac['RIF_norm'] == rif) & (df_galac['Factura_norm'] == fac)]
+        if not match.empty:
+            return 'Parcialmente Conciliado', f"Comprobante no coincide. Sugerido: {match.iloc[0].get('Comprobante')}"
+        return 'No Conciliado', 'Comprobante no encontrado en Galac'
+    
+    # 2. Validar Monto
+    monto_galac = match['Monto'].sum() # Sumar por si hay varias alícuotas
+    if not np.isclose(monto, monto_galac, atol=0.01):
+        return 'Parcialmente Conciliado', f"Monto no coincide. CP: {monto:.2f} vs Galac: {monto_galac:.2f}"
+        
+    return 'Conciliado', 'OK'
+
+def _traducir_resultados(row, asientos_cg, df_cg):
+    # Validación simple contra CG
+    st_galac = row['Estado_Conciliacion']
+    asiento = row.get('Asiento')
+    
+    res_cg = "No Aplica"
+    if asiento:
+        if asiento in asientos_cg:
+            # Validar monto en CG (aprox)
+            monto_cp = row.get('Monto', 0)
+            # Buscar en CG el asiento
+            lineas = df_cg[df_cg['Asiento'] == asiento]
+            # Sumar creditos o debitos dependiendo
+            suma = lineas['Monto_BS'].abs().sum() # Simplificado
+            if suma == 0: res_cg = "Asiento en cero"
+            else: res_cg = "Conciliado en CG" # Asumimos ok si existe
+        else:
+            res_cg = "Asiento no encontrado en CG"
+            
+    return st_galac, res_cg
+
+def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun, log_messages):
+    """Orquestador de Auditoría de Retenciones."""
+    try:
+        log_messages.append("--- INICIANDO AUDITORÍA DE RETENCIONES ---")
+        
+        df_cp = preparar_df_cp(file_cp)
+        df_iva = preparar_df_galac_simple(file_iva)
+        df_islr = preparar_df_galac_simple(file_islr)
+        df_mun = preparar_df_galac_simple(file_mun)
+        
+        # Cargar CG para validar asientos
+        asientos_cg_set = set()
+        df_cg_dummy = pd.DataFrame()
+        if file_cg:
+            # Reusamos la carga simple de CG si es posible o una básica
+            try:
+                df_cg_dummy = pd.read_excel(file_cg)
+                # Normalizar columnas básico
+                df_cg_dummy.columns = [str(c).upper() for c in df_cg_dummy.columns]
+                col_asi = next((c for c in df_cg_dummy.columns if 'ASIENTO' in c), None)
+                col_mon = next((c for c in df_cg_dummy.columns if 'DEBITO' in c or 'CREDITO' in c), None)
+                
+                if col_asi:
+                    df_cg_dummy['Asiento'] = df_cg_dummy[col_asi].astype(str).str.strip()
+                    asientos_cg_set = set(df_cg_dummy['Asiento'].unique())
+                    if col_mon:
+                         df_cg_dummy['Monto_BS'] = pd.to_numeric(df_cg_dummy[col_mon], errors='coerce').fillna(0)
+            except: pass
+
+        resultados = []
+        
+        for idx, row in df_cp.iterrows():
+            subtipo = str(row.get('Subtipo', '')).upper()
+            
+            # Seleccionar contra qué comparar
+            target_df = pd.DataFrame()
+            if 'IVA' in subtipo: target_df = df_iva
+            elif 'ISLR' in subtipo: target_df = df_islr
+            elif 'MUNICIPAL' in subtipo: target_df = df_mun
+            
+            if target_df.empty and 'ANULADO' not in str(row.get('Aplicacion', '')).upper():
+                estado, msg = 'No Conciliado', 'Archivo de GALAC correspondiente no cargado o vacío'
+            elif 'ANULADO' in str(row.get('Aplicacion', '')).upper():
+                estado, msg = 'Anulado', 'Movimiento Anulado'
+            else:
+                estado, msg = _conciliar_impuesto(row, target_df)
+                
+            resultados.append({'Estado_Conciliacion': estado, 'Detalle': msg})
+            
+        df_res = pd.DataFrame(resultados)
+        df_final = pd.concat([df_cp.reset_index(drop=True), df_res], axis=1)
+        
+        # Validacion CG
+        df_final[['CP_Vs_Galac', 'Validacion_CG']] = df_final.apply(
+            lambda r: _traducir_resultados(r, asientos_cg_set, df_cg_dummy), axis=1, result_type='expand'
+        )
+        
+        return generar_reporte_retenciones(df_final, None, df_cg_dummy, None)
+
+    except Exception as e:
+        log_messages.append(f"❌ Error en retenciones: {str(e)}")
+        return None
+        
+# ==============================================================================
+# 4. MÓDULO PAQUETE CC
 # ==============================================================================
 
 def _validar_asiento(asiento_group):
@@ -766,7 +971,7 @@ def run_analysis_paquete_cc(df_diario, log_messages):
     return final.drop(columns=['Cuenta Contable Norm', 'Monto_USD', 'Ref_Str', 'Fuente_Str', 'Prio'], errors='ignore')
 
 # ==============================================================================
-# 4. MÓDULO CUADRE CB - CG
+# 5. MÓDULO CUADRE CB - CG
 # ==============================================================================
 
 def validar_coincidencia_empresa(file_obj, nombre_empresa_sel):
@@ -900,7 +1105,7 @@ def run_cuadre_cb_cg(file_cb, file_cg, nombre_empresa, log_messages):
     return pd.DataFrame(res), pd.DataFrame(huerfanos)
 
 # ==============================================================================
-# 5. MÓDULO GESTIÓN DE IMPRENTA (RETENCIONES IVA)
+# 6. MÓDULO GESTIÓN DE IMPRENTA (RETENCIONES IVA)
 # ==============================================================================
 
 # --- PARTE A: VALIDACIÓN (TXT vs TXT) ---
@@ -1168,7 +1373,7 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
 
 
 # ==============================================================================
-# 6. MÓDULO CÁLCULO PENSIONES (9%)
+# 7. MÓDULO CÁLCULO PENSIONES (9%)
 # ==============================================================================
 
 def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empresa, log_messages):
