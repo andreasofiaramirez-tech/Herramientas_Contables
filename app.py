@@ -55,6 +55,9 @@ from utils import (
     generar_reporte_pensiones
 )
 
+# --- BLOQUE 4: IMPORTAR MAPPINGS ---
+from mappings import CODIGOS_EMPRESA
+
 def mostrar_error_amigable(e, contexto=""):
     """
     Traduce errores técnicos de Python a mensajes amigables para el usuario contable.
