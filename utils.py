@@ -22,22 +22,22 @@ def get_col_idx(df, possible_names):
     return -1
     
 @st.cache_data
-def cargar_y_limpiar_datos(uploaded_actual, uploaded_anterior, log_messages):
-    """Carga, limpia y unifica los archivos de Excel."""
+def cargar_y_limpiar_datos(uploaded_actual, uploaded_anterior, log_messages, columnas_requeridas=None):
+    """
+    Carga, limpia y unifica los archivos de Excel.
+    VALIDACIÓN: Si se pasa 'columnas_requeridas', verifica que existan.
+    """
     
-    # --- FUNCIONES AUXILIARES INTERNAS ---
+    # ... (MANTENER LAS FUNCIONES INTERNAS IGUALES: mapear_columnas, limpiar_numero, procesar_excel) ...
+    # (Por brevedad, asumo que copias las funciones internas def mapear..., def limpiar..., def procesar... que ya tenías)
+    # COPIA AQUÍ EL BLOQUE DE FUNCIONES INTERNAS DE LA VERSIÓN ANTERIOR
+    # ---------------------------------------------------------------------------------------
     def mapear_columnas_financieras(df, log_messages):
         DEBITO_SYNONYMS = ['debito', 'debitos', 'débito', 'débitos', 'debe']
         CREDITO_SYNONYMS = ['credito', 'creditos', 'crédito', 'créditos', 'haber']
         BS_SYNONYMS = ['ves', 'bolivar', 'bolívar', 'local', 'bs']
         USD_SYNONYMS = ['dolar', 'dólar', 'dólares', 'usd', 'dolares', 'me']
-
-        REQUIRED_COLUMNS = {
-            'Débito Bolivar': (DEBITO_SYNONYMS, BS_SYNONYMS),
-            'Crédito Bolivar': (CREDITO_SYNONYMS, BS_SYNONYMS),
-            'Débito Dolar': (DEBITO_SYNONYMS, USD_SYNONYMS),
-            'Crédito Dolar': (CREDITO_SYNONYMS, USD_SYNONYMS)
-        }
+        REQUIRED_COLUMNS = {'Débito Bolivar': (DEBITO_SYNONYMS, BS_SYNONYMS), 'Crédito Bolivar': (CREDITO_SYNONYMS, BS_SYNONYMS), 'Débito Dolar': (DEBITO_SYNONYMS, USD_SYNONYMS), 'Crédito Dolar': (CREDITO_SYNONYMS, USD_SYNONYMS)}
         column_mapping, current_cols = {}, [col.strip() for col in df.columns]
         for req_col, (type_synonyms, curr_synonyms) in REQUIRED_COLUMNS.items():
             found = False
@@ -46,14 +46,74 @@ def cargar_y_limpiar_datos(uploaded_actual, uploaded_anterior, log_messages):
                 is_type_match = any(syn in normalized_input for syn in type_synonyms)
                 is_curr_match = any(syn in normalized_input for syn in curr_synonyms)
                 if is_type_match and is_curr_match and input_col not in column_mapping.values():
-                    column_mapping[input_col] = req_col
-                    found = True
-                    break
-            if not found and req_col not in df.columns:
-                log_messages.append(f"⚠️ ADVERTENCIA: No se encontró columna para '{req_col}'. Se creará vacía.")
-                df[req_col] = 0.0
+                    column_mapping[input_col] = req_col; found = True; break
+            if not found and req_col not in df.columns: df[req_col] = 0.0
         df.rename(columns=column_mapping, inplace=True)
         return df
+
+    def limpiar_numero_avanzado(texto):
+        if texto is None or str(texto).strip().lower() == 'nan': return '0.0'
+        t = re.sub(r'[^\d.,-]', '', str(texto).strip())
+        if not t: return '0.0'
+        idx_punto, idx_coma = t.rfind('.'), t.rfind(',')
+        if idx_punto != -1 and idx_coma != -1:
+            return t.replace(',', '') if idx_punto > idx_coma else t.replace('.', '').replace(',', '.')
+        elif idx_coma != -1: return t.replace(',', '.')
+        elif idx_punto != -1: return t.replace('.', '') 
+        return t
+
+    def procesar_excel(archivo_buffer):
+        try:
+            archivo_buffer.seek(0)
+            df = pd.read_excel(archivo_buffer, engine='openpyxl')
+        except Exception as e:
+            log_messages.append(f"❌ Error al leer el archivo Excel: {e}")
+            return None
+        COLUMN_STANDARDIZATION_MAP = {'Asiento': ['ASIENTO', 'Asiento'], 'Fuente': ['FUENTE', 'Fuente'], 'Fecha': ['FECHA', 'Fecha'], 'Referencia': ['REFERENCIA', 'Referencia'], 'NIT': ['Nit', 'NIT', 'Rif', 'RIF'], 'Descripcion NIT': ['Descripción Nit', 'Descripcion Nit', 'DESCRIPCION NIT', 'Descripción NIT'], 'Nombre del Proveedor': ['Nombre del Proveedor', 'NOMBRE DEL PROVEEDOR', 'Nombre Proveedor']}
+        rename_map = {}
+        for standard_name, variations in COLUMN_STANDARDIZATION_MAP.items():
+            for var in variations:
+                if var in df.columns: rename_map[var] = standard_name; break
+        if rename_map: df.rename(columns=rename_map, inplace=True)
+        for col in ['Fuente', 'Nombre del Proveedor']:
+            if col not in df.columns: df[col] = ''
+        df = mapear_columnas_financieras(df, log_messages).copy()
+        df['Asiento'] = df.get('Asiento', pd.Series(dtype='str')).astype(str).str.strip()
+        df['Referencia'] = df.get('Referencia', pd.Series(dtype='str')).astype(str).str.strip()
+        df['Fecha'] = pd.to_datetime(df.get('Fecha'), errors='coerce')
+        for col in ['Débito Bolivar', 'Crédito Bolivar', 'Débito Dolar', 'Crédito Dolar']:
+            if col in df.columns:
+                temp_serie = df[col].apply(limpiar_numero_avanzado)
+                df[col] = pd.to_numeric(temp_serie, errors='coerce').fillna(0.0).round(2)
+        return df
+    # ---------------------------------------------------------------------------------------
+
+    # --- EJECUCIÓN PRINCIPAL ---
+    df_actual = procesar_excel(uploaded_actual)
+    df_anterior = procesar_excel(uploaded_anterior)
+
+    if df_actual is None or df_anterior is None:
+        st.error("❌ ¡Error Fatal! No se pudo procesar uno o ambos archivos Excel.")
+        return None
+
+    df_full = pd.concat([df_anterior, df_actual], ignore_index=True)
+    
+    # --- VALIDACIÓN DE COLUMNAS (RESTAURADA) ---
+    if columnas_requeridas:
+        faltantes = [col for col in columnas_requeridas if col not in df_full.columns]
+        if faltantes:
+            # Lanzamos un error que mostrar_error_amigable entenderá
+            raise KeyError(f"El archivo unificado no contiene las columnas: {', '.join(faltantes)}")
+    # -------------------------------------------
+
+    # Cálculos de montos netos
+    df_full['Monto_BS'] = (df_full.get('Débito Bolivar', 0) - df_full.get('Crédito Bolivar', 0)).round(2)
+    df_full['Monto_USD'] = (df_full.get('Débito Dolar', 0) - df_full.get('Crédito Dolar', 0)).round(2)
+    df_full[['Conciliado', 'Grupo_Conciliado', 'Referencia_Normalizada_Literal']] = [False, np.nan, np.nan]
+
+    log_messages.append(f"✅ Datos cargados. Filas archivo anterior: {len(df_anterior)}, Actual: {len(df_actual)}. Total consolidado: {len(df_full)}")
+    
+    return df_full
 
     def limpiar_numero_avanzado(texto):
         if texto is None or str(texto).strip().lower() == 'nan': return '0.0'
