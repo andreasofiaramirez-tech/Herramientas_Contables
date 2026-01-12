@@ -213,20 +213,54 @@ if not st.session_state.get("password_correct", False):
 # ==============================================================================
 def set_page(page_name): st.session_state.page = page_name
 
-def render_inicio():
-    st.title("🤖 Portal de Herramientas Contables")
-    st.markdown("Seleccione una herramienta:")
-    c1, c2 = st.columns(2)
+ddef render_inicio():
+    # --- SECCIÓN DE LOGOS (Cabecera) ---
+    st.markdown("<br>", unsafe_allow_html=True) # Espacio superior
+    
+    # Usamos columnas para centrar y distribuir los logos
+    _, col_logos, _ = st.columns([1, 10, 1])
+    
+    with col_logos:
+        l1, l2, l3 = st.columns(3)
+        with l1:
+            try: st.image("assets/logo_febeca.png", use_container_width=True)
+            except: st.write("**FEBECA**")
+        with l2:
+            try: st.image("assets/logo_beval.png", use_container_width=True)
+            except: st.write("**BEVAL**")
+        with l3:
+            try: st.image("assets/logo_sillaca.png", use_container_width=True)
+            except: st.write("**SILLACA**")
+
+    st.divider()
+
+    # --- TÍTULO Y DESCRIPCIÓN ---
+    st.title("🤖 Portal de Herramientas Contables", anchor=False)
+    st.markdown("""
+    Bienvenido a la solución centralizada para el equipo de contabilidad.
+    
+    Seleccione en el menú inferior la herramienta que desea utilizar para automatizar sus procesos:
+    """)
+    
+    # --- MENÚ DE BOTONES ---
+    c1, c2 = st.columns(2, gap="medium")
+    
     with c1:
-        st.button("📄 Especificaciones", on_click=set_page, args=['especificaciones'], use_container_width=True)
+        st.subheader("📊 Análisis y Conciliación")
+        st.button("📄 Especificaciones (Cuentas)", on_click=set_page, args=['especificaciones'], use_container_width=True)
         st.button("📦 Análisis Paquete CC", on_click=set_page, args=['paquete_cc'], use_container_width=True)
-        st.button("🛡️ Cálculo Pensiones", on_click=set_page, args=['pensiones'], use_container_width=True)
-        st.button("💵 Reservas y Apartados", disabled=True, use_container_width=True)
+        st.button("⚖️ Cuadre CB - CG (Bancos)", on_click=set_page, args=['cuadre'], use_container_width=True)
+        
     with c2:
-        st.button("⚖️ Cuadre CB - CG", on_click=set_page, args=['cuadre'], use_container_width=True)
+        st.subheader("⚙️ Procesos Fiscales y Nómina")
+        st.button("🛡️ Cálculo Pensiones (9%)", on_click=set_page, args=['pensiones'], use_container_width=True)
         st.button("🧾 Relación Retenciones", on_click=set_page, args=['retenciones'], use_container_width=True)
-        st.button("🖨️ Cruce Imprenta", on_click=set_page, args=['imprenta'], use_container_width=True)
-        st.button("🔜 Próximamente", disabled=True, use_container_width=True)
+        st.button("🖨️ Gestión Imprenta (TXT)", on_click=set_page, args=['imprenta'], use_container_width=True)
+
+    # Pie de página o botones deshabilitados
+    st.markdown("---")
+    st.caption("v2.0 - Actualizado con módulos de Pensiones e Imprenta.")
+    # st.button("🔜 Próximamente: Reservas y Apartados", disabled=True, use_container_width=True)
 
 def render_especificaciones():
     st.title('📄 Conciliación de Cuentas')
