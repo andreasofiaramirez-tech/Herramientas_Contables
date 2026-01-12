@@ -1,5 +1,5 @@
 # ==============================================================================
-# APP.PY - INTERFAZ DE USUARIO (FRONTEND)
+# APP.PY - INTERFAZ DE USUARIO (FRONTEND) - VERSIÓN FINAL SEGURA
 # ==============================================================================
 import streamlit as st
 import pandas as pd
@@ -64,6 +64,62 @@ st.set_page_config(page_title="Conciliador Automático", page_icon="🤖", layou
 if 'page' not in st.session_state: st.session_state.page = 'inicio'
 if 'password_correct' not in st.session_state: st.session_state.password_correct = False
 if 'processing_complete' not in st.session_state: st.session_state.processing_complete = False
+
+# ==============================================================================
+# 🔐 BLOQUE DE AUTENTICACIÓN (LOGIN)
+# ==============================================================================
+def password_entered():
+    """Verifica la contraseña ingresada."""
+    if st.session_state.get("password") == st.secrets.get("password"):
+        st.session_state.password_correct = True
+        del st.session_state["password"] # Borrar pass de memoria por seguridad
+    else:
+        st.session_state.password_correct = False
+
+if not st.session_state.get("password_correct", False):
+    # Diseño Centrado del Login
+    _, col_main, _ = st.columns([1, 1.5, 1])
+
+    with col_main:
+        # Logos de las empresas
+        _, col_logo, _ = st.columns([1, 2, 1])
+        with col_logo:
+            try: st.image("assets/logo_principal.png", use_container_width=True)  
+            except: st.header("🔐") # Fallback si no hay logo
+
+        st.title("Portal de Herramientas Contables", anchor=False)
+        st.markdown("Acceso exclusivo para el equipo de contabilidad.")
+        
+        with st.container(border=True):
+            st.subheader("Iniciar Sesión", anchor=False)
+            
+            # Input de contraseña
+            st.text_input(
+                "Contraseña", 
+                type="password", 
+                on_change=password_entered, 
+                key="password", 
+                label_visibility="collapsed", 
+                placeholder="Ingrese su contraseña"
+            )
+            
+            # Botón Ingresar
+            st.button("Ingresar", on_click=password_entered, type="primary", use_container_width=True)
+            
+            if "password_correct" in st.session_state and not st.session_state["password_correct"]:
+                st.error("🔒 Contraseña incorrecta. Intente de nuevo.")
+
+        st.divider()
+        
+        # Pie de página con logos de marcas
+        cols = st.columns(3)
+        logos = [("assets/logo_febeca.png", "FEBECA"), ("assets/logo_beval.png", "BEVAL"), ("assets/logo_sillaca.png", "SILLACA")]
+        for col, (path, name) in zip(cols, logos):
+            with col:
+                try: st.image(path, use_container_width=True)
+                except: st.caption(name)
+
+    st.stop() # DETIENE LA EJECUCIÓN SI NO ESTÁ LOGUEADO
 
 # ==============================================================================
 # FUNCIONES AUXILIARES DE UI
@@ -189,37 +245,14 @@ ESTRATEGIAS = {
 }
 
 # ==============================================================================
-# AUTENTICACIÓN
-# ==============================================================================
-def password_entered():
-    if st.session_state.get("password") == st.secrets.get("password"):
-        st.session_state.password_correct = True
-        del st.session_state["password"]
-    else:
-        st.session_state.password_correct = False
-
-if not st.session_state.get("password_correct", False):
-    _, col_main, _ = st.columns([1, 1.5, 1])
-    with col_main:
-        st.title("Portal de Herramientas Contables", anchor=False)
-        with st.container(border=True):
-            st.text_input("Contraseña", type="password", on_change=password_entered, key="password", label_visibility="collapsed")
-            st.button("Ingresar", on_click=password_entered, type="primary", use_container_width=True)
-            if st.session_state.get("password_correct") is False: st.error("Contraseña incorrecta.")
-    st.stop()
-
-# ==============================================================================
 # NAVEGACIÓN Y RENDERIZADO
 # ==============================================================================
 def set_page(page_name): st.session_state.page = page_name
 
 def render_inicio():
-    # --- SECCIÓN DE LOGOS (Cabecera) ---
-    st.markdown("<br>", unsafe_allow_html=True) # Espacio superior
-    
-    # Usamos columnas para centrar y distribuir los logos
+    # --- CABECERA CON LOGOS ---
+    st.markdown("<br>", unsafe_allow_html=True)
     _, col_logos, _ = st.columns([1, 10, 1])
-    
     with col_logos:
         l1, l2, l3 = st.columns(3)
         with l1:
@@ -231,25 +264,17 @@ def render_inicio():
         with l3:
             try: st.image("assets/logo_sillaca.png", use_container_width=True)
             except: st.write("**SILLACA**")
-
     st.divider()
 
-    # --- TÍTULO Y DESCRIPCIÓN ---
-    st.title("🤖 Portal de Herramientas Contables", anchor=False)
-    st.markdown("""
-    Bienvenido a la solución centralizada para el equipo de contabilidad.
+    st.title("🤖 Portal de Herramientas Contables")
+    st.markdown("Seleccione una herramienta para comenzar:")
     
-    Seleccione en el menú inferior la herramienta que desea utilizar para automatizar sus procesos:
-    """)
-    
-    # --- MENÚ DE BOTONES ---
     c1, c2 = st.columns(2, gap="medium")
-    
     with c1:
         st.subheader("📊 Análisis y Conciliación")
-        st.button("📄 Especificaciones (Cuentas)", on_click=set_page, args=['especificaciones'], use_container_width=True)
+        st.button("📄 Especificaciones", on_click=set_page, args=['especificaciones'], use_container_width=True)
         st.button("📦 Análisis Paquete CC", on_click=set_page, args=['paquete_cc'], use_container_width=True)
-        st.button("⚖️ Cuadre CB - CG (Bancos)", on_click=set_page, args=['cuadre'], use_container_width=True)
+        st.button("⚖️ Cuadre CB - CG", on_click=set_page, args=['cuadre'], use_container_width=True)
         
     with c2:
         st.subheader("⚙️ Procesos Fiscales y Nómina")
@@ -257,10 +282,8 @@ def render_inicio():
         st.button("🧾 Relación Retenciones", on_click=set_page, args=['retenciones'], use_container_width=True)
         st.button("🖨️ Gestión Imprenta (TXT)", on_click=set_page, args=['imprenta'], use_container_width=True)
 
-    # Pie de página o botones deshabilitados
     st.markdown("---")
-    st.caption("v2.0 - Actualizado con módulos de Pensiones e Imprenta.")
-    # st.button("🔜 Próximamente: Reservas y Apartados", disabled=True, use_container_width=True)
+    st.caption("v2.1 - Sistema Integral de Automatización Contable.")
 
 def render_especificaciones():
     st.title('📄 Conciliación de Cuentas')
@@ -289,7 +312,6 @@ def render_especificaciones():
                     st.session_state.df_open = df_res[~df_res['Conciliado']].copy()
                     st.session_state.df_closed = df_res[df_res['Conciliado']].copy()
                     
-                    # Generar Nombres
                     cod = CODIGOS_EMPRESA.get(c_sel, "000")
                     num = cta_sel.split(" - ")[0].strip()
                     fecha = df_full['Fecha'].max()
@@ -323,7 +345,6 @@ def render_paquete_cc():
             log = []
             try:
                 df = pd.read_excel(file_d)
-                # Normalización Columnas
                 std_cols = {'Débito Dolar':['Debito Dolar','Débito Dólar'], 'Crédito Dolar':['Credito Dolar'], 'Débito VES':['Debito VES','Debito Bolivar'], 'Crédito VES':['Credito VES','Credito Bolivar']}
                 ren = {}
                 for s, vars in std_cols.items():
@@ -340,10 +361,12 @@ def render_paquete_cc():
             except Exception as e: mostrar_error_amigable(e, "Paquete CC")
 
 def render_cuadre():
-    st.title("⚖️ Cuadre CB - CG")
+    st.title("⚖️ Cuadre de Disponibilidad (CB vs CG)")
     if st.button("⬅️ Volver", key="b3"): set_page('inicio'); st.rerun()
     
+    # Selector de empresa (SILLACA eliminada, se usa FEBECA QUINCALLA)
     c_sel = st.selectbox("Empresa:", ["MAYOR BEVAL, C.A", "FEBECA, C.A", "FEBECA, C.A (QUINCALLA)", "PRISMA, C.A"])
+    
     c1, c2 = st.columns(2)
     with c1: f_cb = st.file_uploader("1. Tesorería (PDF/XLS)", type=['pdf','xlsx'])
     with c2: f_cg = st.file_uploader("2. Contabilidad (PDF/XLS)", type=['pdf','xlsx'])
@@ -352,7 +375,6 @@ def render_cuadre():
         if st.button("Comparar", type="primary"):
             log = []
             try:
-                # Validar Seguridad
                 v1, m1 = validar_coincidencia_empresa(f_cb, c_sel)
                 v2, m2 = validar_coincidencia_empresa(f_cg, c_sel)
                 if not (v1 and v2): st.error(f"⛔ {m1 or m2}"); st.stop()
@@ -360,7 +382,7 @@ def render_cuadre():
                 with st.spinner("Procesando..."):
                     df_res, df_h = run_cuadre_cb_cg(f_cb, f_cg, c_sel, log)
                     
-                st.dataframe(df_res[['Banco (Tesorería)','Descripción','Saldo Final CB','Saldo Final CG','Diferencia','Estado']], use_container_width=True)
+                st.dataframe(df_res[['Moneda','Banco (Tesorería)','Descripción','Saldo Final CB','Saldo Final CG','Diferencia','Estado']], use_container_width=True)
                 if not df_h.empty: st.error("⚠️ Cuentas Huérfanas detectadas"); st.dataframe(df_h)
                 
                 xls = generar_reporte_cuadre(df_res, df_h, c_sel)
@@ -375,6 +397,7 @@ def render_imprenta():
     t1, t2 = st.tabs(["Validar TXT", "Generar TXT"])
     
     with t1:
+        st.info(GUIA_IMPRENTA)
         c1, c2 = st.columns(2)
         f_s = st.file_uploader("Libro Ventas (.txt)", key="v_s")
         f_r = st.file_uploader("Retenciones (.txt)", key="v_r")
@@ -390,6 +413,7 @@ def render_imprenta():
             except Exception as e: mostrar_error_amigable(e, "Validación")
             
     with t2:
+        st.info(GUIA_GENERADOR)
         c1, c2 = st.columns(2)
         f_soft = st.file_uploader("Softland (.xlsx)", key="g_soft")
         f_gal = st.file_uploader("Libro Galac (.xlsx)", key="g_gal")
@@ -432,7 +456,7 @@ def render_pensiones():
     
     with st.expander("Guía"): st.markdown(GUIA_PENSIONES)
     
-    c_sel = st.selectbox("Empresa:", ["FEBECA", "BEVAL", "PRISMA", "QUINCALLA"], key="pen_emp")
+    c_sel = st.selectbox("Empresa:", ["FEBECA, C.A", "MAYOR BEVAL, C.A", "PRISMA, C.A", "FEBECA, C.A (QUINCALLA)"], key="pen_emp")
     c1, c2, c3 = st.columns([1.5, 1.5, 1])
     f_may = st.file_uploader("Mayor Contable", type="xlsx", key="p_m")
     f_nom = st.file_uploader("Nómina", type="xlsx", key="p_n")
@@ -445,14 +469,24 @@ def render_pensiones():
                 df_c, df_b, df_a, val = procesar_calculo_pensiones(f_may, f_nom, tasa, c_sel, log)
                 if df_a is not None:
                     st.success(f"✅ Total a Pagar: {df_a['Crédito VES'].sum():,.2f}")
-                    if val['estado'] != 'OK': st.warning("⚠️ Descuadre con Nómina detectado.")
+                    if val['estado'] != 'OK': 
+                        st.warning(f"⚠️ Descuadre con Nómina (Dif: {val.get('dif_base_total',0):,.2f})")
                     
                     # Vista Previa
                     cols_v = ['Centro Costo','Cuenta Contable','Descripción','Débito VES','Crédito VES','Débito USD','Crédito USD','Tasa']
-                    st.dataframe(df_a[cols_v], use_container_width=True)
+                    df_v = df_a[cols_v].copy()
+                    
+                    # Totales
+                    tot = {'Centro Costo':'TOTAL', 'Débito VES':df_v['Débito VES'].sum(), 'Crédito VES':df_v['Crédito VES'].sum(), 'Débito USD':df_v['Débito USD'].sum(), 'Crédito USD':df_v['Crédito USD'].sum()}
+                    df_v = pd.concat([df_v, pd.DataFrame([tot])], ignore_index=True)
+                    
+                    st.dataframe(df_v, use_container_width=True)
                     
                     # Excel
-                    f_cierre = pd.Timestamp.today() # Simplificado, logica real en utils
+                    f_cierre = pd.Timestamp.today()
+                    try: f_cierre = pd.to_datetime(df_b['FECHA'].iloc[0]) + pd.offsets.MonthEnd(0)
+                    except: pass
+                    
                     xls = generar_reporte_pensiones(df_c, df_b, df_a, val, c_sel, tasa, f_cierre)
                     st.download_button("⬇️ Reporte", xls, f"Pensiones_{c_sel}.xlsx")
                 with st.expander("Log"): st.write(log)
