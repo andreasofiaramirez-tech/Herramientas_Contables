@@ -328,6 +328,7 @@ def render_inicio():
         st.button("📄 Especificaciones", on_click=set_page, args=['especificaciones'], use_container_width=True)
         st.button("📦 Análisis Paquete CC", on_click=set_page, args=['paquete_cc'], use_container_width=True)
         st.button("⚖️ Cuadre CB - CG", on_click=set_page, args=['cuadre'], use_container_width=True)
+        st.button("🔍 Ajustes al Balance en USD", on_click=set_page, args=['ajusted_usd'], use_container_width=True)
 
     with c2:
         st.subheader("⚙️ Procesos Fiscales y Nómina")
@@ -926,49 +927,89 @@ def render_pensiones():
             except Exception as e:
                 mostrar_error_amigable(e, "el Cálculo de Pensiones")
 
-
 def render_ajustes_usd():
     st.title("📉 Ajustes al Balance en USD", anchor=False)
     
-    with st.expander("📖 Guía"): st.markdown(GUIA_AJUSTES_USD)
-    if st.button("⬅️ Volver"): set_page('inicio'); st.rerun()
+    # Guía Desplegable
+    with st.expander("📖 Guía de Uso: Reglas y Archivos"):
+        st.markdown(GUIA_AJUSTES_USD) # Asegúrate de haber importado esto al inicio
+
+    # Botón Volver
+    if st.button("⬅️ Volver al Inicio", key="back_adj_usd"):
+        set_page('inicio')
+        st.rerun()
     
+    # --- SECCIÓN 1: CARGA DE ARCHIVOS ---
+    st.subheader("1. Archivos de Entrada", anchor=False)
     col1, col2 = st.columns(2)
-    with col1:
-        f_cb = st.file_uploader("1. Conciliación Tesorería (Excel)", type=['xlsx'])
-        f_cg = st.file_uploader("2. Balance Comprobación (PDF)", type=['pdf'])
-        f_hab = st.file_uploader("5. Reporte Haberes (Excel)", type=['xlsx'])
-    with col2:
-        f_v_me = st.file_uploader("3. Viajes ME (Excel)", type=['xlsx'])
-        f_v_bs = st.file_uploader("4. Viajes Bs (Excel)", type=['xlsx'])
-        
-    c_tasa1, c_tasa2, c_emp = st.columns(3)
-    tasa_bcv = c_tasa1.number_input("Tasa BCV", value=1.0)
-    tasa_corp = c_tasa2.number_input("Tasa CORP", value=1.0)
-    empresa = c_emp.selectbox("Empresa", ["FEBECA", "BEVAL"])
     
-    if st.button("Calcular Ajustes", type="primary"):
-        try:
-            from logic import procesar_ajustes_balance_usd
-            from utils import generar_reporte_ajustes_usd
+    with col1:
+        f_cb = st.file_uploader("1. Conciliación Tesorería (Excel)", type=['xlsx'], key="adj_cb")
+        f_cg = st.file_uploader("2. Balance Comprobación (PDF/Excel)", type=['pdf', 'xlsx'], key="adj_cg")
+        f_hab = st.file_uploader("5. Reporte Haberes (Excel)", type=['xlsx'], key="adj_hab")
+        
+    with col2:
+        f_v_me = st.file_uploader("3. Auxiliar Viajes ME (Excel)", type=['xlsx'], key="adj_v_me")
+        f_v_bs = st.file_uploader("4. Auxiliar Viajes Bs (Excel)", type=['xlsx'], key="adj_v_bs")
+        
+    # --- SECCIÓN 2: PARÁMETROS ---
+    st.subheader("2. Parámetros de Cálculo", anchor=False)
+    c_tasa1, c_tasa2, c_emp = st.columns(3)
+    
+    with c_tasa1:
+        tasa_bcv = st.number_input("Tasa BCV (Cierre)", min_value=0.0001, value=1.0, format="%.4f", key="adj_t_bcv")
+    with c_tasa2:
+        tasa_corp = st.number_input("Tasa CORP (Interna)", min_value=0.0001, value=1.0, format="%.4f", key="adj_t_corp")
+    with c_emp:
+        EMPRESAS = ["FEBECA, C.A", "MAYOR BEVAL, C.A", "PRISMA, C.A", "FEBECA, C.A (QUINCALLA)"]
+        empresa = st.selectbox("Empresa", EMPRESAS, key="adj_empresa")
+    
+    # --- BOTÓN DE EJECUCIÓN ---
+    if st.button("Calcular Ajustes y Asiento", type="primary", use_container_width=True, key="btn_calc_adj"):
+        if not f_cg:
+            st.error("⚠️ El Balance de Comprobación es obligatorio.")
+        else:
             log = []
-            
-            # 1. Llamada con 4 variables de retorno
-                df_res, df_banc, df_asiento, df_raw = procesar_ajustes_balance_usd(
-                    f_cb, f_cg, f_v_me, f_v_bs, f_hab, tasa_bcv, tasa_corp, log
-                )
+            try:
+                from logic import procesar_ajustes_balance_usd
+                from utils import generar_reporte_ajustes_usd
                 
-                st.success("✅ Ajustes Calculados")
+                with st.spinner("Analizando balance, cruzando bancos y calculando ajustes..."):
+                    # Llamada a la lógica (Retorna 4 DataFrames ahora)
+                    df_res, df_banc, df_asiento, df_raw = procesar_ajustes_balance_usd(
+                        f_cb, f_cg, f_v_me, f_v_bs, f_hab, tasa_bcv, tasa_corp, log
+                    )
+                
+                # --- RESULTADOS ---
                 if not df_asiento.empty:
-                    st.dataframe(df_asiento)
+                    st.success("✅ Ajustes Calculados Exitosamente")
+                    
+                    st.subheader("Vista Previa del Asiento Contable")
+                    st.dataframe(df_asiento, use_container_width=True)
+                    
+                    # Generar nombre de archivo dinámico
+                    mes_txt = "CIERRE" # Podrías extraerlo del DF si quisieras
+                    nombre_archivo = f"Ajustes_Balance_USD_{empresa}.xlsx"
+                    
+                    # Generar Excel
+                    excel_data = generar_reporte_ajustes_usd(df_res, df_banc, df_asiento, df_raw, empresa)
+                    
+                    st.download_button(
+                        label="⬇️ Descargar Reporte Completo (Excel)",
+                        data=excel_data,
+                        file_name=nombre_archivo,
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True
+                    )
+                else:
+                    st.warning("⚠️ El proceso terminó pero no se generaron asientos de ajuste (¿Todo estaba cuadrado?).")
                 
-                # 2. Generación del Excel pasando df_raw
-                excel = generar_reporte_ajustes_usd(df_res, df_banc, df_asiento, df_raw, empresa)
-                
-                st.download_button("⬇️ Descargar Reporte", excel, "Ajustes_Balance_USD.xlsx")
-            
-        except Exception as e:
-            mostrar_error_amigable(e, "Ajustes USD")
+                # Mostrar Log
+                with st.expander("Ver Log del Proceso"):
+                    st.write(log)
+                    
+            except Exception as e:
+                mostrar_error_amigable(e, "el Cálculo de Ajustes de Balance")
 
 # ==============================================================================
 # FLUJO PRINCIPAL DE LA APLICACIÓN (ROUTER)
@@ -982,8 +1023,7 @@ def main():
         'cuadre': render_cuadre,
         'imprenta': render_imprenta,
         'pensiones': render_pensiones,
-        'reservas': lambda: render_proximamente("Reservas y Apartados"),
-        'proximamente': lambda: render_proximamente("Próximamente")
+        'ajustes_usd' : render_ajustes_usd
     }
     
     current_page = st.session_state.get('page', 'inicio')
