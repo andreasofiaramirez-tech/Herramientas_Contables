@@ -328,7 +328,7 @@ def render_inicio():
         st.button("📄 Especificaciones", on_click=set_page, args=['especificaciones'], use_container_width=True)
         st.button("📦 Análisis Paquete CC", on_click=set_page, args=['paquete_cc'], use_container_width=True)
         st.button("⚖️ Cuadre CB - CG", on_click=set_page, args=['cuadre'], use_container_width=True)
-        st.button("🔍 Ajustes al Balance en USD", on_click=set_page, args=['ajusted_usd'], use_container_width=True)
+        st.button("📉 Ajustes al Balance USD", on_click=set_page, args=['ajustes_usd'], use_container_width=True)
 
     with c2:
         st.subheader("⚙️ Procesos Fiscales y Nómina")
