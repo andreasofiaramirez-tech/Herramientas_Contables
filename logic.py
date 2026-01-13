@@ -3760,3 +3760,245 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
     }
 
     return df_agrupado, df_filtrado, df_asiento, resumen_validacion
+
+# ==============================================================================
+# LÓGICA AJUSTES AL BALANCE EN USD
+# ==============================================================================
+
+# MAPEO DE RECLASIFICACIÓN (Saldos Contrarios)
+# Estructura: 'Cuenta_Origen': 'Contrapartida'
+MAPEO_SALDOS_CONTRARIOS = {
+    # --- CLIENTES Y HABERES ---
+    '1.1.3.01.1.001': '2.1.2.05.1.108', # Deudores Comerciales <-> Haberes Clientes
+    '2.1.2.05.1.108': '1.1.3.01.1.001', # Haberes Clientes <-> Deudores Comerciales
+    '1.1.1.04.1.003': '1.1.3.01.1.001', # Fondos por Depositar (Cobros) <-> Deudores Comerciales
+
+    # --- CUENTAS POR COBRAR VARIOS ---
+    '1.1.4.01.1.044': '2.1.2.05.1.005', # CxC Varios <-> Asientos por Clasificar
+    '2.1.2.05.1.005': '1.1.4.01.1.044', # Asientos por Clasificar <-> CxC Varios
+
+    # --- SEGUROS Y SERVICIOS ---
+    '1.1.4.01.1.015': '2.1.2.05.1.015', # HCM Póliza Básica <-> Primas por Pagar
+    '1.1.4.01.1.016': '2.1.2.05.1.015', # HCM Póliza Exceso <-> Primas por Pagar
+    '1.1.4.01.1.019': '2.1.2.05.1.015', # Servicios Funerarios <-> Primas por Pagar
+    '2.1.2.05.1.015': '1.1.4.01.1.015', # Primas por Pagar <-> HCM Póliza Básica (Default)
+
+    # --- PROVEEDORES Y ADELANTOS ---
+    '1.1.4.01.1.006': '2.1.2.05.1.012', # Adelanto a Proveedores <-> Prov. Compra Muebles
+    '2.1.2.05.1.012': '1.1.4.01.1.006', # Prov. Compra Muebles <-> Adelanto a Proveedores
+    
+    '1.1.4.05.1.001': '2.1.2.07.1.001', # Avances Compras Locales <-> Proveedores Locales
+    '2.1.2.07.1.001': '1.1.4.05.1.001', # Proveedores Locales <-> Avances Compras Locales
+    
+    '1.1.4.05.1.002': '2.1.2.07.1.011', # Avances Compras ME <-> Proveedores ME
+    '2.1.2.07.1.011': '1.1.4.05.1.002', # Proveedores ME <-> Avances Compras ME
+
+    # --- EMPLEADOS Y UTILIDADES ---
+    '1.1.4.02.1.006': '2.1.2.05.3.004', # Deudores Empleados Otros <-> Liquidaciones Pendientes
+    '2.1.2.05.3.004': '1.1.4.02.1.006', # Liquidaciones Pendientes <-> Deudores Empleados Otros
+    
+    '1.1.4.02.1.001': '2.1.2.05.1.019', # Deudores Empleados <-> Otras CxP
+    '2.1.2.05.1.019': '1.1.4.02.1.001', # Otras CxP <-> Deudores Empleados
+
+    '2.1.2.09.1.001': '2.1.2.05.3.001', # Apartado Utilidades <-> Utilidades Legales por Pagar
+    '2.1.2.05.3.001': '2.1.2.09.1.001', # Utilidades Legales por Pagar <-> Apartado Utilidades
+
+    # --- VIAJES ---
+    '1.1.4.03.1.002': '2.1.2.09.1.900', # Anticipo Viajes <-> Gastos Estimados por Pagar
+    '2.1.2.09.1.900': '1.1.4.03.1.002', # Gastos Estimados por Pagar <-> Anticipo Viajes
+
+    # --- IMPUESTOS (IVA / ISLR / MUNICIPAL) ---
+    '1.1.4.04.1.007': '2.1.3.02.5.004', # Deudores Fiscales <-> Ley del Deporte
+    '2.1.3.02.5.004': '1.1.4.04.1.007', # Ley del Deporte <-> Deudores Fiscales
+
+    '1.1.4.04.1.003': '2.1.3.04.1.006', # IVA Retenciones <-> IVA Retenido Terceros
+    '2.1.3.04.1.006': '1.1.4.04.1.003', # IVA Retenido Terceros <-> IVA Retenciones
+
+    '1.1.4.04.1.004': '2.1.3.04.1.005', # IVA Créditos Pendientes <-> IVA Compensación
+    '2.1.3.04.1.005': '1.1.4.04.1.004', # IVA Compensación <-> IVA Créditos Pendientes
+
+    '1.1.4.04.1.001': '2.1.3.01.1.015', # ISLR Pagado Exceso <-> ISLR Anticipo
+    '2.1.3.01.1.015': '1.1.4.04.1.001', # ISLR Anticipo <-> ISLR Pagado Exceso
+
+    # --- INTERCOMPAÑÍAS ---
+    '1.1.4.07.1.002': '2.1.2.08.1.002', # Beconsult Cta Cte (Activo) <-> Beconsult Cta Cte (Pasivo)
+    '2.1.2.08.1.002': '1.1.4.07.1.002', 
+    
+    '1.1.4.07.1.004': '2.1.2.08.1.004', # Febeca Cta Cte (Activo) <-> Febeca Cta Cte (Pasivo)
+    '2.1.2.08.1.004': '1.1.4.07.1.004',
+    
+    '1.1.4.07.1.071': '2.1.2.08.1.071', # Dist. Sillas California (Activo) <-> (Pasivo)
+    '2.1.2.08.1.071': '1.1.4.07.1.071',
+
+    '1.1.4.01.1.508': '2.1.2.05.1.086', # Prisma Cta Cte (Activo) <-> Prisma Cta Cte (Pasivo)
+    '2.1.2.05.1.086': '1.1.4.01.1.508',
+
+    # --- OTROS ---
+    '1.1.5.07.1.002': '2.1.2.07.1.002', # Envíos en Tránsito Exterior <-> Pasivo Relacionado
+    '2.1.2.07.1.002': '1.1.5.07.1.002'
+}
+
+def leer_saldo_haberes_negativos(file_haberes):
+    """Busca 'Total de Saldos Negativos' en el Excel."""
+    try:
+        df = pd.read_excel(file_haberes)
+        # Convertimos a string todo para buscar
+        # Buscamos en la primera columna (o donde esté)
+        for col in df.columns:
+            # Buscamos la fila que contiene el texto
+            fila_match = df[df[col].astype(str).str.contains("Total de Saldos Negativos", na=False, case=False)]
+            if not fila_match.empty:
+                # El valor suele estar en la última columna de esa fila
+                val = fila_match.iloc[0, -1] 
+                return abs(float(val)) # Retornamos positivo absoluto
+    except:
+        return 0.0
+    return 0.0
+
+def leer_saldo_excel_simple(file_obj):
+    """Lee el total de un archivo Excel simple (Viajes)."""
+    try:
+        df = pd.read_excel(file_obj)
+        # Asumimos que la última fila tiene el total o sumamos una columna de 'Monto'
+        # Estrategia segura: Buscar columna de saldos y sumar
+        cols_monto = [c for c in df.columns if 'SALDO' in str(c).upper() or 'MONTO' in str(c).upper()]
+        if cols_monto:
+            return df[cols_monto[-1]].sum() # Usamos la última columna de montos encontrada
+    except: pass
+    return 0.0
+
+def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, f_haberes, tasa_bcv, tasa_corp, log):
+    """Motor principal de Ajustes USD."""
+    log.append("--- INICIANDO CÁLCULO DE AJUSTES (USD) ---")
+    
+    asientos = [] # Lista de diccionarios para el asiento
+    resumen_ajustes = [] # Lista para la hoja 1
+
+    # 1. CARGAR BALANCE (CG) - Usamos la función existente
+    datos_cg = extraer_saldos_cg(f_balance, log) # {CTA: {VES:x, USD:x, descripcion:x}}
+    
+    # 2. PROCESAR BANCOS
+    df_bancos_audit = pd.DataFrame()
+    try:
+        df_b = pd.read_excel(f_bancos)
+        # Buscar columna clave
+        col_no_conc = next((c for c in df_b.columns if "NO CONCILIADO" in str(c).upper()), None)
+        col_cta = next((c for c in df_b.columns if "CUENTA CONTABLE" in str(c).upper()), None)
+        col_tipo = next((c for c in df_b.columns if "TIPO" in str(c).upper() or "TIP" in str(c).upper()), None)
+        
+        if col_no_conc and col_cta:
+            df_bancos_audit = df_b.copy() # Para reporte
+            for _, row in df_b.iterrows():
+                cta = str(row[col_cta]).strip()
+                tipo = str(row[col_tipo]).strip().upper() if col_tipo else "L"
+                monto_nc = float(row[col_no_conc]) if pd.notna(row[col_no_conc]) else 0.0
+                
+                if monto_nc != 0:
+                    # Lógica de cálculo
+                    if tipo == 'E': # Extranjera
+                        ajuste_usd = monto_nc
+                    else: # Local (L)
+                        ajuste_usd = monto_nc / tasa_corp if tasa_corp else 0
+
+                    desc = datos_cg.get(cta, {}).get('descripcion', 'Banco')
+                    saldo_cg_usd = datos_cg.get(cta, {}).get('USD', 0.0)
+                    
+                    resumen_ajustes.append({
+                        'Cuenta': cta, 'Descripción': desc, 'Origen': 'Bancos',
+                        'Saldo Actual USD': saldo_cg_usd, 'Ajuste USD': ajuste_usd,
+                        'Saldo Final USD': saldo_cg_usd + ajuste_usd
+                    })
+                    
+                    # Asiento (Contrapartida Bolsón)
+                    asientos.append({'Cuenta': cta, 'Desc': desc, 'DebeUSD': ajuste_usd if ajuste_usd > 0 else 0, 'HaberUSD': abs(ajuste_usd) if ajuste_usd < 0 else 0})
+                    asientos.append({'Cuenta': '1.1.3.01.1.001', 'Desc': 'Deudores Comerciales (Ajuste Bco)', 'DebeUSD': abs(ajuste_usd) if ajuste_usd < 0 else 0, 'HaberUSD': ajuste_usd if ajuste_usd > 0 else 0})
+    except Exception as e:
+        log.append(f"❌ Error procesando Bancos: {e}")
+
+    # 3. PROCESAR VIAJES
+    # A. Viajes ME (1.1.4.03.6.002)
+    try:
+        saldo_real_me = leer_saldo_excel_simple(f_viajes_me)
+        cta_me = '1.1.4.03.6.002'
+        saldo_cg_me = datos_cg.get(cta_me, {}).get('USD', 0.0)
+        ajuste_me = saldo_real_me - saldo_cg_me
+        
+        if abs(ajuste_me) > 0.01:
+            desc_me = datos_cg.get(cta_me, {}).get('descripcion', 'Viajes ME')
+            resumen_ajustes.append({'Cuenta': cta_me, 'Descripción': desc_me, 'Origen': 'Viajes ME', 'Saldo Actual USD': saldo_cg_me, 'Ajuste USD': ajuste_me, 'Saldo Final USD': saldo_real_me})
+            
+            # Asiento
+            asientos.append({'Cuenta': cta_me, 'Desc': desc_me, 'DebeUSD': ajuste_me if ajuste_me > 0 else 0, 'HaberUSD': abs(ajuste_me) if ajuste_me < 0 else 0})
+            asientos.append({'Cuenta': '2.1.2.09.6.900', 'Desc': 'Gastos Est. x Pagar ME', 'DebeUSD': abs(ajuste_me) if ajuste_me < 0 else 0, 'HaberUSD': ajuste_me if ajuste_me > 0 else 0})
+    except: pass
+
+    # B. Viajes BS (1.1.4.03.1.002)
+    try:
+        saldo_real_bs = leer_saldo_excel_simple(f_viajes_bs)
+        saldo_real_usd_conv = saldo_real_bs / tasa_corp if tasa_corp else 0
+        cta_bs = '1.1.4.03.1.002'
+        saldo_cg_bs_en_usd = datos_cg.get(cta_bs, {}).get('USD', 0.0)
+        ajuste_bs = saldo_real_usd_conv - saldo_cg_bs_en_usd
+        
+        if abs(ajuste_bs) > 0.01:
+            desc_bs = datos_cg.get(cta_bs, {}).get('descripcion', 'Viajes Bs')
+            resumen_ajustes.append({'Cuenta': cta_bs, 'Descripción': desc_bs, 'Origen': 'Viajes Bs', 'Saldo Actual USD': saldo_cg_bs_en_usd, 'Ajuste USD': ajuste_bs, 'Saldo Final USD': saldo_real_usd_conv})
+            
+            asientos.append({'Cuenta': cta_bs, 'Desc': desc_bs, 'DebeUSD': ajuste_bs if ajuste_bs > 0 else 0, 'HaberUSD': abs(ajuste_bs) if ajuste_bs < 0 else 0})
+            asientos.append({'Cuenta': '2.1.2.09.1.900', 'Desc': 'Gastos Est. x Pagar', 'DebeUSD': abs(ajuste_bs) if ajuste_bs < 0 else 0, 'HaberUSD': ajuste_bs if ajuste_bs > 0 else 0})
+    except: pass
+
+    # 4. PROCESAR HABERES (2.1.2.05.1.108)
+    try:
+        monto_haberes = leer_saldo_haberes_negativos(f_haberes) # Ya viene positivo
+        if monto_haberes > 0:
+            cta_hab = '2.1.2.05.1.108'
+            desc_hab = datos_cg.get(cta_hab, {}).get('descripcion', 'Haberes Clientes')
+            
+            # Asiento Fijo: Debe CxC, Haber Haberes (Aumenta Pasivo)
+            asientos.append({'Cuenta': '1.1.3.01.1.001', 'Desc': 'Deudores Comerciales', 'DebeUSD': monto_haberes, 'HaberUSD': 0})
+            asientos.append({'Cuenta': cta_hab, 'Desc': desc_hab, 'DebeUSD': 0, 'HaberUSD': monto_haberes})
+            
+            resumen_ajustes.append({'Cuenta': cta_hab, 'Descripción': desc_hab, 'Origen': 'Haberes', 'Saldo Actual USD': datos_cg.get(cta_hab, {}).get('USD', 0), 'Ajuste USD': monto_haberes, 'Saldo Final USD': 'N/A'})
+    except: pass
+
+    # 5. SALDOS CONTRARIOS (Bidireccional)
+    log.append("🔄 Analizando saldos contrarios...")
+    cuentas_procesadas_contrario = set()
+    
+    for cta, data in datos_cg.items():
+        if cta in cuentas_procesadas_contrario: continue
+        
+        saldo_usd = data['USD']
+        
+        # Detectar si es contrario (Negativo)
+        if saldo_usd < -0.01:
+            ajuste_necesario = abs(saldo_usd) # Hay que sumar esto para que llegue a 0
+            contrapartida = MAPEO_SALDOS_CONTRARIOS.get(cta)
+            
+            # Caso especial Nómina (7.1.1...) -> Contra 2.1.2.09.1.006
+            if not contrapartida and cta.startswith('7.1.1'):
+                contrapartida = '2.1.2.09.1.006'
+                
+            if contrapartida:
+                desc = data['descripcion']
+                desc_contra = datos_cg.get(contrapartida, {}).get('descripcion', 'Contrapartida Ajuste')
+                
+                # Asiento para dejar la cuenta en 0 (Debe)
+                asientos.append({'Cuenta': cta, 'Desc': desc, 'DebeUSD': ajuste_necesario, 'HaberUSD': 0})
+                # Contrapartida (Haber)
+                asientos.append({'Cuenta': contrapartida, 'Desc': desc_contra, 'DebeUSD': 0, 'HaberUSD': ajuste_necesario})
+                
+                resumen_ajustes.append({'Cuenta': cta, 'Descripción': desc, 'Origen': 'Saldo Contrario', 'Saldo Actual USD': saldo_usd, 'Ajuste USD': ajuste_necesario, 'Saldo Final USD': 0.00})
+                cuentas_procesadas_contrario.add(cta)
+
+    # 6. COMPILAR RESULTADOS
+    df_asiento = pd.DataFrame(asientos)
+    # Convertir a Bs para el asiento final
+    if tasa_bcv > 0:
+        df_asiento['Débito VES'] = (df_asiento['DebeUSD'] * tasa_bcv).round(2)
+        df_asiento['Crédito VES'] = (df_asiento['HaberUSD'] * tasa_bcv).round(2)
+    else:
+        df_asiento['Débito VES'] = 0; df_asiento['Crédito VES'] = 0
+
+    return pd.DataFrame(resumen_ajustes), df_bancos_audit, df_asiento
