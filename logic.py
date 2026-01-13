@@ -3870,95 +3870,100 @@ def leer_saldo_excel_simple(file_obj):
 def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, f_haberes, tasa_bcv, tasa_corp, log):
     """
     Motor principal de Ajustes USD.
-    AHORA: Retorna también el DataFrame 'raw' del Balance para la Hoja 4.
+    MEJORA: Diagnóstico detallado para entender por qué no genera asientos.
     """
     log.append("--- INICIANDO CÁLCULO DE AJUSTES (USD) ---")
     
     asientos = [] 
     resumen_ajustes = [] 
-
-    # --- PASO 0: CAPTURA DE DATA ORIGINAL (PARA HOJA 4) ---
+    df_bancos_audit = pd.DataFrame()
     df_balance_raw = pd.DataFrame()
-    try:
-        f_balance.seek(0) # Rebobinar archivo
-        nombre_ext = getattr(f_balance, 'name', '').lower()
-        
-        if nombre_ext.endswith('.pdf'):
-            # Si es PDF, leemos línea por línea para replicar el aspecto visual
-            raw_lines = []
-            with pdfplumber.open(f_balance) as pdf:
-                for page in pdf.pages:
-                    text = page.extract_text()
-                    if text:
-                        for line in text.split('\n'):
-                            raw_lines.append([line])
-            df_balance_raw = pd.DataFrame(raw_lines, columns=["CONTENIDO ORIGINAL DEL BALANCE (PDF)"])
-            
-        else:
-            # Si es Excel, lo leemos tal cual sin encabezados para mantener estructura
-            df_balance_raw = pd.read_excel(f_balance, header=None)
-            
-        f_balance.seek(0) # Rebobinar para el procesamiento matemático
-    except Exception as e:
-        log.append(f"⚠️ No se pudo cargar la vista previa del Balance: {e}")
-    # -----------------------------------------------------
 
-    # 1. CARGAR BALANCE (CG) - Procesamiento Matemático
-    datos_cg = extraer_saldos_cg(f_balance, log) 
+    # --- PASO 0: CAPTURA DE DATA ORIGINAL ---
+    if f_balance:
+        try:
+            f_balance.seek(0)
+            if f_balance.name.lower().endswith('.pdf'):
+                # Lógica simple para raw pdf
+                with pdfplumber.open(f_balance) as pdf:
+                    if pdf.pages: df_balance_raw = pd.DataFrame([["PDF Cargado correctamente"]])
+            else:
+                df_balance_raw = pd.read_excel(f_balance, header=None)
+            f_balance.seek(0)
+        except: pass
+
+    # 1. CARGAR BALANCE (CG)
+    if f_balance:
+        datos_cg = extraer_saldos_cg(f_balance, log)
+        if datos_cg:
+            log.append(f"✅ Balance procesado: {len(datos_cg)} cuentas identificadas.")
+        else:
+            log.append("❌ ALERTA: No se pudieron extraer cuentas del Balance. Revise si es PDF de texto o imagen.")
+    else:
+        log.append("⚠️ No se subió archivo de Balance. Los ajustes comparativos fallarán.")
+        datos_cg = {}
     
     # 2. PROCESAR BANCOS
-    df_bancos_audit = pd.DataFrame()
-    try:
-        df_b = pd.read_excel(f_bancos)
-        # Normalizar nombres de columnas para búsqueda
-        df_b.columns = [str(c).strip().upper() for c in df_b.columns]
-        
-        col_no_conc = next((c for c in df_b.columns if "NO CONCILIADO" in c), None)
-        col_cta = next((c for c in df_b.columns if "CUENTA CONTABLE" in c), None)
-        col_tipo = next((c for c in df_b.columns if "TIPO" in c), None)
-        
-        if col_no_conc and col_cta:
-            # Guardamos copia para reporte (Hoja 2)
-            df_bancos_audit = df_b.copy()
+    if f_bancos:
+        try:
+            df_b = pd.read_excel(f_bancos)
+            df_b.columns = [str(c).strip().upper() for c in df_b.columns]
             
-            for _, row in df_b.iterrows():
-                cta = str(row[col_cta]).strip()
-                tipo = str(row[col_tipo]).strip().upper() if col_tipo else "L"
-                try: monto_nc = float(row[col_no_conc])
-                except: monto_nc = 0.0
+            # Diagnóstico de columnas
+            # log.append(f"🔍 Columnas en Reporte Bancos: {df_b.columns.tolist()}")
+
+            col_no_conc = next((c for c in df_b.columns if "NO CONCILIADO" in c), None)
+            col_cta = next((c for c in df_b.columns if "CUENTA CONTABLE" in c), None)
+            col_tipo = next((c for c in df_b.columns if "TIPO" in c), None)
+            
+            if col_no_conc and col_cta:
+                df_bancos_audit = df_b.copy()
+                count_bancos = 0
+                for _, row in df_b.iterrows():
+                    cta = str(row[col_cta]).strip()
+                    tipo = str(row[col_tipo]).strip().upper() if col_tipo else "L"
+                    try: monto_nc = float(row[col_no_conc])
+                    except: monto_nc = 0.0
+                    
+                    if monto_nc != 0:
+                        if tipo == 'E': ajuste_usd = monto_nc
+                        else: ajuste_usd = monto_nc / tasa_corp if tasa_corp else 0
+
+                        desc = datos_cg.get(cta, {}).get('descripcion', 'Banco')
+                        saldo_cg_usd = datos_cg.get(cta, {}).get('USD', 0.0)
+                        
+                        resumen_ajustes.append({
+                            'Cuenta': cta, 'Descripción': desc, 'Origen': 'Bancos',
+                            'Saldo Actual USD': saldo_cg_usd, 'Ajuste USD': ajuste_usd,
+                            'Saldo Final USD': saldo_cg_usd + ajuste_usd
+                        })
+                        
+                        # Asiento
+                        if ajuste_usd > 0:
+                            asientos.append({'Cuenta': cta, 'Desc': desc, 'DebeUSD': ajuste_usd, 'HaberUSD': 0})
+                            asientos.append({'Cuenta': '1.1.3.01.1.001', 'Desc': 'Deudores Comerciales (Ajuste Bco)', 'DebeUSD': 0, 'HaberUSD': ajuste_usd})
+                        else:
+                            monto_abs = abs(ajuste_usd)
+                            asientos.append({'Cuenta': '1.1.3.01.1.001', 'Desc': 'Deudores Comerciales (Ajuste Bco)', 'DebeUSD': monto_abs, 'HaberUSD': 0})
+                            asientos.append({'Cuenta': cta, 'Desc': desc, 'DebeUSD': 0, 'HaberUSD': monto_abs})
+                        count_bancos += 1
                 
-                if monto_nc != 0:
-                    if tipo == 'E': # Extranjera (USD)
-                        ajuste_usd = monto_nc
-                    else: # Local (VES)
-                        ajuste_usd = monto_nc / tasa_corp if tasa_corp else 0
-
-                    desc = datos_cg.get(cta, {}).get('descripcion', 'Banco')
-                    saldo_cg_usd = datos_cg.get(cta, {}).get('USD', 0.0)
-                    
-                    resumen_ajustes.append({
-                        'Cuenta': cta, 'Descripción': desc, 'Origen': 'Bancos',
-                        'Saldo Actual USD': saldo_cg_usd, 'Ajuste USD': ajuste_usd,
-                        'Saldo Final USD': saldo_cg_usd + ajuste_usd
-                    })
-                    
-                    # Asiento
-                    if ajuste_usd > 0:
-                        asientos.append({'Cuenta': cta, 'Desc': desc, 'DebeUSD': ajuste_usd, 'HaberUSD': 0})
-                        asientos.append({'Cuenta': '1.1.3.01.1.001', 'Desc': 'Deudores Comerciales (Ajuste Bco)', 'DebeUSD': 0, 'HaberUSD': ajuste_usd})
-                    else:
-                        monto_abs = abs(ajuste_usd)
-                        asientos.append({'Cuenta': '1.1.3.01.1.001', 'Desc': 'Deudores Comerciales (Ajuste Bco)', 'DebeUSD': monto_abs, 'HaberUSD': 0})
-                        asientos.append({'Cuenta': cta, 'Desc': desc, 'DebeUSD': 0, 'HaberUSD': monto_abs})
-
-    except Exception as e:
-        log.append(f"❌ Error procesando Bancos: {e}")
+                log.append(f"✅ Bancos procesados. {count_bancos} ajustes generados.")
+            else:
+                log.append(f"❌ Error Bancos: No se hallaron columnas 'NO CONCILIADO' o 'CUENTA CONTABLE'.")
+    
+        except Exception as e:
+            log.append(f"❌ Error técnico leyendo Bancos: {e}")
+    else:
+        log.append("ℹ️ Archivo de Bancos no cargado.")
 
     # 3. PROCESAR VIAJES
     # A. Viajes ME
-    try:
-        if f_viajes_me:
+    if f_viajes_me:
+        try:
             saldo_real_me = leer_saldo_excel_simple(f_viajes_me)
+            log.append(f"✈️ Viajes ME: Saldo leído del archivo: {saldo_real_me:,.2f}")
+            
             cta_me = '1.1.4.03.6.002'
             saldo_cg_me = datos_cg.get(cta_me, {}).get('USD', 0.0)
             ajuste_me = saldo_real_me - saldo_cg_me
@@ -3967,7 +3972,6 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
                 desc_me = datos_cg.get(cta_me, {}).get('descripcion', 'Viajes ME')
                 resumen_ajustes.append({'Cuenta': cta_me, 'Descripción': desc_me, 'Origen': 'Viajes ME', 'Saldo Actual USD': saldo_cg_me, 'Ajuste USD': ajuste_me, 'Saldo Final USD': saldo_real_me})
                 
-                # Asiento
                 if ajuste_me > 0:
                     asientos.append({'Cuenta': cta_me, 'Desc': desc_me, 'DebeUSD': ajuste_me, 'HaberUSD': 0})
                     asientos.append({'Cuenta': '2.1.2.09.6.900', 'Desc': 'Gastos Est. x Pagar ME', 'DebeUSD': 0, 'HaberUSD': ajuste_me})
@@ -3975,12 +3979,16 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
                     monto_abs = abs(ajuste_me)
                     asientos.append({'Cuenta': '2.1.2.09.6.900', 'Desc': 'Gastos Est. x Pagar ME', 'DebeUSD': monto_abs, 'HaberUSD': 0})
                     asientos.append({'Cuenta': cta_me, 'Desc': desc_me, 'DebeUSD': 0, 'HaberUSD': monto_abs})
-    except: pass
+            else:
+                log.append("   - Viajes ME cuadra con contabilidad (Diferencia 0).")
+        except Exception as e: log.append(f"❌ Error Viajes ME: {e}")
 
     # B. Viajes BS
-    try:
-        if f_viajes_bs:
+    if f_viajes_bs:
+        try:
             saldo_real_bs = leer_saldo_excel_simple(f_viajes_bs)
+            log.append(f"✈️ Viajes Bs: Saldo leído del archivo: {saldo_real_bs:,.2f} Bs")
+            
             saldo_real_usd_conv = saldo_real_bs / tasa_corp if tasa_corp else 0
             cta_bs = '1.1.4.03.1.002'
             saldo_cg_bs_en_usd = datos_cg.get(cta_bs, {}).get('USD', 0.0)
@@ -3997,12 +4005,14 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
                     monto_abs = abs(ajuste_bs)
                     asientos.append({'Cuenta': '2.1.2.09.1.900', 'Desc': 'Gastos Est. x Pagar', 'DebeUSD': monto_abs, 'HaberUSD': 0})
                     asientos.append({'Cuenta': cta_bs, 'Desc': desc_bs, 'DebeUSD': 0, 'HaberUSD': monto_abs})
-    except: pass
+        except: pass
 
     # 4. PROCESAR HABERES
-    try:
-        if f_haberes:
+    if f_haberes:
+        try:
             monto_haberes = leer_saldo_haberes_negativos(f_haberes)
+            log.append(f"📉 Haberes: 'Total Saldos Negativos' encontrado: {monto_haberes:,.2f}")
+            
             if monto_haberes > 0:
                 cta_hab = '2.1.2.05.1.108'
                 desc_hab = datos_cg.get(cta_hab, {}).get('descripcion', 'Haberes Clientes')
@@ -4011,17 +4021,18 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
                 asientos.append({'Cuenta': cta_hab, 'Desc': desc_hab, 'DebeUSD': 0, 'HaberUSD': monto_haberes})
                 
                 resumen_ajustes.append({'Cuenta': cta_hab, 'Descripción': desc_hab, 'Origen': 'Haberes', 'Saldo Actual USD': datos_cg.get(cta_hab, {}).get('USD', 0), 'Ajuste USD': monto_haberes, 'Saldo Final USD': 'N/A'})
-    except: pass
+        except Exception as e: log.append(f"❌ Error Haberes: {e}")
 
     # 5. SALDOS CONTRARIOS
-    log.append("🔄 Analizando saldos contrarios...")
+    log.append("🔄 Analizando saldos contrarios en el Balance...")
     cuentas_procesadas_contrario = set()
+    count_contrarios = 0
     
     for cta, data in datos_cg.items():
         if cta in cuentas_procesadas_contrario: continue
-        
         saldo_usd = data['USD']
         
+        # Detectar si es contrario (Negativo)
         if saldo_usd < -0.01:
             ajuste_necesario = abs(saldo_usd)
             contrapartida = MAPEO_SALDOS_CONTRARIOS.get(cta)
@@ -4038,8 +4049,14 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
                 
                 resumen_ajustes.append({'Cuenta': cta, 'Descripción': desc, 'Origen': 'Saldo Contrario', 'Saldo Actual USD': saldo_usd, 'Ajuste USD': ajuste_necesario, 'Saldo Final USD': 0.00})
                 cuentas_procesadas_contrario.add(cta)
+                count_contrarios += 1
 
-    # 6. COMPILAR
+    if count_contrarios == 0:
+        log.append("   - No se encontraron saldos negativos en las cuentas mapeadas.")
+    else:
+        log.append(f"   - Se ajustaron {count_contrarios} cuentas con saldo contrario.")
+
+    # 6. COMPILAR RESULTADOS
     df_asiento = pd.DataFrame(asientos)
     if not df_asiento.empty:
         if tasa_bcv > 0:
@@ -4048,5 +4065,4 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
         else:
             df_asiento['Débito VES'] = 0; df_asiento['Crédito VES'] = 0
             
-    # Retornamos 4 dataframes: Resumen, Bancos, Asiento, RAW Balance
     return pd.DataFrame(resumen_ajustes), df_bancos_audit, df_asiento, df_balance_raw
