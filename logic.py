@@ -3839,31 +3839,65 @@ MAPEO_SALDOS_CONTRARIOS = {
 }
 
 def leer_saldo_haberes_negativos(file_haberes):
-    """Busca 'Total de Saldos Negativos' en el Excel."""
+    """
+    Busca la fila 'Total de Saldos Negativos:' y extrae el monto final.
+    """
     try:
         df = pd.read_excel(file_haberes)
-        # Convertimos a string todo para buscar
-        # Buscamos en la primera columna (o donde esté)
+        # Convertimos todo a string para buscar
+        # Buscamos en todas las columnas por seguridad
         for col in df.columns:
-            # Buscamos la fila que contiene el texto
+            # Buscamos la celda que contiene el texto exacto
+            # case=False para ignorar mayúsculas/minúsculas
             fila_match = df[df[col].astype(str).str.contains("Total de Saldos Negativos", na=False, case=False)]
+            
             if not fila_match.empty:
-                # El valor suele estar en la última columna de esa fila
-                val = fila_match.iloc[0, -1] 
-                return abs(float(val)) # Retornamos positivo absoluto
-    except:
-        return 0.0
+                # Si encontramos la fila, tomamos el valor de la ÚLTIMA columna de esa fila
+                # (Asumimos que el saldo siempre está a la derecha del todo)
+                val_crudo = fila_match.iloc[0, -1] 
+                
+                # Limpieza numérica robusta
+                if isinstance(val_crudo, (int, float)):
+                    return abs(float(val_crudo))
+                
+                # Si es texto (ej: "-10,696.85")
+                val_limpio = str(val_crudo).replace('.', '').replace(',', '.')
+                return abs(float(val_limpio))
+
+    except Exception:
+        pass
     return 0.0
 
-def leer_saldo_excel_simple(file_obj):
-    """Lee el total de un archivo Excel simple (Viajes)."""
+def leer_saldo_viajes(file_obj, columna_busqueda):
+    """
+    Lee el archivo de Viajes y busca el total en la columna especificada.
+    columna_busqueda: 'SALDO $' o 'SALDO BS'
+    """
     try:
+        # Leemos buscando el encabezado en las primeras filas
         df = pd.read_excel(file_obj)
-        # Asumimos que la última fila tiene el total o sumamos una columna de 'Monto'
-        # Estrategia segura: Buscar columna de saldos y sumar
-        cols_monto = [c for c in df.columns if 'SALDO' in str(c).upper() or 'MONTO' in str(c).upper()]
-        if cols_monto:
-            return df[cols_monto[-1]].sum() # Usamos la última columna de montos encontrada
+        
+        # Normalizamos nombres de columnas
+        df.columns = [str(c).strip().upper() for c in df.columns]
+        
+        # Buscamos la columna objetivo
+        col_target = next((c for c in df.columns if columna_busqueda in c), None)
+        
+        if col_target:
+            # Opción A: Buscar la fila de "TOTAL"
+            # Opción B: Sumar todo (filtrando totales intermedios si los hay)
+            # Para mayor seguridad, buscamos la celda que cruza con "TOTAL"
+            
+            # Buscamos fila total
+            for c_desc in df.columns:
+                fila_total = df[df[c_desc].astype(str).str.upper() == 'TOTAL']
+                if not fila_total.empty:
+                    val = fila_total.iloc[0][col_target]
+                    if isinstance(val, (int, float)): return float(val)
+            
+            # Si no hay fila TOTAL explícita, sumamos numéricamente
+            return pd.to_numeric(df[col_target], errors='coerce').sum()
+            
     except: pass
     return 0.0
 
@@ -3958,8 +3992,10 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
         log.append("ℹ️ Archivo de Bancos no cargado.")
 
     # 3. PROCESAR VIAJES
-    # A. Viajes ME
+    # A. Viajes ME (1.1.4.03.6.002) - Leemos SALDO $
     if f_viajes_me:
+        saldo_real_me = leer_saldo_viajes(f_viajes_me, "SALDO $")
+        cta_me = '1.1.4.03.6.002'
         try:
             saldo_real_me = leer_saldo_excel_simple(f_viajes_me)
             log.append(f"✈️ Viajes ME: Saldo leído del archivo: {saldo_real_me:,.2f}")
@@ -3983,8 +4019,14 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
                 log.append("   - Viajes ME cuadra con contabilidad (Diferencia 0).")
         except Exception as e: log.append(f"❌ Error Viajes ME: {e}")
 
-    # B. Viajes BS
+    # B. Viajes BS (1.1.4.03.1.002) - Leemos SALDO BS y convertimos
     if f_viajes_bs:
+        saldo_real_bs = leer_saldo_viajes(f_viajes_bs, "SALDO BS")
+        
+        # Conversión con Tasa CORP
+        saldo_real_usd_conv = saldo_real_bs / tasa_corp if tasa_corp else 0
+        
+        cta_bs = '1.1.4.03.1.002'
         try:
             saldo_real_bs = leer_saldo_excel_simple(f_viajes_bs)
             log.append(f"✈️ Viajes Bs: Saldo leído del archivo: {saldo_real_bs:,.2f} Bs")
