@@ -240,15 +240,14 @@ def _crear_formatos(workbook):
 def _generar_hoja_pendientes(workbook, formatos, df_saldos, estrategia, casa, fecha_maxima):
     """
     Genera la hoja de pendientes AGRUPADA POR NIT.
-    CORREGIDO: Ubicación de la etiqueta "Saldo" para evitar sobrescritura.
-    Orden: NIT -> Fecha.
+    CORREGIDO: No elimina filas con 'SIN_NIT'.
     """
     nombre_hoja = estrategia.get("nombre_hoja_excel", "Pendientes")
     ws = workbook.add_worksheet(nombre_hoja)
     ws.hide_gridlines(2)
     cols = estrategia["columnas_reporte"]
     
-    # Encabezados
+    # Encabezados (Igual que antes)
     if pd.notna(fecha_maxima):
         ultimo_dia = fecha_maxima + pd.offsets.MonthEnd(0)
         meses = {1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio", 7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"}
@@ -264,6 +263,15 @@ def _generar_hoja_pendientes(workbook, formatos, df_saldos, estrategia, casa, fe
     if df_saldos.empty: return
 
     df = df_saldos.copy()
+    
+    # --- CORRECCIÓN AQUÍ: FILTRO MENOS AGRESIVO ---
+    # Antes decía: .contains('CONTABILIDAD|TOTAL|NAN|SIN_NIT')
+    # AHORA: Quitamos 'SIN_NIT' para permitir filas sin identificación.
+    if 'NIT' in df.columns:
+        mask_basura = df['NIT'].astype(str).str.upper().str.contains('CONTABILIDAD|TOTAL|NAN', na=False)
+        df = df[~mask_basura]
+    # ----------------------------------------------
+
     df['Monto Dólar'] = pd.to_numeric(df.get('Monto_USD'), errors='coerce').fillna(0)
     df['Bs.'] = pd.to_numeric(df.get('Monto_BS'), errors='coerce').fillna(0)
     df['Monto Bolivar'] = df['Bs.']
@@ -271,18 +279,21 @@ def _generar_hoja_pendientes(workbook, formatos, df_saldos, estrategia, casa, fe
     
     if 'NIT' in df.columns: df['NIT'] = df['NIT'].fillna('SIN_NIT').astype(str)
     
-    # Ordenamiento: NIT -> Fecha
-    df = df.sort_values(by=['NIT', 'Fecha'], ascending=[True, True])
+    # Ordenamiento
+    if estrategia['id'] == 'haberes_clientes':
+        df = df.sort_values(by=['Fecha', 'NIT'], ascending=[True, True])
+    else:
+        df = df.sort_values(by=['NIT', 'Fecha'], ascending=[True, True])
     
     current_row = 5
     
-    # Indices de columnas clave
+    # Indices para ubicar la palabra SALDO y totales
     col_df_ref = pd.DataFrame(columns=cols)
     usd_idx = get_col_idx(col_df_ref, ['Monto Dólar', 'Monto USD'])
     bs_idx = get_col_idx(col_df_ref, ['Bs.', 'Monto Bolivar', 'Monto Bs'])
-    ref_idx = get_col_idx(col_df_ref, ['Referencia']) # Buscamos donde está Referencia
+    ref_idx = get_col_idx(col_df_ref, ['Referencia'])
 
-    # BUCLE AGRUPADO POR NIT
+    # BUCLE AGRUPADO
     for nit, grupo in df.groupby('NIT', sort=False):
         for _, row in grupo.iterrows():
             for c_idx, col_name in enumerate(cols):
@@ -306,18 +317,11 @@ def _generar_hoja_pendientes(workbook, formatos, df_saldos, estrategia, casa, fe
                     ws.write(current_row, c_idx, val if pd.notna(val) else '')
             current_row += 1
         
-        # --- CÁLCULO DE LA POSICIÓN DE LA ETIQUETA "Saldo" ---
-        if ref_idx != -1:
-            # Opción A: Si existe la columna Referencia, la ponemos ahí (Lo más seguro)
-            lbl_idx = ref_idx
+        # Subtotal por NIT
+        if ref_idx != -1: lbl_idx = ref_idx
         else:
-            # Opción B: Si no, buscamos el índice menor de las monedas y restamos 1
             indices_monedas = [i for i in [usd_idx, bs_idx] if i != -1]
-            if indices_monedas:
-                lbl_idx = max(0, min(indices_monedas) - 1)
-            else:
-                lbl_idx = 0
-        # -----------------------------------------------------
+            lbl_idx = max(0, min(indices_montos) - 1) if indices_monedas else 0
 
         ws.write(current_row, lbl_idx, "Saldo", formatos['subtotal_label'])
         if usd_idx != -1: ws.write_number(current_row, usd_idx, grupo['Monto Dólar'].sum(), formatos['subtotal_usd'])
@@ -326,12 +330,10 @@ def _generar_hoja_pendientes(workbook, formatos, df_saldos, estrategia, casa, fe
         
     # SALDO TOTAL AL FINAL
     current_row += 1
-    
-    # Recalculamos lbl_idx por seguridad
     if ref_idx != -1: lbl_idx = ref_idx
     else:
         indices_monedas = [i for i in [usd_idx, bs_idx] if i != -1]
-        lbl_idx = max(0, min(indices_monedas) - 1) if indices_monedas else 0
+        lbl_idx = max(0, min(indices_montos) - 1) if indices_monedas else 0
 
     ws.write(current_row, lbl_idx, "SALDO TOTAL", formatos['total_label'])
     if usd_idx != -1: ws.write_number(current_row, usd_idx, df['Monto Dólar'].sum(), formatos['total_usd'])
