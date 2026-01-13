@@ -16,7 +16,8 @@ from guides import (
     GUIA_PAQUETE_CC,
     GUIA_IMPRENTA,
     GUIA_GENERADOR,
-    GUIA_PENSIONES
+    GUIA_PENSIONES,
+    GUIA_AJUSTES_USD
 )
 
 # --- BLOQUE 2: IMPORTAR LÓGICA (Verifica las comas) ---
@@ -38,7 +39,8 @@ from logic import (
     validar_coincidencia_empresa,
     run_cross_check_imprenta,
     generar_txt_retenciones_galac,
-    procesar_calculo_pensiones
+    procesar_calculo_pensiones,
+    procesar_ajustes_balance_usd
 )
 
 # --- BLOQUE 3: IMPORTAR UTILS ---
@@ -51,7 +53,8 @@ from utils import (
     generar_reporte_imprenta,
     generar_reporte_auditoria_txt,
     generar_archivo_txt,
-    generar_reporte_pensiones
+    generar_reporte_pensiones,
+    generar_reporte_ajustes_usd
 )
 
 def mostrar_error_amigable(e, contexto=""):
