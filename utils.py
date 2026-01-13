@@ -1836,3 +1836,40 @@ def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, resumen_validaci
             ws3.set_column('D:F', 15); ws3.set_column('G:J', 18)
 
     return output.getvalue()
+
+def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_raw, nombre_empresa):
+    """Genera Excel Ajustes USD (4 hojas: Resumen, Bancos, Asiento, Data)."""
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        workbook = writer.book
+        
+        # Estilos básicos
+        header = workbook.add_format({'bold': True, 'fg_color': '#D9EAD3', 'border': 1})
+        money = workbook.add_format({'num_format': '#,##0.00', 'border': 1})
+        
+        # HOJA 1: RESUMEN
+        if not df_resumen.empty:
+            df_resumen.to_excel(writer, sheet_name='1. Resumen Ajustes', index=False)
+            ws = writer.sheets['1. Resumen Ajustes']
+            ws.set_column('A:F', 20)
+            
+        # HOJA 2: BANCOS
+        if not df_bancos.empty:
+            df_bancos.to_excel(writer, sheet_name='2. Detalle Bancos', index=False)
+            
+        # HOJA 3: ASIENTO
+        if not df_asiento.empty:
+            # Formato simple para volcar datos
+            cols_final = ['Cuenta', 'Desc', 'Débito VES', 'Crédito VES', 'DebeUSD', 'HaberUSD']
+            df_asiento[cols_final].to_excel(writer, sheet_name='3. Asiento Contable', index=False)
+            ws3 = writer.sheets['3. Asiento Contable']
+            ws3.set_column('A:F', 18)
+            
+        # HOJA 4: DATA (ORIGINAL)
+        if df_balance_raw is not None and not df_balance_raw.empty:
+            # Escribimos sin encabezados ni índice para que quede igual al original
+            df_balance_raw.to_excel(writer, sheet_name='4. DATA (Original)', index=False, header=False)
+            ws4 = writer.sheets['4. DATA (Original)']
+            ws4.set_column('A:Z', 20) # Ancho generico para que se lea
+
+    return output.getvalue() 
