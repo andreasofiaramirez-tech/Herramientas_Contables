@@ -3871,6 +3871,90 @@ def leer_saldo_viajes(file_obj, columna_busqueda):
     except: pass
     return 0.0
 
+def extraer_saldos_cg_ajustes(archivo, log_messages):
+    """
+    Función EXCLUSIVA para el módulo de Ajustes al Balance.
+    Lee el Excel del Balance y extrae solo el SALDO FINAL (VES y USD).
+    Soporta doble encabezado y columnas repetidas.
+    """
+    datos_cg = {}
+    nombre_archivo = getattr(archivo, 'name', '').lower()
+    
+    # --- PROCESAMIENTO EXCEL (PRIORIDAD) ---
+    if nombre_archivo.endswith('.xlsx') or nombre_archivo.endswith('.xls'):
+        log_messages.append("📗 [Ajustes] Leyendo Balance CG como Excel...")
+        try:
+            # 1. Buscar fila de encabezados
+            df_raw = pd.read_excel(archivo, header=None)
+            header_idx = None
+            for i, row in df_raw.head(15).iterrows():
+                row_str = [str(x).upper() for x in row.values]
+                if any("CUENTA" in s for s in row_str) and any("DESCRIPCI" in s for s in row_str):
+                    header_idx = i; break
+            
+            if header_idx is None:
+                log_messages.append("❌ No se encontró encabezado en Balance Excel.")
+                return {}
+
+            # 2. Cargar datos
+            df = pd.read_excel(archivo, header=header_idx)
+            df.columns = [str(c).strip().upper() for c in df.columns]
+            
+            # 3. Identificar columnas por posición (Estrategia Balance Fiscal)
+            # Buscamos columnas que se llamen "BALANCE FINAL"
+            cols_balance = [i for i, c in enumerate(df.columns) if "BALANCE" in c and "FINAL" in c]
+            
+            # Si la estructura es fija según tu imagen:
+            # Col G (index 6) = Balance Final Local
+            # Col L (index 11) = Balance Final Dólar
+            idx_ves = 6
+            idx_usd = 11
+            
+            # Validación dinámica por si acaso
+            if len(cols_balance) >= 2:
+                idx_ves = cols_balance[0] # El primero
+                idx_usd = cols_balance[-1] # El último
+            
+            col_cta = next((c for c in df.columns if 'CUENTA' in c), None)
+            col_desc = next((c for c in df.columns if 'DESCRIPCI' in c), None)
+
+            if col_cta:
+                for _, row in df.iterrows():
+                    cuenta = str(row[col_cta]).strip()
+                    if not (cuenta.startswith('1.') or cuenta.startswith('2.')): continue
+                    
+                    desc = str(row[col_desc]).strip() if col_desc else "Sin Descripción"
+                    
+                    # Helpers
+                    def get_val(val):
+                        if pd.isna(val): return 0.0
+                        if isinstance(val, (int, float)): return float(val)
+                        t = str(val).replace('.', '').replace(',', '.')
+                        try: return float(t)
+                        except: return 0.0
+
+                    # Extraer por índice numérico de columna (iloc) para evitar confusión de nombres
+                    saldo_ves = get_val(row.iloc[idx_ves])
+                    saldo_usd = get_val(row.iloc[idx_usd])
+                    
+                    datos_cg[cuenta] = {'VES': saldo_ves, 'USD': saldo_usd, 'descripcion': desc}
+        except Exception as e:
+            log_messages.append(f"❌ Error leyendo Excel CG para Ajustes: {str(e)}")
+
+    # --- PROCESAMIENTO PDF (Respaldo) ---
+    elif nombre_archivo.endswith('.pdf'):
+        # Reutilizamos la lógica de extracción de PDF existente pero simplificando la salida
+        # para que coincida con la estructura {'VES': float, 'USD': float}
+        raw_data = extraer_saldos_cg(archivo, log_messages) # Llamamos a la función vieja
+        for cta, info in raw_data.items():
+            # La función vieja devuelve diccionarios complejos {'inicial':x, 'final':y}
+            # Aplanamos la estructura para este módulo
+            s_ves = info['VES']['final'] if isinstance(info['VES'], dict) else info['VES']
+            s_usd = info['USD']['final'] if isinstance(info['USD'], dict) else info['USD']
+            datos_cg[cta] = {'VES': s_ves, 'USD': s_usd, 'descripcion': info['descripcion']}
+
+    return datos_cg
+
 # 3. MOTOR PRINCIPAL
 def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, f_haberes, tasa_bcv, tasa_corp, log):
     """Motor de cálculo de ajustes (Bancos + Viajes + Haberes + Saldos Contrarios)."""
@@ -3894,8 +3978,13 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
         except: pass
 
     # 1. CARGAR BALANCE (CG)
-    datos_cg = extraer_saldos_cg(f_balance, log) # Usa la función robusta que ya tenemos
+    datos_cg = extraer_saldos_cg_ajustes(f_balance, log)
     
+    if datos_cg:
+        log.append(f"✅ Balance procesado: {len(datos_cg)} cuentas identificadas.")
+    else:
+        log.append("❌ ALERTA: No se pudieron extraer cuentas del Balance.")
+        
     # 2. PROCESAR BANCOS
     if f_bancos:
         try:
