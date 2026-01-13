@@ -4013,7 +4013,7 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
                     
                     if monto_nc != 0:
                         # Regla 1: Bancos
-                        if tipo == 'E': ajuste_usd = monto_nc
+                        if tipo == ['E', 'C']: ajuste_usd = monto_nc
                         else: ajuste_usd = monto_nc / tasa_corp if tasa_corp else 0
 
                         desc = datos_cg.get(cta, {}).get('descripcion', 'Banco')
