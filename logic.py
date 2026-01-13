@@ -3978,38 +3978,22 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
         except: pass
 
     # 1. CARGAR BALANCE (CG)
-    datos_cg = extraer_saldos_cg_ajustes(f_balance, log)
+    datos_cg = extraer_saldos_cg(f_balance, log) # Usa la función robusta que ya tenemos
     
-    if datos_cg:
-        log.append(f"✅ Balance procesado: {len(datos_cg)} cuentas identificadas.")
-    else:
-        log.append("❌ ALERTA: No se pudieron extraer cuentas del Balance.")
-        
     # 2. PROCESAR BANCOS
     if f_bancos:
         try:
             df_b = pd.read_excel(f_bancos)
             df_b.columns = [str(c).strip().upper() for c in df_b.columns]
             
-            # Buscar fila de encabezado real (Como hicimos en Pensiones)
+            # Buscar fila de encabezado real si no está en la 1
             if 'CUENTA CONTABLE' not in df_b.columns:
                 # Búsqueda simple en primeras filas
-                for i, row in df_b.head(10).iterrows():
-                    row_str = [str(x).upper() for x in row.values]
-                    if any("CUENTA" in s for s in row_str) and any("CONTABLE" in s for s in row_str):
-                        df_b = pd.read_excel(f_bancos, header=i+1)
-                        df_b.columns = [str(c).strip().upper().replace('\n', ' ') for c in df_b.columns]
-                        break
+                # (Implementación simplificada, asume formato estándar o fila 4)
+                df_b = pd.read_excel(f_bancos, header=3) # Fila 4
+                df_b.columns = [str(c).strip().upper().replace('\n', ' ') for c in df_b.columns]
 
-            # --- CORRECCIÓN CRÍTICA AQUÍ: BUSCAR COLUMNA ESPECÍFICA ---
-            # Buscamos la columna que diga BANCOS y también NO CONCILIADOS
             col_no_conc = next((c for c in df_b.columns if "BANCOS" in c and "CONCILIADOS" in c), None)
-            
-            # Si falla, intentamos una búsqueda más laxa pero excluyendo 'LIBROS'
-            if not col_no_conc:
-                col_no_conc = next((c for c in df_b.columns if "NO CONCILIADO" in c and "LIBRO" not in c), None)
-            # ----------------------------------------------------------
-
             col_cta = next((c for c in df_b.columns if "CUENTA CONTABLE" in c), None)
             col_tipo = next((c for c in df_b.columns if "TIPO" in c), None)
             
@@ -4019,16 +4003,13 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
                 for _, row in df_b.iterrows():
                     cta = str(row[col_cta]).strip()
                     tipo = str(row[col_tipo]).strip().upper() if col_tipo else "L"
-                    
-                    # Usamos la limpieza robusta
-                    monto_nc = limpiar_monto_bancos(row[col_no_conc])
+                    try: monto_nc = float(row[col_no_conc])
+                    except: monto_nc = 0.0
                     
                     if monto_nc != 0:
                         # Regla 1: Bancos
-                        if tipo in ['E', 'C']: # Dólares
-                            ajuste_usd = monto_nc
-                        else: # Local
-                            ajuste_usd = monto_nc / tasa_corp if tasa_corp else 0
+                        if tipo == 'E': ajuste_usd = monto_nc
+                        else: ajuste_usd = monto_nc / tasa_corp if tasa_corp else 0
 
                         desc = datos_cg.get(cta, {}).get('descripcion', 'Banco')
                         saldo_cg_usd = datos_cg.get(cta, {}).get('USD', 0.0)
@@ -4036,21 +4017,21 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
                         resumen_ajustes.append({
                             'Cuenta': cta, 'Descripción': desc, 'Origen': 'Bancos',
                             'Saldo Actual USD': saldo_cg_usd, 'Ajuste USD': ajuste_usd,
-                            'Saldo Final USD': saldo_cg_usd + ajuste_usd, 'Tasa': tasa_corp if tipo not in ['E', 'C'] else 1
+                            'Saldo Final USD': saldo_cg_usd + ajuste_usd, 'Tasa': tasa_corp if tipo != 'E' else 1
                         })
                         
                         # Asiento Bancos (Contra Deudores Comerciales)
                         if ajuste_usd > 0:
                             asientos.append({'Cuenta': cta, 'Desc': desc, 'DebeUSD': ajuste_usd, 'HaberUSD': 0})
-                            asientos.append({'Cuenta': '1.1.3.01.1.001', 'Desc': 'Deudores Comerciales (Ajuste Bco)', 'DebeUSD': 0, 'HaberUSD': ajuste_usd})
+                            asientos.append({'Cuenta': '1.1.3.01.1.001', 'Desc': 'Deudores Comerciales', 'DebeUSD': 0, 'HaberUSD': ajuste_usd})
                         else:
                             m = abs(ajuste_usd)
-                            asientos.append({'Cuenta': '1.1.3.01.1.001', 'Desc': 'Deudores Comerciales (Ajuste Bco)', 'DebeUSD': m, 'HaberUSD': 0})
+                            asientos.append({'Cuenta': '1.1.3.01.1.001', 'Desc': 'Deudores Comerciales', 'DebeUSD': m, 'HaberUSD': 0})
                             asientos.append({'Cuenta': cta, 'Desc': desc, 'DebeUSD': 0, 'HaberUSD': m})
                         count_bancos += 1
                 log.append(f"✅ Bancos: {count_bancos} ajustes generados.")
             else:
-                log.append(f"❌ Error Bancos: No se encontró columna 'Movimientos en BANCOS no Conciliados'. Columnas: {df_b.columns.tolist()}")
+                log.append(f"❌ Error Bancos: Columnas no encontradas.")
         except Exception as e: log.append(f"❌ Error Bancos: {e}")
 
     # 3. PROCESAR VIAJES
