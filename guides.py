@@ -394,3 +394,20 @@ Esta herramienta automatiza el cálculo del aporte del 9%, genera el asiento con
 *   **✅ Éxito:** Si la Base Contable coincide con la Base de Nómina (Diferencia < 1 Bs), el reporte está listo para imprimir.
 *   **⚠️ Descuadre:** Si aparece una alerta amarilla, descargue el Excel y revise la **Hoja 1**. Allí verá una tabla comparativa que le indicará si la diferencia está en los **Salarios** o en los **Tickets**.
 """
+
+GUIA_AJUSTES_USD = """
+### 📉 Guía: Ajustes al Balance en USD
+
+Esta herramienta automatiza la valoración de moneda extranjera y reclasificaciones al cierre.
+
+**Insumos Requeridos:**
+1.  **Conciliación Bancaria (Excel):** Debe tener la columna "Movimientos en Bancos no Conciliados".
+2.  **Balance de Comprobación (Excel/PDF):** El balance general del mes.
+3.  **Auxiliares de Viajes:** Reportes de las cuentas 1.1.4.03...
+4.  **Reporte Haberes:** Archivo con el "Total de Saldos Negativos" al final.
+
+**Lógica de Ajuste:**
+*   **Bancos:** Ajusta según partidas no conciliadas (USD directo o Bs/Tasa Corp).
+*   **Saldos Contrarios:** Detecta cuentas negativas y genera el asiento contra su cuenta par.
+*   **Haberes:** Incrementa el pasivo según el reporte de saldos negativos.
+"""
