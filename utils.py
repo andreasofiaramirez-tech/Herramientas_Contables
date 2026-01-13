@@ -240,14 +240,14 @@ def _crear_formatos(workbook):
 def _generar_hoja_pendientes(workbook, formatos, df_saldos, estrategia, casa, fecha_maxima):
     """
     Genera la hoja de pendientes AGRUPADA POR NIT.
-    CORREGIDO: No elimina filas con 'SIN_NIT'.
+    CORREGIDO: Orden de limpieza para no borrar filas SIN_NIT.
     """
     nombre_hoja = estrategia.get("nombre_hoja_excel", "Pendientes")
     ws = workbook.add_worksheet(nombre_hoja)
     ws.hide_gridlines(2)
     cols = estrategia["columnas_reporte"]
     
-    # Encabezados (Igual que antes)
+    # Encabezados
     if pd.notna(fecha_maxima):
         ultimo_dia = fecha_maxima + pd.offsets.MonthEnd(0)
         meses = {1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio", 7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"}
@@ -263,21 +263,27 @@ def _generar_hoja_pendientes(workbook, formatos, df_saldos, estrategia, casa, fe
     if df_saldos.empty: return
 
     df = df_saldos.copy()
+
+    # --- PASO 1: SALVAR LAS FILAS SIN NIT (RELLENAR ANTES DE FILTRAR) ---
+    if 'NIT' in df.columns: 
+        # Convertimos vacíos, nulos y espacios en "SIN_NIT"
+        df['NIT'] = df['NIT'].fillna('SIN_NIT').replace(r'^\s*$', 'SIN_NIT', regex=True).astype(str)
+        # Si quedó algún 'nan' literal por conversión de string, lo arreglamos
+        df['NIT'] = df['NIT'].replace('nan', 'SIN_NIT', case=False)
+    # --------------------------------------------------------------------
     
-    # --- CORRECCIÓN AQUÍ: FILTRO MENOS AGRESIVO ---
-    # Antes decía: .contains('CONTABILIDAD|TOTAL|NAN|SIN_NIT')
-    # AHORA: Quitamos 'SIN_NIT' para permitir filas sin identificación.
+    # --- PASO 2: FILTRO DE BASURA (AHORA ES SEGURO) ---
     if 'NIT' in df.columns:
-        mask_basura = df['NIT'].astype(str).str.upper().str.contains('CONTABILIDAD|TOTAL|NAN', na=False)
+        # Solo borramos si dice explícitamente TOTAL o CONTABILIDAD
+        # Quitamos 'NAN' de la lista negra porque ya limpiamos arriba
+        mask_basura = df['NIT'].str.upper().str.contains('CONTABILIDAD|TOTAL', na=False)
         df = df[~mask_basura]
-    # ----------------------------------------------
+    # --------------------------------------------------
 
     df['Monto Dólar'] = pd.to_numeric(df.get('Monto_USD'), errors='coerce').fillna(0)
     df['Bs.'] = pd.to_numeric(df.get('Monto_BS'), errors='coerce').fillna(0)
     df['Monto Bolivar'] = df['Bs.']
     df['Tasa'] = np.where(df['Monto Dólar'].abs() != 0, df['Bs.'].abs() / df['Monto Dólar'].abs(), 0)
-    
-    if 'NIT' in df.columns: df['NIT'] = df['NIT'].fillna('SIN_NIT').astype(str)
     
     # Ordenamiento
     if estrategia['id'] == 'haberes_clientes':
@@ -287,7 +293,7 @@ def _generar_hoja_pendientes(workbook, formatos, df_saldos, estrategia, casa, fe
     
     current_row = 5
     
-    # Indices para ubicar la palabra SALDO y totales
+    # Indices
     col_df_ref = pd.DataFrame(columns=cols)
     usd_idx = get_col_idx(col_df_ref, ['Monto Dólar', 'Monto USD'])
     bs_idx = get_col_idx(col_df_ref, ['Bs.', 'Monto Bolivar', 'Monto Bs'])
@@ -321,7 +327,7 @@ def _generar_hoja_pendientes(workbook, formatos, df_saldos, estrategia, casa, fe
         if ref_idx != -1: lbl_idx = ref_idx
         else:
             indices_monedas = [i for i in [usd_idx, bs_idx] if i != -1]
-            lbl_idx = max(0, min(indices_montos) - 1) if indices_monedas else 0
+            lbl_idx = max(0, min(indices_monedas) - 1) if indices_monedas else 0
 
         ws.write(current_row, lbl_idx, "Saldo", formatos['subtotal_label'])
         if usd_idx != -1: ws.write_number(current_row, usd_idx, grupo['Monto Dólar'].sum(), formatos['subtotal_usd'])
@@ -333,11 +339,12 @@ def _generar_hoja_pendientes(workbook, formatos, df_saldos, estrategia, casa, fe
     if ref_idx != -1: lbl_idx = ref_idx
     else:
         indices_monedas = [i for i in [usd_idx, bs_idx] if i != -1]
-        lbl_idx = max(0, min(indices_montos) - 1) if indices_monedas else 0
+        lbl_idx = max(0, min(indices_monedas) - 1) if indices_monedas else 0
 
     ws.write(current_row, lbl_idx, "SALDO TOTAL", formatos['total_label'])
     if usd_idx != -1: ws.write_number(current_row, usd_idx, df['Monto Dólar'].sum(), formatos['total_usd'])
     if bs_idx != -1: ws.write_number(current_row, bs_idx, df['Bs.'].sum(), formatos['total_bs'])
+
 
     ws.set_column(0, 0, 18) # NIT
     ws.set_column(1, 1, 55) # Descripción
