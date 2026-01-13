@@ -3978,8 +3978,13 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
         except: pass
 
     # 1. CARGAR BALANCE (CG)
-    datos_cg = extraer_saldos_cg(f_balance, log) # Usa la función robusta que ya tenemos
+    datos_cg = extraer_saldos_cg_ajustes(f_balance, log) # <--- USAMOS LA NUEVA FUNCIÓN
     
+    if datos_cg:
+        log.append(f"✅ Balance procesado: {len(datos_cg)} cuentas identificadas.")
+    else:
+        log.append("❌ ALERTA: No se pudieron extraer cuentas del Balance.")
+        
     # 2. PROCESAR BANCOS
     if f_bancos:
         try:
