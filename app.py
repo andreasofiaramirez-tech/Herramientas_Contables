@@ -926,6 +926,50 @@ def render_pensiones():
             except Exception as e:
                 mostrar_error_amigable(e, "el Cálculo de Pensiones")
 
+
+def render_ajustes_usd():
+    st.title("📉 Ajustes al Balance en USD", anchor=False)
+    
+    with st.expander("📖 Guía"): st.markdown(GUIA_AJUSTES_USD)
+    if st.button("⬅️ Volver"): set_page('inicio'); st.rerun()
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        f_cb = st.file_uploader("1. Conciliación Tesorería (Excel)", type=['xlsx'])
+        f_cg = st.file_uploader("2. Balance Comprobación (PDF)", type=['pdf'])
+        f_hab = st.file_uploader("5. Reporte Haberes (Excel)", type=['xlsx'])
+    with col2:
+        f_v_me = st.file_uploader("3. Viajes ME (Excel)", type=['xlsx'])
+        f_v_bs = st.file_uploader("4. Viajes Bs (Excel)", type=['xlsx'])
+        
+    c_tasa1, c_tasa2, c_emp = st.columns(3)
+    tasa_bcv = c_tasa1.number_input("Tasa BCV", value=1.0)
+    tasa_corp = c_tasa2.number_input("Tasa CORP", value=1.0)
+    empresa = c_emp.selectbox("Empresa", ["FEBECA", "BEVAL"])
+    
+    if st.button("Calcular Ajustes", type="primary"):
+        try:
+            from logic import procesar_ajustes_balance_usd
+            from utils import generar_reporte_ajustes_usd
+            log = []
+            
+            # 1. Llamada con 4 variables de retorno
+                df_res, df_banc, df_asiento, df_raw = procesar_ajustes_balance_usd(
+                    f_cb, f_cg, f_v_me, f_v_bs, f_hab, tasa_bcv, tasa_corp, log
+                )
+                
+                st.success("✅ Ajustes Calculados")
+                if not df_asiento.empty:
+                    st.dataframe(df_asiento)
+                
+                # 2. Generación del Excel pasando df_raw
+                excel = generar_reporte_ajustes_usd(df_res, df_banc, df_asiento, df_raw, empresa)
+                
+                st.download_button("⬇️ Descargar Reporte", excel, "Ajustes_Balance_USD.xlsx")
+            
+        except Exception as e:
+            mostrar_error_amigable(e, "Ajustes USD")
+
 # ==============================================================================
 # FLUJO PRINCIPAL DE LA APLICACIÓN (ROUTER)
 # ==============================================================================
