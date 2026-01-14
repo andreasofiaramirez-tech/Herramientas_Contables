@@ -4294,34 +4294,34 @@ def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
     
     if progress_bar: progress_bar.progress(0.6, text="Fase 2 completada.")
 
-    # --- FASE 3: DESCUADRES POR REFERENCIA (NUEVO) ---
-    # Buscamos movimientos que tienen la misma referencia pero NO suman cero.
-    # Ej: Compra 1535136 (+533.526,67 y -533.527,26 -> Dif -0.59)
+    # --- FASE 3: DESCUADRES POR REFERENCIA (MEJORADA) ---
+    # Buscamos movimientos con misma referencia que tengan DEBITOS Y CREDITOS.
+    # Si solo tiene un lado, se deja para Pendientes.
     
     df_pendientes = df[~df.index.isin(indices_usados)].copy()
     count_fase3 = 0
     
-    if 'Referencia' in df_pendientes.columns:
-        # Normalizamos referencia para agrupar mejor
-        df_pendientes['Ref_Norm'] = df_pendientes['Referencia'].astype(str).str.strip().str.upper()
-        
+    if 'Ref_Norm' in df_pendientes.columns:
         for ref, grupo in df_pendientes.groupby('Ref_Norm'):
             if ref == 'NAN' or ref == '' or len(grupo) < 2: continue
             
-            # Si hay 2 o más con la misma referencia, los agrupamos aunque no cuadren
-            indices_grupo = grupo.index
-            df.loc[indices_grupo, 'Estado_Cofersa'] = 'REF_DESCUADRE'
-            indices_usados.update(indices_grupo)
-            count_fase3 += len(indices_grupo)
+            # Condición clave: ¿Tiene ambos signos?
+            tiene_debito = (grupo['Neto Local'] > 0.001).any()
+            tiene_credito = (grupo['Neto Local'] < -0.001).any()
             
-    log_messages.append(f"⚠️ Fase 3 (Descuadres por Ref): {count_fase3} movimientos agrupados.")
+            if tiene_debito and tiene_credito:
+                indices_grupo = grupo.index
+                df.loc[indices_grupo, 'Estado_Cofersa'] = 'REF_DESCUADRE'
+                indices_usados.update(indices_grupo)
+                count_fase3 += len(indices_grupo)
+            
+    log_messages.append(f"⚠️ Fase 3 (Descuadres Mixtos): {count_fase3} movimientos.")
     if progress_bar: progress_bar.progress(0.9, text="Fase 3 completada.")
 
     # --- FASE 4: PENDIENTES FINALES ---
-    # Lo que queda son movimientos huérfanos (referencia única sin pareja)
     remanentes = len(df) - len(indices_usados)
-    log_messages.append(f"ℹ️ Pendientes Reales: {remanentes} movimientos.")
+    log_messages.append(f"ℹ️ Pendientes Reales (Unilaterales/Huérfanos): {remanentes} movimientos.")
     
-    df['Conciliado'] = df['Estado_Cofersa'] != 'PENDIENTE' # Para lógica global
-    
+    df['Conciliado'] = df['Estado_Cofersa'] != 'PENDIENTE'
+
     return df
