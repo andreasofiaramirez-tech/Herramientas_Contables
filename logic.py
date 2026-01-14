@@ -3957,20 +3957,26 @@ def extraer_saldos_cg_ajustes(archivo, log_messages):
 
 # 3. MOTOR PRINCIPAL
 def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, f_haberes, tasa_bcv, tasa_corp, log):
-    """Motor de cálculo de ajustes (Bancos + Viajes + Haberes + Saldos Contrarios)."""
+    """
+    Motor principal de Ajustes USD.
+    MEJORA: Cálculo detallado de la Hoja de Bancos y Validación de Ajustes.
+    """
     log.append("--- INICIANDO CÁLCULO DE AJUSTES (USD) ---")
     
     asientos = [] 
     resumen_ajustes = [] 
-    df_bancos_audit = pd.DataFrame()
     df_balance_raw = pd.DataFrame()
+    
+    # Variables de Validación (Hoja 1)
+    # Sumaremos aquí solo los montos de los AJUSTES
+    val_activo_ajuste = 0.0
+    val_pasivo_ajuste = 0.0
 
     # --- PASO 0: CAPTURA DE DATA ORIGINAL ---
     if f_balance:
         try:
             f_balance.seek(0)
             if f_balance.name.lower().endswith('.pdf'):
-                # Para PDF no podemos guardar raw fácilmente en excel, ponemos placeholder
                 df_balance_raw = pd.DataFrame(["Contenido Original PDF"], columns=["DATA"])
             else:
                 df_balance_raw = pd.read_excel(f_balance, header=None)
@@ -3978,69 +3984,127 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
         except: pass
 
     # 1. CARGAR BALANCE (CG)
-    datos_cg = extraer_saldos_cg_ajustes(f_balance, log) # <--- USAMOS LA NUEVA FUNCIÓN
+    datos_cg = extraer_saldos_cg_ajustes(f_balance, log) # Usa la función exclusiva para ajustes
     
-    if datos_cg:
-        log.append(f"✅ Balance procesado: {len(datos_cg)} cuentas identificadas.")
-    else:
-        log.append("❌ ALERTA: No se pudieron extraer cuentas del Balance.")
-        
-    # 2. PROCESAR BANCOS
+    # 2. PROCESAR BANCOS (CÁLCULO DETALLADO PARA HOJA 2)
+    lista_bancos_reporte = []
+    
     if f_bancos:
         try:
             df_b = pd.read_excel(f_bancos)
-            df_b.columns = [str(c).strip().upper() for c in df_b.columns]
+            df_b.columns = [str(c).strip().upper().replace('\n', ' ') for c in df_b.columns]
             
-            # Buscar fila de encabezado real si no está en la 1
-            if 'CUENTA CONTABLE' not in df_b.columns:
-                # Búsqueda simple en primeras filas
-                # (Implementación simplificada, asume formato estándar o fila 4)
-                df_b = pd.read_excel(f_bancos, header=3) # Fila 4
-                df_b.columns = [str(c).strip().upper().replace('\n', ' ') for c in df_b.columns]
-
+            # Mapeo de columnas del archivo de entrada
             col_no_conc = next((c for c in df_b.columns if "BANCOS" in c and "CONCILIADOS" in c), None)
             col_cta = next((c for c in df_b.columns if "CUENTA CONTABLE" in c), None)
             col_tipo = next((c for c in df_b.columns if "TIPO" in c), None)
-            
+            col_desc = next((c for c in df_b.columns if "DESCRIPCI" in c), None)
+            col_nro = next((c for c in df_b.columns if "NRO" in c), None)
+            col_banc = next((c for c in df_b.columns if "BANCARIA" in c), None)
+            col_f_ini = next((c for c in df_b.columns if "INICIAL" in c), None)
+            col_f_fin = next((c for c in df_b.columns if "FINAL" in c), None)
+            col_sal_lib = next((c for c in df_b.columns if "SALDO" in c and "LIBROS" in c), None)
+            col_sal_bco = next((c for c in df_b.columns if "SALDO" in c and "BANCOS" in c), None)
+            col_est = next((c for c in df_b.columns if "ESTADO" in c), None)
+
             if col_no_conc and col_cta:
-                df_bancos_audit = df_b.copy()
-                count_bancos = 0
                 for _, row in df_b.iterrows():
+                    # Extracción de datos básicos
                     cta = str(row[col_cta]).strip()
                     tipo = str(row[col_tipo]).strip().upper() if col_tipo else "L"
+                    desc_banco = row[col_desc] if col_desc else ""
+                    
                     try: monto_nc = float(row[col_no_conc])
                     except: monto_nc = 0.0
                     
-                    if monto_nc != 0:
-                        # Regla 1: Bancos
-                        if tipo == 'E': ajuste_usd = monto_nc
-                        else: ajuste_usd = monto_nc / tasa_corp if tasa_corp else 0
+                    try: s_lib_orig = float(row[col_sal_lib])
+                    except: s_lib_orig = 0.0
+                    
+                    try: s_bco_orig = float(row[col_sal_bco])
+                    except: s_bco_orig = 0.0
 
-                        desc = datos_cg.get(cta, {}).get('descripcion', 'Banco')
+                    # --- LÓGICA DE CÁLCULO DE LA IMAGEN ---
+                    if tipo in ['E', 'C']: # Moneda Extranjera
+                        tasa_ref = tasa_bcv
+                        # En cuentas E, el saldo original ya está en USD? 
+                        # Según tu imagen, parece que para E: Saldo Libros y Bancos BS se multiplica.
+                        # Asumiremos que el archivo de entrada trae montos en su moneda natural.
+                        
+                        s_lib_bs = s_lib_orig * tasa_bcv
+                        s_bco_bs = s_bco_orig * tasa_bcv
+                        s_lib_usd = s_lib_orig
+                        s_bco_usd = s_bco_orig
+                        
+                        ajuste_bs = monto_nc * tasa_bcv
+                        ajuste_usd = monto_nc
+                        
+                    else: # Moneda Local (L)
+                        tasa_ref = tasa_corp
+                        
+                        s_lib_bs = s_lib_orig
+                        s_bco_bs = s_bco_orig
+                        s_lib_usd = s_lib_orig / tasa_corp if tasa_corp else 0
+                        s_bco_usd = s_bco_orig / tasa_corp if tasa_corp else 0
+                        
+                        ajuste_bs = monto_nc
+                        ajuste_usd = monto_nc / tasa_corp if tasa_corp else 0
+                    
+                    # Verificación (Debe tender a 0)
+                    verificacion = (s_lib_usd + ajuste_usd) - s_bco_usd
+
+                    # Guardar fila para el reporte de Bancos (Hoja 2)
+                    lista_bancos_reporte.append({
+                        'TIP': tipo, 'Cuenta Contable': cta, 'Descripción': desc_banco,
+                        'Nro. De Cuenta': row[col_nro] if col_nro else '',
+                        'Cuenta Bancaria': row[col_banc] if col_banc else '',
+                        'Fecha Inicial': row[col_f_ini] if col_f_ini else '',
+                        'Fecha Final': row[col_f_fin] if col_f_fin else '',
+                        'Saldo en Libros': s_lib_orig,
+                        'Saldo en Bancos': s_bco_orig,
+                        'Estado': row[col_est] if col_est else '',
+                        'Movimientos en Libros no Conciliados': 0, # Placeholder según imagen
+                        'Movimientos en Bancos no Conciliados': monto_nc,
+                        
+                        # Columnas Calculadas
+                        'Saldo en Libros BS': s_lib_bs,
+                        'Saldo en Bancos BS': s_bco_bs,
+                        'Saldo en Libros $': s_lib_usd,
+                        'Saldo en Bancos $': s_bco_usd,
+                        'AJUSTE BS': ajuste_bs,
+                        'AJUSTE $': ajuste_usd,
+                        'TASA': tasa_ref,
+                        'VERIFICACION': verificacion
+                    })
+                    
+                    # --- GENERAR ASIENTO Y RESUMEN ---
+                    if abs(ajuste_usd) > 0.001:
+                        desc_cg = datos_cg.get(cta, {}).get('descripcion', 'Banco')
                         saldo_cg_usd = datos_cg.get(cta, {}).get('USD', 0.0)
                         
+                        # Acumulamos validación (Bancos son Activos 1.)
+                        val_activo_ajuste += ajuste_usd
+                        
                         resumen_ajustes.append({
-                            'Cuenta': cta, 'Descripción': desc, 'Origen': 'Bancos',
+                            'Cuenta': cta, 'Descripción': desc_cg, 'Origen': 'Bancos',
                             'Saldo Actual USD': saldo_cg_usd, 'Ajuste USD': ajuste_usd,
-                            'Saldo Final USD': saldo_cg_usd + ajuste_usd, 'Tasa': tasa_corp if tipo != 'E' else 1
+                            'Saldo Final USD': saldo_cg_usd + ajuste_usd
                         })
                         
-                        # Asiento Bancos (Contra Deudores Comerciales)
+                        # Asiento
                         if ajuste_usd > 0:
-                            asientos.append({'Cuenta': cta, 'Desc': desc, 'DebeUSD': ajuste_usd, 'HaberUSD': 0})
-                            asientos.append({'Cuenta': '1.1.3.01.1.001', 'Desc': 'Deudores Comerciales', 'DebeUSD': 0, 'HaberUSD': ajuste_usd})
+                            asientos.append({'Cuenta': cta, 'Desc': desc_cg, 'DebeUSD': ajuste_usd, 'HaberUSD': 0})
+                            asientos.append({'Cuenta': '1.1.3.01.1.001', 'Desc': 'Deudores Comerciales (Ajuste Bco)', 'DebeUSD': 0, 'HaberUSD': ajuste_usd})
                         else:
                             m = abs(ajuste_usd)
-                            asientos.append({'Cuenta': '1.1.3.01.1.001', 'Desc': 'Deudores Comerciales', 'DebeUSD': m, 'HaberUSD': 0})
-                            asientos.append({'Cuenta': cta, 'Desc': desc, 'DebeUSD': 0, 'HaberUSD': m})
-                        count_bancos += 1
-                log.append(f"✅ Bancos: {count_bancos} ajustes generados.")
-            else:
-                log.append(f"❌ Error Bancos: Columnas no encontradas.")
-        except Exception as e: log.append(f"❌ Error Bancos: {e}")
+                            asientos.append({'Cuenta': '1.1.3.01.1.001', 'Desc': 'Deudores Comerciales (Ajuste Bco)', 'DebeUSD': m, 'HaberUSD': 0})
+                            asientos.append({'Cuenta': cta, 'Desc': desc_cg, 'DebeUSD': 0, 'HaberUSD': m})
+
+        except Exception as e: log.append(f"❌ Error procesando Bancos: {e}")
+
+    df_bancos_final = pd.DataFrame(lista_bancos_reporte)
 
     # 3. PROCESAR VIAJES
-    # A. Viajes ME (1.1.4.03.6.002)
+    # A. Viajes ME
     if f_viajes_me:
         try:
             saldo_real_me = leer_saldo_viajes(f_viajes_me, "SALDO $")
@@ -4049,21 +4113,21 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
             ajuste_me = saldo_real_me - saldo_cg_me
             
             if abs(ajuste_me) > 0.01:
-                desc = datos_cg.get(cta_me, {}).get('descripcion', 'Viajes ME')
-                resumen_ajustes.append({'Cuenta': cta_me, 'Descripción': desc, 'Origen': 'Viajes ME', 'Saldo Actual USD': saldo_cg_me, 'Ajuste USD': ajuste_me, 'Saldo Final USD': saldo_real_me, 'Tasa': 1})
+                val_activo_ajuste += ajuste_me # Viajes es Activo
+                desc_me = datos_cg.get(cta_me, {}).get('descripcion', 'Viajes ME')
+                resumen_ajustes.append({'Cuenta': cta_me, 'Descripción': desc_me, 'Origen': 'Viajes ME', 'Saldo Actual USD': saldo_cg_me, 'Ajuste USD': ajuste_me, 'Saldo Final USD': saldo_real_me})
                 
-                # Asiento (Contra Gastos Estimados ME)
                 contra = '2.1.2.09.6.900'
                 if ajuste_me > 0:
-                    asientos.append({'Cuenta': cta_me, 'Desc': desc, 'DebeUSD': ajuste_me, 'HaberUSD': 0})
+                    asientos.append({'Cuenta': cta_me, 'Desc': desc_me, 'DebeUSD': ajuste_me, 'HaberUSD': 0})
                     asientos.append({'Cuenta': contra, 'Desc': 'Gastos Est. ME', 'DebeUSD': 0, 'HaberUSD': ajuste_me})
                 else:
                     m = abs(ajuste_me)
                     asientos.append({'Cuenta': contra, 'Desc': 'Gastos Est. ME', 'DebeUSD': m, 'HaberUSD': 0})
-                    asientos.append({'Cuenta': cta_me, 'Desc': desc, 'DebeUSD': 0, 'HaberUSD': m})
+                    asientos.append({'Cuenta': cta_me, 'Desc': desc_me, 'DebeUSD': 0, 'HaberUSD': m})
         except: pass
 
-    # B. Viajes BS (1.1.4.03.1.002)
+    # B. Viajes BS
     if f_viajes_bs:
         try:
             saldo_real_bs = leer_saldo_viajes(f_viajes_bs, "SALDO BS")
@@ -4073,18 +4137,18 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
             ajuste_bs = saldo_real_usd_conv - saldo_cg_bs_en_usd
             
             if abs(ajuste_bs) > 0.01:
-                desc = datos_cg.get(cta_bs, {}).get('descripcion', 'Viajes Bs')
-                resumen_ajustes.append({'Cuenta': cta_bs, 'Descripción': desc, 'Origen': 'Viajes Bs', 'Saldo Actual USD': saldo_cg_bs_en_usd, 'Ajuste USD': ajuste_bs, 'Saldo Final USD': saldo_real_usd_conv, 'Tasa': tasa_corp})
+                val_activo_ajuste += ajuste_bs
+                desc_bs = datos_cg.get(cta_bs, {}).get('descripcion', 'Viajes Bs')
+                resumen_ajustes.append({'Cuenta': cta_bs, 'Descripción': desc_bs, 'Origen': 'Viajes Bs', 'Saldo Actual USD': saldo_cg_bs_en_usd, 'Ajuste USD': ajuste_bs, 'Saldo Final USD': saldo_real_usd_conv})
                 
-                # Asiento (Contra Gastos Estimados)
                 contra = '2.1.2.09.1.900'
                 if ajuste_bs > 0:
-                    asientos.append({'Cuenta': cta_bs, 'Desc': desc, 'DebeUSD': ajuste_bs, 'HaberUSD': 0})
+                    asientos.append({'Cuenta': cta_bs, 'Desc': desc_bs, 'DebeUSD': ajuste_bs, 'HaberUSD': 0})
                     asientos.append({'Cuenta': contra, 'Desc': 'Gastos Est.', 'DebeUSD': 0, 'HaberUSD': ajuste_bs})
                 else:
                     m = abs(ajuste_bs)
                     asientos.append({'Cuenta': contra, 'Desc': 'Gastos Est.', 'DebeUSD': m, 'HaberUSD': 0})
-                    asientos.append({'Cuenta': cta_bs, 'Desc': desc, 'DebeUSD': 0, 'HaberUSD': m})
+                    asientos.append({'Cuenta': cta_bs, 'Desc': desc_bs, 'DebeUSD': 0, 'HaberUSD': m})
         except: pass
 
     # 4. PROCESAR HABERES
@@ -4092,45 +4156,49 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
         try:
             monto_haberes = leer_saldo_haberes_negativos(f_haberes)
             if monto_haberes > 0:
+                # El ajuste aumenta el pasivo (Crédito Haberes), por lo que el "Ajuste" es positivo para el pasivo.
+                # Como la regla de validación suma ajustes positivos, sumamos aquí.
+                val_pasivo_ajuste += monto_haberes 
+                
                 cta_hab = '2.1.2.05.1.108'
                 desc_hab = datos_cg.get(cta_hab, {}).get('descripcion', 'Haberes Clientes')
                 
-                # Asiento (Debe CxC, Haber Haberes)
                 asientos.append({'Cuenta': '1.1.3.01.1.001', 'Desc': 'Deudores Comerciales', 'DebeUSD': monto_haberes, 'HaberUSD': 0})
                 asientos.append({'Cuenta': cta_hab, 'Desc': desc_hab, 'DebeUSD': 0, 'HaberUSD': monto_haberes})
                 
-                resumen_ajustes.append({'Cuenta': cta_hab, 'Descripción': desc_hab, 'Origen': 'Haberes', 'Saldo Actual USD': datos_cg.get(cta_hab, {}).get('USD', 0), 'Ajuste USD': monto_haberes, 'Saldo Final USD': 'N/A', 'Tasa': 1})
+                resumen_ajustes.append({'Cuenta': cta_hab, 'Descripción': desc_hab, 'Origen': 'Haberes', 'Saldo Actual USD': datos_cg.get(cta_hab, {}).get('USD', 0), 'Ajuste USD': monto_haberes, 'Saldo Final USD': 'N/A'})
         except: pass
 
     # 5. SALDOS CONTRARIOS
     log.append("🔄 Analizando saldos contrarios...")
-    procesados_contrario = set()
+    cuentas_procesadas_contrario = set()
     
     for cta, data in datos_cg.items():
-        if cta in procesados_contrario: continue
+        if cta in cuentas_procesadas_contrario: continue
         saldo_usd = data['USD']
         
-        # Si es negativo, hay que ajustarlo
         if saldo_usd < -0.01:
             ajuste_necesario = abs(saldo_usd)
             contrapartida = MAPEO_SALDOS_CONTRARIOS.get(cta)
             
-            # Caso Nómina (7.1.1...)
             if not contrapartida and cta.startswith('7.1.1'):
                 contrapartida = '2.1.2.09.1.006'
             
             if contrapartida:
+                # Validación Activo/Pasivo
+                if cta.startswith('1.'): val_activo_ajuste += ajuste_necesario
+                elif cta.startswith('2.'): val_pasivo_ajuste += ajuste_necesario
+                
                 desc = data['descripcion']
                 desc_contra = datos_cg.get(contrapartida, {}).get('descripcion', 'Contrapartida')
                 
-                # Asiento: Debitar la cuenta negativa para dejarla en 0
                 asientos.append({'Cuenta': cta, 'Desc': desc, 'DebeUSD': ajuste_necesario, 'HaberUSD': 0})
                 asientos.append({'Cuenta': contrapartida, 'Desc': desc_contra, 'DebeUSD': 0, 'HaberUSD': ajuste_necesario})
                 
-                resumen_ajustes.append({'Cuenta': cta, 'Descripción': desc, 'Origen': 'Saldo Contrario', 'Saldo Actual USD': saldo_usd, 'Ajuste USD': ajuste_necesario, 'Saldo Final USD': 0.00, 'Tasa': 1})
-                procesados_contrario.add(cta)
+                resumen_ajustes.append({'Cuenta': cta, 'Descripción': desc, 'Origen': 'Saldo Contrario', 'Saldo Actual USD': saldo_usd, 'Ajuste USD': ajuste_necesario, 'Saldo Final USD': 0.00})
+                cuentas_procesadas_contrario.add(cta)
 
-    # 6. COMPILAR
+    # 6. COMPILAR Y AGREGAR DATOS DE VALIDACIÓN AL DF RESUMEN
     df_asiento = pd.DataFrame(asientos)
     if not df_asiento.empty:
         if tasa_bcv > 0:
@@ -4138,5 +4206,14 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
             df_asiento['Crédito VES'] = (df_asiento['HaberUSD'] * tasa_bcv).round(2)
         else:
             df_asiento['Débito VES'] = 0; df_asiento['Crédito VES'] = 0
+            
+    # Empaquetamos la validación en un diccionario extra para pasarlo al reporte
+    # (Lo metemos en una lista porque utils espera dataframes o valores)
+    validacion_data = {
+        'total_ajuste_activo': val_activo_ajuste,
+        'total_ajuste_pasivo': val_pasivo_ajuste,
+        'tasa_bcv': tasa_bcv,
+        'tasa_corp': tasa_corp
+    }
 
-    return pd.DataFrame(resumen_ajustes), df_bancos_audit, df_asiento, df_balance_raw
+    return pd.DataFrame(resumen_ajustes), df_bancos_final, df_asiento, df_balance_raw, validacion_data
