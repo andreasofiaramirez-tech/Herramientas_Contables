@@ -4230,12 +4230,12 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
 def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
     """
     Conciliación para Envíos en Tránsito COFERSA (Moneda Local).
-    Fase 1 y 2: Tolerancia ampliada a +/- 100.00.
+    MEJORA FASE 1: Agrupa por parte entera para permitir diferencias de céntimos.
     """
     log_messages.append("\n--- INICIANDO CONCILIACIÓN ENVIOS COFERSA (VES) ---")
     
-    # Tolerancia definida
-    TOLERANCIA_COFERSA = 100.00
+    # Tolerancia definida (Para cubrir el 0.01)
+    TOLERANCIA_COFERSA = 100.00 # Mantenemos el margen de 100 que pediste antes
 
     # 1. Normalización y Cálculos
     if 'Neto Local' not in df.columns:
@@ -4254,42 +4254,48 @@ def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
     indices_usados = set()
     total_conciliados = 0
 
-    # --- FASE 1: PARES 1 A 1 (Tolerancia 100) ---
+    # --- FASE 1: PARES 1 A 1 (INTELIGENTE) ---
     df_pool = df.copy()
-    df_pool['Abs_Local'] = df_pool['Neto Local'].abs()
     
-    # Nota: Al haber tolerancia amplia, el agrupamiento por 'Abs_Local' exacto 
-    # podría perder pares que difieren en monto (ej: 500 vs -550).
-    # Sin embargo, para mantener el algoritmo rápido, mantenemos el agrupamiento 
-    # asumiendo que la diferencia es pequeña o el usuario busca anular montos similares.
-    # Si se requiere cruzar montos distintos (500 vs -400), se requeriría otra lógica (n^2).
-    # Por ahora aplicamos la tolerancia a la suma de los pares encontrados.
+    # TRUCO: Agrupamos por la parte ENTERA del valor absoluto.
+    # Así 15.748.936,08 y 15.748.936,09 caen en el mismo grupo.
+    df_pool['Abs_Int'] = df_pool['Neto Local'].abs().astype(int)
     
-    for monto, grupo in df_pool.groupby('Abs_Local'):
-        if monto <= 0.01 or len(grupo) < 2: continue
+    for monto_int, grupo in df_pool.groupby('Abs_Int'):
+        # Ignoramos montos cero y grupos solitarios
+        if monto_int == 0 or len(grupo) < 2: continue
         
         positivos = grupo[grupo['Neto Local'] > 0].index.tolist()
         negativos = grupo[grupo['Neto Local'] < 0].index.tolist()
         
-        pares_posibles = min(len(positivos), len(negativos))
-        for i in range(pares_posibles):
-            idx_pos = positivos[i]
-            idx_neg = negativos[i]
+        # Iteramos para buscar parejas que cuadren dentro de la tolerancia
+        # Usamos un while para poder remover dinámicamente
+        while positivos and negativos:
+            idx_pos = positivos.pop(0)
+            match_found = False
             
-            if idx_pos not in indices_usados and idx_neg not in indices_usados:
+            # Buscamos su pareja ideal en los negativos
+            for i, idx_neg in enumerate(negativos):
                 suma = df.loc[idx_pos, 'Neto Local'] + df.loc[idx_neg, 'Neto Local']
                 
-                # --- CAMBIO: TOLERANCIA 100 ---
+                # Verificamos si la diferencia es aceptable (ej: 0.01 <= 100)
                 if abs(suma) <= TOLERANCIA_COFERSA:
                     df.loc[[idx_pos, idx_neg], 'Estado_Cofersa'] = 'PARES_1_A_1'
                     indices_usados.add(idx_pos)
                     indices_usados.add(idx_neg)
                     total_conciliados += 2
+                    
+                    # Lo sacamos de la lista de negativos disponibles
+                    negativos.pop(i)
+                    match_found = True
+                    break
+            
+            # Si no encontró pareja, el idx_pos se descarta (ya salió del pop)
 
-    log_messages.append(f"✔️ Fase 1 (Pares +/- 100): {total_conciliados} movimientos cruzados.")
+    log_messages.append(f"✔️ Fase 1 (Pares Aprox): {total_conciliados} movimientos cruzados.")
     if progress_bar: progress_bar.progress(0.4, text="Fase 1 completada.")
 
-    # --- FASE 2: CRUCE POR TIPO (Tolerancia 100) ---
+    # --- FASE 2: CRUCE POR TIPO (ESTRICTO) ---
     df_pendientes = df[~df.index.isin(indices_usados)].copy()
     
     if 'Tipo' in df_pendientes.columns:
@@ -4301,14 +4307,14 @@ def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
             
             suma_grupo = grupo['Neto Local'].sum().round(2)
             
-            # --- CAMBIO: TOLERANCIA 100 ---
+            # Tolerancia aplicada también a grupos por Tipo
             if abs(suma_grupo) <= TOLERANCIA_COFERSA:
                 indices_grupo = grupo.index
                 df.loc[indices_grupo, 'Estado_Cofersa'] = 'CRUCE_POR_TIPO'
                 indices_usados.update(indices_grupo)
                 count_fase2 += len(indices_grupo)
         
-        log_messages.append(f"✔️ Fase 2 (Tipos +/- 100): {count_fase2} movimientos cruzados.")
+        log_messages.append(f"✔️ Fase 2 (Cruce por Tipo): {count_fase2} movimientos cruzados.")
     
     if progress_bar: progress_bar.progress(0.8, text="Fase 2 completada.")
 
