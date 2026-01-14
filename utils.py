@@ -2147,11 +2147,8 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
 
 def generar_reporte_cofersa(df_procesado):
     """
-    Genera el reporte COFERSA con 4 hojas.
-    1. Pares 1 a 1
-    2. Cruce por Tipos
-    3. Descuadres por Referencia (NUEVA)
-    4. Pendientes (Huérfanos)
+    Genera el reporte específico para Envios COFERSA con 4 hojas.
+    Incluye TOTALES al final de las hojas de listado.
     """
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
@@ -2160,9 +2157,11 @@ def generar_reporte_cofersa(df_procesado):
         # Estilos
         header_fmt = workbook.add_format({'bold': True, 'fg_color': '#D9EAD3', 'border': 1, 'align': 'center'})
         money_fmt = workbook.add_format({'num_format': '#,##0.00', 'border': 1})
+        text_fmt = workbook.add_format({'border': 1})
+        
+        # Estilos para Totales
         total_fmt = workbook.add_format({'bold': True, 'bg_color': '#F2F2F2', 'num_format': '#,##0.00', 'border': 1})
         label_fmt = workbook.add_format({'bold': True, 'bg_color': '#F2F2F2', 'border': 1, 'align': 'right'})
-        # Estilo rojo para la diferencia
         diff_fmt = workbook.add_format({'bold': True, 'bg_color': '#FFC7CE', 'num_format': '#,##0.00', 'border': 1})
 
         cols_output = [
@@ -2172,6 +2171,9 @@ def generar_reporte_cofersa(df_procesado):
             'Nit', 'Descripción Nit'
         ]
         
+        # Índices de columnas numéricas para sumar (6 a 11)
+        idx_nums = range(6, 12)
+
         # --- HOJA 1: PARES 1 A 1 ---
         df_f1 = df_procesado[df_procesado['Estado_Cofersa'] == 'PARES_1_A_1'].copy()
         ws1 = workbook.add_worksheet('1. Pares 1 a 1')
@@ -2182,10 +2184,20 @@ def generar_reporte_cofersa(df_procesado):
         for _, data in df_f1.iterrows():
             for i, col in enumerate(cols_output):
                 val = data.get(col, '')
-                fmt = money_fmt if i >= 6 and i <= 11 else workbook.add_format({'border': 1})
+                fmt = money_fmt if i in idx_nums else text_fmt
                 if 'Fecha' in col: val = str(val)[:10]
-                ws1.write(row, i, val, fmt)
+                
+                if i in idx_nums: ws1.write_number(row, i, float(val) if pd.notna(val) else 0, fmt)
+                else: ws1.write(row, i, val, fmt)
             row += 1
+            
+        # TOTALES HOJA 1
+        ws1.write(row, 5, "TOTALES:", label_fmt)
+        for i in idx_nums:
+            col_name = cols_output[i]
+            suma = df_f1[col_name].sum()
+            ws1.write_number(row, i, suma, total_fmt)
+            
         ws1.set_column('A:N', 15)
 
         # --- HOJA 2: CRUCE POR TIPOS ---
@@ -2199,39 +2211,49 @@ def generar_reporte_cofersa(df_procesado):
         for _, data in df_f2.iterrows():
             for i, col in enumerate(cols_output):
                 val = data.get(col, '')
-                fmt = money_fmt if i >= 6 and i <= 11 else workbook.add_format({'border': 1})
+                fmt = money_fmt if i in idx_nums else text_fmt
                 if 'Fecha' in col: val = str(val)[:10]
-                ws2.write(row, i, val, fmt)
+                
+                if i in idx_nums: ws2.write_number(row, i, float(val) if pd.notna(val) else 0, fmt)
+                else: ws2.write(row, i, val, fmt)
             row += 1
+
+        # TOTALES HOJA 2
+        ws2.write(row, 5, "TOTALES:", label_fmt)
+        for i in idx_nums:
+            col_name = cols_output[i]
+            suma = df_f2[col_name].sum()
+            ws2.write_number(row, i, suma, total_fmt)
+
         ws2.set_column('A:N', 15)
 
-        # --- HOJA 3: DESCUADRES POR REFERENCIA (NUEVA) ---
+        # --- HOJA 3: DESCUADRES POR REFERENCIA ---
         df_f3 = df_procesado[df_procesado['Estado_Cofersa'] == 'REF_DESCUADRE'].copy()
-        df_f3.sort_values(by=['Referencia', 'Fecha'], inplace=True)
+        df_f3.sort_values(by=['Ref_Norm', 'Fecha'], inplace=True) # Usamos Ref_Norm para agrupar
         
         ws3 = workbook.add_worksheet('3. Descuadres x Ref')
         ws3.hide_gridlines(2)
         ws3.write_row(0, 0, cols_output, header_fmt)
         
         row = 1
-        # Agrupamos visualmente para mostrar la diferencia
-        for ref, grupo in df_f3.groupby('Referencia'):
+        for ref, grupo in df_f3.groupby('Ref_Norm'):
             subtotal_neto = 0
             for _, data in grupo.iterrows():
                 subtotal_neto += data.get('Neto Local', 0)
                 for i, col in enumerate(cols_output):
                     val = data.get(col, '')
-                    fmt = money_fmt if i >= 6 and i <= 11 else workbook.add_format({'border': 1})
+                    fmt = money_fmt if i in idx_nums else text_fmt
                     if 'Fecha' in col: val = str(val)[:10]
-                    ws3.write(row, i, val, fmt)
+                    
+                    if i in idx_nums: ws3.write_number(row, i, float(val) if pd.notna(val) else 0, fmt)
+                    else: ws3.write(row, i, val, fmt)
                 row += 1
             
-            # Fila de Diferencia
-            ws3.write(row, 5, "DIFERENCIA:", label_fmt) # Col Referencia
-            # Escribimos la diferencia en Neto Local (Col 8)
-            ws3.write(row, 8, subtotal_neto, diff_fmt)
-            row += 2 # Espacio entre grupos
-            
+            # Fila de Diferencia (Subtotal visual)
+            ws3.write(row, 5, "DIFERENCIA:", label_fmt)
+            ws3.write(row, 8, subtotal_neto, diff_fmt) # Columna Neto Local (Indice 8)
+            row += 2
+
         ws3.set_column('A:N', 15)
 
         # --- HOJA 4: PENDIENTES (HUÉRFANOS) ---
@@ -2244,10 +2266,20 @@ def generar_reporte_cofersa(df_procesado):
         for _, data in df_f4.iterrows():
             for i, col in enumerate(cols_output):
                 val = data.get(col, '')
-                fmt = money_fmt if i >= 6 and i <= 11 else workbook.add_format({'border': 1})
+                fmt = money_fmt if i in idx_nums else text_fmt
                 if 'Fecha' in col: val = str(val)[:10]
-                ws4.write(row, i, val, fmt)
+                
+                if i in idx_nums: ws4.write_number(row, i, float(val) if pd.notna(val) else 0, fmt)
+                else: ws4.write(row, i, val, fmt)
             row += 1
+            
+        # TOTALES HOJA 4
+        ws4.write(row, 5, "TOTAL PENDIENTE:", label_fmt)
+        for i in idx_nums:
+            col_name = cols_output[i]
+            suma = df_f4[col_name].sum()
+            ws4.write_number(row, i, suma, total_fmt)
+            
         ws4.set_column('A:N', 15)
 
     return output.getvalue()
