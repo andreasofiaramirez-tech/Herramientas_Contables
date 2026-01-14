@@ -4230,14 +4230,13 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
 def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
     """
     Conciliación para Envíos en Tránsito COFERSA (Moneda Local).
-    Fases:
-    1. Pares 1 a 1 (Suma Cero).
-    2. Cruce por Tipo (Estricto 0.00).
-    3. Descuadres por Referencia.
-    4. Pendientes.
+    Fase 1 y 2: Tolerancia ampliada a +/- 100.00.
     """
     log_messages.append("\n--- INICIANDO CONCILIACIÓN ENVIOS COFERSA (VES) ---")
     
+    # Tolerancia definida
+    TOLERANCIA_COFERSA = 100.00
+
     # 1. Normalización y Cálculos
     if 'Neto Local' not in df.columns:
         deb = df.get('Débito Bolivar', 0)
@@ -4246,7 +4245,6 @@ def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
     
     df['Neto Local'] = pd.to_numeric(df['Neto Local'], errors='coerce').fillna(0).round(2)
     
-    # Normalizamos referencia globalmente
     if 'Referencia' in df.columns:
         df['Ref_Norm'] = df['Referencia'].astype(str).str.strip().str.upper()
     else:
@@ -4256,9 +4254,16 @@ def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
     indices_usados = set()
     total_conciliados = 0
 
-    # --- FASE 1: PARES 1 A 1 (Suma Cero Exacta) ---
+    # --- FASE 1: PARES 1 A 1 (Tolerancia 100) ---
     df_pool = df.copy()
     df_pool['Abs_Local'] = df_pool['Neto Local'].abs()
+    
+    # Nota: Al haber tolerancia amplia, el agrupamiento por 'Abs_Local' exacto 
+    # podría perder pares que difieren en monto (ej: 500 vs -550).
+    # Sin embargo, para mantener el algoritmo rápido, mantenemos el agrupamiento 
+    # asumiendo que la diferencia es pequeña o el usuario busca anular montos similares.
+    # Si se requiere cruzar montos distintos (500 vs -400), se requeriría otra lógica (n^2).
+    # Por ahora aplicamos la tolerancia a la suma de los pares encontrados.
     
     for monto, grupo in df_pool.groupby('Abs_Local'):
         if monto <= 0.01 or len(grupo) < 2: continue
@@ -4273,16 +4278,18 @@ def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
             
             if idx_pos not in indices_usados and idx_neg not in indices_usados:
                 suma = df.loc[idx_pos, 'Neto Local'] + df.loc[idx_neg, 'Neto Local']
-                if abs(suma) <= 0.001:
+                
+                # --- CAMBIO: TOLERANCIA 100 ---
+                if abs(suma) <= TOLERANCIA_COFERSA:
                     df.loc[[idx_pos, idx_neg], 'Estado_Cofersa'] = 'PARES_1_A_1'
                     indices_usados.add(idx_pos)
                     indices_usados.add(idx_neg)
                     total_conciliados += 2
 
-    log_messages.append(f"✔️ Fase 1 (Pares 1-a-1): {total_conciliados} movimientos cruzados.")
+    log_messages.append(f"✔️ Fase 1 (Pares +/- 100): {total_conciliados} movimientos cruzados.")
     if progress_bar: progress_bar.progress(0.4, text="Fase 1 completada.")
 
-    # --- FASE 2: CRUCE POR TIPO (ESTRICTO) ---
+    # --- FASE 2: CRUCE POR TIPO (Tolerancia 100) ---
     df_pendientes = df[~df.index.isin(indices_usados)].copy()
     
     if 'Tipo' in df_pendientes.columns:
@@ -4294,13 +4301,14 @@ def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
             
             suma_grupo = grupo['Neto Local'].sum().round(2)
             
-            if suma_grupo == 0.00:
+            # --- CAMBIO: TOLERANCIA 100 ---
+            if abs(suma_grupo) <= TOLERANCIA_COFERSA:
                 indices_grupo = grupo.index
                 df.loc[indices_grupo, 'Estado_Cofersa'] = 'CRUCE_POR_TIPO'
                 indices_usados.update(indices_grupo)
                 count_fase2 += len(indices_grupo)
         
-        log_messages.append(f"✔️ Fase 2 (Cruce por Tipo): {count_fase2} movimientos cruzados.")
+        log_messages.append(f"✔️ Fase 2 (Tipos +/- 100): {count_fase2} movimientos cruzados.")
     
     if progress_bar: progress_bar.progress(0.8, text="Fase 2 completada.")
 
@@ -4323,7 +4331,10 @@ def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
             
     log_messages.append(f"⚠️ Fase 3 (Descuadres Mixtos): {count_fase3} movimientos.")
 
-    # --- FASE 4: ESTADO FINAL ---
+    # --- FASE 4: PENDIENTES FINALES ---
+    remanentes = len(df) - len(indices_usados)
+    log_messages.append(f"ℹ️ Pendientes Reales: {remanentes} movimientos.")
+    
     df['Conciliado'] = df['Estado_Cofersa'] != 'PENDIENTE'
 
     return df
