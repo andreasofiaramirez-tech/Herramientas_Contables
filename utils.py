@@ -2147,10 +2147,11 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
 
 def generar_reporte_cofersa(df_procesado):
     """
-    Genera el reporte específico para Envios COFERSA con 3 hojas.
-    Hoja 1: Pares 1 a 1.
-    Hoja 2: Cruce por Tipos.
-    Hoja 3: Agrupación (Pendientes).
+    Genera el reporte COFERSA con 4 hojas.
+    1. Pares 1 a 1
+    2. Cruce por Tipos
+    3. Descuadres por Referencia (NUEVA)
+    4. Pendientes (Huérfanos)
     """
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
@@ -2161,102 +2162,92 @@ def generar_reporte_cofersa(df_procesado):
         money_fmt = workbook.add_format({'num_format': '#,##0.00', 'border': 1})
         total_fmt = workbook.add_format({'bold': True, 'bg_color': '#F2F2F2', 'num_format': '#,##0.00', 'border': 1})
         label_fmt = workbook.add_format({'bold': True, 'bg_color': '#F2F2F2', 'border': 1, 'align': 'right'})
+        # Estilo rojo para la diferencia
+        diff_fmt = workbook.add_format({'bold': True, 'bg_color': '#FFC7CE', 'num_format': '#,##0.00', 'border': 1})
 
         cols_output = [
             'Fecha', 'Asiento', 'Fuente', 'Origen', 'Tipo', 'Referencia',
             'Débito Bolivar', 'Crédito Bolivar', 'Neto Local',
             'Débito Dolar', 'Crédito Dolar', 'Neto Dólar',
-            'Nit', 'Descripción Nit' # Agregados del print
+            'Nit', 'Descripción Nit'
         ]
         
-        # Mapeo de nombres internos a nombres de archivo (si difieren)
-        # Asumimos que logic.py normalizó a 'Débito Bolivar', etc.
-        
         # --- HOJA 1: PARES 1 A 1 ---
-        df_fase1 = df_procesado[df_procesado['Estado_Cofersa'] == 'PARES_1_A_1'].copy()
+        df_f1 = df_procesado[df_procesado['Estado_Cofersa'] == 'PARES_1_A_1'].copy()
         ws1 = workbook.add_worksheet('1. Pares 1 a 1')
         ws1.hide_gridlines(2)
-        
-        # Escribir encabezados
         ws1.write_row(0, 0, cols_output, header_fmt)
         
         row = 1
-        for _, data in df_fase1.iterrows():
-            for col_idx, col_name in enumerate(cols_output):
-                val = data.get(col_name, '')
-                # Formateo
-                if 'Fecha' in col_name and pd.notna(val):
-                    ws1.write(row, col_idx, str(val)[:10], workbook.add_format({'border': 1}))
-                elif 'Bolivar' in col_name or 'Dolar' in col_name or 'Dólar' in col_name or 'Neto' in col_name:
-                    ws1.write_number(row, col_idx, float(val) if pd.notna(val) else 0, money_fmt)
-                else:
-                    ws1.write(row, col_idx, val, workbook.add_format({'border': 1}))
+        for _, data in df_f1.iterrows():
+            for i, col in enumerate(cols_output):
+                val = data.get(col, '')
+                fmt = money_fmt if i >= 6 and i <= 11 else workbook.add_format({'border': 1})
+                if 'Fecha' in col: val = str(val)[:10]
+                ws1.write(row, i, val, fmt)
             row += 1
-            
-        # Totales Hoja 1
-        ws1.write(row, 5, "TOTALES:", label_fmt) # En columna Referencia
-        # Sumamos columnas numéricas (índices 6 a 11 en cols_output)
-        for i in range(6, 12):
-            col_name = cols_output[i]
-            suma = df_fase1[col_name].sum()
-            ws1.write_number(row, i, suma, total_fmt)
-            
-        ws1.set_column('A:N', 18)
+        ws1.set_column('A:N', 15)
 
         # --- HOJA 2: CRUCE POR TIPOS ---
-        df_fase2 = df_procesado[df_procesado['Estado_Cofersa'] == 'CRUCE_POR_TIPO'].copy()
-        # Ordenamos por Tipo para que se vean los grupos juntos
-        df_fase2.sort_values(by=['Tipo', 'Fecha'], inplace=True)
-        
+        df_f2 = df_procesado[df_procesado['Estado_Cofersa'] == 'CRUCE_POR_TIPO'].copy()
+        df_f2.sort_values(by=['Tipo', 'Fecha'], inplace=True)
         ws2 = workbook.add_worksheet('2. Cruce por Tipos')
         ws2.hide_gridlines(2)
         ws2.write_row(0, 0, cols_output, header_fmt)
         
         row = 1
-        for _, data in df_fase2.iterrows():
-            for col_idx, col_name in enumerate(cols_output):
-                val = data.get(col_name, '')
-                if 'Bolivar' in col_name or 'Dolar' in col_name or 'Neto' in col_name:
-                    ws2.write_number(row, col_idx, float(val) if pd.notna(val) else 0, money_fmt)
-                else:
-                    ws2.write(row, col_idx, str(val), workbook.add_format({'border': 1}))
+        for _, data in df_f2.iterrows():
+            for i, col in enumerate(cols_output):
+                val = data.get(col, '')
+                fmt = money_fmt if i >= 6 and i <= 11 else workbook.add_format({'border': 1})
+                if 'Fecha' in col: val = str(val)[:10]
+                ws2.write(row, i, val, fmt)
             row += 1
-            
-        # Totales Hoja 2
-        ws2.write(row, 5, "TOTALES:", label_fmt)
-        for i in range(6, 12):
-            col_name = cols_output[i]
-            suma = df_fase2[col_name].sum()
-            ws2.write_number(row, i, suma, total_fmt)
-        
-        ws2.set_column('A:N', 18)
+        ws2.set_column('A:N', 15)
 
-        # --- HOJA 3: AGRUPACIÓN (PENDIENTES) ---
-        df_fase3 = df_procesado[df_procesado['Estado_Cofersa'] == 'PENDIENTE'].copy()
-        # Agrupar visualmente por Referencia
-        df_fase3.sort_values(by=['Referencia', 'Fecha'], inplace=True)
+        # --- HOJA 3: DESCUADRES POR REFERENCIA (NUEVA) ---
+        df_f3 = df_procesado[df_procesado['Estado_Cofersa'] == 'REF_DESCUADRE'].copy()
+        df_f3.sort_values(by=['Referencia', 'Fecha'], inplace=True)
         
-        ws3 = workbook.add_worksheet('3. Agrupación por Ref')
+        ws3 = workbook.add_worksheet('3. Descuadres x Ref')
         ws3.hide_gridlines(2)
         ws3.write_row(0, 0, cols_output, header_fmt)
         
         row = 1
-        for _, data in df_fase3.iterrows():
-            for col_idx, col_name in enumerate(cols_output):
-                val = data.get(col_name, '')
-                if 'Bolivar' in col_name or 'Dolar' in col_name or 'Neto' in col_name:
-                    ws3.write_number(row, col_idx, float(val) if pd.notna(val) else 0, money_fmt)
-                else:
-                    ws3.write(row, col_idx, str(val), workbook.add_format({'border': 1}))
-            row += 1
-        
-        # Totales Hoja 3 (Saldo Pendiente)
-        ws3.write(row, 5, "TOTAL PENDIENTE:", label_fmt)
-        for i in range(6, 12):
-            col_name = cols_output[i]
-            suma = df_fase3[col_name].sum()
-            ws3.write_number(row, i, suma, total_fmt)
+        # Agrupamos visualmente para mostrar la diferencia
+        for ref, grupo in df_f3.groupby('Referencia'):
+            subtotal_neto = 0
+            for _, data in grupo.iterrows():
+                subtotal_neto += data.get('Neto Local', 0)
+                for i, col in enumerate(cols_output):
+                    val = data.get(col, '')
+                    fmt = money_fmt if i >= 6 and i <= 11 else workbook.add_format({'border': 1})
+                    if 'Fecha' in col: val = str(val)[:10]
+                    ws3.write(row, i, val, fmt)
+                row += 1
             
-        ws3.set_column('A:N', 18)
+            # Fila de Diferencia
+            ws3.write(row, 5, "DIFERENCIA:", label_fmt) # Col Referencia
+            # Escribimos la diferencia en Neto Local (Col 8)
+            ws3.write(row, 8, subtotal_neto, diff_fmt)
+            row += 2 # Espacio entre grupos
+            
+        ws3.set_column('A:N', 15)
+
+        # --- HOJA 4: PENDIENTES (HUÉRFANOS) ---
+        df_f4 = df_procesado[df_procesado['Estado_Cofersa'] == 'PENDIENTE'].copy()
+        ws4 = workbook.add_worksheet('4. Pendientes')
+        ws4.hide_gridlines(2)
+        ws4.write_row(0, 0, cols_output, header_fmt)
+        
+        row = 1
+        for _, data in df_f4.iterrows():
+            for i, col in enumerate(cols_output):
+                val = data.get(col, '')
+                fmt = money_fmt if i >= 6 and i <= 11 else workbook.add_format({'border': 1})
+                if 'Fecha' in col: val = str(val)[:10]
+                ws4.write(row, i, val, fmt)
+            row += 1
+        ws4.set_column('A:N', 15)
 
     return output.getvalue()
