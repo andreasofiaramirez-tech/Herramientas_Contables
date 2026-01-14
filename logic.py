@@ -4222,105 +4222,195 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
 # LÓGICA ENVIOS EN TRANSITO COFERSA (115.07.1.002)
 # ==============================================================================
 
-def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
+def generar_reporte_cofersa(df_procesado):
     """
-    Conciliación para Envíos en Tránsito COFERSA (Moneda Local).
-    Fase 2: Estricta (0.00).
+    Genera el reporte específico para Envios COFERSA.
     """
-    log_messages.append("\n--- INICIANDO CONCILIACIÓN ENVIOS COFERSA (VES) ---")
-    
-    # 1. Normalización y Cálculos
-    if 'Neto Local' not in df.columns:
-        deb = df.get('Débito Bolivar', 0)
-        cre = df.get('Crédito Bolivar', 0)
-        df['Neto Local'] = deb - cre
-    
-    df['Neto Local'] = pd.to_numeric(df['Neto Local'], errors='coerce').fillna(0).round(2)
-    
-    # Normalizamos referencia globalmente para uso en fases y reporte
-    if 'Referencia' in df.columns:
-        df['Ref_Norm'] = df['Referencia'].astype(str).str.strip().str.upper()
-    else:
-        df['Ref_Norm'] = 'SIN_REF'
-
-    df['Estado_Cofersa'] = 'PENDIENTE' 
-    indices_usados = set()
-    total_conciliados = 0
-
-    # --- FASE 1: PARES 1 A 1 (Suma Cero Exacta) ---
-    df_pool = df.copy()
-    df_pool['Abs_Local'] = df_pool['Neto Local'].abs()
-    
-    for monto, grupo in df_pool.groupby('Abs_Local'):
-        if monto <= 0.01 or len(grupo) < 2: continue
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        workbook = writer.book
         
-        positivos = grupo[grupo['Neto Local'] > 0].index.tolist()
-        negativos = grupo[grupo['Neto Local'] < 0].index.tolist()
+        # Estilos
+        header_fmt = workbook.add_format({'bold': True, 'fg_color': '#D9EAD3', 'border': 1, 'align': 'center'})
+        money_fmt = workbook.add_format({'num_format': '#,##0.00', 'border': 1})
+        total_fmt = workbook.add_format({'bold': True, 'bg_color': '#F2F2F2', 'num_format': '#,##0.00', 'border': 1})
+        label_fmt = workbook.add_format({'bold': True, 'bg_color': '#F2F2F2', 'border': 1, 'align': 'right'})
+        diff_fmt = workbook.add_format({'bold': True, 'bg_color': '#FFC7CE', 'num_format': '#,##0.00', 'border': 1})
+        text_fmt = workbook.add_format({'border': 1})
+
+        cols_output = [
+            'Fecha', 'Asiento', 'Fuente', 'Origen', 'Tipo', 'Referencia',
+            'Débito Bolivar', 'Crédito Bolivar', 'Neto Local',
+            'Débito Dolar', 'Crédito Dolar', 'Neto Dólar',
+            'Nit', 'Descripción Nit'
+        ]
+        idx_nums = range(6, 12)
+
+        # --- FUNCIÓN INTERNA DE ESCRITURA ---
+        def escribir_hoja_agrupada(nombre_hoja, df_data, titulo_total, estilo_subtotal):
+            if df_data.empty: return
+            
+            # Asegurar Ref_Norm y Ordenar
+            if 'Ref_Norm' not in df_data.columns:
+                df_data['Ref_Norm'] = df_data['Referencia'].astype(str).str.strip().str.upper()
+            
+            df_data = df_data.sort_values(by=['Ref_Norm', 'Fecha'])
+            
+            ws = workbook.add_worksheet(nombre_hoja)
+            ws.hide_gridlines(2)
+            ws.write_row(0, 0, cols_output, header_fmt)
+            
+            row_idx = 1
+            gran_total = 0
+            
+            for ref, grupo in df_data.groupby('Ref_Norm'):
+                subtotal_grupo = 0
+                for _, data in grupo.iterrows():
+                    subtotal_grupo += data.get('Neto Local', 0)
+                    for i, col in enumerate(cols_output):
+                        val = data.get(col, '')
+                        fmt = money_fmt if i in idx_nums else text_fmt
+                        if 'Fecha' in col: val = str(val)[:10]
+                        if i in idx_nums: ws.write_number(row_idx, i, float(val) if pd.notna(val) else 0, fmt)
+                        else: ws.write(row_idx, i, val, fmt)
+                    row_idx += 1
+                
+                # Subtotal por Referencia
+                ws.write(row_idx, 5, f"SALDO {ref}:", label_fmt)
+                ws.write_number(row_idx, 8, subtotal_grupo, estilo_subtotal)
+                gran_total += subtotal_grupo
+                row_idx += 2
+                
+            ws.write(row_idx, 5, titulo_total, label_fmt)
+            ws.write_number(row_idx, 8, gran_total, total_fmt)
+            ws.set_column('A:N', 15)
+        # -----------------------------------------------------
+
+        # 1. PARES 1 A 1
+        df_f1 = df_procesado[df_procesado['Estado_Cofersa'] == 'PARES_1_A_1'].copy()
+        ws1 = workbook.add_worksheet('1. Pares 1 a 1')
+        ws1.hide_gridlines(2)
+        ws1.write_row(0, 0, cols_output, header_fmt)
+        r = 1
+        for _, data in df_f1.iterrows():
+            for i, col in enumerate(cols_output):
+                val = data.get(col, '')
+                fmt = money_fmt if i in idx_nums else text_fmt
+                if 'Fecha' in col: val = str(val)[:10]
+                if i in idx_nums: ws1.write_number(r, i, float(val) if pd.notna(val) else 0, fmt)
+                else: ws1.write(r, i, val, fmt)
+            r += 1
+        ws1.write(r, 5, "TOTALES:", label_fmt)
+        for i in idx_nums: ws1.write_number(r, i, df_f1[cols_output[i]].sum(), total_fmt)
+        ws1.set_column('A:N', 15)
+
+        # 2. CRUCE POR TIPOS
+        df_f2 = df_procesado[df_procesado['Estado_Cofersa'] == 'CRUCE_POR_TIPO'].copy()
+        df_f2.sort_values(by=['Tipo', 'Fecha'], inplace=True)
+        ws2 = workbook.add_worksheet('2. Cruce por Tipos')
+        ws2.hide_gridlines(2)
+        ws2.write_row(0, 0, cols_output, header_fmt)
+        r = 1
+        for _, data in df_f2.iterrows():
+            for i, col in enumerate(cols_output):
+                val = data.get(col, '')
+                fmt = money_fmt if i in idx_nums else text_fmt
+                if 'Fecha' in col: val = str(val)[:10]
+                if i in idx_nums: ws2.write_number(r, i, float(val) if pd.notna(val) else 0, fmt)
+                else: ws2.write(r, i, val, fmt)
+            r += 1
+        ws2.write(r, 5, "TOTALES:", label_fmt)
+        for i in idx_nums: ws2.write_number(r, i, df_f2[cols_output[i]].sum(), total_fmt)
+        ws2.set_column('A:N', 15)
+
+        # 3. DESCUADRES (Agrupado)
+        df_f3 = df_procesado[df_procesado['Estado_Cofersa'] == 'REF_DESCUADRE'].copy()
+        escribir_hoja_agrupada('3. Descuadres x Ref', df_f3, "TOTAL DESCUADRES:", diff_fmt)
+
+        # Preparar Pendientes
+        df_pendientes = df_procesado[df_procesado['Estado_Cofersa'] == 'PENDIENTE'].copy()
+        mask_embarque = (df_pendientes['Tipo'].astype(str).str.upper().str.contains('EM', na=False) | 
+                         df_pendientes['Referencia'].astype(str).str.upper().str.contains('EM', na=False))
+        df_embarques = df_pendientes[mask_embarque].copy()
+        df_otros = df_pendientes[~mask_embarque].copy()
+
+        # Normalización extra para agrupar Embarques
+        def extraer_codigo_embarque(row):
+            t = str(row.get('Tipo', '')).strip().upper()
+            r = str(row.get('Referencia', '')).strip().upper()
+            if re.match(r'^E?M\d+$', t): return t
+            m = re.search(r'(E?M\d+)', r)
+            return m.group(1) if m else r
+
+        df_embarques['Ref_Norm'] = df_embarques.apply(extraer_codigo_embarque, axis=1)
+
+        # 4. EMBARQUES (Agrupado)
+        escribir_hoja_agrupada('4. Embarques Pend.', df_embarques, "TOTAL EMBARQUES:", total_fmt)
+
+        # 5. OTROS PENDIENTES (Lista Simple)
+        ws5 = workbook.add_worksheet('5. Otros Pendientes')
+        ws5.hide_gridlines(2)
+        ws5.write_row(0, 0, cols_output, header_fmt)
+        r = 1
+        df_otros.sort_values(by=['Fecha'], inplace=True)
+        for _, data in df_otros.iterrows():
+            for i, col in enumerate(cols_output):
+                val = data.get(col, '')
+                fmt = money_fmt if i in idx_nums else text_fmt
+                if 'Fecha' in col: val = str(val)[:10]
+                if i in idx_nums: ws5.write_number(r, i, float(val) if pd.notna(val) else 0, fmt)
+                else: ws5.write(r, i, val, fmt)
+            r += 1
+        ws5.write(r, 5, "TOTAL OTROS:", label_fmt)
+        for i in idx_nums: ws5.write_number(r, i, df_otros[cols_output[i]].sum(), total_fmt)
+        ws5.set_column('A:N', 15)
+
+        # 6. ESPECIFICACIÓN (Resumen)
+        ws6 = workbook.add_worksheet('6. Especificación')
+        ws6.hide_gridlines(2)
+        ws6.merge_range('A1:C1', "RESUMEN DE SALDOS ABIERTOS (COFERSA)", workbook.add_format({'bold':True, 'font_size':14, 'align':'center'}))
+        ws6.write_row('A3', ['Categoría', 'Referencia', 'Saldo (VES)'], header_fmt)
         
-        pares_posibles = min(len(positivos), len(negativos))
-        for i in range(pares_posibles):
-            idx_pos = positivos[i]
-            idx_neg = negativos[i]
-            
-            if idx_pos not in indices_usados and idx_neg not in indices_usados:
-                suma = df.loc[idx_pos, 'Neto Local'] + df.loc[idx_neg, 'Neto Local']
-                # Estricto 0.00 (tolerancia flotante mínima)
-                if abs(suma) <= 0.001:
-                    df.loc[[idx_pos, idx_neg], 'Estado_Cofersa'] = 'PARES_1_A_1'
-                    indices_usados.add(idx_pos)
-                    indices_usados.add(idx_neg)
-                    total_conciliados += 2
-
-    log_messages.append(f"✔️ Fase 1 (Pares 1-a-1): {total_conciliados} movimientos cruzados.")
-    if progress_bar: progress_bar.progress(0.4, text="Fase 1 completada.")
-
-    # --- FASE 2: CRUCE POR TIPO (ESTRICTO) ---
-    df_pendientes = df[~df.index.isin(indices_usados)].copy()
-    
-    if 'Tipo' in df_pendientes.columns:
-        df_pendientes['Tipo'] = df_pendientes['Tipo'].astype(str).fillna('')
-        count_fase2 = 0
-        for tipo_val, grupo in df_pendientes.groupby('Tipo'):
-            if pd.isna(tipo_val) or str(tipo_val).strip() == '' or str(tipo_val).lower() == 'nan': 
-                continue
-            
-            suma_grupo = grupo['Neto Local'].sum().round(2)
-            
-            # --- CAMBIO: TOLERANCIA ESTRICTA 0.00 ---
-            if suma_grupo == 0.00:
-                indices_grupo = grupo.index
-                df.loc[indices_grupo, 'Estado_Cofersa'] = 'CRUCE_POR_TIPO'
-                indices_usados.update(indices_grupo)
-                count_fase2 += len(indices_grupo)
+        row_s = 3
+        total_spec = 0
         
-        log_messages.append(f"✔️ Fase 2 (Cruce por Tipo Estricto): {count_fase2} movimientos cruzados.")
-    
-    if progress_bar: progress_bar.progress(0.8, text="Fase 2 completada.")
+        # Resumen Descuadres
+        if not df_f3.empty:
+            res_desc = df_f3.groupby('Ref_Norm')['Neto Local'].sum().reset_index()
+            for _, r in res_desc.iterrows():
+                if abs(r['Neto Local']) > 0.001:
+                    ws6.write(row_s, 0, "DESCUADRE", text_fmt)
+                    ws6.write(row_s, 1, r['Ref_Norm'], text_fmt)
+                    ws6.write_number(row_s, 2, r['Neto Local'], money_fmt)
+                    total_spec += r['Neto Local']
+                    row_s += 1
+        
+        # Resumen Embarques
+        if not df_embarques.empty:
+            res_emb = df_embarques.groupby('Ref_Norm')['Neto Local'].sum().reset_index()
+            for _, r in res_emb.iterrows():
+                if abs(r['Neto Local']) > 0.001:
+                    ws6.write(row_s, 0, "EMBARQUE", text_fmt)
+                    ws6.write(row_s, 1, r['Ref_Norm'], text_fmt)
+                    ws6.write_number(row_s, 2, r['Neto Local'], money_fmt)
+                    total_spec += r['Neto Local']
+                    row_s += 1
+                    
+        # Resumen Otros
+        if not df_otros.empty:
+            # Agrupamos 'Otros' por referencia para que el resumen no sea infinito
+            if 'Ref_Norm' not in df_otros.columns: df_otros['Ref_Norm'] = df_otros['Referencia'].astype(str)
+            res_otr = df_otros.groupby('Ref_Norm')['Neto Local'].sum().reset_index()
+            for _, r in res_otr.iterrows():
+                if abs(r['Neto Local']) > 0.001:
+                    ws6.write(row_s, 0, "OTRO PENDIENTE", text_fmt)
+                    ws6.write(row_s, 1, r['Ref_Norm'], text_fmt)
+                    ws6.write_number(row_s, 2, r['Neto Local'], money_fmt)
+                    total_spec += r['Neto Local']
+                    row_s += 1
 
-    # --- FASE 3: DESCUADRES POR REFERENCIA ---
-    # Si no cuadró en Fase 1 ni 2, verificamos si tiene "pareja" (D+C) para marcarlo como Descuadre
-    df_pendientes = df[~df.index.isin(indices_usados)].copy()
-    count_fase3 = 0
-    
-    if 'Ref_Norm' in df_pendientes.columns:
-        for ref, grupo in df_pendientes.groupby('Ref_Norm'):
-            if ref == 'NAN' or ref == '' or len(grupo) < 2: continue
-            
-            tiene_debito = (grupo['Neto Local'] > 0.001).any()
-            tiene_credito = (grupo['Neto Local'] < -0.001).any()
-            
-            if tiene_debito and tiene_credito:
-                indices_grupo = grupo.index
-                df.loc[indices_grupo, 'Estado_Cofersa'] = 'REF_DESCUADRE'
-                indices_usados.update(indices_grupo)
-                count_fase3 += len(indices_grupo)
-            
-    log_messages.append(f"⚠️ Fase 3 (Descuadres Mixtos): {count_fase3} movimientos.")
+        ws6.write(row_s, 1, "SALDO TOTAL:", label_fmt)
+        ws6.write_number(row_s, 2, total_spec, total_fmt)
+        ws6.set_column('A:B', 30); ws6.set_column('C:C', 20)
 
-    # --- FASE 4: PENDIENTES FINALES ---
-    remanentes = len(df) - len(indices_usados)
-    log_messages.append(f"ℹ️ Pendientes Reales: {remanentes} movimientos.")
-    
-    df['Conciliado'] = df['Estado_Cofersa'] != 'PENDIENTE'
-
-    return df
+    return output.getvalue()
