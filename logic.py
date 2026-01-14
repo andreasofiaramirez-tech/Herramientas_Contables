@@ -4240,6 +4240,11 @@ def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
         df['Neto Local'] = deb - cre
     
     df['Neto Local'] = pd.to_numeric(df['Neto Local'], errors='coerce').fillna(0).round(2)
+
+    if 'Referencia' in df.columns:
+        df['Ref_Norm'] = df['Referencia'].astype(str).str.strip().str.upper()
+    else:
+        df['Ref_Norm'] = 'SIN_REF'
     
     df['Estado_Cofersa'] = 'PENDIENTE' 
     indices_usados = set()
