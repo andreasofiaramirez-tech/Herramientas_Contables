@@ -2148,7 +2148,12 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
 def generar_reporte_cofersa(df_procesado):
     """
     Genera el reporte específico para Envios COFERSA.
-    Hoja 6 ACTUALIZADA: Incluye NIT, Descripción y Fecha (Max).
+    Hoja 1: Pares 1 a 1
+    Hoja 2: Cruce por Tipos (Corregido error de ordenamiento)
+    Hoja 3: Descuadres por Referencia
+    Hoja 4: Embarques Pendientes
+    Hoja 5: Otros Pendientes
+    Hoja 6: Especificación
     """
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
@@ -2171,14 +2176,14 @@ def generar_reporte_cofersa(df_procesado):
         ]
         idx_nums = range(6, 12)
 
-        # --- FUNCIÓN INTERNA ---
+        # --- FUNCIÓN INTERNA: HOJA AGRUPADA ---
         def escribir_hoja_agrupada(nombre_hoja, df_data, titulo_total, estilo_subtotal):
             if df_data.empty: return
             
-            # Asegurar Ref_Norm y Ordenar
             if 'Ref_Norm' not in df_data.columns:
                 df_data['Ref_Norm'] = df_data['Referencia'].astype(str).str.strip().str.upper()
             
+            # Ordenamiento seguro
             df_data = df_data.sort_values(by=['Ref_Norm', 'Fecha'])
             
             ws = workbook.add_worksheet(nombre_hoja)
@@ -2200,7 +2205,6 @@ def generar_reporte_cofersa(df_procesado):
                         else: ws.write(row_idx, i, val, fmt)
                     row_idx += 1
                 
-                # Subtotal por Referencia
                 ws.write(row_idx, 5, f"SALDO {ref}:", label_fmt)
                 ws.write_number(row_idx, 8, subtotal_grupo, estilo_subtotal)
                 gran_total += subtotal_grupo
@@ -2229,9 +2233,16 @@ def generar_reporte_cofersa(df_procesado):
         for i in idx_nums: ws1.write_number(r, i, df_f1[cols_output[i]].sum(), total_fmt)
         ws1.set_column('A:N', 15)
 
-        # 2. CRUCE POR TIPOS
+        # 2. CRUCE POR TIPOS (CORREGIDO)
         df_f2 = df_procesado[df_procesado['Estado_Cofersa'] == 'CRUCE_POR_TIPO'].copy()
+        
+        # --- CORRECCIÓN CRÍTICA: Convertir 'Tipo' a string antes de ordenar ---
+        if 'Tipo' in df_f2.columns:
+            df_f2['Tipo'] = df_f2['Tipo'].astype(str).fillna('')
+        
         df_f2.sort_values(by=['Tipo', 'Fecha'], inplace=True)
+        # ----------------------------------------------------------------------
+        
         ws2 = workbook.add_worksheet('2. Cruce por Tipos')
         ws2.hide_gridlines(2)
         ws2.write_row(0, 0, cols_output, header_fmt)
@@ -2259,6 +2270,7 @@ def generar_reporte_cofersa(df_procesado):
         df_embarques = df_pendientes[mask_embarque].copy()
         df_otros = df_pendientes[~mask_embarque].copy()
 
+        # Normalización extra para agrupar Embarques
         def extraer_codigo_embarque(row):
             t = str(row.get('Tipo', '')).strip().upper()
             r = str(row.get('Referencia', '')).strip().upper()
@@ -2271,7 +2283,7 @@ def generar_reporte_cofersa(df_procesado):
         # 4. EMBARQUES (Agrupado)
         escribir_hoja_agrupada('4. Embarques Pend.', df_embarques, "TOTAL EMBARQUES:", total_fmt)
 
-        # 5. OTROS PENDIENTES
+        # 5. OTROS PENDIENTES (Lista Simple)
         ws5 = workbook.add_worksheet('5. Otros Pendientes')
         ws5.hide_gridlines(2)
         ws5.write_row(0, 0, cols_output, header_fmt)
@@ -2289,23 +2301,26 @@ def generar_reporte_cofersa(df_procesado):
         for i in idx_nums: ws5.write_number(r, i, df_otros[cols_output[i]].sum(), total_fmt)
         ws5.set_column('A:N', 15)
 
-        # --- 6. ESPECIFICACIÓN (ACTUALIZADA) ---
+        # --- 6. ESPECIFICACIÓN (Resumen) ---
         ws6 = workbook.add_worksheet('6. Especificación')
         ws6.hide_gridlines(2)
         ws6.merge_range('A1:F1', "RESUMEN DE SALDOS ABIERTOS (COFERSA)", workbook.add_format({'bold':True, 'font_size':14, 'align':'center'}))
         
-        # Nuevos encabezados
         headers_spec = ['Categoría', 'Referencia', 'NIT', 'Descripción Nit', 'Fecha (Max)', 'Saldo (VES)']
         ws6.write_row('A3', headers_spec, header_fmt)
         
         row_s = 3
         total_spec = 0
         
-        # Agrupación con datos extra
-        # Reglas: Fecha = Max del grupo. Nit/Desc = El primero del grupo (asumiendo homogeneidad).
-        agg_rules = {'Neto Local': 'sum', 'Fecha': 'max', 'Nit': 'first', 'Descripción Nit': 'first'}
+        # Reglas de Agregación para mostrar detalles en el resumen
+        agg_rules = {
+            'Neto Local': 'sum', 
+            'Fecha': 'max',       # Fecha más reciente del grupo
+            'Nit': 'first',       # Primer NIT encontrado
+            'Descripción Nit': 'first' # Primera descripción
+        }
         
-        # A. Descuadres
+        # A. Resumen Descuadres
         if not df_f3.empty:
             res_desc = df_f3.groupby('Ref_Norm').agg(agg_rules).reset_index()
             for _, r in res_desc.iterrows():
@@ -2319,7 +2334,7 @@ def generar_reporte_cofersa(df_procesado):
                     total_spec += r['Neto Local']
                     row_s += 1
         
-        # B. Embarques
+        # B. Resumen Embarques
         if not df_embarques.empty:
             res_emb = df_embarques.groupby('Ref_Norm').agg(agg_rules).reset_index()
             for _, r in res_emb.iterrows():
@@ -2333,7 +2348,7 @@ def generar_reporte_cofersa(df_procesado):
                     total_spec += r['Neto Local']
                     row_s += 1
         
-        # C. Otros
+        # C. Resumen Otros
         if not df_otros.empty:
             if 'Ref_Norm' not in df_otros.columns: df_otros['Ref_Norm'] = df_otros['Referencia'].astype(str)
             res_otr = df_otros.groupby('Ref_Norm').agg(agg_rules).reset_index()
@@ -2351,9 +2366,6 @@ def generar_reporte_cofersa(df_procesado):
         ws6.write(row_s, 4, "SALDO TOTAL:", label_fmt)
         ws6.write_number(row_s, 5, total_spec, total_fmt)
         
-        ws6.set_column('A:A', 20)
-        ws6.set_column('B:D', 30)
-        ws6.set_column('E:E', 15)
-        ws6.set_column('F:F', 20)
+        ws6.set_column('A:A', 20); ws6.set_column('B:D', 30); ws6.set_column('E:E', 15); ws6.set_column('F:F', 20)
 
     return output.getvalue()
