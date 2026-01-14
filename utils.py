@@ -2229,57 +2229,78 @@ def generar_reporte_cofersa(df_procesado):
 
         # --- HOJA 3: DESCUADRES POR REFERENCIA ---
         df_f3 = df_procesado[df_procesado['Estado_Cofersa'] == 'REF_DESCUADRE'].copy()
-        df_f3.sort_values(by=['Ref_Norm', 'Fecha'], inplace=True) # Usamos Ref_Norm para agrupar
+        df_f3.sort_values(by=['Ref_Norm', 'Fecha'], inplace=True)
         
         ws3 = workbook.add_worksheet('3. Descuadres x Ref')
         ws3.hide_gridlines(2)
         ws3.write_row(0, 0, cols_output, header_fmt)
         
         row = 1
+        gran_total_diferencia = 0
+        
         for ref, grupo in df_f3.groupby('Ref_Norm'):
             subtotal_neto = 0
             for _, data in grupo.iterrows():
                 subtotal_neto += data.get('Neto Local', 0)
                 for i, col in enumerate(cols_output):
                     val = data.get(col, '')
-                    fmt = money_fmt if i in idx_nums else text_fmt
+                    fmt = money_fmt if i in idx_nums else workbook.add_format({'border': 1})
                     if 'Fecha' in col: val = str(val)[:10]
-                    
                     if i in idx_nums: ws3.write_number(row, i, float(val) if pd.notna(val) else 0, fmt)
                     else: ws3.write(row, i, val, fmt)
                 row += 1
             
-            # Fila de Diferencia (Subtotal visual)
+            # Subtotal Diferencia
             ws3.write(row, 5, "DIFERENCIA:", label_fmt)
-            ws3.write(row, 8, subtotal_neto, diff_fmt) # Columna Neto Local (Indice 8)
+            ws3.write(row, 8, subtotal_neto, diff_fmt) # Columna Neto Local
+            gran_total_diferencia += subtotal_neto
             row += 2
 
+        # TOTAL GENERAL HOJA 3
+        ws3.write(row, 5, "TOTAL DIFERENCIA GENERAL:", label_fmt)
+        ws3.write(row, 8, gran_total_diferencia, diff_fmt)
         ws3.set_column('A:N', 15)
 
-        # --- HOJA 4: PENDIENTES (HUÉRFANOS) ---
+        # --- HOJA 4: PENDIENTES (AGRUPADOS POR REFERENCIA) ---
+        # Ahora aplicamos la misma lógica de agrupación que en la Hoja 3
         df_f4 = df_procesado[df_procesado['Estado_Cofersa'] == 'PENDIENTE'].copy()
+        
+        # Crear Ref_Norm si no existe (aunque logic ya lo crea)
+        if 'Ref_Norm' not in df_f4.columns:
+            df_f4['Ref_Norm'] = df_f4['Referencia'].astype(str).str.strip().str.upper()
+            
+        df_f4.sort_values(by=['Ref_Norm', 'Fecha'], inplace=True)
+        
         ws4 = workbook.add_worksheet('4. Pendientes')
         ws4.hide_gridlines(2)
         ws4.write_row(0, 0, cols_output, header_fmt)
         
         row = 1
-        for _, data in df_f4.iterrows():
-            for i, col in enumerate(cols_output):
-                val = data.get(col, '')
-                fmt = money_fmt if i in idx_nums else text_fmt
-                if 'Fecha' in col: val = str(val)[:10]
-                
-                if i in idx_nums: ws4.write_number(row, i, float(val) if pd.notna(val) else 0, fmt)
-                else: ws4.write(row, i, val, fmt)
-            row += 1
+        gran_total_pendiente = 0
+        
+        # Agrupamos igual que en la Hoja 3
+        for ref, grupo in df_f4.groupby('Ref_Norm'):
+            subtotal_grupo = 0
+            for _, data in grupo.iterrows():
+                subtotal_grupo += data.get('Neto Local', 0)
+                for i, col in enumerate(cols_output):
+                    val = data.get(col, '')
+                    fmt = money_fmt if i in idx_nums else workbook.add_format({'border': 1})
+                    if 'Fecha' in col: val = str(val)[:10]
+                    if i in idx_nums: ws4.write_number(row, i, float(val) if pd.notna(val) else 0, fmt)
+                    else: ws4.write(row, i, val, fmt)
+                row += 1
             
-        # TOTALES HOJA 4
-        ws4.write(row, 5, "TOTAL PENDIENTE:", label_fmt)
-        for i in idx_nums:
-            col_name = cols_output[i]
-            suma = df_f4[col_name].sum()
-            ws4.write_number(row, i, suma, total_fmt)
+            # Subtotal por Referencia (Aunque sea solo débito)
+            ws4.write(row, 5, "TOTAL REF:", label_fmt)
+            ws4.write(row, 8, subtotal_grupo, total_fmt)
+            gran_total_pendiente += subtotal_grupo
+            row += 2
             
+        # TOTAL GENERAL HOJA 4
+        ws4.write(row, 5, "TOTAL PENDIENTE GENERAL:", label_fmt)
+        ws4.write(row, 8, gran_total_pendiente, total_fmt)
+        
         ws4.set_column('A:N', 15)
 
     return output.getvalue()
