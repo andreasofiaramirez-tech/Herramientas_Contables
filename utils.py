@@ -2054,3 +2054,119 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
             df_balance_raw.to_excel(writer, sheet_name='4. DATA (Original)', index=False, header=False)
 
     return output.getvalue()
+
+def generar_reporte_cofersa(df_procesado):
+    """
+    Genera el reporte específico para Envios COFERSA con 3 hojas.
+    Hoja 1: Pares 1 a 1.
+    Hoja 2: Cruce por Tipos.
+    Hoja 3: Agrupación (Pendientes).
+    """
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        workbook = writer.book
+        
+        # Estilos
+        header_fmt = workbook.add_format({'bold': True, 'fg_color': '#D9EAD3', 'border': 1, 'align': 'center'})
+        money_fmt = workbook.add_format({'num_format': '#,##0.00', 'border': 1})
+        total_fmt = workbook.add_format({'bold': True, 'bg_color': '#F2F2F2', 'num_format': '#,##0.00', 'border': 1})
+        label_fmt = workbook.add_format({'bold': True, 'bg_color': '#F2F2F2', 'border': 1, 'align': 'right'})
+
+        cols_output = [
+            'Fecha', 'Asiento', 'Fuente', 'Origen', 'Tipo', 'Referencia',
+            'Débito Bolivar', 'Crédito Bolivar', 'Neto Local',
+            'Débito Dolar', 'Crédito Dolar', 'Neto Dólar',
+            'Nit', 'Descripción Nit' # Agregados del print
+        ]
+        
+        # Mapeo de nombres internos a nombres de archivo (si difieren)
+        # Asumimos que logic.py normalizó a 'Débito Bolivar', etc.
+        
+        # --- HOJA 1: PARES 1 A 1 ---
+        df_fase1 = df_procesado[df_procesado['Estado_Cofersa'] == 'PARES_1_A_1'].copy()
+        ws1 = workbook.add_worksheet('1. Pares 1 a 1')
+        ws1.hide_gridlines(2)
+        
+        # Escribir encabezados
+        ws1.write_row(0, 0, cols_output, header_fmt)
+        
+        row = 1
+        for _, data in df_fase1.iterrows():
+            for col_idx, col_name in enumerate(cols_output):
+                val = data.get(col_name, '')
+                # Formateo
+                if 'Fecha' in col_name and pd.notna(val):
+                    ws1.write(row, col_idx, str(val)[:10], workbook.add_format({'border': 1}))
+                elif 'Bolivar' in col_name or 'Dolar' in col_name or 'Dólar' in col_name or 'Neto' in col_name:
+                    ws1.write_number(row, col_idx, float(val) if pd.notna(val) else 0, money_fmt)
+                else:
+                    ws1.write(row, col_idx, val, workbook.add_format({'border': 1}))
+            row += 1
+            
+        # Totales Hoja 1
+        ws1.write(row, 5, "TOTALES:", label_fmt) # En columna Referencia
+        # Sumamos columnas numéricas (índices 6 a 11 en cols_output)
+        for i in range(6, 12):
+            col_name = cols_output[i]
+            suma = df_fase1[col_name].sum()
+            ws1.write_number(row, i, suma, total_fmt)
+            
+        ws1.set_column('A:N', 18)
+
+        # --- HOJA 2: CRUCE POR TIPOS ---
+        df_fase2 = df_procesado[df_procesado['Estado_Cofersa'] == 'CRUCE_POR_TIPO'].copy()
+        # Ordenamos por Tipo para que se vean los grupos juntos
+        df_fase2.sort_values(by=['Tipo', 'Fecha'], inplace=True)
+        
+        ws2 = workbook.add_worksheet('2. Cruce por Tipos')
+        ws2.hide_gridlines(2)
+        ws2.write_row(0, 0, cols_output, header_fmt)
+        
+        row = 1
+        for _, data in df_fase2.iterrows():
+            for col_idx, col_name in enumerate(cols_output):
+                val = data.get(col_name, '')
+                if 'Bolivar' in col_name or 'Dolar' in col_name or 'Neto' in col_name:
+                    ws2.write_number(row, col_idx, float(val) if pd.notna(val) else 0, money_fmt)
+                else:
+                    ws2.write(row, col_idx, str(val), workbook.add_format({'border': 1}))
+            row += 1
+            
+        # Totales Hoja 2
+        ws2.write(row, 5, "TOTALES:", label_fmt)
+        for i in range(6, 12):
+            col_name = cols_output[i]
+            suma = df_fase2[col_name].sum()
+            ws2.write_number(row, i, suma, total_fmt)
+        
+        ws2.set_column('A:N', 18)
+
+        # --- HOJA 3: AGRUPACIÓN (PENDIENTES) ---
+        df_fase3 = df_procesado[df_procesado['Estado_Cofersa'] == 'PENDIENTE'].copy()
+        # Agrupar visualmente por Referencia
+        df_fase3.sort_values(by=['Referencia', 'Fecha'], inplace=True)
+        
+        ws3 = workbook.add_worksheet('3. Agrupación por Ref')
+        ws3.hide_gridlines(2)
+        ws3.write_row(0, 0, cols_output, header_fmt)
+        
+        row = 1
+        for _, data in df_fase3.iterrows():
+            for col_idx, col_name in enumerate(cols_output):
+                val = data.get(col_name, '')
+                if 'Bolivar' in col_name or 'Dolar' in col_name or 'Neto' in col_name:
+                    ws3.write_number(row, col_idx, float(val) if pd.notna(val) else 0, money_fmt)
+                else:
+                    ws3.write(row, col_idx, str(val), workbook.add_format({'border': 1}))
+            row += 1
+        
+        # Totales Hoja 3 (Saldo Pendiente)
+        ws3.write(row, 5, "TOTAL PENDIENTE:", label_fmt)
+        for i in range(6, 12):
+            col_name = cols_output[i]
+            suma = df_fase3[col_name].sum()
+            ws3.write_number(row, i, suma, total_fmt)
+            
+        ws3.set_column('A:N', 18)
+
+    return output.getvalue()
