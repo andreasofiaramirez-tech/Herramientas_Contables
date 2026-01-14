@@ -978,8 +978,7 @@ def render_ajustes_usd():
                 from utils import generar_reporte_ajustes_usd
                 
                 with st.spinner("Analizando balance, cruzando bancos y calculando ajustes..."):
-                    # Llamada a la lógica (Retorna 4 DataFrames ahora)
-                    df_res, df_banc, df_asiento, df_raw = procesar_ajustes_balance_usd(
+                    df_res, df_banc, df_asiento, df_raw, val_data = procesar_ajustes_balance_usd(
                         f_cb, f_cg, f_v_me, f_v_bs, f_hab, tasa_bcv, tasa_corp, log
                     )
                 
@@ -995,7 +994,7 @@ def render_ajustes_usd():
                     nombre_archivo = f"Ajustes_Balance_USD_{empresa}.xlsx"
                     
                     # Generar Excel
-                    excel_data = generar_reporte_ajustes_usd(df_res, df_banc, df_asiento, df_raw, empresa)
+                    excel_data = generar_reporte_ajustes_usd(df_res, df_banc, df_asiento, df_raw, empresa, val_data)
                     
                     st.download_button(
                         label="⬇️ Descargar Reporte Completo (Excel)",
