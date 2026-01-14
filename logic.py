@@ -4217,3 +4217,95 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
     }
 
     return pd.DataFrame(resumen_ajustes), df_bancos_final, df_asiento, df_balance_raw, validacion_data
+
+# ==============================================================================
+# LÓGICA ENVIOS EN TRANSITO COFERSA (115.07.1.002)
+# ==============================================================================
+
+def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
+    """
+    Conciliación para Envíos en Tránsito COFERSA (Moneda Local).
+    Fases:
+    1. Pares 1 a 1 (Suma Cero).
+    2. Cruce por Tipo (Suma Cero por grupo).
+    3. Agrupación por Referencia (Pendientes).
+    """
+    log_messages.append("\n--- INICIANDO CONCILIACIÓN ENVIOS COFERSA (VES) ---")
+    
+    # 1. Normalización y Cálculos
+    # Aseguramos que existan las columnas de Neto
+    if 'Neto Local' not in df.columns:
+        df['Neto Local'] = df['Débito Bolivar'] - df['Crédito Bolivar']
+    if 'Neto Dólar' not in df.columns:
+        df['Neto Dólar'] = df['Débito Dolar'] - df['Crédito Dolar']
+        
+    df['Neto Local'] = df['Neto Local'].fillna(0).round(2)
+    
+    # Inicializamos estado
+    df['Estado_Cofersa'] = 'PENDIENTE' # Etiqueta interna para separar las hojas
+    indices_usados = set()
+    total_conciliados = 0
+
+    # --- FASE 1: PARES 1 A 1 (Suma Cero Exacta) ---
+    # Buscamos un positivo y un negativo del mismo monto absoluto
+    df_pool = df.copy()
+    df_pool['Abs_Local'] = df_pool['Neto Local'].abs()
+    
+    # Agrupamos por monto absoluto para acelerar búsqueda
+    for monto, grupo in df_pool.groupby('Abs_Local'):
+        if monto == 0 or len(grupo) < 2: continue
+        
+        positivos = grupo[grupo['Neto Local'] > 0].index.tolist()
+        negativos = grupo[grupo['Neto Local'] < 0].index.tolist()
+        
+        # Emparejamos
+        pares_posibles = min(len(positivos), len(negativos))
+        for i in range(pares_posibles):
+            idx_pos = positivos[i]
+            idx_neg = negativos[i]
+            
+            if idx_pos not in indices_usados and idx_neg not in indices_usados:
+                df.loc[[idx_pos, idx_neg], 'Estado_Cofersa'] = 'PARES_1_A_1'
+                indices_usados.add(idx_pos)
+                indices_usados.add(idx_neg)
+                total_conciliados += 2
+
+    log_messages.append(f"✔️ Fase 1 (Pares 1-a-1): {total_conciliados} movimientos cruzados.")
+    if progress_bar: progress_bar.progress(0.4, text="Fase 1 completada.")
+
+    # --- FASE 2: CRUCE POR TIPO (Suma Cero por Grupo) ---
+    # Filtramos lo que queda pendiente
+    df_pendientes = df[~df.index.isin(indices_usados)]
+    
+    # Agrupamos por la columna 'Tipo'
+    if 'Tipo' in df.columns:
+        count_fase2 = 0
+        for tipo_val, grupo in df_pendientes.groupby('Tipo'):
+            # Ignoramos tipos vacíos o nan
+            if pd.isna(tipo_val) or str(tipo_val).strip() == '': continue
+            
+            suma_grupo = grupo['Neto Local'].sum().round(2)
+            
+            # Si el grupo suma 0 (con tolerancia mínima por decimales)
+            if abs(suma_grupo) <= 0.05:
+                indices_grupo = grupo.index
+                df.loc[indices_grupo, 'Estado_Cofersa'] = 'CRUCE_POR_TIPO'
+                indices_usados.update(indices_grupo)
+                count_fase2 += len(indices_grupo)
+        
+        log_messages.append(f"✔️ Fase 2 (Cruce por Tipo): {count_fase2} movimientos cruzados.")
+    else:
+        log_messages.append("⚠️ Advertencia: No se encontró la columna 'Tipo'. Se saltó la Fase 2.")
+        
+    if progress_bar: progress_bar.progress(0.8, text="Fase 2 completada.")
+
+    # --- FASE 3: AGRUPACIÓN POR REFERENCIA (El resto queda como PENDIENTE) ---
+    # No marcamos nada especial, simplemente se ordenará en el reporte
+    remanentes = len(df) - len(indices_usados)
+    log_messages.append(f"ℹ️ Fase 3 (Pendientes): {remanentes} movimientos agrupados para análisis.")
+    
+    # Marcamos como 'Conciliado' en la lógica global solo para que el sistema sepa que se procesó,
+    # aunque para esta cuenta el output es especial.
+    df['Conciliado'] = df['Estado_Cofersa'] != 'PENDIENTE'
+
+    return df
