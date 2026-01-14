@@ -2147,13 +2147,8 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
 
 def generar_reporte_cofersa(df_procesado):
     """
-    Genera el reporte COFERSA.
-    Hoja 1: Pares 1 a 1
-    Hoja 2: Cruces Grupales (Por Tipo y Por Referencia Exacta)
-    Hoja 3: Descuadres por Referencia
-    Hoja 4: Embarques Pendientes
-    Hoja 5: Otros Pendientes
-    Hoja 6: Especificación
+    Genera el reporte específico para Envios COFERSA.
+    MEJORA: Agrupación inteligente de Embarques por código (EM...) extraído.
     """
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
@@ -2167,61 +2162,32 @@ def generar_reporte_cofersa(df_procesado):
         diff_fmt = workbook.add_format({'bold': True, 'bg_color': '#FFC7CE', 'num_format': '#,##0.00', 'border': 1})
         text_fmt = workbook.add_format({'border': 1})
 
-        cols_output = ['Fecha', 'Asiento', 'Fuente', 'Origen', 'Tipo', 'Referencia', 'Débito Bolivar', 'Crédito Bolivar', 'Neto Local', 'Débito Dolar', 'Crédito Dolar', 'Neto Dólar', 'Nit', 'Descripción Nit']
+        cols_output = [
+            'Fecha', 'Asiento', 'Fuente', 'Origen', 'Tipo', 'Referencia',
+            'Débito Bolivar', 'Crédito Bolivar', 'Neto Local',
+            'Débito Dolar', 'Crédito Dolar', 'Neto Dólar',
+            'Nit', 'Descripción Nit'
+        ]
         idx_nums = range(6, 12)
 
-        # Función auxiliar de escritura simple
-        def escribir_lista_simple(ws, df_data, row_start):
-            row = row_start
-            for _, data in df_data.iterrows():
-                for i, col in enumerate(cols_output):
-                    val = data.get(col, '')
-                    fmt = money_fmt if i in idx_nums else text_fmt
-                    if 'Fecha' in col: val = str(val)[:10]
-                    if i in idx_nums: ws.write_number(row, i, float(val) if pd.notna(val) else 0, fmt)
-                    else: ws.write(row, i, val, fmt)
-                row += 1
-            return row
-
-        # --- HOJA 1: PARES 1 A 1 ---
-        ws1 = workbook.add_worksheet('1. Pares 1 a 1')
-        ws1.hide_gridlines(2)
-        ws1.write_row(0, 0, cols_output, header_fmt)
-        
-        df_f1 = df_procesado[df_procesado['Estado_Cofersa'] == 'PARES_1_A_1'].copy()
-        last_row = escribir_lista_simple(ws1, df_f1, 1)
-        
-        ws1.write(last_row, 5, "TOTALES:", label_fmt)
-        for i in idx_nums: ws1.write_number(last_row, i, df_f1[cols_output[i]].sum(), total_fmt)
-        ws1.set_column('A:N', 15)
-
-        # --- HOJA 2: CRUCES GRUPALES (TIPO + REFERENCIA) ---
-        ws2 = workbook.add_worksheet('2. Cruces Grupales')
-        ws2.hide_gridlines(2)
-        ws2.write_row(0, 0, cols_output, header_fmt)
-        
-        # Unimos los dos tipos de cruce grupal (Suma 0)
-        df_f2 = df_procesado[df_procesado['Estado_Cofersa'].isin(['CRUCE_POR_TIPO', 'CRUCE_POR_REF'])].copy()
-        # Ordenamos por Estado para verlos separados y luego por referencia
-        df_f2.sort_values(by=['Estado_Cofersa', 'Referencia'], inplace=True)
-        
-        last_row = escribir_lista_simple(ws2, df_f2, 1)
-        
-        ws2.write(last_row, 5, "TOTALES:", label_fmt)
-        for i in idx_nums: ws2.write_number(last_row, i, df_f2[cols_output[i]].sum(), total_fmt)
-        ws2.set_column('A:N', 15)
-
-        # --- FUNCIÓN INTERNA AGRUPADA ---
-        def escribir_hoja_agrupada(ws, df_data, titulo_total, estilo_subtotal, columna_agrupadora='Ref_Norm'):
+        # --- FUNCIÓN INTERNA DE ESCRITURA ---
+        def escribir_hoja_agrupada(nombre_hoja, df_data, titulo_total, estilo_subtotal):
+            if df_data.empty: return
+            
+            # Ordenar por el agrupador (Ref_Norm) y luego fecha
+            df_data = df_data.sort_values(by=['Ref_Norm', 'Fecha'])
+            
+            ws = workbook.add_worksheet(nombre_hoja)
+            ws.hide_gridlines(2)
             ws.write_row(0, 0, cols_output, header_fmt)
+            
             row_idx = 1
             gran_total = 0
-            df_data = df_data.sort_values(by=[columna_agrupadora, 'Fecha'])
             
-            for grp, grupo in df_data.groupby(columna_agrupadora):
-                subtotal = 0
+            for ref, grupo in df_data.groupby('Ref_Norm'):
+                subtotal_grupo = 0
                 for _, data in grupo.iterrows():
-                    subtotal += data.get('Neto Local', 0)
+                    subtotal_grupo += data.get('Neto Local', 0)
                     for i, col in enumerate(cols_output):
                         val = data.get(col, '')
                         fmt = money_fmt if i in idx_nums else text_fmt
@@ -2230,75 +2196,151 @@ def generar_reporte_cofersa(df_procesado):
                         else: ws.write(row_idx, i, val, fmt)
                     row_idx += 1
                 
-                ws.write(row_idx, 5, f"SALDO {grp}:", label_fmt)
-                ws.write_number(row_idx, 8, subtotal, estilo_subtotal)
-                gran_total += subtotal
+                # Subtotal Visual (Mostramos el código por el que se agrupó)
+                # En embarques, aquí dirá "SALDO EM00002788:"
+                ws.write(row_idx, 5, f"SALDO {ref}:", label_fmt)
+                ws.write_number(row_idx, 8, subtotal_grupo, estilo_subtotal)
+                gran_total += subtotal_grupo
                 row_idx += 2
                 
             ws.write(row_idx, 5, titulo_total, label_fmt)
             ws.write_number(row_idx, 8, gran_total, total_fmt)
             ws.set_column('A:N', 15)
+        # ------------------------------------
 
-        # --- HOJA 3: DESCUADRES ---
+        # 1. PARES 1 A 1
+        df_f1 = df_procesado[df_procesado['Estado_Cofersa'] == 'PARES_1_A_1'].copy()
+        ws1 = workbook.add_worksheet('1. Pares 1 a 1')
+        ws1.hide_gridlines(2)
+        ws1.write_row(0, 0, cols_output, header_fmt)
+        r = 1
+        for _, data in df_f1.iterrows():
+            for i, col in enumerate(cols_output):
+                val = data.get(col, '')
+                fmt = money_fmt if i in idx_nums else text_fmt
+                if 'Fecha' in col: val = str(val)[:10]
+                if i in idx_nums: ws1.write_number(r, i, float(val) if pd.notna(val) else 0, fmt)
+                else: ws1.write(r, i, val, fmt)
+            r += 1
+        ws1.write(r, 5, "TOTALES:", label_fmt)
+        for i in idx_nums: ws1.write_number(r, i, df_f1[cols_output[i]].sum(), total_fmt)
+        ws1.set_column('A:N', 15)
+
+        # 2. CRUCE POR TIPOS
+        df_f2 = df_procesado[df_procesado['Estado_Cofersa'] == 'CRUCE_POR_TIPO'].copy()
+        df_f2.sort_values(by=['Tipo', 'Fecha'], inplace=True)
+        ws2 = workbook.add_worksheet('2. Cruce por Tipos')
+        ws2.hide_gridlines(2)
+        ws2.write_row(0, 0, cols_output, header_fmt)
+        r = 1
+        for _, data in df_f2.iterrows():
+            for i, col in enumerate(cols_output):
+                val = data.get(col, '')
+                fmt = money_fmt if i in idx_nums else text_fmt
+                if 'Fecha' in col: val = str(val)[:10]
+                if i in idx_nums: ws2.write_number(r, i, float(val) if pd.notna(val) else 0, fmt)
+                else: ws2.write(r, i, val, fmt)
+            r += 1
+        ws2.write(r, 5, "TOTALES:", label_fmt)
+        for i in idx_nums: ws2.write_number(r, i, df_f2[cols_output[i]].sum(), total_fmt)
+        ws2.set_column('A:N', 15)
+
+        # 3. DESCUADRES (Ya tiene Ref_Norm desde logic)
         df_f3 = df_procesado[df_procesado['Estado_Cofersa'] == 'REF_DESCUADRE'].copy()
-        ws3 = workbook.add_worksheet('3. Descuadres x Ref')
-        ws3.hide_gridlines(2)
-        escribir_hoja_agrupada(ws3, df_f3, "TOTAL DESCUADRES:", diff_fmt)
+        escribir_hoja_agrupada('3. Descuadres x Ref', df_f3, "TOTAL DESCUADRES:", diff_fmt)
 
-        # --- HOJA 4: EMBARQUES ---
+        # --- PREPARACIÓN INTELIGENTE DE PENDIENTES ---
         df_pendientes = df_procesado[df_procesado['Estado_Cofersa'] == 'PENDIENTE'].copy()
-        mask_emb = (df_pendientes['Tipo'].astype(str).str.upper().str.contains('EM', na=False) | 
-                    df_pendientes['Referencia'].astype(str).str.upper().str.contains('EM', na=False))
-        df_emb = df_pendientes[mask_emb].copy()
         
-        # Normalización extra
-        def ext_cod(r):
-            t = str(r.get('Tipo','')).upper(); ref = str(r.get('Referencia','')).upper()
-            if re.match(r'^E?M\d+$', t): return t
-            m = re.search(r'(E?M\d+)', ref)
-            return m.group(1) if m else ref
-        df_emb['Ref_Norm'] = df_emb.apply(ext_cod, axis=1)
+        # Filtro Base
+        mask_embarque = (
+            df_pendientes['Tipo'].astype(str).str.upper().str.contains('EM', na=False) | 
+            df_pendientes['Referencia'].astype(str).str.upper().str.contains('EM', na=False)
+        )
+        
+        df_embarques = df_pendientes[mask_embarque].copy()
+        df_otros = df_pendientes[~mask_embarque].copy()
 
-        ws4 = workbook.add_worksheet('4. Embarques Pend.')
-        ws4.hide_gridlines(2)
-        escribir_hoja_agrupada(ws4, df_emb, "TOTAL EMBARQUES:", total_fmt, 'Ref_Norm')
+        # --- NORMALIZACIÓN EXTRA PARA EMBARQUES (EL FIX) ---
+        # Objetivo: Que todas las líneas de "EM00002788" tengan el mismo Ref_Norm
+        def extraer_codigo_embarque(row):
+            texto_tipo = str(row.get('Tipo', '')).strip().upper()
+            texto_ref = str(row.get('Referencia', '')).strip().upper()
+            
+            # 1. Si el TIPO ya es el código limpio (Ej: EM00002788), úsalo.
+            if re.match(r'^E?M\d+$', texto_tipo):
+                return texto_tipo
+            
+            # 2. Si no, búscalo dentro de la REFERENCIA (Ej: "EEM. EM00002788, ...")
+            # Busca EM seguido de dígitos
+            match = re.search(r'(E?M\d+)', texto_ref)
+            if match:
+                return match.group(1)
+            
+            # 3. Fallback: Usa la referencia completa
+            return texto_ref
 
-        # --- HOJA 5: OTROS ---
-        df_otros = df_pendientes[~mask_emb].copy()
+        # Sobreescribimos Ref_Norm solo para este reporte
+        df_embarques['Ref_Norm'] = df_embarques.apply(extraer_codigo_embarque, axis=1)
+        # ---------------------------------------------------
+
+        # 4. EMBARQUES (Agrupado por Código)
+        escribir_hoja_agrupada('4. Embarques Pend.', df_embarques, "TOTAL EMBARQUES:", total_fmt)
+
+        # 5. OTROS PENDIENTES
         ws5 = workbook.add_worksheet('5. Otros Pendientes')
         ws5.hide_gridlines(2)
         ws5.write_row(0, 0, cols_output, header_fmt)
-        last_row = escribir_lista_simple(ws5, df_otros.sort_values('Fecha'), 1)
-        ws5.write(last_row, 5, "TOTAL OTROS:", label_fmt)
-        for i in idx_nums: ws5.write_number(last_row, i, df_otros[cols_output[i]].sum(), total_fmt)
+        r = 1
+        df_otros.sort_values(by=['Fecha'], inplace=True)
+        for _, data in df_otros.iterrows():
+            for i, col in enumerate(cols_output):
+                val = data.get(col, '')
+                fmt = money_fmt if i in idx_nums else text_fmt
+                if 'Fecha' in col: val = str(val)[:10]
+                if i in idx_nums: ws5.write_number(r, i, float(val) if pd.notna(val) else 0, fmt)
+                else: ws5.write(r, i, val, fmt)
+            r += 1
+        ws5.write(r, 5, "TOTAL OTROS:", label_fmt)
+        for i in idx_nums: ws5.write_number(r, i, df_otros[cols_output[i]].sum(), total_fmt)
         ws5.set_column('A:N', 15)
 
-        # --- HOJA 6: ESPECIFICACIÓN ---
+        # 6. ESPECIFICACIÓN
         ws6 = workbook.add_worksheet('6. Especificación')
         ws6.hide_gridlines(2)
         ws6.merge_range('A1:C1', "RESUMEN DE SALDOS ABIERTOS (COFERSA)", workbook.add_format({'bold':True, 'font_size':14, 'align':'center'}))
         ws6.write_row('A3', ['Categoría', 'Referencia', 'Saldo (VES)'], header_fmt)
         
-        r_s = 3; tot_s = 0
-        for cat, df_x, grp in [('DESCUADRE', df_f3, 'Ref_Norm'), ('EMBARQUE', df_emb, 'Ref_Norm')]:
-            if not df_x.empty:
-                for ref, grp_df in df_x.groupby(grp):
-                    s = grp_df['Neto Local'].sum()
-                    if abs(s) > 0.001:
-                        ws6.write(r_s, 0, cat, text_fmt); ws6.write(r_s, 1, ref, text_fmt); ws6.write_number(r_s, 2, s, money_fmt)
-                        tot_s += s; r_s += 1
+        row_s = 3
+        total_spec = 0
         
+        # Resúmenes
+        for cat, df_c in [('DESCUADRE', df_f3), ('EMBARQUE', df_embarques)]:
+            if not df_c.empty:
+                res = df_c.groupby('Ref_Norm')['Neto Local'].sum().reset_index()
+                for _, r in res.iterrows():
+                    # Solo mostramos si el saldo no es cero (limpieza visual)
+                    if abs(r['Neto Local']) > 0.001:
+                        ws6.write(row_s, 0, cat, text_fmt)
+                        ws6.write(row_s, 1, r['Ref_Norm'], text_fmt)
+                        ws6.write_number(row_s, 2, r['Neto Local'], money_fmt)
+                        total_spec += r['Neto Local']
+                        row_s += 1
+        
+        # Otros
         if not df_otros.empty:
-            # Agrupar Otros también para el resumen
             if 'Ref_Norm' not in df_otros.columns: df_otros['Ref_Norm'] = df_otros['Referencia']
-            for ref, grp_df in df_otros.groupby('Ref_Norm'):
-                s = grp_df['Neto Local'].sum()
-                if abs(s) > 0.001:
-                    ws6.write(r_s, 0, "OTRO", text_fmt); ws6.write(r_s, 1, ref, text_fmt); ws6.write_number(r_s, 2, s, money_fmt)
-                    tot_s += s; r_s += 1
-        
-        ws6.write(r_s, 1, "SALDO TOTAL:", label_fmt)
-        ws6.write_number(r_s, 2, tot_s, total_fmt)
-        ws6.set_column('A:C', 20)
+            res_otr = df_otros.groupby('Ref_Norm')['Neto Local'].sum().reset_index()
+            for _, r in res_otr.iterrows():
+                if abs(r['Neto Local']) > 0.001:
+                    ws6.write(row_s, 0, "OTRO PENDIENTE", text_fmt)
+                    ws6.write(row_s, 1, r['Ref_Norm'], text_fmt)
+                    ws6.write_number(row_s, 2, r['Neto Local'], money_fmt)
+                    total_spec += r['Neto Local']
+                    row_s += 1
+
+        ws6.write(row_s, 1, "SALDO TOTAL:", label_fmt)
+        ws6.write_number(row_s, 2, total_spec, total_fmt)
+        ws6.set_column('A:B', 30); ws6.set_column('C:C', 20)
 
     return output.getvalue()
