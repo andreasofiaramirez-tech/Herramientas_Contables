@@ -4224,18 +4224,12 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
 
 def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
     """
-    Conciliación para Envíos en Tránsito COFERSA (VES).
-    VELOCIDAD MÁXIMA: Sin cálculos combinatorios.
-    Fases:
-    1. Pares 1 a 1 (Exactos).
-    2. Cruce por Tipo (Suma 0).
-    3. Cruce por Referencia (Suma 0).
-    4. Descuadres (Referencia con D+C).
-    5. Pendientes.
+    Conciliación para Envíos en Tránsito COFERSA (Moneda Local).
+    Fase 2: Estricta (0.00).
     """
     log_messages.append("\n--- INICIANDO CONCILIACIÓN ENVIOS COFERSA (VES) ---")
     
-    # 1. Normalización
+    # 1. Normalización y Cálculos
     if 'Neto Local' not in df.columns:
         deb = df.get('Débito Bolivar', 0)
         cre = df.get('Crédito Bolivar', 0)
@@ -4243,6 +4237,7 @@ def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
     
     df['Neto Local'] = pd.to_numeric(df['Neto Local'], errors='coerce').fillna(0).round(2)
     
+    # Normalizamos referencia globalmente para uso en fases y reporte
     if 'Referencia' in df.columns:
         df['Ref_Norm'] = df['Referencia'].astype(str).str.strip().str.upper()
     else:
@@ -4252,7 +4247,7 @@ def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
     indices_usados = set()
     total_conciliados = 0
 
-    # --- FASE 1: PARES 1 A 1 ---
+    # --- FASE 1: PARES 1 A 1 (Suma Cero Exacta) ---
     df_pool = df.copy()
     df_pool['Abs_Local'] = df_pool['Neto Local'].abs()
     
@@ -4268,68 +4263,64 @@ def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
             idx_neg = negativos[i]
             
             if idx_pos not in indices_usados and idx_neg not in indices_usados:
-                if abs(df.loc[idx_pos, 'Neto Local'] + df.loc[idx_neg, 'Neto Local']) <= 0.01:
+                suma = df.loc[idx_pos, 'Neto Local'] + df.loc[idx_neg, 'Neto Local']
+                # Estricto 0.00 (tolerancia flotante mínima)
+                if abs(suma) <= 0.001:
                     df.loc[[idx_pos, idx_neg], 'Estado_Cofersa'] = 'PARES_1_A_1'
-                    indices_usados.add(idx_pos); indices_usados.add(idx_neg)
+                    indices_usados.add(idx_pos)
+                    indices_usados.add(idx_neg)
                     total_conciliados += 2
 
-    log_messages.append(f"✔️ Fase 1 (Pares 1-a-1): {total_conciliados} movimientos.")
+    log_messages.append(f"✔️ Fase 1 (Pares 1-a-1): {total_conciliados} movimientos cruzados.")
     if progress_bar: progress_bar.progress(0.4, text="Fase 1 completada.")
 
-    # --- FASE 2: CRUCE POR TIPO (Suma 0) ---
+    # --- FASE 2: CRUCE POR TIPO (ESTRICTO) ---
     df_pendientes = df[~df.index.isin(indices_usados)].copy()
-    count_fase2 = 0
+    
     if 'Tipo' in df_pendientes.columns:
         df_pendientes['Tipo'] = df_pendientes['Tipo'].astype(str).fillna('')
-        df_validos = df_pendientes[~df_pendientes['Tipo'].isin(['nan', 'NAN', '', 'None'])]
-        
-        for tipo_val, grupo in df_validos.groupby('Tipo'):
-            if abs(grupo['Neto Local'].sum()) <= 0.01:
+        count_fase2 = 0
+        for tipo_val, grupo in df_pendientes.groupby('Tipo'):
+            if pd.isna(tipo_val) or str(tipo_val).strip() == '' or str(tipo_val).lower() == 'nan': 
+                continue
+            
+            suma_grupo = grupo['Neto Local'].sum().round(2)
+            
+            # --- CAMBIO: TOLERANCIA ESTRICTA 0.00 ---
+            if suma_grupo == 0.00:
                 indices_grupo = grupo.index
                 df.loc[indices_grupo, 'Estado_Cofersa'] = 'CRUCE_POR_TIPO'
                 indices_usados.update(indices_grupo)
                 count_fase2 += len(indices_grupo)
+        
+        log_messages.append(f"✔️ Fase 2 (Cruce por Tipo Estricto): {count_fase2} movimientos cruzados.")
     
-    log_messages.append(f"✔️ Fase 2 (Cruce por Tipo): {count_fase2} movimientos.")
-    if progress_bar: progress_bar.progress(0.7, text="Fase 2 completada.")
+    if progress_bar: progress_bar.progress(0.8, text="Fase 2 completada.")
 
-    # --- FASE 3: CRUCE POR REFERENCIA (Suma 0) y DESCUADRES ---
-    # Aquí unimos la lógica: Si suma 0 es 'CRUCE_POR_REF', si no, es 'REF_DESCUADRE'
+    # --- FASE 3: DESCUADRES POR REFERENCIA ---
+    # Si no cuadró en Fase 1 ni 2, verificamos si tiene "pareja" (D+C) para marcarlo como Descuadre
     df_pendientes = df[~df.index.isin(indices_usados)].copy()
-    count_cruce_ref = 0
-    count_descuadre = 0
+    count_fase3 = 0
     
     if 'Ref_Norm' in df_pendientes.columns:
         for ref, grupo in df_pendientes.groupby('Ref_Norm'):
             if ref == 'NAN' or ref == '' or len(grupo) < 2: continue
             
-            suma_grupo = grupo['Neto Local'].sum()
+            tiene_debito = (grupo['Neto Local'] > 0.001).any()
+            tiene_credito = (grupo['Neto Local'] < -0.001).any()
             
-            # CASO A: Suma Cero -> CONCILIADO
-            if abs(suma_grupo) <= 0.01:
+            if tiene_debito and tiene_credito:
                 indices_grupo = grupo.index
-                df.loc[indices_grupo, 'Estado_Cofersa'] = 'CRUCE_POR_REF'
+                df.loc[indices_grupo, 'Estado_Cofersa'] = 'REF_DESCUADRE'
                 indices_usados.update(indices_grupo)
-                count_cruce_ref += len(indices_grupo)
+                count_fase3 += len(indices_grupo)
             
-            # CASO B: No suma cero, pero tiene movs cruzados -> DESCUADRE
-            else:
-                tiene_debito = (grupo['Neto Local'] > 0.01).any()
-                tiene_credito = (grupo['Neto Local'] < -0.01).any()
-                
-                if tiene_debito and tiene_credito:
-                    indices_grupo = grupo.index
-                    df.loc[indices_grupo, 'Estado_Cofersa'] = 'REF_DESCUADRE'
-                    indices_usados.update(indices_grupo)
-                    count_descuadre += len(indices_grupo)
-            
-    log_messages.append(f"✔️ Fase 3A (Ref Suma 0): {count_cruce_ref} movimientos.")
-    log_messages.append(f"⚠️ Fase 3B (Descuadres): {count_descuadre} movimientos.")
+    log_messages.append(f"⚠️ Fase 3 (Descuadres Mixtos): {count_fase3} movimientos.")
 
-    # --- FASE 4: PENDIENTES ---
+    # --- FASE 4: PENDIENTES FINALES ---
     remanentes = len(df) - len(indices_usados)
     log_messages.append(f"ℹ️ Pendientes Reales: {remanentes} movimientos.")
     
-    df['Conciliado'] = df['Estado_Cofersa'].isin(['PARES_1_A_1', 'CRUCE_POR_TIPO', 'CRUCE_POR_REF'])
+    df['Conciliado'] = df['Estado_Cofersa'] != 'PENDIENTE'
 
     return df
