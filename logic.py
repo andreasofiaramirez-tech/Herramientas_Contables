@@ -4225,11 +4225,11 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
 def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
     """
     Conciliación para Envíos en Tránsito COFERSA (Moneda Local).
-    Fase 2: Estricta (0.00).
+    Fase 2.5: Cruce Complejo (N a 1) agregado.
     """
     log_messages.append("\n--- INICIANDO CONCILIACIÓN ENVIOS COFERSA (VES) ---")
     
-    # 1. Normalización y Cálculos
+    # 1. Normalización y Cálculos (Igual que antes)
     if 'Neto Local' not in df.columns:
         deb = df.get('Débito Bolivar', 0)
         cre = df.get('Crédito Bolivar', 0)
@@ -4237,79 +4237,135 @@ def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
     
     df['Neto Local'] = pd.to_numeric(df['Neto Local'], errors='coerce').fillna(0).round(2)
     
-    # Normalizamos referencia globalmente para uso en fases y reporte
     if 'Referencia' in df.columns:
         df['Ref_Norm'] = df['Referencia'].astype(str).str.strip().str.upper()
     else:
         df['Ref_Norm'] = 'SIN_REF'
 
     df['Estado_Cofersa'] = 'PENDIENTE' 
+    df['Grupo_Complejo_ID'] = '' # Nueva columna para identificar grupos complejos
     indices_usados = set()
     total_conciliados = 0
 
-    # --- FASE 1: PARES 1 A 1 (Suma Cero Exacta) ---
+    # --- FASE 1: PARES 1 A 1 (Igual que antes) ---
     df_pool = df.copy()
     df_pool['Abs_Local'] = df_pool['Neto Local'].abs()
     
     for monto, grupo in df_pool.groupby('Abs_Local'):
         if monto <= 0.01 or len(grupo) < 2: continue
-        
         positivos = grupo[grupo['Neto Local'] > 0].index.tolist()
         negativos = grupo[grupo['Neto Local'] < 0].index.tolist()
-        
         pares_posibles = min(len(positivos), len(negativos))
         for i in range(pares_posibles):
             idx_pos = positivos[i]
             idx_neg = negativos[i]
-            
             if idx_pos not in indices_usados and idx_neg not in indices_usados:
                 suma = df.loc[idx_pos, 'Neto Local'] + df.loc[idx_neg, 'Neto Local']
-                # Estricto 0.00 (tolerancia flotante mínima)
                 if abs(suma) <= 0.001:
                     df.loc[[idx_pos, idx_neg], 'Estado_Cofersa'] = 'PARES_1_A_1'
-                    indices_usados.add(idx_pos)
-                    indices_usados.add(idx_neg)
+                    indices_usados.add(idx_pos); indices_usados.add(idx_neg)
                     total_conciliados += 2
 
     log_messages.append(f"✔️ Fase 1 (Pares 1-a-1): {total_conciliados} movimientos cruzados.")
-    if progress_bar: progress_bar.progress(0.4, text="Fase 1 completada.")
+    if progress_bar: progress_bar.progress(0.3, text="Fase 1 completada.")
 
-    # --- FASE 2: CRUCE POR TIPO (ESTRICTO) ---
+    # --- FASE 2: CRUCE POR TIPO (Igual que antes) ---
     df_pendientes = df[~df.index.isin(indices_usados)].copy()
-    
+    count_fase2 = 0
     if 'Tipo' in df_pendientes.columns:
         df_pendientes['Tipo'] = df_pendientes['Tipo'].astype(str).fillna('')
-        count_fase2 = 0
         for tipo_val, grupo in df_pendientes.groupby('Tipo'):
-            if pd.isna(tipo_val) or str(tipo_val).strip() == '' or str(tipo_val).lower() == 'nan': 
-                continue
-            
-            suma_grupo = grupo['Neto Local'].sum().round(2)
-            
-            # --- CAMBIO: TOLERANCIA ESTRICTA 0.00 ---
-            if suma_grupo == 0.00:
+            if pd.isna(tipo_val) or str(tipo_val).strip() == '' or 'nan' in str(tipo_val).lower(): continue
+            if abs(grupo['Neto Local'].sum().round(2)) <= 0.001:
                 indices_grupo = grupo.index
                 df.loc[indices_grupo, 'Estado_Cofersa'] = 'CRUCE_POR_TIPO'
                 indices_usados.update(indices_grupo)
                 count_fase2 += len(indices_grupo)
-        
-        log_messages.append(f"✔️ Fase 2 (Cruce por Tipo Estricto): {count_fase2} movimientos cruzados.")
     
-    if progress_bar: progress_bar.progress(0.8, text="Fase 2 completada.")
+    log_messages.append(f"✔️ Fase 2 (Cruce por Tipo): {count_fase2} movimientos cruzados.")
+    if progress_bar: progress_bar.progress(0.6, text="Fase 2 completada.")
 
-    # --- FASE 3: DESCUADRES POR REFERENCIA ---
-    # Si no cuadró en Fase 1 ni 2, verificamos si tiene "pareja" (D+C) para marcarlo como Descuadre
+    # ==============================================================================
+    # FASE 2.5: CRUCE COMPLEJO (N a 1)
+    # Buscamos si varios movimientos pequeños (Embarques) suman lo mismo que uno grande (Cierre).
+    # Límite: Combinaciones de hasta 5 elementos.
+    # ==============================================================================
+    
+    df_pendientes = df[~df.index.isin(indices_usados)].copy()
+    
+    # Separamos Débitos y Créditos pendientes
+    # Asumimos que los "Globales" suelen ser los Créditos (Pagos/Cierres) y los "Detalles" los Débitos, o viceversa.
+    # Probaremos ambas direcciones.
+    
+    debitos = df_pendientes[df_pendientes['Neto Local'] > 0.01]
+    creditos = df_pendientes[df_pendientes['Neto Local'] < -0.01]
+    
+    count_complejos = 0
+    MAX_COMBINACIONES = 5 # Límite de seguridad
+    
+    # ESTRATEGIA A: N Débitos vs 1 Crédito (Ej: Varios embarques vs 1 Cierre)
+    # Iteramos sobre los Créditos (Objetivos)
+    for idx_c, row_c in creditos.iterrows():
+        if idx_c in indices_usados: continue
+        target = abs(row_c['Neto Local'])
+        
+        # Filtramos candidatos (Débitos menores al target)
+        candidatos = debitos[~debitos.index.isin(indices_usados) & (debitos['Neto Local'] <= target + 0.01)]
+        
+        # Si hay muchos candidatos, reducimos la profundidad para no colgar
+        limite_local = MAX_COMBINACIONES if len(candidatos) < 50 else 3
+        
+        match_found = False
+        for r in range(2, limite_local + 1):
+            for combo in combinations(candidatos.index, r):
+                if abs(df.loc[list(combo), 'Neto Local'].sum() - target) <= 0.001:
+                    # MATCH!
+                    indices_match = list(combo) + [idx_c]
+                    df.loc[indices_match, 'Estado_Cofersa'] = 'COMPLEJO_N_A_1'
+                    df.loc[indices_match, 'Grupo_Complejo_ID'] = f"G_{idx_c}" # ID único para agrupar en reporte
+                    indices_usados.update(indices_match)
+                    count_complejos += len(indices_match)
+                    match_found = True
+                    break
+            if match_found: break
+
+    # ESTRATEGIA B: 1 Débito vs N Créditos (Inverso)
+    # Refrescamos listas
+    debitos = df[~df.index.isin(indices_usados) & (df['Neto Local'] > 0.01)]
+    creditos = df[~df.index.isin(indices_usados) & (df['Neto Local'] < -0.01)]
+    
+    for idx_d, row_d in debitos.iterrows():
+        if idx_d in indices_usados: continue
+        target = row_d['Neto Local']
+        
+        candidatos = creditos[~creditos.index.isin(indices_usados) & (creditos['Neto Local'].abs() <= target + 0.01)]
+        
+        limite_local = MAX_COMBINACIONES if len(candidatos) < 50 else 3
+        
+        match_found = False
+        for r in range(2, limite_local + 1):
+            for combo in combinations(candidatos.index, r):
+                if abs(abs(df.loc[list(combo), 'Neto Local'].sum()) - target) <= 0.001:
+                    indices_match = list(combo) + [idx_d]
+                    df.loc[indices_match, 'Estado_Cofersa'] = 'COMPLEJO_N_A_1'
+                    df.loc[indices_match, 'Grupo_Complejo_ID'] = f"G_{idx_d}"
+                    indices_usados.update(indices_match)
+                    count_complejos += len(indices_match)
+                    match_found = True
+                    break
+            if match_found: break
+
+    log_messages.append(f"⚡ Fase 2.5 (Cruces Complejos): {count_complejos} movimientos conciliados.")
+    if progress_bar: progress_bar.progress(0.75, text="Fase Compleja completada.")
+    # ==============================================================================
+
+    # --- FASE 3: DESCUADRES POR REFERENCIA (Igual) ---
     df_pendientes = df[~df.index.isin(indices_usados)].copy()
     count_fase3 = 0
-    
     if 'Ref_Norm' in df_pendientes.columns:
         for ref, grupo in df_pendientes.groupby('Ref_Norm'):
             if ref == 'NAN' or ref == '' or len(grupo) < 2: continue
-            
-            tiene_debito = (grupo['Neto Local'] > 0.001).any()
-            tiene_credito = (grupo['Neto Local'] < -0.001).any()
-            
-            if tiene_debito and tiene_credito:
+            if (grupo['Neto Local'] > 0.001).any() and (grupo['Neto Local'] < -0.001).any():
                 indices_grupo = grupo.index
                 df.loc[indices_grupo, 'Estado_Cofersa'] = 'REF_DESCUADRE'
                 indices_usados.update(indices_grupo)
@@ -4317,10 +4373,9 @@ def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
             
     log_messages.append(f"⚠️ Fase 3 (Descuadres Mixtos): {count_fase3} movimientos.")
 
-    # --- FASE 4: PENDIENTES FINALES ---
+    # --- FASE 4: PENDIENTES ---
     remanentes = len(df) - len(indices_usados)
     log_messages.append(f"ℹ️ Pendientes Reales: {remanentes} movimientos.")
     
     df['Conciliado'] = df['Estado_Cofersa'] != 'PENDIENTE'
-
     return df
