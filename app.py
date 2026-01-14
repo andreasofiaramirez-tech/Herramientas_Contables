@@ -56,7 +56,8 @@ from utils import (
     generar_archivo_txt,
     generar_reporte_pensiones,
     generar_reporte_ajustes_usd,
-    generar_reporte_cofersa
+    generar_reporte_cofersa,
+    cargar_datos_cofersa
 )
 
 def mostrar_error_amigable(e, contexto=""):
@@ -1048,7 +1049,7 @@ def render_cofersa():
             try:
                 # 1. Carga usando la función estándar (ya normaliza columnas)
                 with st.spinner('Cargando datos...'):
-                    df_full = cargar_y_limpiar_datos(uploaded_actual, uploaded_anterior, log)
+                    df_full = cargar_datos_cofersa(uploaded_actual, uploaded_anterior, log)
                 
                 if df_full is not None:
                     # 2. Ejecutar Lógica Específica
