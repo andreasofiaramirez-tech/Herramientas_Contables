@@ -5,7 +5,8 @@ import numpy as np
 import re
 import xlsxwriter
 from io import BytesIO
-import streamlit as st
+import streamlit as st    
+import unicodedata
 
 # ==============================================================================
 # 1. FUNCIONES AUXILIARES Y DE LIMPIEZA
@@ -161,7 +162,95 @@ def cargar_y_limpiar_datos(uploaded_actual, uploaded_anterior, log_messages):
     log_messages.append(f"✅ Datos cargados. Filas archivo anterior: {len(df_anterior)}, Actual: {len(df_actual)}. Total consolidado: {len(df_full)}")
     
     return df_full
+
+@st.cache_data
+def cargar_datos_cofersa(uploaded_actual, uploaded_anterior, log_messages):
+    """
+    Función de carga EXCLUSIVA para COFERSA.
+    Mapea columnas específicas: 'Débitos Local' -> 'Débito Bolivar', etc.
+    """
     
+    # Reutilizamos la limpieza numérica que ya existe en utils
+    def limpiar_numero_local(texto):
+        if texto is None or str(texto).strip().lower() == 'nan': return '0.0'
+        t = re.sub(r'[^\d.,-]', '', str(texto).strip())
+        if not t: return '0.0'
+        # Lógica inteligente simple
+        idx_punto = t.rfind('.')
+        idx_coma = t.rfind(',')
+        if idx_punto > idx_coma: return t.replace(',', '') 
+        elif idx_coma > idx_punto: return t.replace('.', '').replace(',', '.')
+        elif idx_coma != -1: return t.replace(',', '.')
+        return t
+
+    def procesar_excel_cofersa(archivo_buffer):
+        try:
+            archivo_buffer.seek(0)
+            df = pd.read_excel(archivo_buffer, engine='openpyxl')
+        except Exception as e:
+            log_messages.append(f"❌ Error al leer Excel COFERSA: {e}")
+            return None
+
+        # 1. Normalizar encabezados a Mayúsculas y sin espacios extra
+        df.columns = [str(c).strip().upper() for c in df.columns]
+
+        # 2. MAPEO ESPECÍFICO COFERSA (Manual)
+        rename_map = {}
+        for col in df.columns:
+            # Buscamos coincidencias parciales específicas de tu archivo
+            if 'DEBITO' in col and 'LOCAL' in col: rename_map[col] = 'Débito Bolivar'
+            elif 'CREDITO' in col and 'LOCAL' in col: rename_map[col] = 'Crédito Bolivar'
+            elif 'DEBITO' in col and ('DOLAR' in col or 'DÓLAR' in col): rename_map[col] = 'Débito Dolar'
+            elif 'CREDITO' in col and ('DOLAR' in col or 'DÓLAR' in col): rename_map[col] = 'Crédito Dolar'
+            
+            elif 'ASIENTO' in col: rename_map[col] = 'Asiento'
+            elif 'FECHA' in col: rename_map[col] = 'Fecha'
+            elif 'REFERENCIA' in col: rename_map[col] = 'Referencia'
+            elif 'TIPO' in col: rename_map[col] = 'Tipo'
+            elif 'FUENTE' in col: rename_map[col] = 'Fuente'
+            elif 'ORIGEN' in col: rename_map[col] = 'Origen'
+            elif 'NIT' in col: rename_map[col] = 'Nit'
+            elif 'DESCRIPCI' in col: rename_map[col] = 'Descripción Nit'
+
+        df.rename(columns=rename_map, inplace=True)
+        
+        # 3. Limpieza de Datos
+        if 'Fecha' in df.columns: df['Fecha'] = pd.to_datetime(df['Fecha'], errors='coerce')
+        if 'Asiento' in df.columns: df['Asiento'] = df['Asiento'].astype(str).str.strip()
+        if 'Referencia' in df.columns: df['Referencia'] = df['Referencia'].astype(str).str.strip()
+
+        # 4. Limpieza Numérica (Convertir a float seguro)
+        cols_fin = ['Débito Bolivar', 'Crédito Bolivar', 'Débito Dolar', 'Crédito Dolar']
+        for c in cols_fin:
+            if c not in df.columns:
+                df[c] = 0.0
+            else:
+                df[c] = df[c].apply(limpiar_numero_local)
+                df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0.0)
+        
+        return df
+
+    # --- EJECUCIÓN ---
+    df_act = procesar_excel_cofersa(uploaded_actual)
+    df_ant = procesar_excel_cofersa(uploaded_anterior)
+
+    if df_act is None or df_ant is None: return None
+
+    df_full = pd.concat([df_ant, df_act], ignore_index=True)
+    
+    # Calcular NETOS para la lógica de COFERSA
+    # (Blindado: son floats seguros gracias al paso 4)
+    df_full['Neto Local'] = (df_full['Débito Bolivar'] - df_full['Crédito Bolivar']).round(2)
+    df_full['Neto Dólar'] = (df_full['Débito Dolar'] - df_full['Crédito Dolar']).round(2)
+    
+    # Columnas auxiliares
+    df_full['Monto_BS'] = df_full['Neto Local'] # Compatibilidad
+    df_full['Monto_USD'] = df_full['Neto Dólar']
+    df_full['Conciliado'] = False
+    
+    log_messages.append(f"✅ Datos COFERSA cargados. Total: {len(df_full)}")
+    return df_full
+
 @st.cache_data
 def generar_excel_saldos_abiertos(df_saldos_abiertos):
     """
