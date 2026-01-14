@@ -2147,26 +2147,31 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
 
 def generar_reporte_cofersa(df_procesado):
     """
-    Genera el reporte específico para Envios COFERSA.
-    Hoja 1: Pares 1 a 1
-    Hoja 2: Cruce por Tipos (Corregido error de ordenamiento)
-    Hoja 3: Descuadres por Referencia
-    Hoja 4: Embarques Pendientes
-    Hoja 5: Otros Pendientes
-    Hoja 6: Especificación
+    Genera el reporte específico para Envios COFERSA con 4 hojas.
+    CORREGIDO: Normalización de columnas (Acentos en Descripción) para evitar KeyError.
     """
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         workbook = writer.book
         
+        # --- 0. NORMALIZACIÓN DE COLUMNAS (Para evitar errores de acentos) ---
+        # Si viene 'Descripcion Nit', lo cambiamos a 'Descripción Nit'
+        if 'Descripcion Nit' in df_procesado.columns:
+            df_procesado.rename(columns={'Descripcion Nit': 'Descripción Nit'}, inplace=True)
+        
+        # Aseguramos que la columna exista para no romper el código
+        if 'Descripción Nit' not in df_procesado.columns:
+            df_procesado['Descripción Nit'] = 'NO DEFINIDO'
+        # ---------------------------------------------------------------------
+
         # Estilos
         header_fmt = workbook.add_format({'bold': True, 'fg_color': '#D9EAD3', 'border': 1, 'align': 'center'})
         money_fmt = workbook.add_format({'num_format': '#,##0.00', 'border': 1})
-        date_fmt = workbook.add_format({'num_format': 'dd/mm/yyyy', 'border': 1, 'align': 'center'})
         total_fmt = workbook.add_format({'bold': True, 'bg_color': '#F2F2F2', 'num_format': '#,##0.00', 'border': 1})
         label_fmt = workbook.add_format({'bold': True, 'bg_color': '#F2F2F2', 'border': 1, 'align': 'right'})
         diff_fmt = workbook.add_format({'bold': True, 'bg_color': '#FFC7CE', 'num_format': '#,##0.00', 'border': 1})
         text_fmt = workbook.add_format({'border': 1})
+        date_fmt = workbook.add_format({'num_format': 'dd/mm/yyyy', 'border': 1, 'align': 'center'})
 
         cols_output = [
             'Fecha', 'Asiento', 'Fuente', 'Origen', 'Tipo', 'Referencia',
@@ -2176,14 +2181,13 @@ def generar_reporte_cofersa(df_procesado):
         ]
         idx_nums = range(6, 12)
 
-        # --- FUNCIÓN INTERNA: HOJA AGRUPADA ---
+        # --- FUNCIÓN INTERNA ---
         def escribir_hoja_agrupada(nombre_hoja, df_data, titulo_total, estilo_subtotal):
             if df_data.empty: return
             
             if 'Ref_Norm' not in df_data.columns:
                 df_data['Ref_Norm'] = df_data['Referencia'].astype(str).str.strip().str.upper()
             
-            # Ordenamiento seguro
             df_data = df_data.sort_values(by=['Ref_Norm', 'Fecha'])
             
             ws = workbook.add_worksheet(nombre_hoja)
@@ -2213,7 +2217,6 @@ def generar_reporte_cofersa(df_procesado):
             ws.write(row_idx, 5, titulo_total, label_fmt)
             ws.write_number(row_idx, 8, gran_total, total_fmt)
             ws.set_column('A:N', 15)
-        # -----------------------------------------------------
 
         # 1. PARES 1 A 1
         df_f1 = df_procesado[df_procesado['Estado_Cofersa'] == 'PARES_1_A_1'].copy()
@@ -2233,15 +2236,10 @@ def generar_reporte_cofersa(df_procesado):
         for i in idx_nums: ws1.write_number(r, i, df_f1[cols_output[i]].sum(), total_fmt)
         ws1.set_column('A:N', 15)
 
-        # 2. CRUCE POR TIPOS (CORREGIDO)
+        # 2. CRUCE POR TIPOS
         df_f2 = df_procesado[df_procesado['Estado_Cofersa'] == 'CRUCE_POR_TIPO'].copy()
-        
-        # --- CORRECCIÓN CRÍTICA: Convertir 'Tipo' a string antes de ordenar ---
-        if 'Tipo' in df_f2.columns:
-            df_f2['Tipo'] = df_f2['Tipo'].astype(str).fillna('')
-        
+        if 'Tipo' in df_f2.columns: df_f2['Tipo'] = df_f2['Tipo'].astype(str).fillna('')
         df_f2.sort_values(by=['Tipo', 'Fecha'], inplace=True)
-        # ----------------------------------------------------------------------
         
         ws2 = workbook.add_worksheet('2. Cruce por Tipos')
         ws2.hide_gridlines(2)
@@ -2270,7 +2268,6 @@ def generar_reporte_cofersa(df_procesado):
         df_embarques = df_pendientes[mask_embarque].copy()
         df_otros = df_pendientes[~mask_embarque].copy()
 
-        # Normalización extra para agrupar Embarques
         def extraer_codigo_embarque(row):
             t = str(row.get('Tipo', '')).strip().upper()
             r = str(row.get('Referencia', '')).strip().upper()
@@ -2312,12 +2309,14 @@ def generar_reporte_cofersa(df_procesado):
         row_s = 3
         total_spec = 0
         
-        # Reglas de Agregación para mostrar detalles en el resumen
+        # Reglas de Agregación
         agg_rules = {
             'Neto Local': 'sum', 
-            'Fecha': 'max',       # Fecha más reciente del grupo
-            'Nit': 'first',       # Primer NIT encontrado
-            'Descripción Nit': 'first' # Primera descripción
+            'Fecha': 'max', 
+            'Nit': 'first', 
+            # --- USO SEGURO DE COLUMNA NORMALIZADA ---
+            'Descripción Nit': 'first' 
+            # -----------------------------------------
         }
         
         # A. Resumen Descuadres
