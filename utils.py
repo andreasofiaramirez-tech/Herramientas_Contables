@@ -213,6 +213,7 @@ def cargar_datos_cofersa(uploaded_actual, uploaded_anterior, log_messages):
             elif 'DESCRIPCI' in col: rename_map[col] = 'Descripción Nit'
 
         df.rename(columns=rename_map, inplace=True)
+        df = df.loc[:, ~df.columns.duplicated()]
         
         # 3. Limpieza de Datos
         if 'Fecha' in df.columns: df['Fecha'] = pd.to_datetime(df['Fecha'], errors='coerce')
