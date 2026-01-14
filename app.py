@@ -40,7 +40,8 @@ from logic import (
     run_cross_check_imprenta,
     generar_txt_retenciones_galac,
     procesar_calculo_pensiones,
-    procesar_ajustes_balance_usd
+    procesar_ajustes_balance_usd,
+    run_conciliation_envios_cofersa
 )
 
 # --- BLOQUE 3: IMPORTAR UTILS ---
@@ -54,7 +55,8 @@ from utils import (
     generar_reporte_auditoria_txt,
     generar_archivo_txt,
     generar_reporte_pensiones,
-    generar_reporte_ajustes_usd
+    generar_reporte_ajustes_usd,
+    generar_reporte_cofersa
 )
 
 def mostrar_error_amigable(e, contexto=""):
@@ -338,6 +340,14 @@ def render_inicio():
         st.button("🛡️ Cálculo Pensiones (9%)", on_click=set_page, args=['pensiones'], use_container_width=True)
         st.button("🧾 Relación Retenciones", on_click=set_page, args=['retenciones'], use_container_width=True)
         st.button("🖨️ Gestión Imprenta (TXT)", on_click=set_page, args=['imprenta'], use_container_width=True)
+
+    st.divider()
+    st.subheader("Logística y Tránsito", anchor=False)
+    
+    _, col_centro, _ = st.columns([1, 2, 1])
+    with col_centro:
+        # Apunta a la nueva página 'cofersa'
+        st.button("🚛 Envíos en Tránsito COFERSA", on_click=set_page, args=['cofersa'], type="secondary", use_container_width=True)
 
     st.markdown("---")
     st.caption("v2.1 - Sistema Integral de Automatización Contable.")
@@ -1013,6 +1023,82 @@ def render_ajustes_usd():
             except Exception as e:
                 mostrar_error_amigable(e, "el Cálculo de Ajustes de Balance")
 
+def render_cofersa():
+    st.title("🚛 Envíos en Tránsito COFERSA (115.07.1.002)", anchor=False)
+    
+    if st.button("⬅️ Volver al Inicio", key="back_from_cofersa"):
+        set_page('inicio')
+        st.rerun()
+
+    with st.expander("📖 Guía de Conciliación"):
+        st.markdown(LOGICA_POR_CUENTA.get("115.07.1.002 - Envios en Transito COFERSA", "Guía no disponible."))
+
+    st.info("Carga los movimientos de Envíos en Tránsito para conciliar por Pares, Tipo y Referencia.")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        uploaded_actual = st.file_uploader("Movimientos del Mes (Excel)", type="xlsx", key="cof_actual")
+    with col2:
+        uploaded_anterior = st.file_uploader("Saldos Anteriores (Excel)", type="xlsx", key="cof_anterior")
+
+    if uploaded_actual and uploaded_anterior:
+        if st.button("▶️ Iniciar Conciliación COFERSA", type="primary", use_container_width=True):
+            progress = st.empty()
+            log = []
+            try:
+                # 1. Carga usando la función estándar (ya normaliza columnas)
+                with st.spinner('Cargando datos...'):
+                    df_full = cargar_y_limpiar_datos(uploaded_actual, uploaded_anterior, log)
+                
+                if df_full is not None:
+                    # 2. Ejecutar Lógica Específica
+                    progress.progress(0, text="Analizando pares y tipos...")
+                    df_res = run_conciliation_envios_cofersa(df_full.copy(), log, progress_bar=progress)
+                    progress.progress(1.0, text="¡Listo!")
+
+                    # 3. Generar Reportes
+                    # Reporte de 3 hojas
+                    excel_reporte = generar_reporte_cofersa(df_res)
+                    
+                    # Archivo para el mes siguiente (Solo los pendientes)
+                    df_pendientes = df_res[df_res['Estado_Cofersa'] == 'PENDIENTE']
+                    excel_saldos = generar_excel_saldos_abiertos(df_pendientes)
+                    
+                    # 4. Mostrar Resultados
+                    st.success("✅ Conciliación completada.")
+                    
+                    # Métricas
+                    c1, c2, c3 = st.columns(3)
+                    c1.metric("Pares 1-a-1", len(df_res[df_res['Estado_Cofersa'] == 'PARES_1_A_1']))
+                    c2.metric("Cruce por Tipo", len(df_res[df_res['Estado_Cofersa'] == 'CRUCE_POR_TIPO']))
+                    c3.metric("Pendientes", len(df_pendientes))
+
+                    # Descargas
+                    col_d1, col_d2 = st.columns(2)
+                    
+                    nombre_archivo = f"Conciliacion_Cofersa_{pd.Timestamp.now().strftime('%Y%m')}.xlsx"
+                    
+                    col_d1.download_button(
+                        "⬇️ Descargar Reporte (3 Hojas)",
+                        excel_reporte,
+                        nombre_archivo,
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True
+                    )
+                    
+                    col_d2.download_button(
+                        "⬇️ Saldos para Próximo Mes",
+                        excel_saldos,
+                        "Saldos_Cofersa_ProximoMes.xlsx",
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True
+                    )
+
+                    with st.expander("Ver Log"): st.write(log)
+
+            except Exception as e:
+                mostrar_error_amigable(e, "la Conciliación de Cofersa")
+
 # ==============================================================================
 # FLUJO PRINCIPAL DE LA APLICACIÓN (ROUTER)
 # ==============================================================================
@@ -1025,7 +1111,8 @@ def main():
         'cuadre': render_cuadre,
         'imprenta': render_imprenta,
         'pensiones': render_pensiones,
-        'ajustes_usd' : render_ajustes_usd
+        'ajustes_usd' : render_ajustes_usd,
+        'cofersa': render_cofersa,     
     }
     
     current_page = st.session_state.get('page', 'inicio')
