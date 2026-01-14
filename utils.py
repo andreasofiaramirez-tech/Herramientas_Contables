@@ -1837,33 +1837,26 @@ def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, resumen_validaci
 
     return output.getvalue()
 
-def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_raw, nombre_empresa):
+def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_raw, nombre_empresa, validacion_data):
     """
-    Genera Excel Ajustes USD (4 hojas).
-    HOJA 1: Formato Limpio (Fondo Blanco).
+    Genera Excel Ajustes USD.
+    Hoja 1: Ajustes con Validación de Totales.
+    Hoja 2: Bancos con Cálculo Detallado y Tasas.
     """
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         workbook = writer.book
         
-        # --- ESTILOS LIMPIOS (FONDO BLANCO) ---
-        header_clean = workbook.add_format({
-            'bold': True, 
-            'border': 1, 
-            'align': 'center', 
-            'valign': 'vcenter', 
-            'text_wrap': True,
-            'bg_color': '#FFFFFF' # Blanco explícito
-        })
+        # --- ESTILOS ---
+        header_clean = workbook.add_format({'bold': True, 'border': 1, 'align': 'center', 'valign': 'vcenter', 'text_wrap': True, 'bg_color': '#FFFFFF'})
+        header_yellow = workbook.add_format({'bold': True, 'bg_color': '#FFFF00', 'border': 1, 'align': 'center', 'valign': 'vcenter', 'text_wrap': True})
         
         fmt_text = workbook.add_format({'border': 1})
         fmt_money = workbook.add_format({'num_format': '#,##0.00', 'border': 1})
         fmt_money_bold = workbook.add_format({'num_format': '#,##0.00', 'border': 1, 'bold': True})
         fmt_rate = workbook.add_format({'num_format': '#,##0.0000', 'border': 1})
         
-        # Estilos Caja Validación
-        box_header = workbook.add_format({'bold': True, 'border': 1, 'align': 'center', 'bg_color': '#FFFFFF'})
-        box_val = workbook.add_format({'num_format': '#,##0.00', 'border': 1, 'bold':True})
+        box_val = workbook.add_format({'num_format': '#,##0.00', 'border': 1, 'bold':True})    
 
         # ==========================================
         # HOJA 1: AJUSTES (Resumen Ejecutivo)
@@ -1871,29 +1864,28 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
         ws1 = workbook.add_worksheet('1. Ajustes')
         ws1.hide_gridlines(2)
         
-        # 1. Títulos Superiores
         ws1.write('A1', f"{nombre_empresa}", workbook.add_format({'bold': True}))
         ws1.write('A2', "Balance de Comprobación - Ajustes por Valoración", workbook.add_format({'bold': False}))
         
-        # 2. Caja de Validación (Activo / Pasivo) - Posición L1 (K en indice 0)
-        # Ajustamos coordenadas para que no choque
-        ws1.write('K2', "1", box_header)
-        ws1.write('L2', "ACTIVO", box_header)
-        ws1.write('K3', "2", box_header)
-        ws1.write('L3', "PASIVO", box_header)
+        # Caja de Validación (Usando datos pasados en validacion_data)
+        act = validacion_data['total_ajuste_activo']
+        pas = validacion_data['total_ajuste_pasivo']
+        
+        ws1.write('K2', "1", header_clean); ws1.write('L2', "ACTIVO", header_clean)
+        ws1.write('K3', "2", header_clean); ws1.write('L3', "PASIVO", header_clean)
         ws1.write('K5', "DIF", workbook.add_format({'bold': True, 'align': 'right'}))
         
-        # 3. Encabezados de Tabla (Fila 6 y 7)
-        # Fila 6 (Agrupadores)
+        ws1.write_number('M2', act, box_val)
+        ws1.write_number('M3', pas, box_val)
+        ws1.write_formula('M5', '=M2-M3', box_val)
+
         ws1.merge_range('D6:E6', "Moneda Local", header_clean)
         ws1.merge_range('F6:G6', "Moneda Dólar", header_clean)
         
-        # Fila 7 (Columnas)
         headers_balance = ['Cuenta', 'Descripción', 'Saldo Norm', 'Balance Final', 'Balance Final']
         ws1.write_row('A7', headers_balance, header_clean) 
-        
         headers_calc = ['AJUSTE', 'SALDO AJUSTADO', 'TASA']
-        ws1.write_row('F7', headers_calc, header_clean) 
+        ws1.write_row('F7', headers_calc, header_clean)  
         
         # ---------------------------------------------------------
         # PROCESAMIENTO DE DATOS
@@ -1978,11 +1970,51 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
         ws1.set_column('H:H', 12) # Tasa
 
         # ==========================================
-        # HOJA 2: BANCOS
+        # HOJA 2: BANCOS (NUEVO DISEÑO)
         # ==========================================
         if not df_bancos.empty:
-            df_bancos.to_excel(writer, sheet_name='2. Detalle Bancos', index=False)
-            ws2 = writer.sheets['2. Detalle Bancos']
+            ws2 = workbook.add_worksheet('2. Detalle Bancos')
+            ws2.hide_gridlines(2)
+            
+            # Tasas en O1:R2
+            ws2.write('O1', "TASA BCV", workbook.add_format({'bold':True}))
+            ws2.write('O2', "TASA CORP.", workbook.add_format({'bold':True}))
+            ws2.write('P1', validacion_data['tasa_bcv'], fmt_rate)
+            ws2.write('P2', validacion_data['tasa_corp'], fmt_rate)
+            
+            # Encabezados (Fila 4)
+            # Columnas del Excel original + Calculadas
+            cols_orig = ['TIP', 'Cuenta Contable', 'Descripción', 'Nro. De Cuenta', 'Cuenta Bancaria', 'Fecha Inicial', 'Fecha Final', 'Saldo en Libros', 'Saldo en Bancos', 'Estado', 'Movimientos en Libros', 'Movimientos en Bancos no Conciliados']
+            cols_calc = ['Saldo en Libros BS', 'Saldo en Bancos BS', 'Saldo en Libros $', 'Saldo en Bancos $', 'AJUSTE BS', 'AJUSTE $', 'TASA', 'VERIFICACION']
+            
+            # Escribir headers originales (Blancos)
+            ws2.write_row('A4', cols_orig, header_clean)
+            # Escribir headers calculados (Amarillos)
+            ws2.write_row(3, len(cols_orig), cols_calc, header_yellow) # Fila 3 es indice 4
+            
+            curr = 4
+            for _, row in df_bancos.iterrows():
+                # Escribir datos originales
+                for i, col in enumerate(cols_orig):
+                    val = row.get(col, '')
+                    if 'Saldo' in col or 'Movimiento' in col:
+                        ws2.write_number(curr, i, val if val!='' else 0, fmt_money)
+                    else:
+                        ws2.write(curr, i, val, fmt_text)
+                
+                # Escribir datos calculados
+                start_calc = len(cols_orig)
+                ws2.write_number(curr, start_calc, row['Saldo en Libros BS'], fmt_money)
+                ws2.write_number(curr, start_calc+1, row['Saldo en Bancos BS'], fmt_money)
+                ws2.write_number(curr, start_calc+2, row['Saldo en Libros $'], fmt_money)
+                ws2.write_number(curr, start_calc+3, row['Saldo en Bancos $'], fmt_money)
+                ws2.write_number(curr, start_calc+4, row['AJUSTE BS'], fmt_money)
+                ws2.write_number(curr, start_calc+5, row['AJUSTE $'], fmt_money)
+                ws2.write_number(curr, start_calc+6, row['TASA'], fmt_rate)
+                ws2.write_number(curr, start_calc+7, row['VERIFICACION'], fmt_money)
+                
+                curr += 1
+                
             ws2.set_column('A:Z', 15)
             
         # ==========================================
