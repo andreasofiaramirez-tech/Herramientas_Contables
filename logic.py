@@ -9,7 +9,6 @@ from io import BytesIO
 import unicodedata
 import xlsxwriter
 from difflib import SequenceMatcher  # Necesario para la detección de errores de tipeo
-import pdfplumber                    # Necesario para leer los PDFs de Tesorería/Contabilidad
 from utils import generar_reporte_retenciones
 
 # --- Constantes de Tolerancia ---
@@ -2861,6 +2860,8 @@ def extraer_saldos_cb(archivo, log_messages):
     nombre_archivo = getattr(archivo, 'name', '').lower()
     
     if nombre_archivo.endswith('.pdf'):
+        import pdfplumber
+        
         log_messages.append("📄 Procesando Reporte CB como PDF...")
         try:
             with pdfplumber.open(archivo) as pdf:
@@ -2952,6 +2953,8 @@ def extraer_saldos_cg(archivo, log_messages):
     nombre_archivo = getattr(archivo, 'name', '').lower()
     
     if nombre_archivo.endswith('.pdf'):
+        import pdfplumber
+        
         log_messages.append("📄 Procesando Balance CG como PDF (Modo Regex)...")
         try:
             with pdfplumber.open(archivo) as pdf:
@@ -3106,6 +3109,8 @@ def validar_coincidencia_empresa(file_obj, nombre_empresa_sel):
         nombre_archivo = getattr(file_obj, 'name', '').lower()
         
         if nombre_archivo.endswith('.pdf'):
+            import pdfplumber
+            
             with pdfplumber.open(file_obj) as pdf:
                 if pdf.pages:
                     # Leemos solo la primera página
