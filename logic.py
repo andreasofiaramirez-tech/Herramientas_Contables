@@ -4282,6 +4282,7 @@ def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
     df_pendientes = df[~df.index.isin(indices_usados)]
     
     if 'Tipo' in df.columns:
+        df_pendientes['Tipo'] = df_pendientes['Tipo'].astype(str).fillna('')
         count_fase2 = 0
         for tipo_val, grupo in df_pendientes.groupby('Tipo'):
             if pd.isna(tipo_val) or str(tipo_val).strip() == '': continue
