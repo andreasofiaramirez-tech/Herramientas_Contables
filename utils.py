@@ -1018,14 +1018,15 @@ def _generar_hoja_pendientes_corrida(workbook, formatos, df_saldos, estrategia, 
 
 def _generar_hoja_pendientes_proveedores(workbook, formatos, df_saldos, estrategia, casa, fecha_maxima):
     """
-    Hoja 1: Vuelve al formato de agrupación por Proveedor.
-    Muestra una línea resumen por cada embarque abierto del proveedor.
+    Hoja 1: Formato de agrupación por Proveedor (Encabezados).
+    Muestra los movimientos individuales con su Referencia real.
+    Sin subtotales por grupo, solo Gran Total al final.
     """
     ws = workbook.add_worksheet(estrategia.get("nombre_hoja_excel", "Pendientes"))
     ws.hide_gridlines(2)
     ws.freeze_panes(5, 0)
     
-    # Encabezados de reporte (Igual que antes)
+    # 1. ENCABEZADOS DE REPORTE
     if pd.notna(fecha_maxima):
         meses = {1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio", 7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"}
         txt_fecha = f"PARA EL {fecha_maxima.day} DE {meses[fecha_maxima.month].upper()} DE {fecha_maxima.year}"
@@ -1034,65 +1035,74 @@ def _generar_hoja_pendientes_proveedores(workbook, formatos, df_saldos, estrateg
     ws.merge_range('A1:E1', casa, formatos['encabezado_empresa'])
     ws.merge_range('A2:E2', f"ESPECIFICACION DE LA CUENTA {estrategia['nombre_hoja_excel']}", formatos['encabezado_sub'])
     ws.merge_range('A3:E3', txt_fecha, formatos['encabezado_sub'])
-    ws.write_row('A5', ['NIT', 'Proveedor / Descripción', 'Embarque', 'Saldo USD', 'Saldo Bs.'], formatos['header_tabla'])
+    ws.write_row('A5', ['NIT', 'Referencia / Descripción', 'Embarque', 'Saldo USD', 'Saldo Bs.'], formatos['header_tabla'])
 
     df = df_saldos[df_saldos['Conciliado'] == False].copy()
     if df.empty: return
 
+    # 2. PREPARACIÓN Y LIMPIEZA
     col_nit = 'NIT_Reporte' if 'NIT_Reporte' in df.columns else 'NIT_Norm'
     col_nombre = next((c for c in ['Descripción Nit', 'Descripcion Nit', 'Nombre del Proveedor'] if c in df.columns), 'NIT')
 
-    # Limpieza de nombres/nits para evitar 'nan'
     df[col_nit] = df[col_nit].astype(str).replace(['nan', 'NaN', 'None', 'ND', '0'], 'SIN NIT')
     df[col_nombre] = df[col_nombre].astype(str).replace(['nan', 'NaN', 'None', '0', ''], 'PROVEEDOR NO IDENTIFICADO')
+
+    # Ordenamiento jerárquico
+    df = df.sort_values(by=[col_nit, 'Numero_Embarque', 'Fecha'])
 
     fmt_header_prov = workbook.add_format({'bold': True, 'bg_color': '#FFFFFF', 'bottom': 1})
     current_row = 5
     gran_total_usd = 0
     gran_total_bs = 0
 
-    # Agrupamos por Proveedor
+    # 3. BUCLE DE ESCRITURA
     for nit_val, grupo_prov in df.groupby(col_nit, sort=False):
-        # Calculamos resumen de embarques para este proveedor
-        resumen_emb = grupo_prov.groupby('Numero_Embarque').agg({'Monto_USD': 'sum', 'Monto_BS': 'sum'}).reset_index()
-        # Filtramos los que ya están en cero (por si acaso)
-        resumen_emb = resumen_emb[resumen_emb['Monto_USD'].abs() > 0.01]
-        if resumen_emb.empty: continue
+        
+        # Omitir grupos que por alguna razón sumen cero
+        if abs(round(grupo_prov['Monto_USD'].sum(), 2)) <= 0.01:
+            continue
 
+        # Encabezado del Proveedor
         nombre_disp = grupo_prov[col_nombre].iloc[0]
         ws.write(current_row, 0, nit_val, fmt_header_prov)
         ws.write(current_row, 1, nombre_disp, fmt_header_prov)
         ws.write_row(current_row, 2, ["", "", ""], fmt_header_prov)
         current_row += 1
 
-        sub_usd_prov = 0
-        sub_bs_prov = 0
-
-        for _, row_emb in resumen_emb.iterrows():
-            ws.write(current_row, 0, "", formatos['text'])
-            ws.write(current_row, 1, "SALDO PENDIENTE", formatos['text'])
-            ws.write(current_row, 2, "" if row_emb['Numero_Embarque'] == 'NO_EMB' else row_emb['Numero_Embarque'], formatos['text'])
-            ws.write_number(current_row, 3, row_emb['Monto_USD'], formatos['usd'])
-            ws.write_number(current_row, 4, row_emb['Monto_BS'], formatos['bs'])
+        # Detalle de Movimientos (Sin subtotales por NIT)
+        for _, row in grupo_prov.iterrows():
+            ws.write(current_row, 0, "", formatos['text']) # NIT vacío para no repetir
             
-            sub_usd_prov += row_emb['Monto_USD']
-            sub_bs_prov += row_emb['Monto_BS']
+            # --- CAMBIO: Traer Referencia Real ---
+            ws.write(current_row, 1, str(row.get('Referencia', '')), formatos['text'])
+            
+            # Embarque
+            val_emb = "" if row['Numero_Embarque'] in ['NO_EMB', 'nan', ''] else row['Numero_Embarque']
+            ws.write(current_row, 2, val_emb, formatos['text'])
+            
+            # Montos
+            ws.write_number(current_row, 3, row['Monto_USD'], formatos['usd'])
+            ws.write_number(current_row, 4, row['Monto_BS'], formatos['bs'])
+            
+            # Acumular para el total final
+            gran_total_usd += row['Monto_USD']
+            gran_total_bs += row['Monto_BS']
             current_row += 1
 
-        # Subtotal por NIT
-        ws.write(current_row, 2, "Saldo", formatos['subtotal_label'])
-        ws.write_number(current_row, 3, sub_usd_prov, formatos['subtotal_usd'])
-        ws.write_number(current_row, 4, sub_bs_prov, formatos['subtotal_bs'])
-        
-        gran_total_usd += sub_usd_prov
-        gran_total_bs += sub_bs_prov
-        current_row += 2
+        # NOTA: Se eliminó el bloque de "Subtotal por NIT" para dejar la lista corrida
+        current_row += 1 # Solo un espacio visual entre proveedores
 
-    # Total General
+    # 4. TOTAL GENERAL (Único total al final)
+    current_row += 1
     ws.write(current_row, 2, "TOTAL GENERAL", formatos['total_label'])
     ws.write_number(current_row, 3, gran_total_usd, formatos['total_usd'])
     ws.write_number(current_row, 4, gran_total_bs, formatos['total_bs'])
-    ws.set_column('A:E', 20); ws.set_column('B:B', 40)
+
+    # Ajuste de anchos
+    ws.set_column('A:A', 15) # NIT
+    ws.set_column('B:B', 55) # Referencia
+    ws.set_column('C:C', 15) # Embarque
+    ws.set_column('D:E', 18) # Montos
 
 def _generar_hoja_detalle_especificacion_proveedores(workbook, formatos, df_saldos):
     """
