@@ -1382,8 +1382,8 @@ def run_conciliation_asientos_por_clasificar(df, log_messages, progress_bar=None
 
 def run_conciliation_proveedores_costos(df, log_messages, progress_bar=None):
     """
-    Conciliación 212.07.1012 - Versión V6 (Combinatoria de Rescate).
-    Resuelve casos donde la NC no tiene referencia pero cuadra matemáticamente con un embarque del NIT.
+    Conciliación 212.07.1012 - VERSIÓN DEFINITIVA V7.
+    Incluye: Herencia NIT, Vínculo Factura, Rescate de Huérfanos y Cruce entre Embarques.
     """
     log_messages.append("\n--- INICIANDO CONCILIACIÓN PROVEEDORES COSTOS (212.07.1012) ---")
     
@@ -1391,13 +1391,12 @@ def run_conciliation_proveedores_costos(df, log_messages, progress_bar=None):
     nit_col = next((c for c in df.columns if c.upper() in ['NIT', 'RIF']), None)
     df['NIT_Norm'] = df[nit_col].astype(str).str.strip().str.upper().replace(['NAN', 'NONE', 'NAT', '0', ''], 'ND') if nit_col else 'ND'
     
-    # --- 2. EXTRACCIÓN ROBUSTA DE EMBARQUE ---
     def extraer_y_normalizar_emb(referencia):
         if pd.isna(referencia): return 'NO_EMB'
         ref = str(referencia).upper()
         match = re.search(r'([EM])[.:\-\s]*(\d{3,})', ref)
         if not match:
-            match = re.search(r'(?:EMB|EEM|EMBARQUE|EMBARUE|EMB:)[.:\s]*(\d+)', ref)
+            match = re.search(r'(?:EMB|EEM|EMBARQUE|EMBARUE|EMB:)[.:\-\s]*(\d+)', ref)
         if match:
             try:
                 letra = match.group(1) if match.group(1).isalpha() else 'E'
@@ -1408,14 +1407,12 @@ def run_conciliation_proveedores_costos(df, log_messages, progress_bar=None):
 
     df['Numero_Embarque'] = df['Referencia'].apply(extraer_y_normalizar_emb)
 
-    # --- 3. VÍNCULO POR NÚMERO DE FACTURA (Resuelve Caso Amarillo) ---
+    # --- 2. VÍNCULO POR FACTURA (Backfill) ---
     def extraer_factura_clean(texto):
         if pd.isna(texto): return None
-        # Mejorado para capturar letras al inicio (ej: B004217)
         match = re.search(r'(?:FAC|S/F|FACT|N[R°]O|FACTURA)[.:\-\s]*([A-Z]*\d+)', str(texto).upper())
         if match:
             val = match.group(1)
-            # Intentamos quitar ceros a la izquierda si es puramente numérico
             num_only = re.sub(r'\D', '', val)
             return str(int(num_only)) if num_only else val
         return None
@@ -1431,7 +1428,7 @@ def run_conciliation_proveedores_costos(df, log_messages, progress_bar=None):
 
     df['Numero_Embarque'] = df.apply(backfill_embarque, axis=1)
 
-    # --- 4. HERENCIA DE NIT ---
+    # --- 3. HERENCIA DE NIT ---
     shipments_with_nit = df[(df['NIT_Norm'] != 'ND') & (df['Numero_Embarque'] != 'NO_EMB')]
     mapa_emb_nit = shipments_with_nit.groupby('Numero_Embarque')['NIT_Norm'].first().to_dict()
     df['NIT_Reporte'] = df['Numero_Embarque'].map(mapa_emb_nit).fillna(df['NIT_Norm'])
@@ -1441,7 +1438,7 @@ def run_conciliation_proveedores_costos(df, log_messages, progress_bar=None):
     df['Grupo_Conciliado'] = ""
     total_conciliados = 0 
 
-    # --- FASE 1: POR EMBARQUE GLOBAL ---
+    # --- FASE 1: POR EMBARQUE INDIVIDUAL ---
     df_p1 = df[~df['Conciliado']]
     grupos_emb = df_p1[df_p1['Numero_Embarque'] != 'NO_EMB'].groupby('Numero_Embarque')
     
@@ -1455,69 +1452,60 @@ def run_conciliation_proveedores_costos(df, log_messages, progress_bar=None):
             df.loc[grupo.index, ['Conciliado', 'Grupo_Conciliado']] = [True, f"REQUIERE_AJUSTE_{emb}"]
             total_conciliados += len(grupo)
 
-    # --- FASE 1.7: RESCATE POR COMBINATORIA (CASO NARANJA - NUEVO) ---
-    # Para cada NIT, buscamos si una línea huérfana cuadra con un embarque abierto
+    # --- FASE 1.7: RESCATE DE HUÉRFANOS VS EMBARQUE ---
     df_p1_7 = df[~df['Conciliado']]
     for nit, grupo_nit in df_p1_7.groupby('NIT_Reporte'):
         if nit == 'ND': continue
-        
-        # Separamos embarques abiertos de líneas sin embarque (huérfanas)
         abiertos = grupo_nit[grupo_nit['Numero_Embarque'] != 'NO_EMB'].copy()
         huerfanos = grupo_nit[grupo_nit['Numero_Embarque'] == 'NO_EMB'].copy()
-        
         if abiertos.empty or huerfanos.empty: continue
-        
-        # Revisamos cada embarque abierto
         for emb, grupo_emb in abiertos.groupby('Numero_Embarque'):
-            saldo_pendiente = round(grupo_emb['Monto_USD'].sum(), 2)
-            if saldo_pendiente == 0: continue
-            
-            # Buscamos un huérfano que anule exactamente este saldo
-            # (Ej: Saldo -$132.50 busca un huérfano de +$132.50)
-            target = round(-saldo_pendiente, 2)
+            target = round(-grupo_emb['Monto_USD'].sum(), 2)
             match_huerfano = huerfanos[huerfanos['Monto_USD'].round(2) == target]
-            
             if not match_huerfano.empty:
-                idx_huerfano = match_huerfano.index[0]
-                indices_finales = list(grupo_emb.index) + [idx_huerfano]
-                
-                df.loc[indices_finales, ['Conciliado', 'Grupo_Conciliado']] = [True, f"COMB_RESCATE_{emb}"]
-                total_conciliados += len(indices_finales)
-                # Actualizamos huerfanos para no re-usar la misma línea
-                huerfanos = huerfanos.drop(idx_huerfano)
+                indices = list(grupo_emb.index) + [match_huerfano.index[0]]
+                df.loc[indices, ['Conciliado', 'Grupo_Conciliado']] = [True, f"RESCATE_HUERF_{emb}"]
+                total_conciliados += len(indices)
+                huerfanos = huerfanos.drop(match_huerfano.index[0])
 
-    # --- FASE 1.5: CRUCE POR FUENTE (CASO AMARILLO - NUEVO) ---
+    # --- FASE 1.8: CRUCE ENTRE MÚLTIPLES EMBARQUES (CASO NARANJA NUEVO) ---
+    # Si la suma de varios embarques del mismo NIT da cero o ajuste, se cierran.
+    df_p1_8 = df[~df['Conciliado']]
+    for nit, grupo_nit in df_p1_8.groupby('NIT_Reporte'):
+        if nit == 'ND': continue
+        # Solo tomamos registros que tienen un embarque asignado
+        solo_embarques = grupo_nit[grupo_nit['Numero_Embarque'] != 'NO_EMB']
+        if len(solo_embarques) < 2: continue
+        
+        suma_total_nit = abs(round(solo_embarques['Monto_USD'].sum(), 2))
+        
+        if suma_total_nit <= 0.01:
+            df.loc[solo_embarques.index, ['Conciliado', 'Grupo_Conciliado']] = [True, f"CRUCE_EMB_NIT_{nit}"]
+            total_conciliados += len(solo_embarques)
+        elif suma_total_nit <= 1.00:
+            df.loc[solo_embarques.index, ['Conciliado', 'Grupo_Conciliado']] = [True, f"AJUSTE_EMB_NIT_{nit}"]
+            total_conciliados += len(solo_embarques)
+
+    # --- FASES FINALES DE SEGURIDAD (FUENTE, REFERENCIA, GLOBAL) ---
+    # Fase 1.5: Match Fuente
     df_p1_5 = df[~df['Conciliado']]
-    # Agrupamos por NIT_Reporte y Fuente (Ignoramos fuentes vacías)
     grupos_fuente = df_p1_5[df_p1_5['Fuente'].notna() & (df_p1_5['Fuente'] != '')].groupby(['NIT_Reporte', 'Fuente'])
-    
-    count_f1_5 = 0
     for (nit, fuente), grupo in grupos_fuente:
-        if len(grupo) < 2: continue
-        # Verificamos si la suma es Cero o casi cero
-        if abs(round(grupo['Monto_USD'].sum(), 2)) <= 0.01:
+        if len(grupo) >= 2 and abs(round(grupo['Monto_USD'].sum(), 2)) <= 0.01:
             df.loc[grupo.index, ['Conciliado', 'Grupo_Conciliado']] = [True, f"FUENTE_{fuente[:15]}"]
-            count_f1_5 += len(grupo)
+            total_conciliados += len(grupo)
 
-    total_conciliados += count_f1_5
-    log_messages.append(f"✔️ Fase 1.5 (Match Fuente): {count_f1_5} movimientos.")
-    if progress_bar: progress_bar.progress(0.5, text="Fase Fuentes lista.")
-
-    # --- FASE 2: POR REFERENCIA / FACTURA ---
+    # Fase 2: Match Referencia
     df_p2 = df[~df['Conciliado']]
     for (nit, ref), grupo in df_p2.groupby(['NIT_Reporte', 'Referencia']):
-        if len(grupo) < 2: continue
-        if abs(round(grupo['Monto_USD'].sum(), 2)) <= 0.01:
+        if len(grupo) >= 2 and abs(round(grupo['Monto_USD'].sum(), 2)) <= 0.01:
             df.loc[grupo.index, ['Conciliado', 'Grupo_Conciliado']] = [True, f"REF_{ref[:15]}"]
             total_conciliados += len(grupo)
 
-    if progress_bar: progress_bar.progress(0.7, text="Fase Referencias lista.")
-
-    # --- FASE 3: SALDO GLOBAL POR NIT ---
+    # Fase 3: Saldo Global por NIT
     df_p3 = df[~df['Conciliado']]
     for nit, grupo in df_p3.groupby('NIT_Reporte'):
-        if nit == 'ND' or len(grupo) < 2: continue
-        if abs(round(grupo['Monto_USD'].sum(), 2)) <= 0.01:
+        if nit != 'ND' and len(grupo) >= 2 and abs(round(grupo['Monto_USD'].sum(), 2)) <= 0.01:
             df.loc[grupo.index, ['Conciliado', 'Grupo_Conciliado']] = [True, f"SALDO_NIT_{nit}"]
             total_conciliados += len(grupo)
             
