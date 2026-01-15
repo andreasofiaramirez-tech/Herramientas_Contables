@@ -1046,17 +1046,17 @@ def _generar_hoja_pendientes_proveedores(workbook, formatos, df_saldos, estrateg
     # --- PREPARACIÓN ---
     df = df_saldos.copy()
     
-    # Limpieza NIT
-    if 'NIT' in df.columns:
-        df['NIT'] = df['NIT'].astype(str).str.strip()
-        df = df[~df['NIT'].str.lower().isin(['nan', 'nat', 'none', '0', ''])]
-        if 'NIT_Norm' not in df.columns:
-            df['NIT_Norm'] = df['NIT'].str.replace(r'[^A-Z0-9]', '', regex=True)
+    # Usar el NIT de reporte que calculamos en logic.py (el que heredó el proveedor)
+    col_nit_final = 'NIT_Reporte' if 'NIT_Reporte' in df.columns else 'NIT_Norm'
     
-    # --- BÚSQUEDA DE NOMBRE CORREGIDA ---
-    col_nombre = None
-    # Prioridad: Con acento, Sin acento, Otros
-    posibles_nombres = ['Descripción Nit', 'Descripcion Nit', 'Nombre del Proveedor', 'Nombre', 'Proveedor']
+    # Búsqueda de nombre (Si es ND, intentamos que el reporte no diga ND)
+    col_nombre = next((c for c in ['Descripción Nit', 'Descripcion Nit', 'Nombre del Proveedor'] if c in df.columns), 'NIT')
+
+    # Ordenamiento solicitado: NIT -> Embarque -> Fecha
+    df = df.sort_values(
+        by=[col_nit_final, 'Numero_Embarque', 'Fecha'], 
+        ascending=[True, True, True]
+    )
     
     for c in posibles_nombres:
         if c in df.columns:
