@@ -1381,74 +1381,76 @@ def run_conciliation_asientos_por_clasificar(df, log_messages, progress_bar=None
 # --- (K) Módulo: Proveedores d/Mcia -Costos Causados ---
 
 def run_conciliation_proveedores_costos(df, log_messages, progress_bar=None):
+    """
+    Conciliación 212.07.1012.
+    MEJORA: Los movimientos 'ND' buscan su embarque globalmente.
+    """
     log_messages.append("\n--- INICIANDO CONCILIACIÓN PROVEEDORES COSTOS (212.07.1012) ---")
-
-    # 1. FUNCIÓN INTERNA DE EXTRACCIÓN INTELIGENTE    
+    
+    # 1. Normalización de Embarque (Ceros y Typos)
     def extraer_y_normalizar_emb(referencia):
         if pd.isna(referencia): return 'NO_EMB'
         ref = str(referencia).upper()
-        
-        # --- PASO A: Búsqueda del código (Patrón: E o M seguido de muchos números) ---
-        # Buscamos 'E' o 'M' seguido de al menos 3 dígitos. 
-        # Esto ignora si antes dice 'EMBARQUE', 'EMB', 'EMBARUE' o nada.
         match = re.search(r'([EM]\d{3,})', ref)
-        
-        # Si no lo encuentra directo, busca el patrón con prefijos (fallback)
         if not match:
-            match = re.search(r'(?:EMB|EEM|EMBARQUE|EMBARUE|EMBARUE)[.:\s]*([A-Z0-9]+)', ref)
+            match = re.search(r'(?:EMB|EEM|EMBARQUE|EMBARUE|EMBARUE|EMB:)[.:\s]*([A-Z0-9]+)', ref)
         
         if match:
             codigo_crudo = match.group(1)
-            
-            # --- PASO B: NORMALIZACIÓN DE CEROS (Caso Amarillo) ---
-            # Separamos la letra del número para quitar los ceros sobrantes
-            letra = codigo_crudo[0] # 'E' o 'M'
-            numeros = codigo_crudo[1:] # '000002845'
-            
+            letra = codigo_crudo[0] if codigo_crudo[0].isalpha() else 'E'
+            numeros = re.sub(r'\D', '', codigo_crudo)
             try:
-                # Convertir a entero y de nuevo a string elimina ceros a la izquierda
-                # Ej: '000002845' -> 2845 -> '2845'
-                num_normalizado = str(int(numeros))
-                return f"{letra}{num_normalizado}" # Resultado: 'E2845'
-            except ValueError:
-                return codigo_crudo # Si no es numérico, devolvemos como está
-                
+                return f"{letra}{int(numeros)}"
+            except:
+                return codigo_crudo
         return 'NO_EMB'
-    
-    # 1. Normalización (Extracción de Embarque)
+
     df['Numero_Embarque'] = df['Referencia'].apply(extraer_y_normalizar_emb)
     
-    # Normalizamos NIT
+    # 2. Normalización de NIT (identificar los ND)
     nit_col = next((c for c in df.columns if c.upper() in ['NIT', 'RIF']), None)
     df['NIT_Norm'] = df[nit_col].astype(str).str.replace(r'[^A-Z0-9]', '', regex=True) if nit_col else 'SIN_NIT'
+    # Definimos qué es un NIT "inválido" o de ajuste
+    nit_ajuste = ['ND', 'SINNIT', '0', 'NAN', 'NAT']
+
+    # 3. LÓGICA DE HERENCIA DE NIT (Crucial)
+    # Buscamos para cada embarque cuál es el NIT real
+    mapa_embarque_nit = {}
+    embarques_con_data = df[df['Numero_Embarque'] != 'NO_EMB']
+    
+    for emb, grupo in embarques_con_data.groupby('Numero_Embarque'):
+        # Filtramos los NIT que sí son reales en este grupo
+        nits_reales = grupo[~grupo['NIT_Norm'].isin(nit_ajuste)]['NIT_Norm'].unique()
+        if len(nits_reales) > 0:
+            mapa_embarque_nit[emb] = nits_reales[0] # Asumimos el primer NIT real encontrado
+
+    # Aplicamos la herencia: si es ND pero conocemos el embarque, le "prestamos" el NIT real
+    def asignar_nit_heredado(row):
+        if row['NIT_Norm'] in nit_ajuste and row['Numero_Embarque'] in mapa_embarque_nit:
+            return mapa_embarque_nit[row['Numero_Embarque']]
+        return row['NIT_Norm']
+
+    df['NIT_Reporte'] = df.apply(asignar_nit_heredado, axis=1)
 
     total_conciliados = 0
     df_pendientes = df[~df['Conciliado']]
 
-    # --- FASE 1: POR EMBARQUE (Con detección de Ajustes < 1$) ---
-    grupos_emb = df_pendientes[df_pendientes['Numero_Embarque'] != 'NO_EMB'].groupby(['NIT_Norm', 'Numero_Embarque'])
+    # --- FASE 1: POR EMBARQUE GLOBAL (NIT Heredado + Real) ---
+    # Ahora agrupamos solo por Numero_Embarque. Como ya normalizamos el NIT en 'NIT_Reporte',
+    # los movimientos ND ahora "viven" con su proveedor.
+    grupos_emb = df_pendientes[df_pendientes['Numero_Embarque'] != 'NO_EMB'].groupby('Numero_Embarque')
     
-    for (nit, emb), grupo in grupos_emb:
+    for emb, grupo in grupos_emb:
         if len(grupo) < 2: continue
         
         suma_abs = abs(round(grupo['Monto_USD'].sum(), 2))
         
-        # Caso A: Cuadre perfecto (0.01 tolerancia)
         if suma_abs <= 0.01:
-            indices = grupo.index
-            df.loc[indices, 'Conciliado'] = True
-            df.loc[indices, 'Grupo_Conciliado'] = f"EMBARQUE_{nit}_{emb}"
-            total_conciliados += len(indices)
-            
-        # Caso B: Cuadre por ajuste (Diferencia entre 0.02 y 1.00 $)
+            df.loc[grupo.index, ['Conciliado', 'Grupo_Conciliado']] = [True, f"EMBARQUE_{emb}"]
+            total_conciliados += len(grupo)
         elif suma_abs <= 1.00:
-            indices = grupo.index
-            # Los marcamos como conciliados para que SALGAN de la hoja de Pendientes
-            df.loc[indices, 'Conciliado'] = True 
-            # Etiqueta especial para que utils.py sepa que van a la 3ra hoja
-            df.loc[indices, 'Grupo_Conciliado'] = f"REQUIERE_AJUSTE_{nit}_{emb}"
-            total_conciliados += len(indices)
-            log_messages.append(f"⚠️ Embarque {emb} (NIT {nit}) separado para ajuste (Dif: ${suma_abs}).")
+            df.loc[grupo.index, ['Conciliado', 'Grupo_Conciliado']] = [True, f"REQUIERE_AJUSTE_{emb}"]
+            total_conciliados += len(grupo)
             
     # --- FASE 2: POR REFERENCIA / FACTURA ---
     df_pendientes = df[~df['Conciliado']]
