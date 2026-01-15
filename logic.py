@@ -1426,13 +1426,16 @@ def run_conciliation_proveedores_costos(df, log_messages, progress_bar=None):
         if len(grupo) < 2: 
             continue
         suma_usd = round(grupo['Monto_USD'].sum(), 2)
+        suma_abs = abs(suma_usd) # Usamos el valor absoluto para la comparación
         
-        if abs(suma_usd) <= 0.01: # Cuadre Perfecto
-            df.loc[grupo.index, ['Conciliado', 'Grupo_Conciliado']] = [True, f"EMBARQUE_{emb}"]
-            total_conciliados += len(grupo)
-        elif abs(suma_usd) <= 1.00: # Ajuste Menor (Se va a la Hoja 3)
-            df.loc[grupo.index, ['Conciliado', 'Grupo_Conciliado']] = [True, f"REQUIERE_AJUSTE_{emb}"]
-            total_conciliados += len(grupo)
+        if suma_abs <= 0.01:
+        df.loc[grupo.index, ['Conciliado', 'Grupo_Conciliado']] = [True, f"EMBARQUE_{emb}"]
+        total_conciliados += len(grupo)
+        
+        # El error suele estar aquí: Se debe validar estrictamente el rango (0.01 < x <= 1.00)
+        elif 0.01 < suma_abs <= 1.00:
+        df.loc[grupo.index, ['Conciliado', 'Grupo_Conciliado']] = [True, f"REQUIERE_AJUSTE_{emb}"]
+        total_conciliados += len(grupo)
 
     if progress_bar: progress_bar.progress(0.4, text="Fase Embarques lista.")
 
