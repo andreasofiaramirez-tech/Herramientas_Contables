@@ -1063,11 +1063,13 @@ def _generar_hoja_pendientes_proveedores(workbook, formatos, df_saldos, estrateg
 
 def _generar_hoja_detalle_especificacion_proveedores(workbook, formatos, df_saldos):
     """
-    Genera la nueva hoja con el desglose factura por factura de los embarques pendientes.
+    Genera la nueva hoja con el desglose analítico.
+    CORRECCIÓN: Validación pd.notna para evitar error NaTType.
     """
     ws = workbook.add_worksheet("Detalle Especificacion")
     ws.hide_gridlines(2)
     
+    # Filtramos solo lo pendiente y ordenamos por el NIT de reporte
     df = df_saldos[df_saldos['Conciliado'] == False].sort_values(by=['NIT_Reporte', 'Numero_Embarque', 'Fecha'])
     
     columnas = ['Fecha', 'Asiento', 'Referencia', 'Fuente', 'Monto USD', 'Monto Bs.']
@@ -1081,18 +1083,23 @@ def _generar_hoja_detalle_especificacion_proveedores(workbook, formatos, df_sald
         current_row += 1
         
         for _, row in grupo.iterrows():
-            ws.write_datetime(current_row, 0, row['Fecha'], formatos['fecha'])
-            ws.write(current_row, 1, row['Asiento'], formatos['text'])
-            ws.write(current_row, 2, row['Referencia'], formatos['text'])
-            ws.write(current_row, 3, row['Fuente'], formatos['text'])
+            # --- VALIDACIÓN CRÍTICA DE FECHA (Resuelve el error) ---
+            fec = row.get('Fecha')
+            if pd.notna(fec):
+                ws.write_datetime(current_row, 0, fec, formatos['fecha'])
+            else:
+                ws.write(current_row, 0, '-', formatos['text'])
+            # -------------------------------------------------------
+            
+            ws.write(current_row, 1, str(row.get('Asiento', '')), formatos['text'])
+            ws.write(current_row, 2, str(row.get('Referencia', '')), formatos['text'])
+            ws.write(current_row, 3, str(row.get('Fuente', '')), formatos['text'])
             ws.write_number(current_row, 4, row['Monto_USD'], formatos['usd'])
             ws.write_number(current_row, 5, row['Monto_BS'], formatos['bs'])
             current_row += 1
         current_row += 1
 
     ws.set_column('A:F', 18); ws.set_column('C:C', 40)
-
-
 #@st.cache_data
 def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrategia, casa_seleccionada, cuenta_seleccionada):
     """
@@ -1177,9 +1184,10 @@ def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrate
             _generar_hoja_resumen_devoluciones(workbook, formatos, df_saldos_abiertos)
 
     return output_excel.getvalue()
+    
 def _generar_hoja_ajustes_menores(workbook, formatos, df_ajustes):
     """
-    Genera la 3ra hoja con el total general al final de la página.
+    Genera la 3ra hoja con validación de fechas nulas.
     """
     ws = workbook.add_worksheet("Para Asiento de Ajuste")
     ws.hide_gridlines(2)
@@ -1202,10 +1210,17 @@ def _generar_hoja_ajustes_menores(workbook, formatos, df_ajustes):
         current_row += 1
         
         for _, row in grupo.iterrows():
-            ws.write_datetime(current_row, 0, row['Fecha'], formatos['fecha'])
-            ws.write(current_row, 1, row['Asiento'], formatos['text'])
-            ws.write(current_row, 2, row['Referencia'], formatos['text'])
-            ws.write(current_row, 3, row['Fuente'], formatos['text'])
+            # --- VALIDACIÓN CRÍTICA DE FECHA ---
+            fec = row.get('Fecha')
+            if pd.notna(fec):
+                ws.write_datetime(current_row, 0, fec, formatos['fecha'])
+            else:
+                ws.write(current_row, 0, '-', formatos['text'])
+            # -----------------------------------
+
+            ws.write(current_row, 1, str(row.get('Asiento', '')), formatos['text'])
+            ws.write(current_row, 2, str(row.get('Referencia', '')), formatos['text'])
+            ws.write(current_row, 3, str(row.get('Fuente', '')), formatos['text'])
             ws.write_number(current_row, 4, row['Monto_USD'], formatos['usd'])
             current_row += 1
         
@@ -1214,7 +1229,6 @@ def _generar_hoja_ajustes_menores(workbook, formatos, df_ajustes):
         total_ajustes_usd += diferencia_real
         current_row += 2
 
-    # FILA DE TOTAL GENERAL (LO NUEVO)
     current_row += 1
     ws.write(current_row, 3, "TOTAL GENERAL AJUSTES:", formatos['total_label'])
     ws.write_number(current_row, 4, total_ajustes_usd, formatos['total_usd'])
