@@ -1018,20 +1018,23 @@ def _generar_hoja_pendientes_corrida(workbook, formatos, df_saldos, estrategia, 
 
 def _generar_hoja_pendientes_proveedores(workbook, formatos, df_saldos, estrategia, casa, fecha_maxima):
     """
-    Genera la Hoja 1: Resumen de saldos por Embarque (Un solo monto por embarque).
+    Hoja 1: Vuelve al formato de agrupación por Proveedor.
+    Muestra una línea resumen por cada embarque abierto del proveedor.
     """
     ws = workbook.add_worksheet(estrategia.get("nombre_hoja_excel", "Pendientes"))
     ws.hide_gridlines(2)
+    ws.freeze_panes(5, 0)
     
+    # Encabezados de reporte (Igual que antes)
     if pd.notna(fecha_maxima):
         meses = {1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio", 7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"}
         txt_fecha = f"PARA EL {fecha_maxima.day} DE {meses[fecha_maxima.month].upper()} DE {fecha_maxima.year}"
     else: txt_fecha = "FECHA NO DISPONIBLE"
 
     ws.merge_range('A1:E1', casa, formatos['encabezado_empresa'])
-    ws.merge_range('A2:E2', f"RESUMEN DE SALDOS POR EMBARQUE - {estrategia['nombre_hoja_excel']}", formatos['encabezado_sub'])
+    ws.merge_range('A2:E2', f"ESPECIFICACION DE LA CUENTA {estrategia['nombre_hoja_excel']}", formatos['encabezado_sub'])
     ws.merge_range('A3:E3', txt_fecha, formatos['encabezado_sub'])
-    ws.write_row('A5', ['NIT', 'Proveedor', 'Embarque', 'Saldo USD', 'Saldo Bs.'], formatos['header_tabla'])
+    ws.write_row('A5', ['NIT', 'Proveedor / Descripción', 'Embarque', 'Saldo USD', 'Saldo Bs.'], formatos['header_tabla'])
 
     df = df_saldos[df_saldos['Conciliado'] == False].copy()
     if df.empty: return
@@ -1039,43 +1042,77 @@ def _generar_hoja_pendientes_proveedores(workbook, formatos, df_saldos, estrateg
     col_nit = 'NIT_Reporte' if 'NIT_Reporte' in df.columns else 'NIT_Norm'
     col_nombre = next((c for c in ['Descripción Nit', 'Descripcion Nit', 'Nombre del Proveedor'] if c in df.columns), 'NIT')
 
-    # Agrupar por NIT y Embarque para obtener el SALDO GLOBAL
-    resumen = df.groupby([col_nit, 'Numero_Embarque']).agg({
-        col_nombre: 'first',
-        'Monto_USD': 'sum',
-        'Monto_BS': 'sum'
-    }).reset_index()
+    # Limpieza de nombres/nits para evitar 'nan'
+    df[col_nit] = df[col_nit].astype(str).replace(['nan', 'NaN', 'None', 'ND', '0'], 'SIN NIT')
+    df[col_nombre] = df[col_nombre].astype(str).replace(['nan', 'NaN', 'None', '0', ''], 'PROVEEDOR NO IDENTIFICADO')
 
+    fmt_header_prov = workbook.add_format({'bold': True, 'bg_color': '#FFFFFF', 'bottom': 1})
     current_row = 5
-    for _, row in resumen.iterrows():
-        if abs(row['Monto_USD']) <= 0.01: continue
-        ws.write(current_row, 0, row[col_nit], formatos['text'])
-        ws.write(current_row, 1, row[col_nombre], formatos['text'])
-        ws.write(current_row, 2, "" if row['Numero_Embarque'] == 'NO_EMB' else row['Numero_Embarque'], formatos['text'])
-        ws.write_number(current_row, 3, row['Monto_USD'], formatos['usd'])
-        ws.write_number(current_row, 4, row['Monto_BS'], formatos['bs'])
+    gran_total_usd = 0
+    gran_total_bs = 0
+
+    # Agrupamos por Proveedor
+    for nit_val, grupo_prov in df.groupby(col_nit, sort=False):
+        # Calculamos resumen de embarques para este proveedor
+        resumen_emb = grupo_prov.groupby('Numero_Embarque').agg({'Monto_USD': 'sum', 'Monto_BS': 'sum'}).reset_index()
+        # Filtramos los que ya están en cero (por si acaso)
+        resumen_emb = resumen_emb[resumen_emb['Monto_USD'].abs() > 0.01]
+        if resumen_emb.empty: continue
+
+        nombre_disp = grupo_prov[col_nombre].iloc[0]
+        ws.write(current_row, 0, nit_val, fmt_header_prov)
+        ws.write(current_row, 1, nombre_disp, fmt_header_prov)
+        ws.write_row(current_row, 2, ["", "", ""], fmt_header_prov)
         current_row += 1
 
+        sub_usd_prov = 0
+        sub_bs_prov = 0
+
+        for _, row_emb in resumen_emb.iterrows():
+            ws.write(current_row, 0, "", formatos['text'])
+            ws.write(current_row, 1, "SALDO PENDIENTE", formatos['text'])
+            ws.write(current_row, 2, "" if row_emb['Numero_Embarque'] == 'NO_EMB' else row_emb['Numero_Embarque'], formatos['text'])
+            ws.write_number(current_row, 3, row_emb['Monto_USD'], formatos['usd'])
+            ws.write_number(current_row, 4, row_emb['Monto_BS'], formatos['bs'])
+            
+            sub_usd_prov += row_emb['Monto_USD']
+            sub_bs_prov += row_emb['Monto_BS']
+            current_row += 1
+
+        # Subtotal por NIT
+        ws.write(current_row, 2, "Saldo", formatos['subtotal_label'])
+        ws.write_number(current_row, 3, sub_usd_prov, formatos['subtotal_usd'])
+        ws.write_number(current_row, 4, sub_bs_prov, formatos['subtotal_bs'])
+        
+        gran_total_usd += sub_usd_prov
+        gran_total_bs += sub_bs_prov
+        current_row += 2
+
+    # Total General
     ws.write(current_row, 2, "TOTAL GENERAL", formatos['total_label'])
-    ws.write_number(current_row, 3, resumen['Monto_USD'].sum(), formatos['total_usd'])
-    ws.write_number(current_row, 4, resumen['Monto_BS'].sum(), formatos['total_bs'])
+    ws.write_number(current_row, 3, gran_total_usd, formatos['total_usd'])
+    ws.write_number(current_row, 4, gran_total_bs, formatos['total_bs'])
     ws.set_column('A:E', 20); ws.set_column('B:B', 40)
 
 def _generar_hoja_detalle_especificacion_proveedores(workbook, formatos, df_saldos):
     """
-    Genera la nueva hoja con el desglose analítico.
-    CORRECCIÓN: Validación pd.notna para evitar error NaTType.
+    Hoja 2: Detalle analítico con fila de totales al final de cada embarque.
+    Incluye validación de fechas NaT.
     """
     ws = workbook.add_worksheet("Detalle Especificacion")
     ws.hide_gridlines(2)
     
-    # Filtramos solo lo pendiente y ordenamos por el NIT de reporte
-    df = df_saldos[df_saldos['Conciliado'] == False].sort_values(by=['NIT_Reporte', 'Numero_Embarque', 'Fecha'])
+    df = df_saldos[df_saldos['Conciliado'] == False].copy()
+    if df.empty: return
+    
+    df = df.sort_values(by=['NIT_Reporte', 'Numero_Embarque', 'Fecha'])
     
     columnas = ['Fecha', 'Asiento', 'Referencia', 'Fuente', 'Monto USD', 'Monto Bs.']
     ws.merge_range(0, 0, 0, 5, "DETALLE ANALÍTICO DE PARTIDAS PENDIENTES", formatos['encabezado_sub'])
     
     current_row = 2
+    fmt_total_emb = workbook.add_format({'bold': True, 'bg_color': '#F2F2F2', 'top': 1, 'num_format': '#,##0.00'})
+
     for (nit, emb), grupo in df.groupby(['NIT_Reporte', 'Numero_Embarque'], sort=False):
         ws.merge_range(current_row, 0, current_row, 5, f"NIT: {nit} | EMBARQUE: {emb}", formatos['proveedor_header'])
         current_row += 1
@@ -1083,13 +1120,10 @@ def _generar_hoja_detalle_especificacion_proveedores(workbook, formatos, df_sald
         current_row += 1
         
         for _, row in grupo.iterrows():
-            # --- VALIDACIÓN CRÍTICA DE FECHA (Resuelve el error) ---
+            # Validación de Fecha NaT
             fec = row.get('Fecha')
-            if pd.notna(fec):
-                ws.write_datetime(current_row, 0, fec, formatos['fecha'])
-            else:
-                ws.write(current_row, 0, '-', formatos['text'])
-            # -------------------------------------------------------
+            if pd.notna(fec): ws.write_datetime(current_row, 0, fec, formatos['fecha'])
+            else: ws.write(current_row, 0, '-', formatos['text'])
             
             ws.write(current_row, 1, str(row.get('Asiento', '')), formatos['text'])
             ws.write(current_row, 2, str(row.get('Referencia', '')), formatos['text'])
@@ -1097,9 +1131,16 @@ def _generar_hoja_detalle_especificacion_proveedores(workbook, formatos, df_sald
             ws.write_number(current_row, 4, row['Monto_USD'], formatos['usd'])
             ws.write_number(current_row, 5, row['Monto_BS'], formatos['bs'])
             current_row += 1
-        current_row += 1
+        
+        # --- FILA DE TOTALIZACIÓN DEL GRUPO (NUEVO) ---
+        ws.write(current_row, 3, "Total Embarque:", formatos['subtotal_label'])
+        ws.write_number(current_row, 4, grupo['Monto_USD'].sum(), fmt_total_emb)
+        ws.write_number(current_row, 5, grupo['Monto_BS'].sum(), fmt_total_emb)
+        current_row += 2
 
     ws.set_column('A:F', 18); ws.set_column('C:C', 40)
+
+
 #@st.cache_data
 def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrategia, casa_seleccionada, cuenta_seleccionada):
     """
