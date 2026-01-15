@@ -1382,8 +1382,8 @@ def run_conciliation_asientos_por_clasificar(df, log_messages, progress_bar=None
 
 def run_conciliation_proveedores_costos(df, log_messages, progress_bar=None):
     """
-    Conciliación 212.07.1012 - Versión V4 (Vínculo por Factura).
-    Resuelve casos donde el embarque no está en la referencia pero sí el número de factura.
+    Conciliación 212.07.1012 - Versión V5 (Match por Fuente).
+    Añade una fase de cruce por Comprobante/Fuente para cerrar ajustes y traspasos.
     """
     log_messages.append("\n--- INICIANDO CONCILIACIÓN PROVEEDORES COSTOS (212.07.1012) ---")
     
@@ -1391,7 +1391,7 @@ def run_conciliation_proveedores_costos(df, log_messages, progress_bar=None):
     nit_col = next((c for c in df.columns if c.upper() in ['NIT', 'RIF']), None)
     df['NIT_Norm'] = df[nit_col].astype(str).str.strip().str.upper().replace(['NAN', 'NONE', 'NAT', '0', ''], 'ND') if nit_col else 'ND'
     
-    # --- 2. EXTRACCIÓN INICIAL DE EMBARQUE (REGEX EMB) ---
+    # --- 2. EXTRACCIÓN ROBUSTA DE EMBARQUE ---
     def extraer_y_normalizar_emb(referencia):
         if pd.isna(referencia): return 'NO_EMB'
         ref = str(referencia).upper()
@@ -1410,26 +1410,19 @@ def run_conciliation_proveedores_costos(df, log_messages, progress_bar=None):
 
     df['Numero_Embarque'] = df['Referencia'].apply(extraer_y_normalizar_emb)
 
-    # --- 3. NUEVO: VÍNCULO POR NÚMERO DE FACTURA (Resuelve el caso de la imagen) ---
+    # --- 3. VÍNCULO POR NÚMERO DE FACTURA ---
     def extraer_factura_clean(texto):
         if pd.isna(texto): return None
-        # Busca patrones tipo FAC000447, S/F 000447, FACT.447, etc.
         match = re.search(r'(?:FAC|S/F|FACT|N[R°]O|FACTURA)[.:\-\s]*(\d+)', str(texto).upper())
         if match:
-            try: return str(int(match.group(1))) # Normaliza 00000447 a 447
+            try: return str(int(match.group(1)))
             except: return None
         return None
 
-    # Extraemos factura de Referencia y Fuente
-    df['Factura_Ref'] = df['Referencia'].apply(extraer_factura_clean)
-    df['Factura_Fuente'] = df['Fuente'].apply(extraer_factura_clean)
-    df['Factura_Norm'] = df['Factura_Fuente'].fillna(df['Factura_Ref'])
-
-    # Creamos un mapa: Factura -> Embarque (solo de los registros que tienen ambos datos)
+    df['Factura_Norm'] = df['Fuente'].apply(extraer_factura_clean).fillna(df['Referencia'].apply(extraer_factura_clean))
     df_con_ambos = df[(df['Numero_Embarque'] != 'NO_EMB') & (df['Factura_Norm'].notna())]
     mapa_fac_emb = df_con_ambos.groupby('Factura_Norm')['Numero_Embarque'].first().to_dict()
 
-    # Rellenamos los embarques faltantes usando el mapa de facturas
     def backfill_embarque(row):
         if row['Numero_Embarque'] == 'NO_EMB' and row['Factura_Norm'] in mapa_fac_emb:
             return mapa_fac_emb[row['Factura_Norm']]
@@ -1437,24 +1430,23 @@ def run_conciliation_proveedores_costos(df, log_messages, progress_bar=None):
 
     df['Numero_Embarque'] = df.apply(backfill_embarque, axis=1)
 
-    # --- 4. HERENCIA DE NIT (Ahora con embarques rellenos) ---
+    # --- 4. HERENCIA DE NIT ---
     shipments_with_nit = df[(df['NIT_Norm'] != 'ND') & (df['Numero_Embarque'] != 'NO_EMB')]
     mapa_emb_nit = shipments_with_nit.groupby('Numero_Embarque')['NIT_Norm'].first().to_dict()
     df['NIT_Reporte'] = df['Numero_Embarque'].map(mapa_emb_nit).fillna(df['NIT_Norm'])
 
-    # --- 5. FASES DE CONCILIACIÓN ---
+    # Inicialización
     df['Conciliado'] = False
     df['Grupo_Conciliado'] = ""
     total_conciliados = 0 
 
-    # FASE 1: POR EMBARQUE GLOBAL (Ahora incluye los registros vinculados por factura)
+    # --- FASE 1: POR EMBARQUE GLOBAL ---
     df_p1 = df[~df['Conciliado']]
     grupos_emb = df_p1[df_p1['Numero_Embarque'] != 'NO_EMB'].groupby('Numero_Embarque')
     
     for emb, grupo in grupos_emb:
         if len(grupo) < 2: continue
         suma_abs = abs(round(grupo['Monto_USD'].sum(), 2))
-        
         if suma_abs <= 0.01:
             df.loc[grupo.index, ['Conciliado', 'Grupo_Conciliado']] = [True, f"EMBARQUE_{emb}"]
             total_conciliados += len(grupo)
@@ -1462,9 +1454,26 @@ def run_conciliation_proveedores_costos(df, log_messages, progress_bar=None):
             df.loc[grupo.index, ['Conciliado', 'Grupo_Conciliado']] = [True, f"REQUIERE_AJUSTE_{emb}"]
             total_conciliados += len(grupo)
 
-    if progress_bar: progress_bar.progress(0.4, text="Fase Embarques lista.")
+    if progress_bar: progress_bar.progress(0.3, text="Fase Embarques lista.")
 
-    # FASE 2: REFERENCIA (Match Exacto)
+    # --- FASE 1.5: CRUCE POR FUENTE (CASO AMARILLO - NUEVO) ---
+    df_p1_5 = df[~df['Conciliado']]
+    # Agrupamos por NIT_Reporte y Fuente (Ignoramos fuentes vacías)
+    grupos_fuente = df_p1_5[df_p1_5['Fuente'].notna() & (df_p1_5['Fuente'] != '')].groupby(['NIT_Reporte', 'Fuente'])
+    
+    count_f1_5 = 0
+    for (nit, fuente), grupo in grupos_fuente:
+        if len(grupo) < 2: continue
+        # Verificamos si la suma es Cero o casi cero
+        if abs(round(grupo['Monto_USD'].sum(), 2)) <= 0.01:
+            df.loc[grupo.index, ['Conciliado', 'Grupo_Conciliado']] = [True, f"FUENTE_{fuente[:15]}"]
+            count_f1_5 += len(grupo)
+
+    total_conciliados += count_f1_5
+    log_messages.append(f"✔️ Fase 1.5 (Match Fuente): {count_f1_5} movimientos.")
+    if progress_bar: progress_bar.progress(0.5, text="Fase Fuentes lista.")
+
+    # --- FASE 2: POR REFERENCIA / FACTURA ---
     df_p2 = df[~df['Conciliado']]
     for (nit, ref), grupo in df_p2.groupby(['NIT_Reporte', 'Referencia']):
         if len(grupo) < 2: continue
@@ -1472,7 +1481,9 @@ def run_conciliation_proveedores_costos(df, log_messages, progress_bar=None):
             df.loc[grupo.index, ['Conciliado', 'Grupo_Conciliado']] = [True, f"REF_{ref[:15]}"]
             total_conciliados += len(grupo)
 
-    # FASE 3: SALDO GLOBAL POR NIT
+    if progress_bar: progress_bar.progress(0.7, text="Fase Referencias lista.")
+
+    # --- FASE 3: SALDO GLOBAL POR NIT ---
     df_p3 = df[~df['Conciliado']]
     for nit, grupo in df_p3.groupby('NIT_Reporte'):
         if nit == 'ND' or len(grupo) < 2: continue
@@ -1482,7 +1493,6 @@ def run_conciliation_proveedores_costos(df, log_messages, progress_bar=None):
             
     log_messages.append(f"✔️ Conciliación finalizada. Total: {total_conciliados} movimientos.")
     return df
-
 # ==============================================================================
 # FUNCIONES MAESTRAS DE ESTRATEGIA
 # ==============================================================================
