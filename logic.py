@@ -1382,6 +1382,38 @@ def run_conciliation_asientos_por_clasificar(df, log_messages, progress_bar=None
 
 def run_conciliation_proveedores_costos(df, log_messages, progress_bar=None):
     log_messages.append("\n--- INICIANDO CONCILIACIÓN PROVEEDORES COSTOS (212.07.1012) ---")
+
+    # 1. FUNCIÓN INTERNA DE EXTRACCIÓN INTELIGENTE    
+    def extraer_y_normalizar_emb(referencia):
+        if pd.isna(referencia): return 'NO_EMB'
+        ref = str(referencia).upper()
+        
+        # --- PASO A: Búsqueda del código (Patrón: E o M seguido de muchos números) ---
+        # Buscamos 'E' o 'M' seguido de al menos 3 dígitos. 
+        # Esto ignora si antes dice 'EMBARQUE', 'EMB', 'EMBARUE' o nada.
+        match = re.search(r'([EM]\d{3,})', ref)
+        
+        # Si no lo encuentra directo, busca el patrón con prefijos (fallback)
+        if not match:
+            match = re.search(r'(?:EMB|EEM|EMBARQUE|EMBARUE|EMBARUE)[.:\s]*([A-Z0-9]+)', ref)
+        
+        if match:
+            codigo_crudo = match.group(1)
+            
+            # --- PASO B: NORMALIZACIÓN DE CEROS (Caso Amarillo) ---
+            # Separamos la letra del número para quitar los ceros sobrantes
+            letra = codigo_crudo[0] # 'E' o 'M'
+            numeros = codigo_crudo[1:] # '000002845'
+            
+            try:
+                # Convertir a entero y de nuevo a string elimina ceros a la izquierda
+                # Ej: '000002845' -> 2845 -> '2845'
+                num_normalizado = str(int(numeros))
+                return f"{letra}{num_normalizado}" # Resultado: 'E2845'
+            except ValueError:
+                return codigo_crudo # Si no es numérico, devolvemos como está
+                
+        return 'NO_EMB'
     
     # 1. Normalización (Extracción de Embarque)
     df['Numero_Embarque'] = df['Referencia'].astype(str).str.extract(r'(?:EMB|EEM|EMBARQUE)[.:\s]+([A-Z0-9]+)', flags=re.IGNORECASE)
