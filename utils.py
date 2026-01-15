@@ -1256,7 +1256,42 @@ def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrate
 
     return output_excel.getvalue()
 
+def _generar_hoja_ajustes_menores(workbook, formatos, df_ajustes):
+    """Genera la 3ra hoja con embarques que tienen diferencia < 1$."""
+    ws = workbook.add_worksheet("Para Asiento de Ajuste")
+    ws.hide_gridlines(2)
+    
+    # Ordenar por NIT -> Embarque -> Fecha
+    df = df_ajustes.sort_values(by=['NIT', 'Numero_Embarque', 'Fecha'])
+    
+    columnas = ['Fecha', 'Asiento', 'Referencia', 'Fuente', 'Monto USD']
+    ws.merge_range(0, 0, 0, 4, "EMBARQUES PENDIENTES POR AJUSTE MENOR A 1$", formatos['encabezado_sub'])
+    
+    current_row = 2
+    fmt_diff = workbook.add_format({'bold': True, 'bg_color': '#FFEB9C', 'num_format': '$#,##0.00', 'border': 1})
 
+    for (nit, emb), grupo in df.groupby(['NIT', 'Numero_Embarque'], sort=False):
+        # Header del Embarque
+        ws.merge_range(current_row, 0, current_row, 4, f"NIT: {nit} | EMBARQUE: {emb}", formatos['proveedor_header'])
+        current_row += 1
+        ws.write_row(current_row, 0, columnas, formatos['header_tabla'])
+        current_row += 1
+        
+        for _, row in grupo.iterrows():
+            ws.write_datetime(current_row, 0, row['Fecha'], formatos['fecha'])
+            ws.write(current_row, 1, row['Asiento'], formatos['text'])
+            ws.write(current_row, 2, row['Referencia'], formatos['text'])
+            ws.write(current_row, 3, row['Fuente'], formatos['text'])
+            ws.write_number(current_row, 4, row['Monto_USD'], formatos['usd'])
+            current_row += 1
+        
+        # Mostrar la diferencia (el monto del asiento de ajuste)
+        diferencia = grupo['Monto_USD'].sum()
+        ws.write(current_row, 3, "DIFERENCIA A AJUSTAR:", formatos['subtotal_label'])
+        ws.write_number(current_row, 4, diferencia, fmt_diff)
+        current_row += 2
+
+    ws.set_column('A:E', 20)
 
 # ==============================================================================
 # 4. REPORTE PARA LA HERRAMIENTA DE RETENCIONES
