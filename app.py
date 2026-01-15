@@ -41,7 +41,8 @@ from logic import (
     generar_txt_retenciones_galac,
     procesar_calculo_pensiones,
     procesar_ajustes_balance_usd,
-    run_conciliation_envios_cofersa
+    run_conciliation_envios_cofersa,
+    run_conciliation_proveedores_costos
 )
 
 # --- BLOQUE 3: IMPORTAR UTILS ---
