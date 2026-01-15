@@ -1382,12 +1382,12 @@ def run_conciliation_asientos_por_clasificar(df, log_messages, progress_bar=None
 
 def run_conciliation_proveedores_costos(df, log_messages, progress_bar=None):
     """
-    Conciliación 212.07.1012 - Versión V5 (Match por Fuente).
-    Añade una fase de cruce por Comprobante/Fuente para cerrar ajustes y traspasos.
+    Conciliación 212.07.1012 - Versión V6 (Combinatoria de Rescate).
+    Resuelve casos donde la NC no tiene referencia pero cuadra matemáticamente con un embarque del NIT.
     """
     log_messages.append("\n--- INICIANDO CONCILIACIÓN PROVEEDORES COSTOS (212.07.1012) ---")
     
-    # --- 1. NORMALIZACIÓN Y LIMPIEZA DE NITs ---
+    # --- 1. NORMALIZACIÓN Y LIMPIEZA ---
     nit_col = next((c for c in df.columns if c.upper() in ['NIT', 'RIF']), None)
     df['NIT_Norm'] = df[nit_col].astype(str).str.strip().str.upper().replace(['NAN', 'NONE', 'NAT', '0', ''], 'ND') if nit_col else 'ND'
     
@@ -1397,26 +1397,27 @@ def run_conciliation_proveedores_costos(df, log_messages, progress_bar=None):
         ref = str(referencia).upper()
         match = re.search(r'([EM])[.:\-\s]*(\d{3,})', ref)
         if not match:
-            match = re.search(r'(?:EMB|EEM|EMBARQUE|EMBARUE|EMB:)[.:\-\s]*(\d+)', ref)
+            match = re.search(r'(?:EMB|EEM|EMBARQUE|EMBARUE|EMB:)[.:\s]*(\d+)', ref)
         if match:
             try:
-                if len(match.groups()) == 2:
-                    letra, num = match.group(1), re.sub(r'\D', '', match.group(2))
-                else:
-                    letra, num = 'E', re.sub(r'\D', '', match.group(1))
+                letra = match.group(1) if match.group(1).isalpha() else 'E'
+                num = re.sub(r'\D', '', match.group(1 if not match.lastindex or match.lastindex < 2 else 2))
                 return f"{letra}{int(num)}" if num else 'NO_EMB'
             except: return 'NO_EMB'
         return 'NO_EMB'
 
     df['Numero_Embarque'] = df['Referencia'].apply(extraer_y_normalizar_emb)
 
-    # --- 3. VÍNCULO POR NÚMERO DE FACTURA ---
+    # --- 3. VÍNCULO POR NÚMERO DE FACTURA (Resuelve Caso Amarillo) ---
     def extraer_factura_clean(texto):
         if pd.isna(texto): return None
-        match = re.search(r'(?:FAC|S/F|FACT|N[R°]O|FACTURA)[.:\-\s]*(\d+)', str(texto).upper())
+        # Mejorado para capturar letras al inicio (ej: B004217)
+        match = re.search(r'(?:FAC|S/F|FACT|N[R°]O|FACTURA)[.:\-\s]*([A-Z]*\d+)', str(texto).upper())
         if match:
-            try: return str(int(match.group(1)))
-            except: return None
+            val = match.group(1)
+            # Intentamos quitar ceros a la izquierda si es puramente numérico
+            num_only = re.sub(r'\D', '', val)
+            return str(int(num_only)) if num_only else val
         return None
 
     df['Factura_Norm'] = df['Fuente'].apply(extraer_factura_clean).fillna(df['Referencia'].apply(extraer_factura_clean))
@@ -1454,7 +1455,36 @@ def run_conciliation_proveedores_costos(df, log_messages, progress_bar=None):
             df.loc[grupo.index, ['Conciliado', 'Grupo_Conciliado']] = [True, f"REQUIERE_AJUSTE_{emb}"]
             total_conciliados += len(grupo)
 
-    if progress_bar: progress_bar.progress(0.3, text="Fase Embarques lista.")
+    # --- FASE 1.7: RESCATE POR COMBINATORIA (CASO NARANJA - NUEVO) ---
+    # Para cada NIT, buscamos si una línea huérfana cuadra con un embarque abierto
+    df_p1_7 = df[~df['Conciliado']]
+    for nit, grupo_nit in df_p1_7.groupby('NIT_Reporte'):
+        if nit == 'ND': continue
+        
+        # Separamos embarques abiertos de líneas sin embarque (huérfanas)
+        abiertos = grupo_nit[grupo_nit['Numero_Embarque'] != 'NO_EMB'].copy()
+        huerfanos = grupo_nit[grupo_nit['Numero_Embarque'] == 'NO_EMB'].copy()
+        
+        if abiertos.empty or huerfanos.empty: continue
+        
+        # Revisamos cada embarque abierto
+        for emb, grupo_emb in abiertos.groupby('Numero_Embarque'):
+            saldo_pendiente = round(grupo_emb['Monto_USD'].sum(), 2)
+            if saldo_pendiente == 0: continue
+            
+            # Buscamos un huérfano que anule exactamente este saldo
+            # (Ej: Saldo -$132.50 busca un huérfano de +$132.50)
+            target = round(-saldo_pendiente, 2)
+            match_huerfano = huerfanos[huerfanos['Monto_USD'].round(2) == target]
+            
+            if not match_huerfano.empty:
+                idx_huerfano = match_huerfano.index[0]
+                indices_finales = list(grupo_emb.index) + [idx_huerfano]
+                
+                df.loc[indices_finales, ['Conciliado', 'Grupo_Conciliado']] = [True, f"COMB_RESCATE_{emb}"]
+                total_conciliados += len(indices_finales)
+                # Actualizamos huerfanos para no re-usar la misma línea
+                huerfanos = huerfanos.drop(idx_huerfano)
 
     # --- FASE 1.5: CRUCE POR FUENTE (CASO AMARILLO - NUEVO) ---
     df_p1_5 = df[~df['Conciliado']]
