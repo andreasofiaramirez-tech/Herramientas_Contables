@@ -1026,7 +1026,7 @@ def _generar_hoja_pendientes_proveedores(workbook, formatos, df_saldos, estrateg
     ws.hide_gridlines(2)
     ws.freeze_panes(5, 0)
     
-    # 1. Encabezados (Igual que antes)
+    # 1. Encabezados
     if pd.notna(fecha_maxima):
         ultimo_dia = fecha_maxima + pd.offsets.MonthEnd(0)
         meses = {1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio", 7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"}
@@ -1039,41 +1039,42 @@ def _generar_hoja_pendientes_proveedores(workbook, formatos, df_saldos, estrateg
     ws.merge_range('A3:H3', txt_fecha, formatos['encabezado_sub'])
     ws.write_row('A5', ['NIT', 'Proveedor y Descripcion', 'Fecha.', 'EMB', 'Saldo USD', 'Tasa', 'Bs.', 'OBSERVACION'], formatos['header_tabla'])
 
-    if df_saldos.empty: return
+    if df_saldos.empty: 
+        return
 
-    # 2. Preparación y Limpieza de "nans"
+    # 2. Preparación y Limpieza
     df = df_saldos.copy()
     col_nit = 'NIT_Reporte' if 'NIT_Reporte' in df.columns else 'NIT_Norm'
-    col_nombre = next((c for c in ['Descripción Nit', 'Descripcion Nit', 'Nombre del Proveedor'] if c in df.columns), 'NIT')
+    col_nombre = next((c for c in ['Descripción Nit', 'Descripcion Nit', 'Nombre del Proveedor', 'Proveedor'] if c in df.columns), 'NIT')
 
     df[col_nit] = df[col_nit].astype(str).replace(['nan', 'NaN', 'None', 'ND', '0'], 'SIN NIT')
     df[col_nombre] = df[col_nombre].astype(str).replace(['nan', 'NaN', 'None', '0', ''], 'PROVEEDOR NO IDENTIFICADO')
 
     # 3. Filtrar solo lo que NO esté conciliado (Doble check)
     df = df[df['Conciliado'] == False]
-    if df.empty: return
+    if df.empty: 
+        return
 
-    # 4. Ordenamiento
+    # 4. Ordenamiento jerárquico
     df = df.sort_values(by=[col_nit, 'Numero_Embarque', 'Fecha'])
 
     current_row = 5
     gran_total_bs = 0
     gran_total_usd = 0
-    
     fmt_grupo_header = workbook.add_format({'bold': True, 'bg_color': '#FFFFFF', 'align': 'left', 'bottom': 1})
 
     # 5. Bucle por Proveedor
-   for nit_val, grupo in df.groupby(col_nit, sort=False):
-        # SEGURIDAD: Si por error de lógica el grupo suma 0, no lo mostramos en pendientes
+    for nit_val, grupo in df.groupby(col_nit, sort=False):
+        # Evitar grupos que sumen 0 (Ya procesados por la herencia de NIT)
         if abs(round(grupo['Monto_USD'].sum(), 2)) <= 0.01:
             continue
 
         nombre_display = grupo[col_nombre].iloc[0]
         
-        # Escribir Fila de NIT y Nombre
         ws.write(current_row, 0, nit_val, fmt_grupo_header)
         ws.write(current_row, 1, nombre_display, fmt_grupo_header)
-        for i in range(2, 8): ws.write(current_row, i, "", fmt_grupo_header)
+        for i in range(2, 8): 
+            ws.write(current_row, i, "", fmt_grupo_header)
         current_row += 1
         
         sub_bs = 0
@@ -1084,11 +1085,14 @@ def _generar_hoja_pendientes_proveedores(workbook, formatos, df_saldos, estrateg
             ws.write(current_row, 1, str(row.get('Referencia', '')), formatos['text'])
             
             fec = row.get('Fecha')
-            if pd.notna(fec): ws.write_datetime(current_row, 2, fec, formatos['fecha'])
-            else: ws.write(current_row, 2, "-", formatos['text'])
+            if pd.notna(fec): 
+                ws.write_datetime(current_row, 2, fec, formatos['fecha'])
+            else: 
+                ws.write(current_row, 2, "-", formatos['text'])
             
             emb = str(row.get('Numero_Embarque', ''))
-            ws.write(current_row, 3, "" if emb in ['NO_EMB', 'nan', ''] else emb, formatos['text'])
+            val_emb = "" if emb in ['NO_EMB', 'nan', ''] else emb
+            ws.write(current_row, 3, val_emb, formatos['text'])
             
             ws.write_number(current_row, 4, row['Monto_USD'], formatos['usd'])
             ws.write_number(current_row, 5, row.get('Tasa', 0), formatos['tasa'])
@@ -1099,7 +1103,6 @@ def _generar_hoja_pendientes_proveedores(workbook, formatos, df_saldos, estrateg
             sub_usd += row['Monto_USD']
             current_row += 1
             
-        # Totales por proveedor
         ws.write(current_row, 5, "Saldo", formatos['subtotal_label'])
         ws.write_number(current_row, 4, sub_usd, formatos['subtotal_usd'])
         ws.write_number(current_row, 6, sub_bs, formatos['subtotal_bs'])
