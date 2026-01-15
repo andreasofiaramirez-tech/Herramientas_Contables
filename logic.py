@@ -1382,104 +1382,81 @@ def run_conciliation_asientos_por_clasificar(df, log_messages, progress_bar=None
 
 def run_conciliation_proveedores_costos(df, log_messages, progress_bar=None):
     """
-    Conciliación 212.07.1012.
-    MEJORA: Los movimientos 'ND' buscan su embarque globalmente.
+    Conciliación 212.07.1012 - VERSIÓN INTEGRAL FINAL.
+    Fase 1: Embarques (Heredando NIT y separando ajustes < $1).
+    Fase 2: Facturas (Match por Referencia exacta).
+    Fase 3: Saldo Global por NIT (Cierre total del auxiliar).
     """
     log_messages.append("\n--- INICIANDO CONCILIACIÓN PROVEEDORES COSTOS (212.07.1012) ---")
     
-    # 1. Normalización de Embarque (Ceros y Typos)
+    # --- 1. NORMALIZACIÓN Y LIMPIEZA ---
+    nit_col = next((c for c in df.columns if c.upper() in ['NIT', 'RIF']), None)
+    df['NIT_Norm'] = df[nit_col].astype(str).str.strip().str.upper().replace(['NAN', 'NONE', 'NAT', '0', ''], 'ND') if nit_col else 'ND'
+    
     def extraer_y_normalizar_emb(referencia):
         if pd.isna(referencia): return 'NO_EMB'
         ref = str(referencia).upper()
         match = re.search(r'([EM]\d{3,})', ref)
         if not match:
-            match = re.search(r'(?:EMB|EEM|EMBARQUE|EMBARUE|EMBARUE|EMB:)[.:\s]*([A-Z0-9]+)', ref)
-        
+            match = re.search(r'(?:EMB|EEM|EMBARQUE|EMBARUE|EMB:)[.:\s]*([A-Z0-9]+)', ref)
         if match:
-            codigo_crudo = match.group(1)
-            letra = codigo_crudo[0] if codigo_crudo[0].isalpha() else 'E'
-            numeros = re.sub(r'\D', '', codigo_crudo)
-            try:
-                return f"{letra}{int(numeros)}"
-            except:
-                return codigo_crudo
+            codigo = match.group(1)
+            letra = codigo[0] if codigo[0].isalpha() else 'E'
+            num = re.sub(r'\D', '', codigo)
+            return f"{letra}{int(num)}" if num else 'NO_EMB'
         return 'NO_EMB'
 
     df['Numero_Embarque'] = df['Referencia'].apply(extraer_y_normalizar_emb)
     
-    # 2. Normalización de NIT (identificar los ND)
-    nit_col = next((c for c in df.columns if c.upper() in ['NIT', 'RIF']), None)
-    df['NIT_Norm'] = df[nit_col].astype(str).str.replace(r'[^A-Z0-9]', '', regex=True) if nit_col else 'SIN_NIT'
-    # Definimos qué es un NIT "inválido" o de ajuste
-    nit_ajuste = ['ND', 'SINNIT', '0', 'NAN', 'NAT']
-
-    # 3. LÓGICA DE HERENCIA DE NIT (Crucial)
-    # Buscamos para cada embarque cuál es el NIT real
-    mapa_embarque_nit = {}
-    embarques_con_data = df[df['Numero_Embarque'] != 'NO_EMB']
-    
-    for emb, grupo in embarques_con_data.groupby('Numero_Embarque'):
-        # Filtramos los NIT que sí son reales en este grupo
-        nits_reales = grupo[~grupo['NIT_Norm'].isin(nit_ajuste)]['NIT_Norm'].unique()
-        if len(nits_reales) > 0:
-            mapa_embarque_nit[emb] = nits_reales[0] # Asumimos el primer NIT real encontrado
-
-    # Aplicamos la herencia: si es ND pero conocemos el embarque, le "prestamos" el NIT real
-    def asignar_nit_heredado(row):
-        if row['NIT_Norm'] in nit_ajuste and row['Numero_Embarque'] in mapa_embarque_nit:
-            return mapa_embarque_nit[row['Numero_Embarque']]
-        return row['NIT_Norm']
-
-    df['NIT_Reporte'] = df.apply(asignar_nit_heredado, axis=1)
+    # --- 2. HERENCIA DE NIT (Para ajustes ND) ---
+    mapa_emb_nit = df[df['NIT_Norm'] != 'ND'].groupby('Numero_Embarque')['NIT_Norm'].first().to_dict()
+    df['NIT_Reporte'] = df['Numero_Embarque'].map(mapa_emb_nit).fillna(df['NIT_Norm'])
 
     total_conciliados = 0
-    df_pendientes = df[~df['Conciliado']]
 
-    # --- FASE 1: POR EMBARQUE GLOBAL (NIT Heredado + Real) ---
-    # Ahora agrupamos solo por Numero_Embarque. Como ya normalizamos el NIT en 'NIT_Reporte',
-    # los movimientos ND ahora "viven" con su proveedor.
-    grupos_emb = df_pendientes[df_pendientes['Numero_Embarque'] != 'NO_EMB'].groupby('Numero_Embarque')
+    # --- FASE 1: POR EMBARQUE (NIT Heredado) ---
+    df_p1 = df[~df['Conciliado']]
+    grupos_emb = df_p1[df_p1['Numero_Embarque'] != 'NO_EMB'].groupby(['NIT_Reporte', 'Numero_Embarque'])
     
-    for emb, grupo in grupos_emb:
+    for (nit, emb), grupo in grupos_emb:
         if len(grupo) < 2: continue
+        suma_usd = round(grupo['Monto_USD'].sum(), 2)
         
-        suma_abs = abs(round(grupo['Monto_USD'].sum(), 2))
-        
-        if suma_abs <= 0.01:
+        if abs(suma_usd) <= 0.01: # Cuadre Perfecto
             df.loc[grupo.index, ['Conciliado', 'Grupo_Conciliado']] = [True, f"EMBARQUE_{emb}"]
             total_conciliados += len(grupo)
-        elif suma_abs <= 1.00:
+        elif abs(suma_usd) <= 1.00: # Ajuste Menor (Va a la Hoja 3)
             df.loc[grupo.index, ['Conciliado', 'Grupo_Conciliado']] = [True, f"REQUIERE_AJUSTE_{emb}"]
             total_conciliados += len(grupo)
-            
-    # --- FASE 2: POR REFERENCIA / FACTURA ---
-    df_pendientes = df[~df['Conciliado']]
-    grupos_ref = df_pendientes.groupby(['NIT_Norm', 'Referencia'])
+
+    if progress_bar: progress_bar.progress(0.4, text="Fase Embarques lista.")
+
+    # --- FASE 2: POR REFERENCIA / FACTURA (Match Exacto) ---
+    # Para lo que no tiene Numero_Embarque o no cerró en P1
+    df_p2 = df[~df['Conciliado']]
+    grupos_ref = df_p2.groupby(['NIT_Reporte', 'Referencia'])
     
     count_f2 = 0
     for (nit, ref), grupo in grupos_ref:
         if len(grupo) < 2: continue
-        if np.isclose(grupo['Monto_USD'].sum(), 0, atol=0.01):
-            indices = grupo.index
-            df.loc[indices, 'Conciliado'] = True
-            df.loc[indices, 'Grupo_Conciliado'] = f"REF_{nit}_{ref}"
-            count_f2 += len(indices)
+        if abs(round(grupo['Monto_USD'].sum(), 2)) <= 0.01:
+            df.loc[grupo.index, ['Conciliado', 'Grupo_Conciliado']] = [True, f"REF_{ref[:15]}"]
+            count_f2 += len(grupo)
 
     total_conciliados += count_f2
     log_messages.append(f"✔️ Fase 2 (Ref/Facturas): {count_f2} movimientos.")
     if progress_bar: progress_bar.progress(0.7, text="Fase Referencias lista.")
 
     # --- FASE 3: SALDO GLOBAL POR NIT ---
-    df_pendientes = df[~df['Conciliado']]
+    # Si al final la suma de TODO lo pendiente de un proveedor es cero, se cierra.
+    df_p3 = df[~df['Conciliado']]
     count_f3 = 0
     
-    for nit, grupo in df_pendientes.groupby('NIT_Norm'):
-        if len(grupo) < 2: continue
-        if np.isclose(grupo['Monto_USD'].sum(), 0, atol=0.01):
-            indices = grupo.index
-            df.loc[indices, 'Conciliado'] = True
-            df.loc[indices, 'Grupo_Conciliado'] = f"SALDO_NIT_{nit}"
-            count_f3 += len(indices)
+    for nit, grupo in df_p3.groupby('NIT_Reporte'):
+        if nit == 'ND' or len(grupo) < 2: continue
+        if abs(round(grupo['Monto_USD'].sum(), 2)) <= 0.01:
+            df.loc[grupo.index, ['Conciliado', 'Grupo_Conciliado']] = [True, f"SALDO_NIT_{nit}"]
+            count_f3 += len(grupo)
             
     total_conciliados += count_f3
     log_messages.append(f"✔️ Fase 3 (Saldo NIT): {count_f3} movimientos.")
