@@ -356,10 +356,14 @@ def _generar_hoja_pendientes(workbook, formatos, df_saldos, estrategia, casa, fe
 
     # --- PASO 1: SALVAR LAS FILAS SIN NIT (RELLENAR ANTES DE FILTRAR) ---
     if 'NIT' in df.columns: 
-        # Convertimos vacíos, nulos y espacios en "SIN_NIT"
-        df['NIT'] = df['NIT'].fillna('SIN_NIT').replace(r'^\s*$', 'SIN_NIT', regex=True).astype(str)
-        # Si quedó algún 'nan' literal por conversión de string, lo arreglamos
-        df['NIT'] = df['NIT'].replace('nan', 'SIN_NIT', case=False)
+        # Rellenar nulos
+        df['NIT'] = df['NIT'].fillna('SIN_NIT')
+        # Rellenar espacios vacíos
+        df['NIT'] = df['NIT'].replace(r'^\s*$', 'SIN_NIT', regex=True)
+        # Convertir a string
+        df['NIT'] = df['NIT'].astype(str)
+        # Reemplazar 'nan' literal (insensible a mayúsculas usando regex (?i))
+        df['NIT'] = df['NIT'].replace(r'(?i)^nan$', 'SIN_NIT', regex=True)
     
     # --- PASO 2: FILTRO DE BASURA (AHORA ES SEGURO) ---
     if 'NIT' in df.columns:
