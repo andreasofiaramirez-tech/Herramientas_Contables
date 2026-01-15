@@ -1012,13 +1012,11 @@ def _generar_hoja_pendientes_corrida(workbook, formatos, df_saldos, estrategia, 
 def _generar_hoja_pendientes_proveedores(workbook, formatos, df_saldos, estrategia, casa, fecha_maxima):
     """
     Genera hoja de pendientes EXCLUSIVA para Proveedores Costos.
-    CORREGIDO: Limpieza de 'nan', estilos blancos en grupos y fix de paneles.
+    CORREGIDO: Detección de Nombre y Extracción de Embarque visual.
     """
     nombre_hoja = estrategia.get("nombre_hoja_excel", "Pendientes")
     ws = workbook.add_worksheet(nombre_hoja)
     ws.hide_gridlines(2)
-    
-    # --- 1. INMOVILIZAR PANELES (Congelar fila 5) ---
     ws.freeze_panes(5, 0)
     
     # Encabezados
@@ -1038,22 +1036,21 @@ def _generar_hoja_pendientes_proveedores(workbook, formatos, df_saldos, estrateg
 
     if df_saldos.empty: return
 
-    # --- 2. PREPARACIÓN Y LIMPIEZA DE DATOS ---
+    # --- PREPARACIÓN ---
     df = df_saldos.copy()
     
-    # A. Limpieza de NITs "Basura" (nan, vacíos, 0)
+    # Limpieza NIT
     if 'NIT' in df.columns:
-        # Convertir a string
         df['NIT'] = df['NIT'].astype(str).str.strip()
-        # Filtrar
         df = df[~df['NIT'].str.lower().isin(['nan', 'nat', 'none', '0', ''])]
-        # Asegurar NIT Norm para el ordenamiento
         if 'NIT_Norm' not in df.columns:
             df['NIT_Norm'] = df['NIT'].str.replace(r'[^A-Z0-9]', '', regex=True)
     
-    # B. Detección Inteligente del Nombre (Con Acentos)
+    # --- BÚSQUEDA DE NOMBRE CORREGIDA ---
     col_nombre = None
+    # Prioridad: Con acento, Sin acento, Otros
     posibles_nombres = ['Descripción Nit', 'Descripcion Nit', 'Nombre del Proveedor', 'Nombre', 'Proveedor']
+    
     for c in posibles_nombres:
         if c in df.columns:
             col_nombre = c
@@ -1062,6 +1059,9 @@ def _generar_hoja_pendientes_proveedores(workbook, formatos, df_saldos, estrateg
     if not col_nombre: 
         df['Nombre_Final'] = 'NO DEFINIDO'
         col_nombre = 'Nombre_Final'
+    
+    # Rellenar nombres vacíos para que no salga 'nan'
+    df[col_nombre] = df[col_nombre].fillna('NO DEFINIDO').astype(str).replace('nan', 'NO DEFINIDO')
 
     df['Monto_BS'] = pd.to_numeric(df['Monto_BS'], errors='coerce').fillna(0)
     df['Monto_USD'] = pd.to_numeric(df['Monto_USD'], errors='coerce').fillna(0)
@@ -1073,35 +1073,27 @@ def _generar_hoja_pendientes_proveedores(workbook, formatos, df_saldos, estrateg
     gran_total_bs = 0
     gran_total_usd = 0
     
-    # --- ESTILO LIMPIO PARA GRUPOS (BLANCO) ---
-    # Esto elimina el fondo rojo/amarillo anterior
+    # Estilos
     fmt_grupo_nit = workbook.add_format({'bold': True, 'bg_color': '#FFFFFF', 'align': 'left', 'bottom': 1})
     fmt_grupo_nombre = workbook.add_format({'bold': True, 'bg_color': '#FFFFFF', 'align': 'left', 'bottom': 1})
-    fmt_grupo_vacio = workbook.add_format({'bg_color': '#FFFFFF', 'bottom': 1}) # Para rellenar el resto de la fila
+    fmt_grupo_vacio = workbook.add_format({'bg_color': '#FFFFFF', 'bottom': 1})
 
-    # --- 3. BUCLE DE AGRUPACIÓN ---
+    # --- BUCLE ---
     for nit, grupo in df.groupby('NIT_Norm'):
-        # Obtener datos del grupo
         nit_display = grupo['NIT'].iloc[0]
-        nombre_prov = grupo[col_nombre].iloc[0] if not grupo.empty else "ND"
-        if str(nombre_prov).lower() == 'nan': nombre_prov = "NO DEFINIDO"
+        nombre_prov = grupo[col_nombre].iloc[0] # Tomamos el nombre del grupo
 
-        # Escribir Encabezado de Grupo (Fila limpia)
+        # Escribir Encabezado
         ws.write(current_row, 0, nit_display, fmt_grupo_nit)
         ws.write(current_row, 1, nombre_prov, fmt_grupo_nombre)
-        
-        # Limpiar visualmente el resto de la fila de encabezado
-        for i in range(2, 8):
-            ws.write(current_row, i, "", fmt_grupo_vacio)
-            
+        for i in range(2, 8): ws.write(current_row, i, "", fmt_grupo_vacio)
         current_row += 1
         
         subtotal_bs = 0
         subtotal_usd = 0
         
-        # Detalle
         for _, row in grupo.iterrows():
-            # A: NIT (Vacío en detalle)
+            # A: Vacío
             ws.write(current_row, 0, "", formatos['text']) 
             
             # B: Referencia
@@ -1113,42 +1105,43 @@ def _generar_hoja_pendientes_proveedores(workbook, formatos, df_saldos, estrateg
             if pd.notna(fecha): ws.write_datetime(current_row, 2, fecha, formatos['fecha'])
             else: ws.write(current_row, 2, "-", formatos['text'])
             
-            # D: EMB
+            # D: EMBARQUE (Lógica de Respaldo visual)
             emb = str(row.get('Numero_Embarque', ''))
-            if emb == 'NO_EMB': emb = ''
+            # Si logic.py falló (dice NO_EMB), intentamos extraer visualmente aquí
+            if emb == 'NO_EMB' or emb == 'nan' or emb == '':
+                match_vis = re.search(r'(?:EMB|EEM)[.:\s]+([A-Z0-9]+)', referencia, re.IGNORECASE)
+                if match_vis: emb = match_vis.group(1)
+                else: emb = ""
+            
             ws.write(current_row, 3, emb, formatos['text'])
             
-            # E: Saldo USD
+            # Montos
             monto_usd = row['Monto_USD']
             ws.write_number(current_row, 4, monto_usd, formatos['usd'])
             
-            # F: Tasa
             tasa = row.get('Tasa', 0)
-            if tasa == 0 and abs(monto_usd) > 0.01:
-                tasa = abs(row['Monto_BS'] / monto_usd)
+            if tasa == 0 and abs(monto_usd) > 0.01: tasa = abs(row['Monto_BS'] / monto_usd)
             ws.write_number(current_row, 5, tasa, formatos['tasa'])
             
-            # G: Bs.
             monto_bs = row['Monto_BS']
             ws.write_number(current_row, 6, monto_bs, formatos['bs'])
             
-            # H: OBSERVACION (Vacía)
             ws.write(current_row, 7, "", formatos['text'])
             
             subtotal_bs += monto_bs
             subtotal_usd += monto_usd
             current_row += 1
             
-        # Subtotal Grupo
+        # Subtotal
         ws.write(current_row, 5, "Saldo", formatos['subtotal_label'])
         ws.write_number(current_row, 6, subtotal_bs, formatos['subtotal_bs'])
-        ws.write_number(current_row, 4, subtotal_usd, formatos['subtotal_usd']) # Agregado subtotal USD también
+        ws.write_number(current_row, 4, subtotal_usd, formatos['subtotal_usd'])
         
         gran_total_bs += subtotal_bs
         gran_total_usd += subtotal_usd
         current_row += 1 
 
-    # TOTAL GENERAL
+    # Total General
     current_row += 1
     ws.write(current_row, 5, "TOTAL GENERAL", formatos['total_label'])
     ws.write_number(current_row, 4, gran_total_usd, formatos['total_usd'])
