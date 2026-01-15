@@ -1409,15 +1409,34 @@ def run_conciliation_proveedores_costos(df, log_messages, progress_bar=None):
 
     df['Numero_Embarque'] = df['Referencia'].apply(extraer_y_normalizar_emb)
     
-    # --- 3. LÓGICA DE HERENCIA DE NIT (Para ajustes ND) ---
-    # Unificamos movimientos ND con su proveedor real por número de embarque
-    valid_nits = df[df['NIT_Norm'] != 'ND']
-    mapa_emb_nit = valid_nits.groupby('Numero_Embarque')['NIT_Norm'].first().to_dict()
-    df['NIT_Reporte'] = df['Numero_Embarque'].map(mapa_emb_nit).fillna(df['NIT_Norm'])
+    # --- 2. HERENCIA INTELIGENTE DE NIT (Líneas Corregidas) ---
+    # Solo mapeamos embarques REALES (excluimos 'NO_EMB')
+    shipments_with_nit = df[(df['NIT_Norm'] != 'ND') & (df['Numero_Embarque'] != 'NO_EMB')]
+    mapa_emb_nit = shipments_with_nit.groupby('Numero_Embarque')['NIT_Norm'].first().to_dict()
+    
+    # También mapeamos por ASIENTO (si el ajuste ND está en el mismo comprobante que la factura)
+    asientos_with_nit = df[df['NIT_Norm'] != 'ND']
+    mapa_asiento_nit = asientos_with_nit.groupby('Asiento')['NIT_Norm'].first().to_dict()
 
-    # Aseguramos que la columna Conciliado sea False por defecto
-    df['Conciliado'] = False
-    total_conciliados = 0
+    def asignar_nit_propio(row):
+        # Si ya tiene un NIT real, no hacemos nada
+        if row['NIT_Norm'] != 'ND': 
+            return row['NIT_Norm']
+        
+        # Match 1: Por Embarque (Solo si el embarque es válido)
+        emb = row['Numero_Embarque']
+        if emb != 'NO_EMB' and emb in mapa_emb_nit:
+            return mapa_emb_nit[emb]
+            
+        # Match 2: Por Asiento (Si comparten el mismo voucher contable)
+        asiento = row['Asiento']
+        if asiento in mapa_asiento_nit:
+            return mapa_asiento_nit[asiento]
+            
+        # Si no hay match, se queda como ND (separado)
+        return 'ND'
+
+    df['NIT_Reporte'] = df.apply(asignar_nit_propio, axis=1)
 
     # --- 4. FASE 1: POR EMBARQUE (CRUCE ESTRICTO) ---
     df_p1 = df.copy()
