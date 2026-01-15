@@ -616,9 +616,16 @@ def _generar_hoja_conciliados_agrupada(workbook, formatos, df_conciliados, estra
         fmt_total = formatos['total_usd']
 
     # --------------------------------------------------
-    # Ordenamiento previo
-    df = df.sort_values(by=['NIT', 'Fecha'])
+    # Definimos el orden por defecto para no afectar a las otras cuentas
+    criterios_orden = ['NIT', 'Fecha']
+    
+    # Solo si es la cuenta de Costos Y existe la columna de embarque, cambiamos el orden
+    if estrategia['id'] == 'proveedores_costos' and 'Numero_Embarque' in df.columns:
+        criterios_orden = ['NIT', 'Numero_Embarque', 'Fecha']
+        
+    df = df.sort_values(by=criterios_orden, ascending=True)
 
+    # --- PROCESO DE ESCRITURA ---
     # Encabezado Principal
     ws.merge_range(0, 0, 0, len(columnas)-1, titulo, formatos['encabezado_sub']) # Ajustado len -1 para merge correcto
     current_row = 2
@@ -1067,7 +1074,10 @@ def _generar_hoja_pendientes_proveedores(workbook, formatos, df_saldos, estrateg
     df['Monto_USD'] = pd.to_numeric(df['Monto_USD'], errors='coerce').fillna(0)
 
     # Ordenar
-    df = df.sort_values(by=['NIT_Norm', 'Fecha'])
+    df = df.sort_values(
+        by=['NIT_Norm', 'Numero_Embarque', 'Fecha'], 
+        ascending=[True, True, True]
+    )
     
     current_row = 5
     gran_total_bs = 0
@@ -1079,9 +1089,9 @@ def _generar_hoja_pendientes_proveedores(workbook, formatos, df_saldos, estrateg
     fmt_grupo_vacio = workbook.add_format({'bg_color': '#FFFFFF', 'bottom': 1})
 
     # --- BUCLE ---
-    for nit, grupo in df.groupby('NIT_Norm'):
+    for nit, grupo in df.groupby('NIT_Norm', sort=False): # sort=False para respetar el sort_values previo
         nit_display = grupo['NIT'].iloc[0]
-        nombre_prov = grupo[col_nombre].iloc[0] # Tomamos el nombre del grupo
+        nombre_prov = grupo[col_nombre].iloc[0]
 
         # Escribir Encabezado
         ws.write(current_row, 0, nit_display, fmt_grupo_nit)
