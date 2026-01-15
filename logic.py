@@ -1394,18 +1394,30 @@ def run_conciliation_proveedores_costos(df, log_messages, progress_bar=None):
     def extraer_y_normalizar_emb(referencia):
         if pd.isna(referencia): return 'NO_EMB'
         ref = str(referencia).upper()
-        # Busca E o M seguido de números
-        match = re.search(r'([EM]\d{3,})', ref)
+        
+        # --- NUEVO REGEX ROBUSTO (Resuelve Observación 1) ---
+        # Busca: Letra E o M + Opcionalmente (puntos, espacios, guiones, dos puntos) + Números
+        # Ejemplos que captura: "E0005265", "E:5265", "E-5265", "E 5265", "EMB.5265"
+        match = re.search(r'([EM])[.:\-\s]*(\d{3,})', ref)
+        
+        # Fallback por si la referencia solo trae la palabra "EMBARQUE" y el número sin letra E
         if not match:
-            # Captura numérica después de palabras clave (maneja el caso EMB.4643)
-            match = re.search(r'(?:EMB|EEM|EMBARQUE|EMBARUE|EMB:)[.:\s]*(\d+)', ref)
+            match = re.search(r'(?:EMB|EEM|EMBARQUE|EMBARUE|EMBARUE|EMB:)[.:\-\s]*(\d+)', ref)
         
         if match:
-            codigo = match.group(1)
-            # Si el match fue solo números (sin E/M), le ponemos el prefijo 'E' por defecto
-            letra = codigo[0] if codigo[0].isalpha() else 'E'
-            num = re.sub(r'\D', '', codigo)
-            return f"{letra}{int(num)}" if num else 'NO_EMB'
+            # Si el match viene del primer regex, grupos 1 y 2 tienen Letra y Número
+            # Si viene del fallback, el grupo 1 tiene el Número
+            try:
+                if len(match.groups()) == 2:
+                    letra = match.group(1)
+                    num = re.sub(r'\D', '', match.group(2))
+                else:
+                    letra = 'E' # Default
+                    num = re.sub(r'\D', '', match.group(1))
+                
+                return f"{letra}{int(num)}" if num else 'NO_EMB'
+            except:
+                return 'NO_EMB'
         return 'NO_EMB'
 
     df['Numero_Embarque'] = df['Referencia'].apply(extraer_y_normalizar_emb)
@@ -1422,8 +1434,6 @@ def run_conciliation_proveedores_costos(df, log_messages, progress_bar=None):
     total_conciliados = 0 
 
     # --- 3. FASE 1: CRUCE POR EMBARQUE GLOBAL (EL CAMBIO CLAVE) ---
-    # Agrupamos ÚNICAMENTE por Numero_Embarque. 
-    # Esto permite que la Factura (con NIT) y el Flete (sin NIT) se encuentren.
     df_p1 = df[~df['Conciliado']]
     grupos_emb = df_p1[df_p1['Numero_Embarque'] != 'NO_EMB'].groupby('Numero_Embarque')
     
@@ -1432,11 +1442,9 @@ def run_conciliation_proveedores_costos(df, log_messages, progress_bar=None):
         
         suma_abs = abs(round(grupo['Monto_USD'].sum(), 2))
         
-        # Si la suma de todos los movimientos del embarque es 0
         if suma_abs <= 0.01:
             df.loc[grupo.index, ['Conciliado', 'Grupo_Conciliado']] = [True, f"EMBARQUE_{emb}"]
             total_conciliados += len(grupo)
-        # Si la diferencia es menor a 1$ (Hoja de Ajustes)
         elif suma_abs <= 1.00:
             df.loc[grupo.index, ['Conciliado', 'Grupo_Conciliado']] = [True, f"REQUIERE_AJUSTE_{emb}"]
             total_conciliados += len(grupo)
