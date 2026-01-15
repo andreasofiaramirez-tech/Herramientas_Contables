@@ -1095,7 +1095,10 @@ def _generar_hoja_detalle_especificacion_proveedores(workbook, formatos, df_sald
 
 #@st.cache_data
 def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrategia, casa_seleccionada, cuenta_seleccionada):
-    """Controlador principal que orquesta la creación del Excel."""    
+    """
+    Controlador principal que orquesta la creación del Excel.
+    Nombres corregidos para evitar NameError.
+    """
     output_excel = BytesIO()
     
     with pd.ExcelWriter(output_excel, engine='xlsxwriter') as writer:
@@ -1106,17 +1109,17 @@ def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrate
         # ============================================================
         # 1. SELECCIÓN DE HOJA DE PENDIENTES
         # ============================================================
-        
-        # LISTA A: Cuentas RESUMIDAS (1 línea por empleado)
         cuentas_resumen = ['deudores_empleados_me', 'deudores_empleados_bs']
-        
-        # LISTA B: Cuentas CORRIDAS (Sin agrupar por NIT, orden fecha)
-        cuentas_corridas = ['fondos_transito', 'fondos_depositar','haberes_clientes']
-        
-        # LISTA C: Cuentas FACTORING (Agrupado especial)
-        # (Se maneja en el elif)
+        cuentas_corridas = ['fondos_transito', 'fondos_depositar', 'haberes_clientes']
 
-        if _estrategia['id'] in cuentas_resumen:
+        if _estrategia['id'] == 'proveedores_costos':
+            # HOJA 1: RESUMEN (Nombre corregido aquí)
+            _generar_hoja_pendientes_proveedores(workbook, formatos, df_saldos_abiertos, _estrategia, casa_seleccionada, fecha_max)
+            
+            # NUEVA HOJA: DETALLE ANALÍTICO
+            _generar_hoja_detalle_especificacion_proveedores(workbook, formatos, df_saldos_abiertos)
+            
+        elif _estrategia['id'] in cuentas_resumen:
             _generar_hoja_pendientes_resumida(workbook, formatos, df_saldos_abiertos, _estrategia, casa_seleccionada, fecha_max)
             
         elif _estrategia['id'] in cuentas_corridas:
@@ -1124,37 +1127,25 @@ def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrate
             
         elif _estrategia['id'] == 'cdc_factoring':
             _generar_hoja_pendientes_cdc(workbook, formatos, df_saldos_abiertos, _estrategia, casa_seleccionada, fecha_max)
-
-        if _estrategia['id'] == 'proveedores_costos':
-            _generar_ho_ja_pendientes_proveedores(workbook, formatos, df_saldos_abiertos, _estrategia, casa_seleccionada, fecha_max)
-            # NUEVA HOJA DE DETALLE
-            _generar_hoja_detalle_especificacion_proveedores(workbook, formatos, df_saldos_abiertos)
-        elif _estrategia['id'] in ['deudores_empleados_me', 'deudores_empleados_bs']:
-            _generar_hoja_pendientes_resumida(workbook, formatos, df_saldos_abiertos, _estrategia, casa_seleccionada, fecha_max)
             
         else:
-            # EL RESTO (Haberes, Viajes, Otras CxP) usa la función AGRUPADA POR NIT
             _generar_hoja_pendientes(workbook, formatos, df_saldos_abiertos, _estrategia, casa_seleccionada, fecha_max)
         
         # ============================================================
         # 2. SELECCIÓN DE HOJA DE CONCILIADOS
         # ============================================================
-        
         if _estrategia['id'] in cuentas_resumen:
             datos_conciliacion = _df_full.copy()
         else:
             datos_conciliacion = df_conciliados.copy()
 
         if not datos_conciliacion.empty:
-            # --- PROTECCIÓN: FILTRADO SOLO PARA COSTOS ---
-            # Para la Hoja 2 (Conciliación), filtramos los que NO son ajustes menores
-            # Si no es la cuenta de costos, 'datos_h2' será idéntico a 'datos_conciliacion'
+            # Filtro para que la Hoja 2 no tenga los ajustes menores de 1$
             if _estrategia['id'] == 'proveedores_costos':
                 datos_h2 = datos_conciliacion[~datos_conciliacion['Grupo_Conciliado'].astype(str).str.contains('REQUIERE_AJUSTE', na=False)]
             else:
                 datos_h2 = datos_conciliacion
 
-            # Solo generamos la hoja si después del filtro quedó algo
             if not datos_h2.empty:
                 cuentas_agrupadas_conc = [
                     'cobros_viajeros', 
@@ -1169,25 +1160,23 @@ def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrate
                 if _estrategia['id'] in cuentas_agrupadas_conc:
                     _generar_hoja_conciliados_agrupada(workbook, formatos, datos_h2, _estrategia)
                 else:
-                    _generar_hoja_conciliados_estandar(workbook, formatos, datos_h2, _estrategia)    
+                    _generar_hoja_conciliados_estandar(workbook, formatos, datos_h2, _estrategia)
 
         # ============================================================
-        # 3. NUEVA HOJA: PARA ASIENTO DE AJUSTE (Solo Costos)
+        # 3. HOJA DE AJUSTES (Para Costos)
         # ============================================================
         if _estrategia['id'] == 'proveedores_costos' and not df_conciliados.empty:
-            # Filtramos exactamente lo opuesto: solo lo que requiere ajuste
             df_ajustes = df_conciliados[df_conciliados['Grupo_Conciliado'].astype(str).str.contains('REQUIERE_AJUSTE', na=False)]
             if not df_ajustes.empty:
                 _generar_hoja_ajustes_menores(workbook, formatos, df_ajustes)
 
         # ============================================================
-        # 4. HOJAS ADICIONALES (Mantenemos lo que ya estaba)
+        # 4. HOJAS ADICIONALES (Devoluciones)
         # ============================================================
         if _estrategia['id'] == 'devoluciones_proveedores' and not df_saldos_abiertos.empty:
             _generar_hoja_resumen_devoluciones(workbook, formatos, df_saldos_abiertos)
 
     return output_excel.getvalue()
-
 def _generar_hoja_ajustes_menores(workbook, formatos, df_ajustes):
     """
     Genera la 3ra hoja con el total general al final de la página.
