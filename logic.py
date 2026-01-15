@@ -1381,46 +1381,43 @@ def run_conciliation_asientos_por_clasificar(df, log_messages, progress_bar=None
 # --- (K) Módulo: Proveedores d/Mcia -Costos Causados ---
 
 def run_conciliation_proveedores_costos(df, log_messages, progress_bar=None):
-    """
-    Conciliación 212.07.1012.
-    MEJORA: Regex de embarques más potente.
-    """
     log_messages.append("\n--- INICIANDO CONCILIACIÓN PROVEEDORES COSTOS (212.07.1012) ---")
     
-    # 1. Normalización (EXTRACCIÓN DE EMBARQUE MEJORADA)
-    # Busca: "EMB", "EEM" o "EMBARQUE", seguido de cualquier separador (: . espacio), 
-    # y captura el código alfanumérico siguiente (Ej: E000002313 o 6871)
+    # 1. Normalización (Extracción de Embarque)
     df['Numero_Embarque'] = df['Referencia'].astype(str).str.extract(r'(?:EMB|EEM|EMBARQUE)[.:\s]+([A-Z0-9]+)', flags=re.IGNORECASE)
-    
-    # Rellenar vacíos
     df['Numero_Embarque'] = df['Numero_Embarque'].fillna('NO_EMB')
     
-    # Normalizamos NIT
     nit_col = next((c for c in df.columns if c.upper() in ['NIT', 'RIF']), None)
-    if nit_col:
-        df['NIT_Norm'] = df[nit_col].astype(str).str.replace(r'[^A-Z0-9]', '', regex=True)
-    else:
-        df['NIT_Norm'] = 'SIN_NIT'
+    df['NIT_Norm'] = df[nit_col].astype(str).str.replace(r'[^A-Z0-9]', '', regex=True) if nit_col else 'SIN_NIT'
 
     total_conciliados = 0
     df_pendientes = df[~df['Conciliado']]
 
-    # --- FASE 1: POR EMBARQUE ---
+    # --- FASE 1: POR EMBARQUE (Con detección de Ajustes < 1$) ---
     grupos_emb = df_pendientes[df_pendientes['Numero_Embarque'] != 'NO_EMB'].groupby(['NIT_Norm', 'Numero_Embarque'])
     
     for (nit, emb), grupo in grupos_emb:
         if len(grupo) < 2: continue
         
-        # Validar suma 0 en USD
-        if np.isclose(grupo['Monto_USD'].sum(), 0, atol=0.01):
+        suma_abs = abs(round(grupo['Monto_USD'].sum(), 2))
+        
+        # Caso A: Cuadre perfecto (0.01 tolerancia)
+        if suma_abs <= 0.01:
             indices = grupo.index
             df.loc[indices, 'Conciliado'] = True
             df.loc[indices, 'Grupo_Conciliado'] = f"EMBARQUE_{nit}_{emb}"
             total_conciliados += len(indices)
             
-    log_messages.append(f"✔️ Fase 1 (Embarques): {total_conciliados} movimientos.")
-    if progress_bar: progress_bar.progress(0.4, text="Fase Embarques lista.")
-
+        # Caso B: Cuadre por ajuste (Diferencia entre 0.02 y 1.00 $)
+        elif suma_abs <= 1.00:
+            indices = grupo.index
+            # Los marcamos como conciliados para que SALGAN de la hoja de Pendientes
+            df.loc[indices, 'Conciliado'] = True 
+            # Etiqueta especial para que utils.py sepa que van a la 3ra hoja
+            df.loc[indices, 'Grupo_Conciliado'] = f"REQUIERE_AJUSTE_{nit}_{emb}"
+            total_conciliados += len(indices)
+            log_messages.append(f"⚠️ Embarque {emb} (NIT {nit}) separado para ajuste (Dif: ${suma_abs}).")
+            
     # --- FASE 2: POR REFERENCIA / FACTURA ---
     df_pendientes = df[~df['Conciliado']]
     grupos_ref = df_pendientes.groupby(['NIT_Norm', 'Referencia'])
