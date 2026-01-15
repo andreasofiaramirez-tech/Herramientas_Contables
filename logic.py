@@ -1416,9 +1416,9 @@ def run_conciliation_proveedores_costos(df, log_messages, progress_bar=None):
         return 'NO_EMB'
     
     # 1. Normalización (Extracción de Embarque)
-    df['Numero_Embarque'] = df['Referencia'].astype(str).str.extract(r'(?:EMB|EEM|EMBARQUE)[.:\s]+([A-Z0-9]+)', flags=re.IGNORECASE)
-    df['Numero_Embarque'] = df['Numero_Embarque'].fillna('NO_EMB')
+    df['Numero_Embarque'] = df['Referencia'].apply(extraer_y_normalizar_emb)
     
+    # Normalizamos NIT
     nit_col = next((c for c in df.columns if c.upper() in ['NIT', 'RIF']), None)
     df['NIT_Norm'] = df[nit_col].astype(str).str.replace(r'[^A-Z0-9]', '', regex=True) if nit_col else 'SIN_NIT'
 
