@@ -1383,12 +1383,16 @@ def run_conciliation_asientos_por_clasificar(df, log_messages, progress_bar=None
 def run_conciliation_proveedores_costos(df, log_messages, progress_bar=None):
     """
     Conciliación 212.07.1012.
-    Prioridad: 1. Embarque, 2. Factura/Ref, 3. Saldo Global NIT.
+    MEJORA: Regex de embarques más potente.
     """
     log_messages.append("\n--- INICIANDO CONCILIACIÓN PROVEEDORES COSTOS (212.07.1012) ---")
     
-    # 1. Normalización
-    df['Numero_Embarque'] = df['Referencia'].astype(str).str.extract(r'(?:EMB|EEM)[-\s]*0*(\d+)', flags=re.IGNORECASE)
+    # 1. Normalización (EXTRACCIÓN DE EMBARQUE MEJORADA)
+    # Busca: "EMB", "EEM" o "EMBARQUE", seguido de cualquier separador (: . espacio), 
+    # y captura el código alfanumérico siguiente (Ej: E000002313 o 6871)
+    df['Numero_Embarque'] = df['Referencia'].astype(str).str.extract(r'(?:EMB|EEM|EMBARQUE)[.:\s]+([A-Z0-9]+)', flags=re.IGNORECASE)
+    
+    # Rellenar vacíos
     df['Numero_Embarque'] = df['Numero_Embarque'].fillna('NO_EMB')
     
     # Normalizamos NIT
@@ -1401,14 +1405,13 @@ def run_conciliation_proveedores_costos(df, log_messages, progress_bar=None):
     total_conciliados = 0
     df_pendientes = df[~df['Conciliado']]
 
-    # --- FASE 1: POR EMBARQUE (Dentro del mismo NIT) ---
-    # Agrupamos por NIT y Número de Embarque
+    # --- FASE 1: POR EMBARQUE ---
     grupos_emb = df_pendientes[df_pendientes['Numero_Embarque'] != 'NO_EMB'].groupby(['NIT_Norm', 'Numero_Embarque'])
     
     for (nit, emb), grupo in grupos_emb:
         if len(grupo) < 2: continue
         
-        # Si suma 0 en Dólares (Moneda fuerte de esta cuenta)
+        # Validar suma 0 en USD
         if np.isclose(grupo['Monto_USD'].sum(), 0, atol=0.01):
             indices = grupo.index
             df.loc[indices, 'Conciliado'] = True
@@ -1418,15 +1421,13 @@ def run_conciliation_proveedores_costos(df, log_messages, progress_bar=None):
     log_messages.append(f"✔️ Fase 1 (Embarques): {total_conciliados} movimientos.")
     if progress_bar: progress_bar.progress(0.4, text="Fase Embarques lista.")
 
-    # --- FASE 2: POR REFERENCIA / FACTURA (Lo que quedó) ---
-    # Cubre facturas y traspasos si la referencia coincide
+    # --- FASE 2: POR REFERENCIA / FACTURA ---
     df_pendientes = df[~df['Conciliado']]
     grupos_ref = df_pendientes.groupby(['NIT_Norm', 'Referencia'])
     
     count_f2 = 0
     for (nit, ref), grupo in grupos_ref:
         if len(grupo) < 2: continue
-        
         if np.isclose(grupo['Monto_USD'].sum(), 0, atol=0.01):
             indices = grupo.index
             df.loc[indices, 'Conciliado'] = True
@@ -1437,7 +1438,7 @@ def run_conciliation_proveedores_costos(df, log_messages, progress_bar=None):
     log_messages.append(f"✔️ Fase 2 (Ref/Facturas): {count_f2} movimientos.")
     if progress_bar: progress_bar.progress(0.7, text="Fase Referencias lista.")
 
-    # --- FASE 3: SALDO GLOBAL POR NIT (Barrido final) ---
+    # --- FASE 3: SALDO GLOBAL POR NIT ---
     df_pendientes = df[~df['Conciliado']]
     count_f3 = 0
     
