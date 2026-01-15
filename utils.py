@@ -1130,7 +1130,7 @@ def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrate
             # NUEVA HOJA DE DETALLE
             _generar_hoja_detalle_especificacion_proveedores(workbook, formatos, df_saldos_abiertos)
         elif _estrategia['id'] in ['deudores_empleados_me', 'deudores_empleados_bs']:
-            _generar_ho_ja_pendientes_resumida(workbook, formatos, df_saldos_abiertos, _estrategia, casa_seleccionada, fecha_max)
+            _generar_hoja_pendientes_resumida(workbook, formatos, df_saldos_abiertos, _estrategia, casa_seleccionada, fecha_max)
             
         else:
             # EL RESTO (Haberes, Viajes, Otras CxP) usa la función AGRUPADA POR NIT
