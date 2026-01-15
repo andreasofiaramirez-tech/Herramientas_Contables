@@ -1018,17 +1018,15 @@ def _generar_hoja_pendientes_corrida(workbook, formatos, df_saldos, estrategia, 
 
 def _generar_hoja_pendientes_proveedores(workbook, formatos, df_saldos, estrategia, casa, fecha_maxima):
     """
-    Genera la hoja de saldos abiertos para Proveedores Costos (212.07.1012).
-    - Agrupa por NIT (usando NIT_Reporte para incluir ajustes ND).
-    - Ordena por Embarque y Fecha.
-    - Oculta etiquetas 'NO_EMB' y 'ND' para limpieza visual.
+    Genera la hoja de saldos abiertos.
+    FILTRO: Solo imprime proveedores que tengan al menos un embarque abierto.
     """
     nombre_hoja = estrategia.get("nombre_hoja_excel", "Pendientes")
     ws = workbook.add_worksheet(nombre_hoja)
     ws.hide_gridlines(2)
-    ws.freeze_panes(5, 0) # Congelar encabezados
+    ws.freeze_panes(5, 0)
     
-    # 1. ENCABEZADOS DE REPORTE
+    # 1. Encabezados (Igual que antes)
     if pd.notna(fecha_maxima):
         ultimo_dia = fecha_maxima + pd.offsets.MonthEnd(0)
         meses = {1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio", 7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"}
@@ -1039,109 +1037,78 @@ def _generar_hoja_pendientes_proveedores(workbook, formatos, df_saldos, estrateg
     ws.merge_range('A1:H1', casa, formatos['encabezado_empresa'])
     ws.merge_range('A2:H2', f"ESPECIFICACION DE LA CUENTA {estrategia['nombre_hoja_excel']}", formatos['encabezado_sub'])
     ws.merge_range('A3:H3', txt_fecha, formatos['encabezado_sub'])
-
-    headers = ['NIT', 'Proveedor y Descripcion', 'Fecha.', 'EMB', 'Saldo USD', 'Tasa', 'Bs.', 'OBSERVACION']
-    ws.write_row('A5', headers, formatos['header_tabla'])
+    ws.write_row('A5', ['NIT', 'Proveedor y Descripcion', 'Fecha.', 'EMB', 'Saldo USD', 'Tasa', 'Bs.', 'OBSERVACION'], formatos['header_tabla'])
 
     if df_saldos.empty: return
 
-    # 2. PREPARACIÓN DE DATOS
+    # 2. Preparación y Limpieza de "nans"
     df = df_saldos.copy()
-    
-    # Identificar el NIT final (Priorizar el heredado de logic.py si existe)
-    col_nit_final = 'NIT_Reporte' if 'NIT_Reporte' in df.columns else 'NIT_Norm'
-    
-    # Búsqueda inteligente de columna de Nombre
-    col_nombre = next((c for c in ['Descripción Nit', 'Descripcion Nit', 'Nombre del Proveedor', 'Proveedor'] if c in df.columns), col_nit_final)
+    col_nit = 'NIT_Reporte' if 'NIT_Reporte' in df.columns else 'NIT_Norm'
+    col_nombre = next((c for c in ['Descripción Nit', 'Descripcion Nit', 'Nombre del Proveedor'] if c in df.columns), 'NIT')
 
-    # Limpieza de montos
-    df['Monto_BS'] = pd.to_numeric(df['Monto_BS'], errors='coerce').fillna(0)
-    df['Monto_USD'] = pd.to_numeric(df['Monto_USD'], errors='coerce').fillna(0)
+    df[col_nit] = df[col_nit].astype(str).replace(['nan', 'NaN', 'None', 'ND', '0'], 'SIN NIT')
+    df[col_nombre] = df[col_nombre].astype(str).replace(['nan', 'NaN', 'None', '0', ''], 'PROVEEDOR NO IDENTIFICADO')
 
-    # =========================================================================
-    # ORDENAMIENTO: NIT -> EMBARQUE -> FECHA
-    # =========================================================================
-    df = df.sort_values(
-        by=[col_nit_final, 'Numero_Embarque', 'Fecha'], 
-        ascending=[True, True, True]
-    )
+    # 3. Filtrar solo lo que NO esté conciliado (Doble check)
+    df = df[df['Conciliado'] == False]
+    if df.empty: return
+
+    # 4. Ordenamiento
+    df = df.sort_values(by=[col_nit, 'Numero_Embarque', 'Fecha'])
 
     current_row = 5
     gran_total_bs = 0
     gran_total_usd = 0
     
-    # Formatos de celda para los grupos
     fmt_grupo_header = workbook.add_format({'bold': True, 'bg_color': '#FFFFFF', 'align': 'left', 'bottom': 1})
-    fmt_vacio = workbook.add_format({'bg_color': '#FFFFFF', 'bottom': 1})
 
-    # 3. BUCLE DE ESCRITURA POR PROVEEDOR
-    # Usamos el NIT final (donde los ND ya tienen dueño)
-    for nit_val, grupo in df.groupby(col_nit_final, sort=False):
-        
-        # Obtener nombre del proveedor (evitar que diga 'ND')
+    # 5. Bucle por Proveedor
+   for nit_val, grupo in df.groupby(col_nit, sort=False):
+        # SEGURIDAD: Si por error de lógica el grupo suma 0, no lo mostramos en pendientes
+        if abs(round(grupo['Monto_USD'].sum(), 2)) <= 0.01:
+            continue
+
         nombre_display = grupo[col_nombre].iloc[0]
-        if str(nombre_display).upper() in ['ND', 'NAN', '0']:
-            nombre_display = f"PROVEEDOR SIN NOMBRE (NIT: {nit_val})"
-
-        # Escribir Fila de Encabezado de Grupo (NIT y Nombre)
+        
+        # Escribir Fila de NIT y Nombre
         ws.write(current_row, 0, nit_val, fmt_grupo_header)
         ws.write(current_row, 1, nombre_display, fmt_grupo_header)
-        for i in range(2, 8): ws.write(current_row, i, "", fmt_vacio)
+        for i in range(2, 8): ws.write(current_row, i, "", fmt_grupo_header)
         current_row += 1
         
-        subtotal_bs = 0
-        subtotal_usd = 0
+        sub_bs = 0
+        sub_usd = 0
         
-        # Detalle de facturas/ajustes
         for _, row in grupo.iterrows():
-            # Col A: NIT (vacío para no repetir)
             ws.write(current_row, 0, "", formatos['text']) 
-            
-            # Col B: Referencia
             ws.write(current_row, 1, str(row.get('Referencia', '')), formatos['text'])
             
-            # Col C: Fecha
-            fecha = row.get('Fecha')
-            if pd.notna(fecha): ws.write_datetime(current_row, 2, fecha, formatos['fecha'])
+            fec = row.get('Fecha')
+            if pd.notna(fec): ws.write_datetime(current_row, 2, fec, formatos['fecha'])
             else: ws.write(current_row, 2, "-", formatos['text'])
             
-            # Col D: EMBARQUE (Limpieza visual)
             emb = str(row.get('Numero_Embarque', ''))
-            # Si el código es 'NO_EMB' o similar, mostramos vacío
-            val_emb = "" if emb in ['NO_EMB', 'nan', 'ND', ''] else emb
-            ws.write(current_row, 3, val_emb, formatos['text'])
+            ws.write(current_row, 3, "" if emb in ['NO_EMB', 'nan', ''] else emb, formatos['text'])
             
-            # Col E: Monto USD
-            m_usd = row['Monto_USD']
-            ws.write_number(current_row, 4, m_usd, formatos['usd'])
-            
-            # Col F: Tasa
-            tasa = row.get('Tasa', 0)
-            if tasa == 0 and abs(m_usd) > 0.01: 
-                tasa = abs(row['Monto_BS'] / m_usd)
-            ws.write_number(current_row, 5, tasa, formatos['tasa'])
-            
-            # Col G: Bs.
-            m_bs = row['Monto_BS']
-            ws.write_number(current_row, 6, m_bs, formatos['bs'])
-            
-            # Col H: Observación (Fuente)
+            ws.write_number(current_row, 4, row['Monto_USD'], formatos['usd'])
+            ws.write_number(current_row, 5, row.get('Tasa', 0), formatos['tasa'])
+            ws.write_number(current_row, 6, row['Monto_BS'], formatos['bs'])
             ws.write(current_row, 7, str(row.get('Fuente', '')), formatos['text'])
             
-            subtotal_bs += m_bs
-            subtotal_usd += m_usd
+            sub_bs += row['Monto_BS']
+            sub_usd += row['Monto_USD']
             current_row += 1
             
-        # Fila de Subtotal por NIT
+        # Totales por proveedor
         ws.write(current_row, 5, "Saldo", formatos['subtotal_label'])
-        ws.write_number(current_row, 4, subtotal_usd, formatos['subtotal_usd'])
-        ws.write_number(current_row, 6, subtotal_bs, formatos['subtotal_bs'])
+        ws.write_number(current_row, 4, sub_usd, formatos['subtotal_usd'])
+        ws.write_number(current_row, 6, sub_bs, formatos['subtotal_bs'])
         
-        gran_total_bs += subtotal_bs
-        gran_total_usd += subtotal_usd
-        current_row += 2 # Espacio entre proveedores
+        gran_total_bs += sub_bs
+        gran_total_usd += sub_usd
+        current_row += 2
 
-    # 4. GRAN TOTAL FINAL
+    # Totales Finales
     ws.write(current_row, 5, "TOTAL GENERAL", formatos['total_label'])
     ws.write_number(current_row, 4, gran_total_usd, formatos['total_usd'])
     ws.write_number(current_row, 6, gran_total_bs, formatos['total_bs'])
