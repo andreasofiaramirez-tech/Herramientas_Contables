@@ -1008,7 +1008,135 @@ def _generar_hoja_pendientes_corrida(workbook, formatos, df_saldos, estrategia, 
     ws.set_column(1, 1, 55)
     ws.set_column(2, 2, 15)
     ws.set_column(3, 10, 20)
+
+def _generar_hoja_pendientes_proveedores(workbook, formatos, df_saldos, estrategia, casa, fecha_maxima):
+    """
+    Genera hoja de pendientes EXCLUSIVA para Proveedores Costos (212.07.1012).
+    Formato: Agrupado por NIT con encabezado de grupo.
+    Columna 'Proveedor y Descripcion' contiene la Referencia.
+    Columna 'OBSERVACION' va vacía.
+    """
+    nombre_hoja = estrategia.get("nombre_hoja_excel", "Pendientes")
+    ws = workbook.add_worksheet(nombre_hoja)
+    ws.hide_gridlines(2)
     
+    # --- ENCABEZADOS DEL DOCUMENTO ---
+    if pd.notna(fecha_maxima):
+        ultimo_dia = fecha_maxima + pd.offsets.MonthEnd(0)
+        meses = {1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio", 7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"}
+        txt_fecha = f"PARA EL {ultimo_dia.day} DE {meses[ultimo_dia.month].upper()} DE {ultimo_dia.year}"
+    else:
+        txt_fecha = "FECHA NO DISPONIBLE"
+
+    ws.merge_range('A1:H1', casa, formatos['encabezado_empresa'])
+    ws.merge_range('A2:H2', f"ESPECIFICACION DE LA CUENTA {estrategia['nombre_hoja_excel']}", formatos['encabezado_sub'])
+    ws.merge_range('A3:H3', txt_fecha, formatos['encabezado_sub'])
+
+    # --- ENCABEZADOS DE TABLA (Manuales según tu imagen) ---
+    headers = ['NIT', 'Proveedor y Descripcion', 'Fecha.', 'EMB', 'Saldo USD', 'Tasa', 'Bs.', 'OBSERVACION']
+    ws.write_row('A5', headers, formatos['header_tabla'])
+
+    if df_saldos.empty: return
+
+    # Preparación de datos
+    df = df_saldos.copy()
+    df['Monto_BS'] = pd.to_numeric(df['Monto_BS'], errors='coerce').fillna(0)
+    df['Monto_USD'] = pd.to_numeric(df['Monto_USD'], errors='coerce').fillna(0)
+    
+    # Asegurar columnas de texto
+    if 'NIT_Norm' not in df.columns:
+        df['NIT_Norm'] = df['NIT'].astype(str).str.replace(r'[^A-Z0-9]', '', regex=True)
+    
+    # Buscar columna de Nombre
+    col_nombre = 'Nombre del Proveedor'
+    if col_nombre not in df.columns:
+        for c in ['Descripcion Nit', 'Nombre', 'Proveedor']:
+            if c in df.columns: col_nombre = c; break
+    if col_nombre not in df.columns: df[col_nombre] = 'NO DEFINIDO'
+    
+    # Ordenar
+    df = df.sort_values(by=['NIT_Norm', 'Fecha'])
+    
+    current_row = 5
+    gran_total_bs = 0
+    
+    # --- BUCLE DE AGRUPACIÓN ---
+    for nit, grupo in df.groupby('NIT_Norm'):
+        # 1. ENCABEZADO DEL GRUPO (NIT y Nombre)
+        nombre_prov = grupo[col_nombre].iloc[0] if not grupo.empty else "ND"
+        
+        # Escribimos el NIT en la col A y el Nombre en la col B (Proveedor y Descripcion)
+        # Usamos el formato de proveedor (gris/negrita)
+        ws.write(current_row, 0, nit, formatos['proveedor_header'])
+        ws.write(current_row, 1, nombre_prov, formatos['proveedor_header'])
+        # Rellenamos el resto de la fila del encabezado con formato vacío para que se vea la franja gris
+        for i in range(2, 8):
+            ws.write(current_row, i, "", formatos['proveedor_header'])
+            
+        current_row += 1
+        
+        subtotal_bs = 0
+        
+        # 2. DETALLE DE MOVIMIENTOS
+        for _, row in grupo.iterrows():
+            # A: NIT (Vacío en detalle)
+            ws.write(current_row, 0, "", formatos['text']) 
+            
+            # B: Proveedor y Descripcion -> Aquí va la REFERENCIA
+            referencia = str(row.get('Referencia', ''))
+            ws.write(current_row, 1, referencia, formatos['text'])
+            
+            # C: Fecha
+            fecha = row.get('Fecha')
+            if pd.notna(fecha): ws.write_datetime(current_row, 2, fecha, formatos['fecha'])
+            else: ws.write(current_row, 2, "-", formatos['text'])
+            
+            # D: EMB (Calculado en logic o extraído de referencia)
+            emb = str(row.get('Numero_Embarque', ''))
+            if emb == 'NO_EMB': emb = ''
+            ws.write(current_row, 3, emb, formatos['text'])
+            
+            # E: Saldo USD
+            monto_usd = row['Monto_USD']
+            ws.write_number(current_row, 4, monto_usd, formatos['usd'])
+            
+            # F: Tasa
+            tasa = row.get('Tasa', 0)
+            # Si no hay tasa explícita, la calculamos implícita
+            if tasa == 0 and abs(monto_usd) > 0.01:
+                tasa = abs(row['Monto_BS'] / monto_usd)
+            ws.write_number(current_row, 5, tasa, formatos['tasa'])
+            
+            # G: Bs.
+            monto_bs = row['Monto_BS']
+            ws.write_number(current_row, 6, monto_bs, formatos['bs'])
+            
+            # H: OBSERVACION (Vacía para el usuario)
+            ws.write(current_row, 7, "", formatos['text'])
+            
+            subtotal_bs += monto_bs
+            current_row += 1
+            
+        # 3. SUBTOTAL DEL GRUPO
+        ws.write(current_row, 5, "Saldo", formatos['subtotal_label'])
+        ws.write_number(current_row, 6, subtotal_bs, formatos['subtotal_bs'])
+        
+        gran_total_bs += subtotal_bs
+        current_row += 1 # Espacio
+
+    # TOTAL GENERAL
+    current_row += 1 # Espacio extra
+    ws.write(current_row, 5, "TOTAL GENERAL", formatos['total_label'])
+    ws.write_number(current_row, 6, gran_total_bs, formatos['total_bs'])
+
+    # Ajuste de Anchos
+    ws.set_column('A:A', 15) # NIT
+    ws.set_column('B:B', 50) # Descripción (Ancho)
+    ws.set_column('C:C', 12) # Fecha
+    ws.set_column('D:D', 15) # EMB
+    ws.set_column('E:G', 18) # Montos
+    ws.set_column('H:H', 25) # Observación
+
 #@st.cache_data
 def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrategia, casa_seleccionada, cuenta_seleccionada):
     """Controlador principal que orquesta la creación del Excel."""
@@ -1042,6 +1170,9 @@ def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrate
             
         elif _estrategia['id'] == 'cdc_factoring':
             _generar_hoja_pendientes_cdc(workbook, formatos, df_saldos_abiertos, _estrategia, casa_seleccionada, fecha_max)
+
+        elif _estrategia['id'] == 'proveedores_costos':
+            _generar_hoja_pendientes_proveedores(workbook, formatos, df_saldos_abiertos, _estrategia, casa_seleccionada, fecha_max)
             
         else:
             # EL RESTO (Haberes, Viajes, Otras CxP) usa la función AGRUPADA POR NIT
