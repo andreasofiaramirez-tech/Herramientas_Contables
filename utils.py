@@ -1059,7 +1059,8 @@ def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrate
                 'deudores_empleados_me',
                 'deudores_empleados_bs',
                 'haberes_clientes',
-                'cdc_factoring'
+                'cdc_factoring',
+                'proveedores_costos'
             ]
             
             if _estrategia['id'] in cuentas_agrupadas_conc:
