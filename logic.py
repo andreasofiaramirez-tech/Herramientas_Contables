@@ -1468,23 +1468,39 @@ def run_conciliation_proveedores_costos(df, log_messages, progress_bar=None):
                 total_conciliados += len(indices)
                 huerfanos = huerfanos.drop(match_huerfano.index[0])
 
-    # --- FASE 1.8: CRUCE ENTRE MÚLTIPLES EMBARQUES (CASO NARANJA NUEVO) ---
-    # Si la suma de varios embarques del mismo NIT da cero o ajuste, se cierran.
+    ## --- FASE 1.8: CRUCE POR COMBINATORIA DE EMBARQUES (Resuelve tu caso) ---
+    # Buscamos combinaciones de embarques abiertos que sumen cero
     df_p1_8 = df[~df['Conciliado']]
     for nit, grupo_nit in df_p1_8.groupby('NIT_Reporte'):
         if nit == 'ND': continue
-        # Solo tomamos registros que tienen un embarque asignado
-        solo_embarques = grupo_nit[grupo_nit['Numero_Embarque'] != 'NO_EMB']
-        if len(solo_embarques) < 2: continue
         
-        suma_total_nit = abs(round(solo_embarques['Monto_USD'].sum(), 2))
+        # Calculamos el saldo neto de cada embarque abierto del proveedor
+        solo_emb = grupo_nit[grupo_nit['Numero_Embarque'] != 'NO_EMB']
+        if solo_emb.empty: continue
         
-        if suma_total_nit <= 0.01:
-            df.loc[solo_embarques.index, ['Conciliado', 'Grupo_Conciliado']] = [True, f"CRUCE_EMB_NIT_{nit}"]
-            total_conciliados += len(solo_embarques)
-        elif suma_total_nit <= 1.00:
-            df.loc[solo_embarques.index, ['Conciliado', 'Grupo_Conciliado']] = [True, f"AJUSTE_EMB_NIT_{nit}"]
-            total_conciliados += len(solo_embarques)
+        saldos_por_emb = solo_emb.groupby('Numero_Embarque')['Monto_USD'].sum().round(2)
+        saldos_por_emb = saldos_por_emb[saldos_por_emb != 0] # Solo los que tienen saldo
+        
+        if len(saldos_por_emb) < 2: continue
+        
+        embarques_lista = saldos_por_emb.index.tolist()
+        embarques_usados = set()
+
+        # Intentamos combinaciones de 2, luego 3, hasta 4 embarques
+        for r in range(2, min(len(embarques_lista) + 1, 5)):
+            for combo in combinations(embarques_lista, r):
+                # Si algún embarque de la combinación ya se usó, saltar
+                if any(e in embarques_usados for e in combo): continue
+                
+                suma_combo = sum(saldos_por_emb[list(combo)])
+                
+                if abs(round(suma_combo, 2)) <= 0.01:
+                    # ¡Éxito! Encontramos un grupo de embarques que se anulan
+                    indices_a_cerrar = solo_emb[solo_emb['Numero_Embarque'].isin(combo)].index
+                    df.loc[indices_a_cerrar, ['Conciliado', 'Grupo_Conciliado']] = [True, f"COMB_EMB_NIT_{nit}"]
+                    total_conciliados += len(indices_a_cerrar)
+                    embarques_usados.update(combo)
+                    log_messages.append(f"⚡ Cruce Multiembarque: {combo} para el NIT {nit}")
 
     # --- FASES FINALES DE SEGURIDAD (FUENTE, REFERENCIA, GLOBAL) ---
     # Fase 1.5: Match Fuente
