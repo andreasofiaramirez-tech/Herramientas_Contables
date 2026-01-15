@@ -1382,64 +1382,77 @@ def run_conciliation_asientos_por_clasificar(df, log_messages, progress_bar=None
 
 def run_conciliation_proveedores_costos(df, log_messages, progress_bar=None):
     """
-    Conciliación 212.07.1012 - Versión Optimizada para Cruce Transversal.
-    Prioriza el número de embarque sobre el NIT para permitir cierres de ajustes sin ficha.
+    Conciliación 212.07.1012 - Versión V4 (Vínculo por Factura).
+    Resuelve casos donde el embarque no está en la referencia pero sí el número de factura.
     """
     log_messages.append("\n--- INICIANDO CONCILIACIÓN PROVEEDORES COSTOS (212.07.1012) ---")
     
-    # --- 1. NORMALIZACIÓN Y LIMPIEZA ---
+    # --- 1. NORMALIZACIÓN Y LIMPIEZA DE NITs ---
     nit_col = next((c for c in df.columns if c.upper() in ['NIT', 'RIF']), None)
     df['NIT_Norm'] = df[nit_col].astype(str).str.strip().str.upper().replace(['NAN', 'NONE', 'NAT', '0', ''], 'ND') if nit_col else 'ND'
     
+    # --- 2. EXTRACCIÓN INICIAL DE EMBARQUE (REGEX EMB) ---
     def extraer_y_normalizar_emb(referencia):
         if pd.isna(referencia): return 'NO_EMB'
         ref = str(referencia).upper()
-        
-        # --- NUEVO REGEX ROBUSTO (Resuelve Observación 1) ---
-        # Busca: Letra E o M + Opcionalmente (puntos, espacios, guiones, dos puntos) + Números
-        # Ejemplos que captura: "E0005265", "E:5265", "E-5265", "E 5265", "EMB.5265"
         match = re.search(r'([EM])[.:\-\s]*(\d{3,})', ref)
-        
-        # Fallback por si la referencia solo trae la palabra "EMBARQUE" y el número sin letra E
         if not match:
-            match = re.search(r'(?:EMB|EEM|EMBARQUE|EMBARUE|EMBARUE|EMB:)[.:\-\s]*(\d+)', ref)
-        
+            match = re.search(r'(?:EMB|EEM|EMBARQUE|EMBARUE|EMB:)[.:\-\s]*(\d+)', ref)
         if match:
-            # Si el match viene del primer regex, grupos 1 y 2 tienen Letra y Número
-            # Si viene del fallback, el grupo 1 tiene el Número
             try:
                 if len(match.groups()) == 2:
-                    letra = match.group(1)
-                    num = re.sub(r'\D', '', match.group(2))
+                    letra, num = match.group(1), re.sub(r'\D', '', match.group(2))
                 else:
-                    letra = 'E' # Default
-                    num = re.sub(r'\D', '', match.group(1))
-                
+                    letra, num = 'E', re.sub(r'\D', '', match.group(1))
                 return f"{letra}{int(num)}" if num else 'NO_EMB'
-            except:
-                return 'NO_EMB'
+            except: return 'NO_EMB'
         return 'NO_EMB'
 
     df['Numero_Embarque'] = df['Referencia'].apply(extraer_y_normalizar_emb)
 
-    # --- 2. HERENCIA DE NIT (Para la visualización en Hoja 1) ---
+    # --- 3. NUEVO: VÍNCULO POR NÚMERO DE FACTURA (Resuelve el caso de la imagen) ---
+    def extraer_factura_clean(texto):
+        if pd.isna(texto): return None
+        # Busca patrones tipo FAC000447, S/F 000447, FACT.447, etc.
+        match = re.search(r'(?:FAC|S/F|FACT|N[R°]O|FACTURA)[.:\-\s]*(\d+)', str(texto).upper())
+        if match:
+            try: return str(int(match.group(1))) # Normaliza 00000447 a 447
+            except: return None
+        return None
+
+    # Extraemos factura de Referencia y Fuente
+    df['Factura_Ref'] = df['Referencia'].apply(extraer_factura_clean)
+    df['Factura_Fuente'] = df['Fuente'].apply(extraer_factura_clean)
+    df['Factura_Norm'] = df['Factura_Fuente'].fillna(df['Factura_Ref'])
+
+    # Creamos un mapa: Factura -> Embarque (solo de los registros que tienen ambos datos)
+    df_con_ambos = df[(df['Numero_Embarque'] != 'NO_EMB') & (df['Factura_Norm'].notna())]
+    mapa_fac_emb = df_con_ambos.groupby('Factura_Norm')['Numero_Embarque'].first().to_dict()
+
+    # Rellenamos los embarques faltantes usando el mapa de facturas
+    def backfill_embarque(row):
+        if row['Numero_Embarque'] == 'NO_EMB' and row['Factura_Norm'] in mapa_fac_emb:
+            return mapa_fac_emb[row['Factura_Norm']]
+        return row['Numero_Embarque']
+
+    df['Numero_Embarque'] = df.apply(backfill_embarque, axis=1)
+
+    # --- 4. HERENCIA DE NIT (Ahora con embarques rellenos) ---
     shipments_with_nit = df[(df['NIT_Norm'] != 'ND') & (df['Numero_Embarque'] != 'NO_EMB')]
     mapa_emb_nit = shipments_with_nit.groupby('Numero_Embarque')['NIT_Norm'].first().to_dict()
-    
     df['NIT_Reporte'] = df['Numero_Embarque'].map(mapa_emb_nit).fillna(df['NIT_Norm'])
 
-    # Inicialización
+    # --- 5. FASES DE CONCILIACIÓN ---
     df['Conciliado'] = False
     df['Grupo_Conciliado'] = ""
     total_conciliados = 0 
 
-    # --- 3. FASE 1: CRUCE POR EMBARQUE GLOBAL (EL CAMBIO CLAVE) ---
+    # FASE 1: POR EMBARQUE GLOBAL (Ahora incluye los registros vinculados por factura)
     df_p1 = df[~df['Conciliado']]
     grupos_emb = df_p1[df_p1['Numero_Embarque'] != 'NO_EMB'].groupby('Numero_Embarque')
     
     for emb, grupo in grupos_emb:
         if len(grupo) < 2: continue
-        
         suma_abs = abs(round(grupo['Monto_USD'].sum(), 2))
         
         if suma_abs <= 0.01:
@@ -1451,8 +1464,7 @@ def run_conciliation_proveedores_costos(df, log_messages, progress_bar=None):
 
     if progress_bar: progress_bar.progress(0.4, text="Fase Embarques lista.")
 
-    # --- 4. FASE 2: POR REFERENCIA / FACTURA (Usa NIT_Reporte) ---
-    # Para lo que no tiene embarque detectado
+    # FASE 2: REFERENCIA (Match Exacto)
     df_p2 = df[~df['Conciliado']]
     for (nit, ref), grupo in df_p2.groupby(['NIT_Reporte', 'Referencia']):
         if len(grupo) < 2: continue
@@ -1460,9 +1472,7 @@ def run_conciliation_proveedores_costos(df, log_messages, progress_bar=None):
             df.loc[grupo.index, ['Conciliado', 'Grupo_Conciliado']] = [True, f"REF_{ref[:15]}"]
             total_conciliados += len(grupo)
 
-    if progress_bar: progress_bar.progress(0.7, text="Fase Referencias lista.")
-
-    # --- 5. FASE 3: SALDO GLOBAL POR NIT ---
+    # FASE 3: SALDO GLOBAL POR NIT
     df_p3 = df[~df['Conciliado']]
     for nit, grupo in df_p3.groupby('NIT_Reporte'):
         if nit == 'ND' or len(grupo) < 2: continue
