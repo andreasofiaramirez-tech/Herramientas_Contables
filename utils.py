@@ -1018,111 +1018,80 @@ def _generar_hoja_pendientes_corrida(workbook, formatos, df_saldos, estrategia, 
 
 def _generar_hoja_pendientes_proveedores(workbook, formatos, df_saldos, estrategia, casa, fecha_maxima):
     """
-    Genera la hoja de saldos abiertos.
-    FILTRO: Solo imprime proveedores que tengan al menos un embarque abierto.
+    Genera la Hoja 1: Resumen de saldos por Embarque (Un solo monto por embarque).
     """
-    nombre_hoja = estrategia.get("nombre_hoja_excel", "Pendientes")
-    ws = workbook.add_worksheet(nombre_hoja)
+    ws = workbook.add_worksheet(estrategia.get("nombre_hoja_excel", "Pendientes"))
     ws.hide_gridlines(2)
-    ws.freeze_panes(5, 0)
     
-    # 1. Encabezados
     if pd.notna(fecha_maxima):
-        ultimo_dia = fecha_maxima + pd.offsets.MonthEnd(0)
         meses = {1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio", 7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"}
-        txt_fecha = f"PARA EL {ultimo_dia.day} DE {meses[ultimo_dia.month].upper()} DE {ultimo_dia.year}"
-    else:
-        txt_fecha = "FECHA NO DISPONIBLE"
+        txt_fecha = f"PARA EL {fecha_maxima.day} DE {meses[fecha_maxima.month].upper()} DE {fecha_maxima.year}"
+    else: txt_fecha = "FECHA NO DISPONIBLE"
 
-    ws.merge_range('A1:H1', casa, formatos['encabezado_empresa'])
-    ws.merge_range('A2:H2', f"ESPECIFICACION DE LA CUENTA {estrategia['nombre_hoja_excel']}", formatos['encabezado_sub'])
-    ws.merge_range('A3:H3', txt_fecha, formatos['encabezado_sub'])
-    ws.write_row('A5', ['NIT', 'Proveedor y Descripcion', 'Fecha.', 'EMB', 'Saldo USD', 'Tasa', 'Bs.', 'OBSERVACION'], formatos['header_tabla'])
+    ws.merge_range('A1:E1', casa, formatos['encabezado_empresa'])
+    ws.merge_range('A2:E2', f"RESUMEN DE SALDOS POR EMBARQUE - {estrategia['nombre_hoja_excel']}", formatos['encabezado_sub'])
+    ws.merge_range('A3:E3', txt_fecha, formatos['encabezado_sub'])
+    ws.write_row('A5', ['NIT', 'Proveedor', 'Embarque', 'Saldo USD', 'Saldo Bs.'], formatos['header_tabla'])
 
-    if df_saldos.empty: 
-        return
+    df = df_saldos[df_saldos['Conciliado'] == False].copy()
+    if df.empty: return
 
-    # 2. Preparación y Limpieza
-    df = df_saldos.copy()
     col_nit = 'NIT_Reporte' if 'NIT_Reporte' in df.columns else 'NIT_Norm'
-    col_nombre = next((c for c in ['Descripción Nit', 'Descripcion Nit', 'Nombre del Proveedor', 'Proveedor'] if c in df.columns), 'NIT')
+    col_nombre = next((c for c in ['Descripción Nit', 'Descripcion Nit', 'Nombre del Proveedor'] if c in df.columns), 'NIT')
 
-    df[col_nit] = df[col_nit].astype(str).replace(['nan', 'NaN', 'None', 'ND', '0'], 'SIN NIT')
-    df[col_nombre] = df[col_nombre].astype(str).replace(['nan', 'NaN', 'None', '0', ''], 'PROVEEDOR NO IDENTIFICADO')
-
-    # 3. Filtrar solo lo que NO esté conciliado (Doble check)
-    df = df[df['Conciliado'] == False]
-    if df.empty: 
-        return
-
-    # 4. Ordenamiento jerárquico
-    df = df.sort_values(by=[col_nit, 'Numero_Embarque', 'Fecha'])
+    # Agrupar por NIT y Embarque para obtener el SALDO GLOBAL
+    resumen = df.groupby([col_nit, 'Numero_Embarque']).agg({
+        col_nombre: 'first',
+        'Monto_USD': 'sum',
+        'Monto_BS': 'sum'
+    }).reset_index()
 
     current_row = 5
-    gran_total_bs = 0
-    gran_total_usd = 0
-    fmt_grupo_header = workbook.add_format({'bold': True, 'bg_color': '#FFFFFF', 'align': 'left', 'bottom': 1})
+    for _, row in resumen.iterrows():
+        if abs(row['Monto_USD']) <= 0.01: continue
+        ws.write(current_row, 0, row[col_nit], formatos['text'])
+        ws.write(current_row, 1, row[col_nombre], formatos['text'])
+        ws.write(current_row, 2, "" if row['Numero_Embarque'] == 'NO_EMB' else row['Numero_Embarque'], formatos['text'])
+        ws.write_number(current_row, 3, row['Monto_USD'], formatos['usd'])
+        ws.write_number(current_row, 4, row['Monto_BS'], formatos['bs'])
+        current_row += 1
 
-    # 5. Bucle por Proveedor
-    for nit_val, grupo in df.groupby(col_nit, sort=False):
-        # Evitar grupos que sumen 0 (Ya procesados por la herencia de NIT)
-        if abs(round(grupo['Monto_USD'].sum(), 2)) <= 0.01:
-            continue
+    ws.write(current_row, 2, "TOTAL GENERAL", formatos['total_label'])
+    ws.write_number(current_row, 3, resumen['Monto_USD'].sum(), formatos['total_usd'])
+    ws.write_number(current_row, 4, resumen['Monto_BS'].sum(), formatos['total_bs'])
+    ws.set_column('A:E', 20); ws.set_column('B:B', 40)
 
-        nombre_display = grupo[col_nombre].iloc[0]
-        
-        ws.write(current_row, 0, nit_val, fmt_grupo_header)
-        ws.write(current_row, 1, nombre_display, fmt_grupo_header)
-        for i in range(2, 8): 
-            ws.write(current_row, i, "", fmt_grupo_header)
+def _generar_hoja_detalle_especificacion_proveedores(workbook, formatos, df_saldos):
+    """
+    Genera la nueva hoja con el desglose factura por factura de los embarques pendientes.
+    """
+    ws = workbook.add_worksheet("Detalle Especificacion")
+    ws.hide_gridlines(2)
+    
+    df = df_saldos[df_saldos['Conciliado'] == False].sort_values(by=['NIT_Reporte', 'Numero_Embarque', 'Fecha'])
+    
+    columnas = ['Fecha', 'Asiento', 'Referencia', 'Fuente', 'Monto USD', 'Monto Bs.']
+    ws.merge_range(0, 0, 0, 5, "DETALLE ANALÍTICO DE PARTIDAS PENDIENTES", formatos['encabezado_sub'])
+    
+    current_row = 2
+    for (nit, emb), grupo in df.groupby(['NIT_Reporte', 'Numero_Embarque'], sort=False):
+        ws.merge_range(current_row, 0, current_row, 5, f"NIT: {nit} | EMBARQUE: {emb}", formatos['proveedor_header'])
+        current_row += 1
+        ws.write_row(current_row, 0, columnas, formatos['header_tabla'])
         current_row += 1
         
-        sub_bs = 0
-        sub_usd = 0
-        
         for _, row in grupo.iterrows():
-            ws.write(current_row, 0, "", formatos['text']) 
-            ws.write(current_row, 1, str(row.get('Referencia', '')), formatos['text'])
-            
-            fec = row.get('Fecha')
-            if pd.notna(fec): 
-                ws.write_datetime(current_row, 2, fec, formatos['fecha'])
-            else: 
-                ws.write(current_row, 2, "-", formatos['text'])
-            
-            emb = str(row.get('Numero_Embarque', ''))
-            val_emb = "" if emb in ['NO_EMB', 'nan', ''] else emb
-            ws.write(current_row, 3, val_emb, formatos['text'])
-            
+            ws.write_datetime(current_row, 0, row['Fecha'], formatos['fecha'])
+            ws.write(current_row, 1, row['Asiento'], formatos['text'])
+            ws.write(current_row, 2, row['Referencia'], formatos['text'])
+            ws.write(current_row, 3, row['Fuente'], formatos['text'])
             ws.write_number(current_row, 4, row['Monto_USD'], formatos['usd'])
-            ws.write_number(current_row, 5, row.get('Tasa', 0), formatos['tasa'])
-            ws.write_number(current_row, 6, row['Monto_BS'], formatos['bs'])
-            ws.write(current_row, 7, str(row.get('Fuente', '')), formatos['text'])
-            
-            sub_bs += row['Monto_BS']
-            sub_usd += row['Monto_USD']
+            ws.write_number(current_row, 5, row['Monto_BS'], formatos['bs'])
             current_row += 1
-            
-        ws.write(current_row, 5, "Saldo", formatos['subtotal_label'])
-        ws.write_number(current_row, 4, sub_usd, formatos['subtotal_usd'])
-        ws.write_number(current_row, 6, sub_bs, formatos['subtotal_bs'])
-        
-        gran_total_bs += sub_bs
-        gran_total_usd += sub_usd
-        current_row += 2
+        current_row += 1
 
-    # Totales Finales
-    ws.write(current_row, 5, "TOTAL GENERAL", formatos['total_label'])
-    ws.write_number(current_row, 4, gran_total_usd, formatos['total_usd'])
-    ws.write_number(current_row, 6, gran_total_bs, formatos['total_bs'])
+    ws.set_column('A:F', 18); ws.set_column('C:C', 40)
 
-    # Ajuste de anchos de columna
-    ws.set_column('A:A', 15) # NIT
-    ws.set_column('B:B', 55) # Descripción
-    ws.set_column('C:C', 12) # Fecha
-    ws.set_column('D:D', 15) # EMB
-    ws.set_column('E:G', 18) # Montos y Tasa
-    ws.set_column('H:H', 25) # Observación
 
 #@st.cache_data
 def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrategia, casa_seleccionada, cuenta_seleccionada):
@@ -1156,8 +1125,12 @@ def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrate
         elif _estrategia['id'] == 'cdc_factoring':
             _generar_hoja_pendientes_cdc(workbook, formatos, df_saldos_abiertos, _estrategia, casa_seleccionada, fecha_max)
 
-        elif _estrategia['id'] == 'proveedores_costos':
-            _generar_hoja_pendientes_proveedores(workbook, formatos, df_saldos_abiertos, _estrategia, casa_seleccionada, fecha_max)
+        if _estrategia['id'] == 'proveedores_costos':
+            _generar_ho_ja_pendientes_proveedores(workbook, formatos, df_saldos_abiertos, _estrategia, casa_seleccionada, fecha_max)
+            # NUEVA HOJA DE DETALLE
+            _generar_hoja_detalle_especificacion_proveedores(workbook, formatos, df_saldos_abiertos)
+        elif _estrategia['id'] in ['deudores_empleados_me', 'deudores_empleados_bs']:
+            _generar_ho_ja_pendientes_resumida(workbook, formatos, df_saldos_abiertos, _estrategia, casa_seleccionada, fecha_max)
             
         else:
             # EL RESTO (Haberes, Viajes, Otras CxP) usa la función AGRUPADA POR NIT
@@ -1216,28 +1189,23 @@ def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrate
     return output_excel.getvalue()
 
 def _generar_hoja_ajustes_menores(workbook, formatos, df_ajustes):
-    """Genera la 3ra hoja con un filtro de seguridad de 1$ de última instancia."""
+    """
+    Genera la 3ra hoja con el total general al final de la página.
+    """
     ws = workbook.add_worksheet("Para Asiento de Ajuste")
     ws.hide_gridlines(2)
     
-    # Ordenar
-    df = df_ajustes.sort_values(by=['NIT', 'Numero_Embarque', 'Fecha'])
-    
+    df = df_ajustes.sort_values(by=['NIT_Reporte', 'Numero_Embarque', 'Fecha'])
     columnas = ['Fecha', 'Asiento', 'Referencia', 'Fuente', 'Monto USD']
     ws.merge_range(0, 0, 0, 4, "EMBARQUES PENDIENTES POR AJUSTE MENOR A 1$", formatos['encabezado_sub'])
     
     current_row = 2
     fmt_diff = workbook.add_format({'bold': True, 'bg_color': '#FFEB9C', 'num_format': '$#,##0.00', 'border': 1})
+    total_ajustes_usd = 0
 
-    # Usamos NIT y Numero_Embarque para agrupar
-    for (nit, emb), grupo in df.groupby(['NIT', 'Numero_Embarque'], sort=False):
-        
-        # --- FILTRO DE SEGURIDAD (LA LÍNEA CLAVE) ---
-        # Si la suma del grupo que llegó aquí es mayor a 1$, lo ignoramos (vuelve a pendientes)
+    for (nit, emb), grupo in df.groupby(['NIT_Reporte', 'Numero_Embarque'], sort=False):
         diferencia_real = round(grupo['Monto_USD'].sum(), 2)
-        if abs(diferencia_real) > 1.00:
-            continue 
-        # --------------------------------------------
+        if abs(diferencia_real) > 1.00: continue 
 
         ws.merge_range(current_row, 0, current_row, 4, f"NIT: {nit} | EMBARQUE: {emb}", formatos['proveedor_header'])
         current_row += 1
@@ -1254,9 +1222,15 @@ def _generar_hoja_ajustes_menores(workbook, formatos, df_ajustes):
         
         ws.write(current_row, 3, "DIFERENCIA A AJUSTAR:", formatos['subtotal_label'])
         ws.write_number(current_row, 4, diferencia_real, fmt_diff)
+        total_ajustes_usd += diferencia_real
         current_row += 2
 
-    ws.set_column('A:E', 20)
+    # FILA DE TOTAL GENERAL (LO NUEVO)
+    current_row += 1
+    ws.write(current_row, 3, "TOTAL GENERAL AJUSTES:", formatos['total_label'])
+    ws.write_number(current_row, 4, total_ajustes_usd, formatos['total_usd'])
+
+    ws.set_column('A:E', 20); ws.set_column('C:C', 40)
 
 # ==============================================================================
 # 4. REPORTE PARA LA HERRAMIENTA DE RETENCIONES
