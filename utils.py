@@ -360,7 +360,6 @@ def _generar_hoja_pendientes(workbook, formatos, df_saldos, estrategia, casa, fe
         df['NIT'] = df['NIT'].fillna('SIN_NIT').replace(r'^\s*$', 'SIN_NIT', regex=True).astype(str)
         # Si quedó algún 'nan' literal por conversión de string, lo arreglamos
         df['NIT'] = df['NIT'].replace('nan', 'SIN_NIT', case=False)
-    # --------------------------------------------------------------------
     
     # --- PASO 2: FILTRO DE BASURA (AHORA ES SEGURO) ---
     if 'NIT' in df.columns:
@@ -370,6 +369,7 @@ def _generar_hoja_pendientes(workbook, formatos, df_saldos, estrategia, casa, fe
         df = df[~mask_basura]
     # --------------------------------------------------
 
+    # Conversión numérica
     df['Monto Dólar'] = pd.to_numeric(df.get('Monto_USD'), errors='coerce').fillna(0)
     df['Bs.'] = pd.to_numeric(df.get('Monto_BS'), errors='coerce').fillna(0)
     df['Monto Bolivar'] = df['Bs.']
@@ -394,10 +394,25 @@ def _generar_hoja_pendientes(workbook, formatos, df_saldos, estrategia, casa, fe
         for _, row in grupo.iterrows():
             for c_idx, col_name in enumerate(cols):
                 
-                # Mapeo de Alias
+                # --- MAPEO DE ALIAS DE COLUMNAS ---
                 val = None
+                
+                # Caso Haberes
                 if col_name == 'Fecha Origen Acreencia': val = row.get('Fecha')
                 elif col_name == 'Numero de Documento': val = row.get('Fuente')
+                
+                # Caso Proveedores Costos
+                elif col_name == 'PROVEEDOR Y DESCRIPCION': val = row.get('Referencia') # O Nombre según convenga
+                elif col_name == 'FECHA COMPROB.': val = row.get('Fecha')
+                elif col_name == 'EMB': 
+                    val = row.get('Numero_Embarque', '')
+                    if val == 'NO_EMB': val = ''
+                elif col_name == 'MONEDA EXTRANJERA': val = row.get('Monto_USD')
+                elif col_name == 'CAMBIO': val = row.get('Tasa')
+                elif col_name == 'Bs.': val = row.get('Monto_BS')
+                elif col_name == 'OBSERVACION': val = row.get('Fuente')
+                
+                # Caso Default
                 else: val = row.get(col_name)
 
                 # Escritura
@@ -565,7 +580,7 @@ def _generar_hoja_conciliados_agrupada(workbook, formatos, df_conciliados, estra
         mostrar_saldo_linea = True
         col_saldo_idx = 5
 
-    # --- 4. NUEVO: HABERES DE CLIENTES (EL BLOQUE QUE FALTABA) ---
+    # --- 4. HABERES DE CLIENTES ---
     elif estrategia['id'] == 'haberes_clientes':
         df['Monto Bs.'] = df['Monto_BS']
         # Usamos los nombres personalizados que pediste
@@ -586,10 +601,21 @@ def _generar_hoja_conciliados_agrupada(workbook, formatos, df_conciliados, estra
         fmt_moneda = formatos['usd']
         fmt_total = formatos['total_usd']
 
-    # --------------------------------------------------
+    # --- 6. PROVEEDORES COSTOS ---
+    elif estrategia['id'] == 'proveedores_costos':
+        df['Débitos'] = df['Monto_USD'].apply(lambda x: x if x > 0 else 0)
+        df['Créditos'] = df['Monto_USD'].apply(lambda x: abs(x) if x < 0 else 0)
+        columnas = ['Fecha', 'Asiento', 'Referencia', 'Fuente', 'Débitos', 'Créditos']
+        cols_sum = ['Débitos', 'Créditos']
+        titulo = 'Detalle de Movimientos Conciliados por Proveedor (USD)'
+        fmt_moneda = formatos['usd']
+        fmt_total = formatos['total_usd']
 
+    # --------------------------------------------------
+    # Ordenamiento previo
     df = df.sort_values(by=['NIT', 'Fecha'])
-    
+
+    # Encabezado Principal
     ws.merge_range(0, 0, 0, len(columnas)-1, titulo, formatos['encabezado_sub']) # Ajustado len -1 para merge correcto
     current_row = 2
     
