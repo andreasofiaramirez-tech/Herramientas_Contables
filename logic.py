@@ -1437,7 +1437,7 @@ def run_conciliation_proveedores_costos(df, log_messages, progress_bar=None):
         df.loc[grupo.index, ['Conciliado', 'Grupo_Conciliado']] = [True, f"REQUIERE_AJUSTE_{emb}"]
         total_conciliados += len(grupo)
 
-    if progress_bar: progress_bar.progress(0.4, text="Fase Embarques lista.")
+        if progress_bar: progress_bar.progress(0.4, text="Fase Embarques lista.")
 
     # --- FASE 2: POR REFERENCIA / FACTURA (Match Exacto) ---
     df_p2 = df[~df['Conciliado']]
