@@ -306,8 +306,6 @@ ESTRATEGIAS = {
         "funcion_principal": run_conciliation_proveedores_costos,
         "label_actual": "Movimientos del mes (Costos Causados)",
         "label_anterior": "Saldos anteriores (Costos Causados)",
-        
-        # --- COLUMNAS EXACTAS DE TU IMAGEN ---
         "columnas_reporte": ['NIT', 'Proveedor y Descripcion', 'Fecha.', 'EMB', 'Saldo USD', 'Tasa', 'Bs.','OBSERVACION'],
         "nombre_hoja_excel": "212.07.1012",
         "columnas_requeridas": ['Fecha', 'Asiento', 'Referencia', 'Nit', 'Fuente', 'Débito Dolar', 'Crédito Dolar', 'Débito Bolivar', 'Crédito Bolivar']
@@ -317,7 +315,7 @@ ESTRATEGIAS = {
         "funcion_principal": run_conciliation_fondos_transito_cofersa,
         "label_actual": "Movimientos del Mes (Fondos en Tránsito)",
         "label_anterior": "Saldos Anteriores (Fondos en Tránsito)",
-        "columnas_reporte": ['Asiento', 'Referencia', 'Fuente', 'Fecha', 'Monto Bolivar'],
+        "columnas_reporte": ['Fecha', 'Asiento', 'Referencia', 'Monto Colones'],
         "nombre_hoja_excel": "101.01.03.00",
         "columnas_requeridas": ['Fecha', 'Asiento', 'Referencia', 'Fuente', 'Débito Bolivar', 'Crédito Bolivar']
     },
