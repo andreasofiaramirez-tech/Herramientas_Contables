@@ -1038,9 +1038,21 @@ def _generar_hoja_pendientes_proveedores(workbook, formatos, df_saldos, estrateg
     df = df_saldos[df_saldos['Conciliado'] == False].copy()
     if df.empty: return
 
-    # 2. PREPARACIÓN
+    # 2. PREPARACIÓN (CORREGIDA PARA DETECTAR EL NOMBRE CORRECTAMENTE)
     col_nit = 'NIT_Reporte' if 'NIT_Reporte' in df.columns else 'NIT_Norm'
-    col_nombre = next((c for c in ['Descripción Nit', 'Descripcion Nit', 'Nombre del Proveedor'] if c in df.columns), 'NIT')
+    
+    # Lista de posibles nombres que la herramienta pudo haber asignado
+    posibles_nombres = ['Descripcion NIT', 'Descripción Nit', 'Descripcion Nit', 'DESCRIPCION NIT', 'Nombre del Proveedor']
+    col_nombre = None
+    
+    for c in posibles_nombres:
+        if c in df.columns:
+            col_nombre = c
+            break
+    
+    # Si no encontró ninguna de las anteriores, usamos el NIT como emergencia
+    if not col_nombre:
+        col_nombre = col_nit
 
     df[col_nit] = df[col_nit].astype(str).replace(['nan', 'NaN', 'None', 'ND', '0'], 'SIN NIT')
     df[col_nombre] = df[col_nombre].astype(str).replace(['nan', 'NaN', 'None', '0', ''], 'PROVEEDOR NO IDENTIFICADO')
