@@ -1452,21 +1452,34 @@ def run_conciliation_proveedores_costos(df, log_messages, progress_bar=None):
             df.loc[grupo.index, ['Conciliado', 'Grupo_Conciliado']] = [True, f"REQUIERE_AJUSTE_{emb}"]
             total_conciliados += len(grupo)
 
-    # --- FASE 1.7: RESCATE DE HUÉRFANOS VS EMBARQUE ---
+    # --- FASE 1.7: RESCATE DE HUÉRFANOS VS EMBARQUE (CON TOLERANCIA) ---
     df_p1_7 = df[~df['Conciliado']]
     for nit, grupo_nit in df_p1_7.groupby('NIT_Reporte'):
         if nit == 'ND': continue
         abiertos = grupo_nit[grupo_nit['Numero_Embarque'] != 'NO_EMB'].copy()
         huerfanos = grupo_nit[grupo_nit['Numero_Embarque'] == 'NO_EMB'].copy()
         if abiertos.empty or huerfanos.empty: continue
+        
         for emb, grupo_emb in abiertos.groupby('Numero_Embarque'):
-            target = round(-grupo_emb['Monto_USD'].sum(), 2)
-            match_huerfano = huerfanos[huerfanos['Monto_USD'].round(2) == target]
+            saldo_embarque = grupo_emb['Monto_USD'].sum()
+            
+            # Buscamos en los huérfanos alguno que al sumarlo al embarque dé casi cero
+            # Usamos abs(...) <= 1.00 para permitir la diferencia de 0.07 de tu ejemplo
+            match_huerfano = huerfanos[ (huerfanos['Monto_USD'] + saldo_embarque).abs() <= 1.00 ]
+            
             if not match_huerfano.empty:
-                indices = list(grupo_emb.index) + [match_huerfano.index[0]]
-                df.loc[indices, ['Conciliado', 'Grupo_Conciliado']] = [True, f"RESCATE_HUERF_{emb}"]
+                # Tomamos el mejor match (el que tenga la diferencia más pequeña)
+                idx_huerfano = (match_huerfano['Monto_USD'] + saldo_embarque).abs().idxmin()
+                
+                indices = list(grupo_emb.index) + [idx_huerfano]
+                
+                # Si la diferencia es > 0.01, le ponemos la etiqueta de Ajuste
+                diff = abs(round(df.loc[indices, 'Monto_USD'].sum(), 2))
+                etiqueta = f"RESCATE_HUERF_{emb}" if diff <= 0.01 else f"REQUIERE_AJUSTE_HUERF_{emb}"
+                
+                df.loc[indices, ['Conciliado', 'Grupo_Conciliado']] = [True, etiqueta]
                 total_conciliados += len(indices)
-                huerfanos = huerfanos.drop(match_huerfano.index[0])
+                huerfanos = huerfanos.drop(idx_huerfano)
 
     # --- FASE 1.8: CRUCE POR COMBINATORIA DE EMBARQUES (Blindado para Ajustes) ---
     # Resuelve el caso de J297848983 (Diferencia de $0.73)
