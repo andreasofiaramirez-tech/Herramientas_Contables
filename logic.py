@@ -1438,21 +1438,27 @@ def run_conciliation_proveedores_costos(df, log_messages, progress_bar=None):
     df['Grupo_Conciliado'] = ""
     total_conciliados = 0 
 
-    # --- FASE 1: POR EMBARQUE INDIVIDUAL ---
+    # --- FASE 1: POR EMBARQUE INDIVIDUAL (DOBLE LLAVE USD/BS) ---
     df_p1 = df[~df['Conciliado']]
     grupos_emb = df_p1[df_p1['Numero_Embarque'] != 'NO_EMB'].groupby('Numero_Embarque')
     
     for emb, grupo in grupos_emb:
         if len(grupo) < 2: continue
-        suma_abs = abs(round(grupo['Monto_USD'].sum(), 2))
-        if suma_abs <= 0.01:
+        
+        suma_usd_abs = abs(round(grupo['Monto_USD'].sum(), 2))
+        suma_bs_abs = abs(round(grupo['Monto_BS'].sum(), 2))
+        
+        # REGLA: Si cuadra en USD pero tiene diferencia en BS (> 1.00), va a AJUSTE
+        if suma_usd_abs <= 0.01 and suma_bs_abs <= 1.00:
             df.loc[grupo.index, ['Conciliado', 'Grupo_Conciliado']] = [True, f"EMBARQUE_{emb}"]
             total_conciliados += len(grupo)
-        elif suma_abs <= 1.00:
+        elif suma_usd_abs <= 1.00:
+            # Aquí entra: diferencia en USD de hasta $1.00 
+            # O USD en cero pero con diferencia en BS
             df.loc[grupo.index, ['Conciliado', 'Grupo_Conciliado']] = [True, f"REQUIERE_AJUSTE_{emb}"]
             total_conciliados += len(grupo)
 
-    # --- FASE 1.7: RESCATE DE HUÉRFANOS VS EMBARQUE (CON TOLERANCIA) ---
+    # --- FASE 1.7: RESCATE DE HUÉRFANOS VS EMBARQUE (CON TOLERANCIA USD/BS) ---
     df_p1_7 = df[~df['Conciliado']]
     for nit, grupo_nit in df_p1_7.groupby('NIT_Reporte'):
         if nit == 'ND': continue
@@ -1461,61 +1467,62 @@ def run_conciliation_proveedores_costos(df, log_messages, progress_bar=None):
         if abiertos.empty or huerfanos.empty: continue
         
         for emb, grupo_emb in abiertos.groupby('Numero_Embarque'):
-            saldo_embarque = grupo_emb['Monto_USD'].sum()
+            saldo_usd_emb = grupo_emb['Monto_USD'].sum()
             
-            # Buscamos en los huérfanos alguno que al sumarlo al embarque dé casi cero
-            # Usamos abs(...) <= 1.00 para permitir la diferencia de 0.07 de tu ejemplo
-            match_huerfano = huerfanos[ (huerfanos['Monto_USD'] + saldo_embarque).abs() <= 1.00 ]
+            # Buscamos en los huérfanos alguno que cuadre en USD (Tolerancia $1.00)
+            match_huerfano = huerfanos[ (huerfanos['Monto_USD'] + saldo_usd_emb).abs() <= 1.00 ]
             
             if not match_huerfano.empty:
-                # Tomamos el mejor match (el que tenga la diferencia más pequeña)
-                idx_huerfano = (match_huerfano['Monto_USD'] + saldo_embarque).abs().idxmin()
-                
+                idx_huerfano = (match_huerfano['Monto_USD'] + saldo_usd_emb).abs().idxmin()
                 indices = list(grupo_emb.index) + [idx_huerfano]
                 
-                # Si la diferencia es > 0.01, le ponemos la etiqueta de Ajuste
-                diff = abs(round(df.loc[indices, 'Monto_USD'].sum(), 2))
-                etiqueta = f"RESCATE_HUERF_{emb}" if diff <= 0.01 else f"REQUIERE_AJUSTE_HUERF_{emb}"
+                # Verificamos saldos combinados para la etiqueta
+                res_usd = abs(round(df.loc[indices, 'Monto_USD'].sum(), 2))
+                res_bs = abs(round(df.loc[indices, 'Monto_BS'].sum(), 2))
+                
+                # Doble validación para decidir a qué pestaña va
+                if res_usd <= 0.01 and res_bs <= 1.00:
+                    etiqueta = f"RESCATE_HUERF_{emb}"
+                else:
+                    etiqueta = f"REQUIERE_AJUSTE_HUERF_{emb}"
                 
                 df.loc[indices, ['Conciliado', 'Grupo_Conciliado']] = [True, etiqueta]
                 total_conciliados += len(indices)
                 huerfanos = huerfanos.drop(idx_huerfano)
 
-    # --- FASE 1.8: CRUCE POR COMBINATORIA DE EMBARQUES (Blindado para Ajustes) ---
-    # Resuelve el caso de J297848983 (Diferencia de $0.73)
+    # --- FASE 1.8: CRUCE POR COMBINATORIA DE EMBARQUES (BLINDADO USD/BS) ---
     df_p1_8 = df[~df['Conciliado']]
     for nit, grupo_nit in df_p1_8.groupby('NIT_Reporte'):
         if nit == 'ND': continue
-        
         solo_emb = grupo_nit[grupo_nit['Numero_Embarque'] != 'NO_EMB']
         if solo_emb.empty: continue
         
-        saldos_por_emb = solo_emb.groupby('Numero_Embarque')['Monto_USD'].sum().round(2)
-        saldos_por_emb = saldos_por_emb[saldos_por_emb.abs() > 0.01] # Solo los que tienen saldo pendiente
+        # Saldos pendientes por cada moneda
+        saldos_usd_emb = solo_emb.groupby('Numero_Embarque')['Monto_USD'].sum().round(2)
+        saldos_bs_emb = solo_emb.groupby('Numero_Embarque')['Monto_BS'].sum().round(2)
         
-        if len(saldos_por_emb) < 2: continue
-        
-        embarques_lista = saldos_por_emb.index.tolist()
+        embarques_lista = saldos_usd_emb[saldos_usd_emb.abs() > 0.01].index.tolist()
         embarques_usados = set()
 
         for r in range(2, min(len(embarques_lista) + 1, 5)):
             for combo in combinations(embarques_lista, r):
                 if any(e in embarques_usados for e in combo): continue
                 
-                suma_combo = sum(saldos_por_emb[list(combo)])
-                suma_abs = abs(round(suma_combo, 2))
+                res_usd = abs(round(sum(saldos_usd_emb[list(combo)]), 2))
+                res_bs = abs(round(sum(saldos_bs_emb[list(combo)]), 2))
                 
-                # --- CAMBIO CLAVE: Aplicamos el límite de $1 aquí también ---
-                if suma_abs <= 1.00:
+                if res_usd <= 1.00:
                     indices_a_cerrar = solo_emb[solo_emb['Numero_Embarque'].isin(combo)].index
                     
-                    # Decidimos la etiqueta según si fue perfecto o requiere ajuste
-                    etiqueta = f"COMB_EMB_{nit}" if suma_abs <= 0.01 else f"REQUIERE_AJUSTE_COMB_{nit}"
+                    # Decidimos etiqueta según doble llave
+                    if res_usd <= 0.01 and res_bs <= 1.00:
+                        etiqueta = f"COMB_EMB_{nit}"
+                    else:
+                        etiqueta = f"REQUIERE_AJUSTE_COMB_{nit}"
                     
                     df.loc[indices_a_cerrar, ['Conciliado', 'Grupo_Conciliado']] = [True, etiqueta]
                     total_conciliados += len(indices_a_cerrar)
                     embarques_usados.update(combo)
-                    log_messages.append(f"⚡ Cruce Combinado (Dif: ${suma_abs}): {combo} para NIT {nit}")
 
     # --- FASES FINALES DE SEGURIDAD (FUENTE, REFERENCIA, GLOBAL) ---
     # Fase 1.5: Match Fuente
