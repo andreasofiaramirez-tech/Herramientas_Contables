@@ -2284,53 +2284,72 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
         ws1.set_column('A:A', 15); ws1.set_column('B:B', 45); ws1.set_column('D:G', 18)
 
         # ==========================================
-        # HOJA 2: DETALLE BANCOS (REDISEÑO FINAL)
+        # HOJA 2: DETALLE BANCOS (CON FÓRMULAS DINÁMICAS)
         # ==========================================
         ws2 = workbook.add_worksheet('2. Detalle Bancos')
         ws2.hide_gridlines(2)
         
-        # Tasas movidas a Columna G (G=6, H=7)
+        # Tasas en Columna G/H
         ws2.write(0, 6, "TASA BCV", workbook.add_format({'bold':True, 'align':'right'}))
-        ws2.write(0, 7, validacion_data.get('tasa_bcv', 0), fmt_rate)
+        ws2.write(0, 7, validacion_data.get('tasa_bcv', 0), fmt_rate) # Celda H1
         ws2.write(1, 6, "TASA CORP.", workbook.add_format({'bold':True, 'align':'right'}))
-        ws2.write(1, 7, validacion_data.get('tasa_corp', 0), fmt_rate)
+        ws2.write(1, 7, validacion_data.get('tasa_corp', 0), fmt_rate) # Celda H2
         
         if df_bancos is not None and not df_bancos.empty:
-            # Escribir Encabezados en Fila 4
+            # Encabezados
             for c_idx, col_name in enumerate(df_bancos.columns):
                 ws2.write(3, c_idx, col_name, header_clean)
             
-            # Escribir Datos
+            # Datos con Fórmulas
             row_idx = 4
             for r_data in df_bancos.itertuples(index=False):
-                for c_idx, value in enumerate(r_data):
-                    if isinstance(value, (int, float)) and not pd.isna(value):
-                        # La columna TASA (indice 12) usa formato rate
-                        if c_idx == 12: ws2.write_number(row_idx, c_idx, value, fmt_rate)
-                        else: ws2.write_number(row_idx, c_idx, value, fmt_money)
-                    else:
-                        ws2.write(row_idx, c_idx, str(value) if pd.notna(value) else "", fmt_text)
+                # Escribir Datos Base (Columnas A a F)
+                ws2.write(row_idx, 0, r_data[0], fmt_text) # TIPO
+                ws2.write(row_idx, 1, r_data[1], fmt_text) # CTA
+                ws2.write(row_idx, 2, r_data[2], fmt_text) # DESC
+                ws2.write_number(row_idx, 3, r_data[3], fmt_money) # SALDO LIBROS ORIG
+                ws2.write_number(row_idx, 4, r_data[4], fmt_money) # SALDO BANCOS ORIG
+                ws2.write_number(row_idx, 5, r_data[5], fmt_money) # MOV NO CONCIL
+
+                # --- LÓGICA DE FÓRMULAS (Dinámica según TIPO) ---
+                e_row = row_idx + 1 # Fila en Excel
+                is_foreign = str(r_data[0]).upper() in ['E', 'C']
+                
+                # Columnas: G=6, H=7, I=8, J=9, K=10, L=11, M=12, N=13
+                # Tasas: BCV=$H$1, CORP=$H$2
+                
+                if is_foreign:
+                    ws2.write_formula(row_idx, 6, f"=D{e_row}*$H$1", fmt_money)      # Saldo Libros BS
+                    ws2.write_formula(row_idx, 7, f"=E{e_row}*$H$1", fmt_money)      # Saldo Bancos BS
+                    ws2.write_formula(row_idx, 8, f"=D{e_row}", fmt_money)           # Saldo Libros $
+                    ws2.write_formula(row_idx, 9, f"=E{e_row}", fmt_money)           # Saldo Bancos $
+                    ws2.write_formula(row_idx, 10, f"=F{e_row}*$H$1", fmt_money)     # AJUSTE BS
+                    ws2.write_formula(row_idx, 11, f"=F{e_row}", fmt_money)          # AJUSTE $
+                    ws2.write_formula(row_idx, 12, "=$H$1", fmt_rate)               # TASA
+                else:
+                    ws2.write_formula(row_idx, 6, f"=D{e_row}", fmt_money)           # Saldo Libros BS
+                    ws2.write_formula(row_idx, 7, f"=E{e_row}", fmt_money)           # Saldo Bancos BS
+                    ws2.write_formula(row_idx, 8, f"=D{e_row}/$H$2", fmt_money)      # Saldo Libros $
+                    ws2.write_formula(row_idx, 9, f"=E{e_row}/$H$2", fmt_money)      # Saldo Bancos $
+                    ws2.write_formula(row_idx, 10, f"=F{e_row}", fmt_money)          # AJUSTE BS
+                    ws2.write_formula(row_idx, 11, f"=F{e_row}/$H$2", fmt_money)     # AJUSTE $
+                    ws2.write_formula(row_idx, 12, "=$H$2", fmt_rate)               # TASA
+                
+                # Verificación: (I + L) - J
+                ws2.write_formula(row_idx, 13, f"=(I{e_row}+L{e_row})-J{e_row}", fmt_money)
+                
                 row_idx += 1
             
             # FILA DE TOTALES
             ws2.write(row_idx, 2, "TOTALES GENERALES", total_label)
-            # Columnas numéricas a sumar (Desde Saldo en Libros [3] hasta AJUSTE $ [11])
             for c_sum in range(3, 12):
-                col_letter = chr(65 + c_sum) # Convierte indice a letra (A, B, C...)
-                # Para columnas después de la Z, esto fallaría, pero aquí solo llegamos a N
+                col_letter = chr(65 + c_sum)
                 ws2.write_formula(row_idx, c_sum, f"=SUM({col_letter}5:{col_letter}{row_idx})", fmt_money_bold)
             
-            # Llenar huecos de la fila de totales para el borde
-            ws2.write(row_idx, 0, "", fmt_money_bold); ws2.write(row_idx, 1, "", fmt_money_bold)
-            ws2.write(row_idx, 12, "", fmt_money_bold); ws2.write(row_idx, 13, "", fmt_money_bold)
+            # Estilos de borde para fila total
+            for c_b in [0, 1, 12, 13]: ws2.write(row_idx, c_b, "", fmt_money_bold)
 
-        # Ajuste Automático de Anchos
-        ws2.set_column('A:A', 8)   # TIPO
-        ws2.set_column('B:B', 18)  # Cuenta Contable
-        ws2.set_column('C:C', 45)  # Descripción
-        ws2.set_column('D:N', 18)  # Columnas de montos
-
-
+        ws2.set_column('A:A', 8); ws2.set_column('B:B', 18); ws2.set_column('C:C', 45); ws2.set_column('D:N', 18)
         # ==========================================
         # HOJA 3: ASIENTO CONTABLE
         # ==========================================
