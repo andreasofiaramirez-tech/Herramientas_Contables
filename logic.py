@@ -4132,7 +4132,7 @@ def extraer_saldos_cg_ajustes(archivo, log_messages):
 
     return datos_cg
 
-def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, f_haberes, tasa_bcv, tasa_corp, log):
+    def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, f_haberes, tasa_bcv, tasa_corp, log):
     """
     Motor principal de Ajustes USD.
     MEJORA: Cálculo detallado de la Hoja de Bancos y Validación de Ajustes.
@@ -4321,7 +4321,7 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
                 resumen_ajustes.append({'Cuenta': cta_hab, 'Descripción': desc_hab, 'Origen': 'Haberes', 'Saldo Actual USD': datos_cg.get(cta_hab, {}).get('USD', 0), 'Ajuste USD': monto_haberes, 'Saldo Final USD': 'N/A'})
         except: pass
 
-    # 5. SALDOS CONTRARIOS
+    # 5. SALDOS CONTRARIOS (CORREGIDO PARA DOBLE REGISTRO)
     log.append("🔄 Analizando saldos contrarios...")
     cuentas_procesadas_contrario = set()
     
@@ -4329,25 +4329,36 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
         if cta in cuentas_procesadas_contrario: continue
         saldo_usd = data['USD']
         
+        # Si una cuenta tiene saldo donde no debe (ej. Activo con saldo acreedor/negativo)
         if saldo_usd < -0.01:
             ajuste_necesario = abs(saldo_usd)
             contrapartida = MAPEO_SALDOS_CONTRARIOS.get(cta)
             
-            if not contrapartida and cta.startswith('7.1.1'):
-                contrapartida = '2.1.2.09.1.006'
-            
             if contrapartida:
-                # Validación Activo/Pasivo
-                if cta.startswith('1.'): val_activo_ajuste += ajuste_necesario
-                elif cta.startswith('2.'): val_pasivo_ajuste += ajuste_necesario
-                
                 desc = data['descripcion']
-                desc_contra = datos_cg.get(contrapartida, {}).get('descripcion', 'Contrapartida')
+                # Buscamos descripción de la contrapartida en los datos cargados o en el diccionario oficial
+                desc_contra = datos_cg.get(contrapartida, {}).get('descripcion', NOMBRES_CUENTAS_OFICIALES.get(contrapartida, "Contrapartida Ajuste"))
                 
+                # --- REGISTRO PARA LA CUENTA ORIGEN ---
+                resumen_ajustes.append({
+                    'Cuenta': cta, 'Descripción': desc, 'Origen': 'Saldo Contrario', 
+                    'Saldo Actual USD': saldo_usd, 'Ajuste USD': ajuste_necesario, 
+                    'Saldo Final USD': 0.00
+                })
+                
+                # --- REGISTRO PARA LA CUENTA CONTRAPARTIDA ---
+                # Esto hace que aparezca el ajuste negativo en la otra cuenta en Hoja 1
+                resumen_ajustes.append({
+                    'Cuenta': contrapartida, 'Descripción': desc_contra, 'Origen': 'Cruce Contrapartida', 
+                    'Saldo Actual USD': datos_cg.get(contrapartida, {}).get('USD', 0.0), 
+                    'Ajuste USD': -ajuste_necesario, 
+                    'Saldo Final USD': datos_cg.get(contrapartida, {}).get('USD', 0.0) - ajuste_necesario
+                })
+                
+                # Asiento Contable (Debe a la cuenta negativa, Haber a la contrapartida)
                 asientos.append({'Cuenta': cta, 'Desc': desc, 'DebeUSD': ajuste_necesario, 'HaberUSD': 0})
                 asientos.append({'Cuenta': contrapartida, 'Desc': desc_contra, 'DebeUSD': 0, 'HaberUSD': ajuste_necesario})
                 
-                resumen_ajustes.append({'Cuenta': cta, 'Descripción': desc, 'Origen': 'Saldo Contrario', 'Saldo Actual USD': saldo_usd, 'Ajuste USD': ajuste_necesario, 'Saldo Final USD': 0.00})
                 cuentas_procesadas_contrario.add(cta)
 
     # 6. COMPILAR Y AGREGAR DATOS DE VALIDACIÓN AL DF RESUMEN
