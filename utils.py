@@ -2216,33 +2216,107 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
         box_val = workbook.add_format({'num_format': '#,##0.00', 'border': 1, 'bold':True})    
 
         # ==========================================
-        # HOJA 1: AJUSTES (Resumen Ejecutivo)
+        # HOJA 1: AJUSTES (Encabezado y Balance)
         # ==========================================
         ws1 = workbook.add_worksheet('1. Ajustes')
         ws1.hide_gridlines(2)
         
-        ws1.write('A1', f"{nombre_empresa}", workbook.add_format({'bold': True}))
-        ws1.write('A2', "Balance de Comprobación - Ajustes por Valoración", workbook.add_format({'bold': False}))
-        
-        # Caja de Validación (Usando datos pasados en validacion_data)
+        # 1. RECREAR ENCABEZADO DEL BALANCE ORIGINAL (Filas 1 a 5)
+        if df_balance_raw is not None and not df_balance_raw.empty:
+            for r_idx in range(min(5, len(df_balance_raw))):
+                fila = df_balance_raw.iloc[r_idx]
+                for c_idx, val in enumerate(fila):
+                    if pd.notna(val):
+                        ws1.write(r_idx, c_idx, val, fmt_header_raw)
+
+        # 2. CAJA DE VALIDACIÓN (DIFERENCIAS) - Ubicada a la derecha
         act = validacion_data['total_ajuste_activo']
         pas = validacion_data['total_ajuste_pasivo']
-        
         ws1.write('K2', "1", header_clean); ws1.write('L2', "ACTIVO", header_clean)
         ws1.write('K3', "2", header_clean); ws1.write('L3', "PASIVO", header_clean)
         ws1.write('K5', "DIF", workbook.add_format({'bold': True, 'align': 'right'}))
-        
         ws1.write_number('M2', act, box_val)
         ws1.write_number('M3', pas, box_val)
         ws1.write_formula('M5', '=M2-M3', box_val)
 
+        # 3. ENCABEZADOS DE LA TABLA (Fila 7)
         ws1.merge_range('D6:E6', "Moneda Local", header_clean)
         ws1.merge_range('F6:G6', "Moneda Dólar", header_clean)
         
-        headers_balance = ['Cuenta', 'Descripción', 'Saldo Norm', 'Balance Final', 'Balance Final']
+        headers_balance = ['Cuenta', 'Descripción', 'Saldo Norm', 'Balance Final', 'Balance Final', 'AJUSTE', 'SALDO AJUSTADO', 'TASA']
         ws1.write_row('A7', headers_balance, header_clean) 
-        headers_calc = ['AJUSTE', 'SALDO AJUSTADO', 'TASA']
-        ws1.write_row('F7', headers_calc, header_clean)  
+        
+        # 4. MAPA DE TODOS LOS AJUSTES (Bancos + Cuentas con saldo contrario + Viajes)
+        mapa_ajustes = {}
+        if not df_resumen.empty:
+            for _, row in df_resumen.iterrows():
+                cta = str(row['Cuenta']).strip()
+                monto = row['Ajuste USD']
+                # Consolidamos por cuenta por si hay varios ajustes a la misma
+                mapa_ajustes[cta] = mapa_ajustes.get(cta, 0.0) + monto
+
+        # 5. PROCESAMIENTO DE FILAS DEL BALANCE
+        current_row = 7
+        total_activo_ajustado = 0.0
+        total_pasivo_ajustado = 0.0
+
+        if df_balance_raw is not None and not df_balance_raw.empty:
+            # Detectar dónde empiezan los datos (usualmente después de la fila 7 del original)
+            start_data_row = 0
+            for i, row in df_balance_raw.iterrows():
+                if any('CUENTA' in str(v).upper() for v in row.values):
+                    start_data_row = i + 1
+                    break
+            
+            for i in range(start_data_row, len(df_balance_raw)):
+                row = df_balance_raw.iloc[i]
+                try:
+                    cuenta = str(row[0]).strip()
+                    # FILTRO: Solo cuentas que no terminen en .000 (Transaccionales)
+                    if not (cuenta.startswith('1.') or cuenta.startswith('2.')): continue
+                    if cuenta.endswith('.000'): continue 
+                    
+                    desc = str(row[1]).strip()
+                    norma = str(row[2]).strip()
+                    
+                    def get_val(x):
+                        try:
+                            if isinstance(x, (int, float)): return float(x)
+                            return float(str(x).replace('.', '').replace(',', '.'))
+                        except: return 0.0
+
+                    # Saldo Original (Basado en índices fijos G=6 y L=11)
+                    saldo_bs = get_val(row[6]) 
+                    saldo_usd = get_val(row[11])
+                    
+                    # Búsqueda del Ajuste (Aquí se incluyen los de bancos ahora)
+                    ajuste = mapa_ajustes.get(cuenta, 0.0)
+                    saldo_ajustado = saldo_usd + ajuste
+                    
+                    tasa = abs(saldo_bs / saldo_usd) if abs(saldo_usd) > 0.01 else 0.0
+                    
+                    # Acumuladores para el cuadro de validación final
+                    if cuenta.startswith('1.'): total_activo_ajustado += ajuste
+                    elif cuenta.startswith('2.'): total_pasivo_ajustado += ajuste
+
+                    # Escritura de fila
+                    ws1.write(current_row, 0, cuenta, fmt_text)
+                    ws1.write(current_row, 1, desc, fmt_text)
+                    ws1.write(current_row, 2, norma, fmt_text)
+                    ws1.write_number(current_row, 3, saldo_bs, fmt_money)
+                    ws1.write_number(current_row, 4, saldo_usd, fmt_money)
+                    
+                    style_ajuste = fmt_money_bold if abs(ajuste) > 0.001 else fmt_money
+                    ws1.write_number(current_row, 5, ajuste, style_ajuste)
+                    ws1.write_number(current_row, 6, saldo_ajustado, fmt_money_bold)
+                    ws1.write_number(current_row, 7, tasa, fmt_rate)
+                    
+                    current_row += 1
+                except: continue
+
+        # Ajuste de anchos
+        ws1.set_column('A:A', 15); ws1.set_column('B:B', 45); ws1.set_column('C:C', 10)
+        ws1.set_column('D:G', 18); ws1.set_column('H:H', 12)
         
         # ---------------------------------------------------------
         # PROCESAMIENTO DE DATOS
