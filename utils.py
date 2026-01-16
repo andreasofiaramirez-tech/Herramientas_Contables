@@ -2473,13 +2473,11 @@ def generar_reporte_cofersa(df_procesado):
         for i in idx_nums: ws1.write_number(r, i, df_f1[cols_output[i]].sum(), total_fmt)
         ws1.set_column('A:N', 15)
 
-        # 2. CRUCE POR TIPOS
-        df_f2 = df_procesado[df_procesado['Estado_Cofersa'] == 'CRUCE_POR_TIPO'].copy()
-        if 'Tipo' in df_f2.columns: df_f2['Tipo'] = df_f2['Tipo'].astype(str).fillna('')
-        df_f2.sort_values(by=['Tipo', 'Fecha'], inplace=True)
+        # 2. HOJA CRUCE POR REFERENCIA (Antes Cruce por Tipos)
+        df_f2 = df_procesado[df_procesado['Estado_Cofersa'] == 'CRUCE_POR_REFERENCIA'].copy()
+        df_f2.sort_values(by=['Ref_Norm', 'Fecha'], inplace=True)
         
-        ws2 = workbook.add_worksheet('2. Cruce por Tipos')
-        ws2.hide_gridlines(2)
+        ws2 = workbook.add_worksheet('2. Cruce por Referencia')
         ws2.write_row(0, 0, cols_output, header_fmt)
         r = 1
         for _, data in df_f2.iterrows():
