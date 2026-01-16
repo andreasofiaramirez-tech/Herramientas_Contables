@@ -4286,8 +4286,8 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
 
 def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
     """
-    Conciliación para Envíos en Tránsito COFERSA (Moneda Local).
-    OPTIMIZADO: Fase 4 usa Búsqueda Binaria (Bisect) para velocidad extrema.
+    Conciliación para Envíos en Tránsito COFERSA (VES).
+    LÓGICA ACTUALIZADA: Basada primordialmente en REFERENCIA.
     """
     log_messages.append("\n--- INICIANDO CONCILIACIÓN ENVIOS COFERSA (VES) ---")
     
@@ -4301,6 +4301,7 @@ def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
     
     df['Neto Local'] = pd.to_numeric(df['Neto Local'], errors='coerce').fillna(0).round(2)
     
+    # Normalización de Referencia (Clave maestra)
     if 'Referencia' in df.columns:
         df['Ref_Norm'] = df['Referencia'].astype(str).str.strip().str.upper()
     else:
@@ -4310,7 +4311,7 @@ def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
     indices_usados = set()
     total_conciliados = 0
 
-    # --- FASE 1: PARES 1 A 1 (RÁPIDA - Por Grupo Entero) ---
+    # --- FASE 1: PARES 1 A 1 (Mismo Monto Absoluto) ---
     df_pool = df.copy()
     df_pool['Abs_Int'] = df_pool['Neto Local'].abs().astype(int)
     
@@ -4334,7 +4335,7 @@ def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
                     break
     
     log_messages.append(f"✔️ Fase 1 (Pares Rápidos): {total_conciliados} movimientos.")
-    if progress_bar: progress_bar.progress(0.2, text="Fase 1 completada.")
+    if progress_bar: progress_bar.progress(0.3, text="Fase 1 completada.")
 
     # --- FASE 2: CRUCE POR REFERENCIA (Agrupación N-a-N) ---
     # Reemplaza la lógica de 'Tipo' por 'Referencia'
@@ -4358,82 +4359,41 @@ def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
     
     if progress_bar: progress_bar.progress(0.6, text="Fase 2 completada.")
 
-    # --- FASE 3: DESCUADRES POR REFERENCIA ---
-    df_pendientes = df[~df.index.isin(indices_usados)].copy()
-    count_fase3 = 0
-    
-    if 'Ref_Norm' in df_pendientes.columns:
-        for ref, grupo in df_pendientes.groupby('Ref_Norm'):
-            if ref == 'NAN' or ref == '' or len(grupo) < 2: continue
-            
-            tiene_debito = (grupo['Neto Local'] > 0.001).any()
-            tiene_credito = (grupo['Neto Local'] < -0.001).any()
-            
-            if tiene_debito and tiene_credito:
-                indices_grupo = grupo.index
-                df.loc[indices_grupo, 'Estado_Cofersa'] = 'REF_DESCUADRE'
-                indices_usados.update(indices_grupo)
-                count_fase3 += len(indices_grupo)
-            
-    log_messages.append(f"⚠️ Fase 3 (Descuadres Mixtos): {count_fase3} movimientos.")
-    if progress_bar: progress_bar.progress(0.7, text="Fase 3 completada.")
-
-    # --- FASE 4: RECUPERACIÓN DE PARES (ALGORITMO ULTRARÁPIDO) ---
-    # Usamos Búsqueda Binaria para evitar comparar todo contra todo.
-    
-    # 1. Filtramos pendientes
+    # --- FASE 3: RECUPERACIÓN DE PARES (BÚSQUEDA BINARIA) ---
     remanentes = df[~df.index.isin(indices_usados)]
-    
-    # 2. Separamos y preparamos listas
     pos_items = remanentes[remanentes['Neto Local'] > 0][['Neto Local']].sort_values('Neto Local', ascending=False)
-    neg_items = remanentes[remanentes['Neto Local'] < 0][['Neto Local']].sort_values('Neto Local') # De más negativo a menos
+    neg_items = remanentes[remanentes['Neto Local'] < 0][['Neto Local']].sort_values('Neto Local')
     
-    # Convertimos negativos a una lista de tuplas (Valor, Index) para búsqueda rápida
-    # Ordenamos por valor para que bisect funcione
     neg_list = sorted([(row['Neto Local'], idx) for idx, row in neg_items.iterrows()], key=lambda x: x[0])
-    neg_values = [x[0] for x in neg_list] # Solo valores para bisect
+    neg_values = [x[0] for x in neg_list]
     
     used_negs = set()
     count_recuperados = 0
     
-    # 3. Iteramos positivos
     for idx_pos, row in pos_items.iterrows():
         val_pos = row['Neto Local']
-        
-        # Queremos encontrar un negativo 'v' tal que:
-        # abs(val_pos + v) <= 100
-        # -100 <= val_pos + v <= 100
-        # -val_pos - 100 <= v <= -val_pos + 100
-        
         target_min = -val_pos - TOLERANCIA_COFERSA
         target_max = -val_pos + TOLERANCIA_COFERSA
         
-        # Usamos bisect para encontrar dónde empezar a buscar en la lista de negativos
-        # Esto salta miles de registros innecesarios instantáneamente
+        import bisect
         start_idx = bisect.bisect_left(neg_values, target_min)
         
-        # Escaneamos solo el rango válido
         for i in range(start_idx, len(neg_list)):
             val_neg, idx_neg = neg_list[i]
-            
-            if val_neg > target_max:
-                break # Nos pasamos del rango, dejamos de buscar para este positivo
+            if val_neg > target_max: break
             
             if idx_neg not in used_negs:
-                # ¡MATCH ENCONTRADO!
-                df.loc[[idx_pos, idx_neg], 'Estado_Cofersa'] = 'PARES_1_A_1'
-                indices_usados.add(idx_pos)
-                indices_usados.add(idx_neg)
+                df.loc[[idx_pos, idx_neg], 'Estado_Cofersa'] = 'RECUPERACION_GLOBAL'
+                indices_usados.add(idx_pos); indices_usados.add(idx_neg)
                 used_negs.add(idx_neg)
                 count_recuperados += 2
-                break # Pasamos al siguiente positivo
+                break
 
     if count_recuperados > 0:
-        log_messages.append(f"🚀 Fase 4 (Algoritmo Rápido): {count_recuperados} movimientos cerrados.")
+        log_messages.append(f"🚀 Fase 3 (Recuperación): {count_recuperados} movimientos cerrados.")
         total_conciliados += count_recuperados
 
     if progress_bar: progress_bar.progress(1.0, text="Proceso Finalizado.")
     
     df['Conciliado'] = df['Estado_Cofersa'] != 'PENDIENTE'
-
     return df
