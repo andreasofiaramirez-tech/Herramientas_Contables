@@ -609,11 +609,12 @@ def _generar_hoja_conciliados_agrupada(workbook, formatos, df_conciliados, estra
     elif estrategia['id'] == 'proveedores_costos':
         df['Débitos'] = df['Monto_USD'].apply(lambda x: x if x > 0 else 0)
         df['Créditos'] = df['Monto_USD'].apply(lambda x: abs(x) if x < 0 else 0)
-        columnas = ['Fecha', 'Asiento', 'Referencia', 'Fuente', 'Débitos', 'Créditos']
-        cols_sum = ['Débitos', 'Créditos']
-        titulo = 'Detalle de Movimientos Conciliados por Proveedor (USD)'
+        df['Monto Bs.'] = df['Monto_BS'] # Columna informativa
+        columnas = ['Fecha', 'Asiento', 'Referencia', 'Fuente', 'Débitos', 'Créditos', 'Monto Bs.']
+        cols_sum = ['Débitos', 'Créditos', 'Monto Bs.']
+        titulo = 'Detalle de Movimientos Conciliados por Proveedor (USD/BS)'
         fmt_moneda = formatos['usd']
-        fmt_total = formatos['total_usd']
+        fmt_total = formatos['total_usd']    
 
     # --------------------------------------------------
     # Definimos el orden por defecto para no afectar a las otras cuentas
@@ -650,6 +651,7 @@ def _generar_hoja_conciliados_agrupada(workbook, formatos, df_conciliados, estra
                 
                 if col_name == 'Fecha' and pd.notna(val): ws.write_datetime(current_row, c_idx, val, formatos['fecha'])
                 elif col_name in ['Débitos', 'Créditos', 'Monto Bs.']: ws.write_number(current_row, c_idx, val, fmt_moneda)
+                elif col_name == 'Monto Bs.'
                 elif col_name == 'Saldo': pass
                 else: ws.write(current_row, c_idx, val if pd.notna(val) else '')
             
@@ -1250,53 +1252,60 @@ def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrate
     
 def _generar_hoja_ajustes_menores(workbook, formatos, df_ajustes):
     """
-    Genera la 3ra hoja con validación de fechas nulas.
+    Genera la 3ra hoja incluyendo la columna de Bolívares a modo informativo.
     """
     ws = workbook.add_worksheet("Para Asiento de Ajuste")
     ws.hide_gridlines(2)
     
     df = df_ajustes.sort_values(by=['NIT_Reporte', 'Numero_Embarque', 'Fecha'])
-    columnas = ['Fecha', 'Asiento', 'Referencia', 'Fuente', 'Monto USD']
-    ws.merge_range(0, 0, 0, 4, "EMBARQUES PENDIENTES POR AJUSTE MENOR A 1$", formatos['encabezado_sub'])
+    # Añadimos Monto Bs. a los encabezados
+    columnas = ['Fecha', 'Asiento', 'Referencia', 'Fuente', 'Monto USD', 'Monto Bs.']
+    ws.merge_range(0, 0, 0, 5, "EMBARQUES PENDIENTES POR AJUSTE MENOR A 1$", formatos['encabezado_sub'])
     
     current_row = 2
-    fmt_diff = workbook.add_format({'bold': True, 'bg_color': '#FFEB9C', 'num_format': '$#,##0.00', 'border': 1})
+    fmt_diff_usd = workbook.add_format({'bold': True, 'bg_color': '#FFEB9C', 'num_format': '$#,##0.00', 'border': 1})
+    fmt_diff_bs = workbook.add_format({'bold': True, 'bg_color': '#F2F2F2', 'num_format': '#,##0.00', 'border': 1})
+    
     total_ajustes_usd = 0
+    total_ajustes_bs = 0
 
     for (nit, emb), grupo in df.groupby(['NIT_Reporte', 'Numero_Embarque'], sort=False):
-        diferencia_real = round(grupo['Monto_USD'].sum(), 2)
-        if abs(diferencia_real) > 1.00: continue 
+        diferencia_usd = round(grupo['Monto_USD'].sum(), 2)
+        diferencia_bs = round(grupo['Monto_BS'].sum(), 2)
 
-        ws.merge_range(current_row, 0, current_row, 4, f"NIT: {nit} | EMBARQUE: {emb}", formatos['proveedor_header'])
+        ws.merge_range(current_row, 0, current_row, 5, f"NIT: {nit} | EMBARQUE: {emb}", formatos['proveedor_header'])
         current_row += 1
         ws.write_row(current_row, 0, columnas, formatos['header_tabla'])
         current_row += 1
         
         for _, row in grupo.iterrows():
-            # --- VALIDACIÓN CRÍTICA DE FECHA ---
             fec = row.get('Fecha')
-            if pd.notna(fec):
-                ws.write_datetime(current_row, 0, fec, formatos['fecha'])
-            else:
-                ws.write(current_row, 0, '-', formatos['text'])
-            # -----------------------------------
+            if pd.notna(fec): ws.write_datetime(current_row, 0, fec, formatos['fecha'])
+            else: ws.write(current_row, 0, '-', formatos['text'])
 
             ws.write(current_row, 1, str(row.get('Asiento', '')), formatos['text'])
             ws.write(current_row, 2, str(row.get('Referencia', '')), formatos['text'])
             ws.write(current_row, 3, str(row.get('Fuente', '')), formatos['text'])
             ws.write_number(current_row, 4, row['Monto_USD'], formatos['usd'])
+            ws.write_number(current_row, 5, row['Monto_BS'], formatos['bs']) # Nueva columna
             current_row += 1
         
         ws.write(current_row, 3, "DIFERENCIA A AJUSTAR:", formatos['subtotal_label'])
-        ws.write_number(current_row, 4, diferencia_real, fmt_diff)
-        total_ajustes_usd += diferencia_real
+        ws.write_number(current_row, 4, diferencia_usd, fmt_diff_usd)
+        ws.write_number(current_row, 5, diferencia_bs, fmt_diff_bs) # Diferencia en Bs.
+        
+        total_ajustes_usd += diferencia_usd
+        total_ajustes_bs += diferencia_bs
         current_row += 2
 
     current_row += 1
     ws.write(current_row, 3, "TOTAL GENERAL AJUSTES:", formatos['total_label'])
     ws.write_number(current_row, 4, total_ajustes_usd, formatos['total_usd'])
+    ws.write_number(current_row, 5, total_ajustes_bs, formatos['total_bs'])
 
-    ws.set_column('A:E', 20); ws.set_column('C:C', 40)
+    ws.set_column('A:B', 15)
+    ws.set_column('C:C', 40)
+    ws.set_column('D:F', 18)
 
 # ==============================================================================
 # 4. REPORTE PARA LA HERRAMIENTA DE RETENCIONES
