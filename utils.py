@@ -2196,14 +2196,13 @@ def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, resumen_validaci
 
 def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_raw, nombre_empresa, validacion_data):
     """
-    Genera Excel Ajustes USD.
-    Hoja 1: Ajustes con Encabezado idéntico al Balance y filtros de cuenta transaccional.
+    Genera Excel Ajustes USD con las 4 hojas solicitadas.
     """
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         workbook = writer.book
         
-        # --- DEFINICIÓN DE TODOS LOS ESTILOS (INDISPENSABLE) ---
+        # --- DEFINICIÓN DE ESTILOS ---
         fmt_header_raw = workbook.add_format({'bold': False, 'font_size': 10})
         header_clean = workbook.add_format({'bold': True, 'border': 1, 'align': 'center', 'valign': 'vcenter', 'text_wrap': True, 'bg_color': '#FFFFFF'})
         header_yellow = workbook.add_format({'bold': True, 'bg_color': '#FFFF00', 'border': 1, 'align': 'center', 'valign': 'vcenter', 'text_wrap': True})
@@ -2215,67 +2214,51 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
         main_title = workbook.add_format({'bold': True, 'font_size': 14})
 
         # ==========================================
-        # HOJA 1: AJUSTES (Diseño solicitado)
+        # HOJA 1: AJUSTES (Diseño Balance)
         # ==========================================
         ws1 = workbook.add_worksheet('1. Ajustes')
         ws1.hide_gridlines(2)
         
-        # 1. RECREAR ENCABEZADO DEL BALANCE ORIGINAL (Filas 1 a 5)
-        # Esto trae el nombre de la empresa y fechas tal cual están en el Excel de entrada
+        # 1. Encabezado Original (Filas 1-6)
         if df_balance_raw is not None and not df_balance_raw.empty:
-            for r_idx in range(min(6, len(df_balance_raw))): # Leemos hasta la fila 6 del original
+            for r_idx in range(min(6, len(df_balance_raw))):
                 fila = df_balance_raw.iloc[r_idx]
                 for c_idx, val in enumerate(fila):
-                    if pd.notna(val):
-                        ws1.write(r_idx, c_idx, val, fmt_header_raw)
+                    if pd.notna(val): ws1.write(r_idx, c_idx, val, fmt_header_raw)
 
-        # 2. CUADRO DE VALIDACIÓN (Diferencias Activo vs Pasivo)
+        # 2. Cuadro de Validación
         act = validacion_data.get('total_ajuste_activo', 0)
         pas = validacion_data.get('total_ajuste_pasivo', 0)
-        
-        ws1.write('K2', "1", header_clean); ws1.write('L2', "ACTIVO", header_clean)
-        ws1.write('K3', "2", header_clean); ws1.write('L3', "PASIVO", header_clean)
-        ws1.write('K5', "DIF", workbook.add_format({'bold': True, 'align': 'right'}))
-        ws1.write_number('M2', act, box_val)
-        ws1.write_number('M3', pas, box_val)
-        ws1.write_formula('M5', '=M2-M3', box_val)
+        ws1.write('K2', "1", header_clean); ws1.write('L2', "ACTIVO", header_clean); ws1.write_number('M2', act, box_val)
+        ws1.write('K3', "2", header_clean); ws1.write('L3', "PASIVO", header_clean); ws1.write_number('M3', pas, box_val)
+        ws1.write('K5', "DIF", workbook.add_format({'bold': True, 'align': 'right'})); ws1.write_formula('M5', '=M2-M3', box_val)
 
-        # 3. ENCABEZADOS DE LA TABLA DE AJUSTES (Fila 7)
+        # 3. Títulos de Tabla
         ws1.merge_range('D6:E6', "Moneda Local", header_clean)
         ws1.merge_range('F6:G6', "Moneda Dólar", header_clean)
-        
-        headers_balance = ['Cuenta', 'Descripción', 'Saldo Norm', 'Balance Final', 'Balance Final', 'AJUSTE', 'SALDO AJUSTADO', 'TASA']
-        ws1.write_row('A7', headers_balance, header_clean) 
-        
-        # 4. MAPEO DE AJUSTES (Carga los ajustes de Bancos, Viajes, etc.)
+        ws1.write_row('A7', ['Cuenta', 'Descripción', 'Saldo Norm', 'Balance Final', 'Balance Final', 'AJUSTE', 'SALDO AJUSTADO', 'TASA'], header_clean) 
+
+        # 4. Mapeo de Ajustes
         mapa_ajustes = {}
         if not df_resumen.empty:
             for _, row in df_resumen.iterrows():
                 cta = str(row['Cuenta']).strip()
-                monto = row['Ajuste USD']
-                mapa_ajustes[cta] = mapa_ajustes.get(cta, 0.0) + monto
+                mapa_ajustes[cta] = mapa_ajustes.get(cta, 0.0) + row['Ajuste USD']
 
-        # 5. PROCESAMIENTO DE LAS CUENTAS TRANSACCIONALES
+        # 5. Escritura de Cuentas Transaccionales
         current_row = 7
         if df_balance_raw is not None and not df_balance_raw.empty:
-            # Buscamos dónde terminan los encabezados del original (usualmente fila 7)
-            start_data_idx = 0
+            start_idx = 0
             for i, row in df_balance_raw.iterrows():
                 if any('CUENTA' in str(v).upper() for v in row.values):
-                    start_data_idx = i + 1
-                    break
+                    start_idx = i + 1; break
             
-            # Recorremos los datos
-            for i in range(start_data_idx, len(df_balance_raw)):
+            for i in range(start_idx, len(df_balance_raw)):
                 row = df_balance_raw.iloc[i]
                 try:
                     cuenta = str(row[0]).strip()
-                    # FILTRO: Solo cuentas que no sean de grupo (no terminen en .000)
                     if not (cuenta.startswith('1.') or cuenta.startswith('2.')): continue
                     if cuenta.endswith('.000') or cuenta.endswith('.00'): continue 
-                    
-                    desc = str(row[1]).strip()
-                    norma = str(row[2]).strip()
                     
                     def get_val(x):
                         try:
@@ -2283,60 +2266,38 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
                             return float(str(x).replace('.', '').replace(',', '.'))
                         except: return 0.0
 
-                    # Saldo Original del Balance (Posiciones G y L)
-                    saldo_bs = get_val(row[6]) 
-                    saldo_usd = get_val(row[11])
-                    
-                    # DETERMINACIÓN DEL AJUSTE (Si existe en Bancos o Reclasificaciones)
+                    saldo_bs = get_val(row[6]); saldo_usd = get_val(row[11])
                     ajuste = mapa_ajustes.get(cuenta, 0.0)
                     saldo_ajustado = saldo_usd + ajuste
-                    
-                    # Tasa implícita
                     tasa = abs(saldo_bs / saldo_usd) if abs(saldo_usd) > 0.01 else 0.0
 
-                    # Escribir en la hoja
                     ws1.write(current_row, 0, cuenta, fmt_text)
-                    ws1.write(current_row, 1, desc, fmt_text)
-                    ws1.write(current_row, 2, norma, fmt_text)
+                    ws1.write(current_row, 1, str(row[1]).strip(), fmt_text)
+                    ws1.write(current_row, 2, str(row[2]).strip(), fmt_text)
                     ws1.write_number(current_row, 3, saldo_bs, fmt_money)
                     ws1.write_number(current_row, 4, saldo_usd, fmt_money)
-                    
-                    # Columna Ajuste (resaltada si hay movimiento)
-                    style_ajuste = fmt_money_bold if abs(ajuste) > 0.001 else fmt_money
-                    ws1.write_number(current_row, 5, ajuste, style_ajuste)
-                    
+                    ws1.write_number(current_row, 5, ajuste, fmt_money_bold if abs(ajuste) > 0.001 else fmt_money)
                     ws1.write_number(current_row, 6, saldo_ajustado, fmt_money_bold)
                     ws1.write_number(current_row, 7, tasa, fmt_rate)
-                    
                     current_row += 1
                 except: continue
-
-        # Ajuste de anchos para legibilidad
-        ws1.set_column('A:A', 15); ws1.set_column('B:B', 45); ws1.set_column('C:C', 10)
-        ws1.set_column('D:G', 18); ws1.set_column('H:H', 12)
+        ws1.set_column('A:A', 15); ws1.set_column('B:B', 45); ws1.set_column('D:G', 18)
 
         # ==========================================
-        # HOJA 2: DETALLE BANCOS (Cálculo Tesorería)
+        # HOJA 2: DETALLE BANCOS (TESORERÍA)
         # ==========================================
-        if df_bancos is not None and not df_bancos.empty:
+        if df_bancos is not None:
             ws2 = workbook.add_worksheet('2. Detalle Bancos')
             ws2.hide_gridlines(2)
+            ws2.write('O1', "TASA BCV", workbook.add_format({'bold':True})); ws2.write('P1', validacion_data.get('tasa_bcv', 0), fmt_rate)
+            ws2.write('O2', "TASA CORP.", workbook.add_format({'bold':True})); ws2.write('P2', validacion_data.get('tasa_corp', 0), fmt_rate)
             
-            # Tasas informativas en la esquina
-            ws2.write('O1', "TASA BCV", workbook.add_format({'bold':True}))
-            ws2.write('P1', validacion_data.get('tasa_bcv', 0), fmt_rate)
-            ws2.write('O2', "TASA CORP.", workbook.add_format({'bold':True}))
-            ws2.write('P2', validacion_data.get('tasa_corp', 0), fmt_rate)
-            
-            # Escribir encabezados del DataFrame de bancos
-            ws2.write_row('A4', df_bancos.columns, header_clean)
-            
-            for r_idx, row in enumerate(df_bancos.values):
-                for c_idx, val in enumerate(row):
-                    if isinstance(val, (int, float)):
-                        ws2.write_number(r_idx + 4, c_idx, val, fmt_money)
-                    else:
-                        ws2.write(r_idx + 4, c_idx, val, fmt_text)
+            if not df_bancos.empty:
+                ws2.write_row('A4', df_bancos.columns, header_clean)
+                for r_idx, row in enumerate(df_bancos.values):
+                    for c_idx, val in enumerate(row):
+                        if isinstance(val, (int, float)): ws2.write_number(r_idx+4, c_idx, val, fmt_money)
+                        else: ws2.write(r_idx+4, c_idx, val, fmt_text)
             ws2.set_column('A:Z', 15)
 
         # ==========================================
@@ -2346,20 +2307,25 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
             ws3 = workbook.add_worksheet('3. Asiento Contable')
             ws3.hide_gridlines(2)
             ws3.merge_range('A1:F1', f"ASIENTO DE AJUSTE VALORACIÓN - {nombre_empresa}", main_title)
-            
-            headers_asiento = ['CUENTA', 'DESCRIPCIÓN', 'DEBE ($)', 'HABER ($)', 'DEBE (Bs)', 'HABER (Bs)']
-            ws3.write_row('A3', headers_asiento, header_clean)
-            
-            for r_idx, row in enumerate(df_asiento.iterrows()):
-                data = row[1]
-                ws3.write(r_idx + 3, 0, data['Cuenta'], fmt_text)
-                ws3.write(r_idx + 3, 1, data['Desc'], fmt_text)
-                ws3.write_number(r_idx + 3, 2, data['DebeUSD'], fmt_money)
-                ws3.write_number(r_idx + 3, 3, data['HaberUSD'], fmt_money)
-                ws3.write_number(r_idx + 3, 4, data.get('Débito VES', 0), fmt_money)
-                ws3.write_number(r_idx + 3, 5, data.get('Crédito VES', 0), fmt_money)
-            
+            ws3.write_row('A3', ['CUENTA', 'DESCRIPCIÓN', 'DEBE ($)', 'HABER ($)', 'DEBE (Bs)', 'HABER (Bs)'], header_clean)
+            for r_idx, (idx, data) in enumerate(df_asiento.iterrows()):
+                ws3.write(r_idx+3, 0, data['Cuenta'], fmt_text)
+                ws3.write(r_idx+3, 1, data['Desc'], fmt_text)
+                ws3.write_number(r_idx+3, 2, data['DebeUSD'], fmt_money)
+                ws3.write_number(r_idx+3, 3, data['HaberUSD'], fmt_money)
+                ws3.write_number(r_idx+3, 4, data.get('Débito VES', 0), fmt_money)
+                ws3.write_number(r_idx+3, 5, data.get('Crédito VES', 0), fmt_money)
             ws3.set_column('A:A', 15); ws3.set_column('B:B', 40); ws3.set_column('C:F', 18)
+
+        # ==========================================
+        # HOJA 4: DATA (ORIGINAL)
+        # ==========================================
+        if df_balance_raw is not None and not df_balance_raw.empty:
+            ws4 = workbook.add_worksheet('4. DATA (Original)')
+            for r_idx, row in enumerate(df_balance_raw.values):
+                for c_idx, val in enumerate(row):
+                    if pd.notna(val): ws4.write(r_idx, c_idx, val)
+            ws4.set_column('A:Z', 15)
 
     return output.getvalue()
     
