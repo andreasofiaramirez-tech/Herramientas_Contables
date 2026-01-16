@@ -4336,26 +4336,27 @@ def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
     log_messages.append(f"✔️ Fase 1 (Pares Rápidos): {total_conciliados} movimientos.")
     if progress_bar: progress_bar.progress(0.2, text="Fase 1 completada.")
 
-    # --- FASE 2: CRUCE POR TIPO ---
+    # --- FASE 2: CRUCE POR REFERENCIA (Agrupación N-a-N) ---
+    # Reemplaza la lógica de 'Tipo' por 'Referencia'
     df_pendientes = df[~df.index.isin(indices_usados)].copy()
+    count_fase2 = 0
     
-    if 'Tipo' in df_pendientes.columns:
-        df_pendientes['Tipo'] = df_pendientes['Tipo'].astype(str).fillna('')
-        count_fase2 = 0
-        for tipo_val, grupo in df_pendientes.groupby('Tipo'):
-            if pd.isna(tipo_val) or str(tipo_val).strip() == '' or str(tipo_val).lower() == 'nan': 
-                continue
+    if not df_pendientes.empty:
+        # Agrupamos por Referencia y verificamos si la suma del grupo cuadra
+        for ref_val, grupo in df_pendientes.groupby('Ref_Norm'):
+            if ref_val in ['', 'NAN', 'NONE', 'SIN_REF']: continue
+            if len(grupo) < 2: continue
             
             suma_grupo = grupo['Neto Local'].sum().round(2)
             if abs(suma_grupo) <= TOLERANCIA_COFERSA:
                 indices_grupo = grupo.index
-                df.loc[indices_grupo, 'Estado_Cofersa'] = 'CRUCE_POR_TIPO'
+                df.loc[indices_grupo, 'Estado_Cofersa'] = 'CRUCE_POR_REFERENCIA'
                 indices_usados.update(indices_grupo)
                 count_fase2 += len(indices_grupo)
         
-        log_messages.append(f"✔️ Fase 2 (Tipos +/- 100): {count_fase2} movimientos.")
+        log_messages.append(f"✔️ Fase 2 (Cruce por Referencia +/- 100): {count_fase2} movimientos.")
     
-    if progress_bar: progress_bar.progress(0.5, text="Fase 2 completada.")
+    if progress_bar: progress_bar.progress(0.6, text="Fase 2 completada.")
 
     # --- FASE 3: DESCUADRES POR REFERENCIA ---
     df_pendientes = df[~df.index.isin(indices_usados)].copy()
