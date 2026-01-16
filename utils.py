@@ -218,8 +218,8 @@ def cargar_datos_cofersa(uploaded_actual, uploaded_anterior, log_messages):
             elif 'REFERENCIA' in norm_col: rename_map[col] = 'Referencia'
             elif 'TIPO' in norm_col: rename_map[col] = 'Tipo'
             elif 'FUENTE' in norm_col: rename_map[col] = 'Fuente'
-            elif 'NIT' in norm_col or 'RIF' in norm_col: rename_map[col] = 'Nit'
-            elif 'DESCRIPCI' in norm_col: rename_map[col] = 'Descripción Nit'
+            elif 'NIT' in norm_col or 'RIF' in norm_col: rename_map[col] = 'NIT'
+            elif 'DESCRIPCI' in norm_col: rename_map[col] = 'Descripcion NIT'
 
         df.rename(columns=rename_map, inplace=True)
         # Eliminar columnas duplicadas si las hay después del rename
