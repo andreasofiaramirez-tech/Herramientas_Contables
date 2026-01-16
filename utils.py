@@ -2284,26 +2284,51 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
         ws1.set_column('A:A', 15); ws1.set_column('B:B', 45); ws1.set_column('D:G', 18)
 
         # ==========================================
-        # HOJA 2: DETALLE BANCOS (REDISEÑADA PARA ESTABILIDAD)
+        # HOJA 2: DETALLE BANCOS (REDISEÑO FINAL)
         # ==========================================
         ws2 = workbook.add_worksheet('2. Detalle Bancos')
         ws2.hide_gridlines(2)
-        ws2.write('O1', "TASA BCV", workbook.add_format({'bold':True})); ws2.write('P1', validacion_data.get('tasa_bcv', 0), fmt_rate)
-        ws2.write('O2', "TASA CORP.", workbook.add_format({'bold':True})); ws2.write('P2', validacion_data.get('tasa_corp', 0), fmt_rate)
+        
+        # Tasas movidas a Columna G (G=6, H=7)
+        ws2.write(0, 6, "TASA BCV", workbook.add_format({'bold':True, 'align':'right'}))
+        ws2.write(0, 7, validacion_data.get('tasa_bcv', 0), fmt_rate)
+        ws2.write(1, 6, "TASA CORP.", workbook.add_format({'bold':True, 'align':'right'}))
+        ws2.write(1, 7, validacion_data.get('tasa_corp', 0), fmt_rate)
         
         if df_bancos is not None and not df_bancos.empty:
-            # Escribir Encabezados
+            # Escribir Encabezados en Fila 4
             for c_idx, col_name in enumerate(df_bancos.columns):
                 ws2.write(3, c_idx, col_name, header_clean)
             
             # Escribir Datos
-            for r_idx, row in enumerate(df_bancos.itertuples(index=False)):
-                for c_idx, value in enumerate(row):
+            row_idx = 4
+            for r_data in df_bancos.itertuples(index=False):
+                for c_idx, value in enumerate(r_data):
                     if isinstance(value, (int, float)) and not pd.isna(value):
-                        ws2.write_number(r_idx + 4, c_idx, value, fmt_money)
+                        # La columna TASA (indice 12) usa formato rate
+                        if c_idx == 12: ws2.write_number(row_idx, c_idx, value, fmt_rate)
+                        else: ws2.write_number(row_idx, c_idx, value, fmt_money)
                     else:
-                        ws2.write(r_idx + 4, c_idx, str(value) if pd.notna(value) else "", fmt_text)
-        ws2.set_column('A:Z', 18)
+                        ws2.write(row_idx, c_idx, str(value) if pd.notna(value) else "", fmt_text)
+                row_idx += 1
+            
+            # FILA DE TOTALES
+            ws2.write(row_idx, 2, "TOTALES GENERALES", total_label)
+            # Columnas numéricas a sumar (Desde Saldo en Libros [3] hasta AJUSTE $ [11])
+            for c_sum in range(3, 12):
+                col_letter = chr(65 + c_sum) # Convierte indice a letra (A, B, C...)
+                # Para columnas después de la Z, esto fallaría, pero aquí solo llegamos a N
+                ws2.write_formula(row_idx, c_sum, f"=SUM({col_letter}5:{col_letter}{row_idx})", fmt_money_bold)
+            
+            # Llenar huecos de la fila de totales para el borde
+            ws2.write(row_idx, 0, "", fmt_money_bold); ws2.write(row_idx, 1, "", fmt_money_bold)
+            ws2.write(row_idx, 12, "", fmt_money_bold); ws2.write(row_idx, 13, "", fmt_money_bold)
+
+        # Ajuste Automático de Anchos
+        ws2.set_column('A:A', 8)   # TIPO
+        ws2.set_column('B:B', 18)  # Cuenta Contable
+        ws2.set_column('C:C', 45)  # Descripción
+        ws2.set_column('D:N', 18)  # Columnas de montos
 
 
         # ==========================================
