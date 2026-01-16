@@ -167,21 +167,33 @@ def cargar_y_limpiar_datos(uploaded_actual, uploaded_anterior, log_messages):
 def cargar_datos_cofersa(uploaded_actual, uploaded_anterior, log_messages):
     """
     Función de carga EXCLUSIVA para COFERSA.
-    Mapea columnas específicas: 'Débitos Local' -> 'Débito Bolivar', etc.
+    MEJORA: Ignora acentos en encabezados y procesa comas decimales correctamente.
     """
-    
-    # Reutilizamos la limpieza numérica que ya existe en utils
-    def limpiar_numero_local(texto):
-        if texto is None or str(texto).strip().lower() == 'nan': return '0.0'
-        t = re.sub(r'[^\d.,-]', '', str(texto).strip())
-        if not t: return '0.0'
-        # Lógica inteligente simple
-        idx_punto = t.rfind('.')
-        idx_coma = t.rfind(',')
-        if idx_punto > idx_coma: return t.replace(',', '') 
-        elif idx_coma > idx_punto: return t.replace('.', '').replace(',', '.')
-        elif idx_coma != -1: return t.replace(',', '.')
-        return t
+    import unicodedata
+
+    def normalizar_texto(texto):
+        """Quita acentos y convierte a mayúsculas."""
+        if not isinstance(texto, str): return str(texto)
+        return ''.join(c for c in unicodedata.normalize('NFD', texto)
+                      if unicodedata.category(c) != 'Mn').upper().strip()
+
+    def limpiar_monto_robusto(val):
+        """Convierte montos (con comas o puntos) a float puro."""
+        if pd.isna(val) or str(val).strip() in ['', '-', 'nan']: return 0.0
+        if isinstance(val, (int, float)): return float(val)
+        
+        t = str(val).strip().replace('Bs', '').replace('$', '').replace(' ', '')
+        # Caso: 1.234.567,89 -> 1234567.89
+        if ',' in t and '.' in t:
+            if t.rfind(',') > t.rfind('.'): t = t.replace('.', '').replace(',', '.')
+            else: t = t.replace(',', '')
+        # Caso: 1234,56 -> 1234.56
+        elif ',' in t:
+            t = t.replace(',', '.')
+            
+        t = re.sub(r'[^\d.-]', '', t)
+        try: return float(t)
+        except: return 0.0
 
     def procesar_excel_cofersa(archivo_buffer):
         try:
@@ -191,43 +203,38 @@ def cargar_datos_cofersa(uploaded_actual, uploaded_anterior, log_messages):
             log_messages.append(f"❌ Error al leer Excel COFERSA: {e}")
             return None
 
-        # 1. Normalizar encabezados a Mayúsculas y sin espacios extra
-        df.columns = [str(c).strip().upper() for c in df.columns]
-
-        # 2. MAPEO ESPECÍFICO COFERSA (Manual)
+        # 1. Mapeo Robusto de Columnas (Quitando acentos)
         rename_map = {}
         for col in df.columns:
-            # Buscamos coincidencias parciales específicas de tu archivo
-            if 'DEBITO' in col and 'LOCAL' in col: rename_map[col] = 'Débito Bolivar'
-            elif 'CREDITO' in col and 'LOCAL' in col: rename_map[col] = 'Crédito Bolivar'
-            elif 'DEBITO' in col and ('DOLAR' in col or 'DÓLAR' in col): rename_map[col] = 'Débito Dolar'
-            elif 'CREDITO' in col and ('DOLAR' in col or 'DÓLAR' in col): rename_map[col] = 'Crédito Dolar'
+            norm_col = normalizar_texto(col)
             
-            elif 'ASIENTO' in col: rename_map[col] = 'Asiento'
-            elif 'FECHA' in col: rename_map[col] = 'Fecha'
-            elif 'REFERENCIA' in col: rename_map[col] = 'Referencia'
-            elif 'TIPO' in col: rename_map[col] = 'Tipo'
-            elif 'FUENTE' in col: rename_map[col] = 'Fuente'
-            elif 'ORIGEN' in col: rename_map[col] = 'Origen'
-            elif 'NIT' in col: rename_map[col] = 'Nit'
-            elif 'DESCRIPCI' in col: rename_map[col] = 'Descripción Nit'
+            if 'DEBITO' in norm_col and 'LOCAL' in norm_col: rename_map[col] = 'Débito Bolivar'
+            elif 'CREDITO' in norm_col and 'LOCAL' in norm_col: rename_map[col] = 'Crédito Bolivar'
+            elif 'DEBITO' in norm_col and 'DOLAR' in norm_col: rename_map[col] = 'Débito Dolar'
+            elif 'CREDITO' in norm_col and 'DOLAR' in norm_col: rename_map[col] = 'Crédito Dolar'
+            
+            elif 'ASIENTO' in norm_col: rename_map[col] = 'Asiento'
+            elif 'FECHA' in norm_col: rename_map[col] = 'Fecha'
+            elif 'REFERENCIA' in norm_col: rename_map[col] = 'Referencia'
+            elif 'TIPO' in norm_col: rename_map[col] = 'Tipo'
+            elif 'FUENTE' in norm_col: rename_map[col] = 'Fuente'
+            elif 'NIT' in norm_col or 'RIF' in norm_col: rename_map[col] = 'Nit'
+            elif 'DESCRIPCI' in norm_col: rename_map[col] = 'Descripción Nit'
 
         df.rename(columns=rename_map, inplace=True)
+        # Eliminar columnas duplicadas si las hay después del rename
         df = df.loc[:, ~df.columns.duplicated()]
         
-        # 3. Limpieza de Datos
+        # 2. Limpieza de Datos
         if 'Fecha' in df.columns: df['Fecha'] = pd.to_datetime(df['Fecha'], errors='coerce')
-        if 'Asiento' in df.columns: df['Asiento'] = df['Asiento'].astype(str).str.strip()
-        if 'Referencia' in df.columns: df['Referencia'] = df['Referencia'].astype(str).str.strip()
-
-        # 4. Limpieza Numérica (Convertir a float seguro)
+        
+        # 3. Limpieza de montos usando el nuevo motor robusto
         cols_fin = ['Débito Bolivar', 'Crédito Bolivar', 'Débito Dolar', 'Crédito Dolar']
         for c in cols_fin:
-            if c not in df.columns:
-                df[c] = 0.0
+            if c in df.columns:
+                df[c] = df[c].apply(limpiar_monto_robusto)
             else:
-                df[c] = df[c].apply(limpiar_numero_local)
-                df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0.0)
+                df[c] = 0.0
         
         return df
 
@@ -239,17 +246,15 @@ def cargar_datos_cofersa(uploaded_actual, uploaded_anterior, log_messages):
 
     df_full = pd.concat([df_ant, df_act], ignore_index=True)
     
-    # Calcular NETOS para la lógica de COFERSA
-    # (Blindado: son floats seguros gracias al paso 4)
+    # Calcular NETOS (Ya son números seguros)
     df_full['Neto Local'] = (df_full['Débito Bolivar'] - df_full['Crédito Bolivar']).round(2)
     df_full['Neto Dólar'] = (df_full['Débito Dolar'] - df_full['Crédito Dolar']).round(2)
     
-    # Columnas auxiliares
-    df_full['Monto_BS'] = df_full['Neto Local'] # Compatibilidad
+    df_full['Monto_BS'] = df_full['Neto Local']
     df_full['Monto_USD'] = df_full['Neto Dólar']
     df_full['Conciliado'] = False
     
-    log_messages.append(f"✅ Datos COFERSA cargados. Total: {len(df_full)}")
+    log_messages.append(f"✅ Datos COFERSA cargados exitosamente (Columnas con acento detectadas).")
     return df_full
 
 @st.cache_data
