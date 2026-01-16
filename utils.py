@@ -2205,13 +2205,13 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
         # --- DEFINICIÓN DE ESTILOS ---
         fmt_header_raw = workbook.add_format({'bold': False, 'font_size': 10})
         header_clean = workbook.add_format({'bold': True, 'border': 1, 'align': 'center', 'valign': 'vcenter', 'text_wrap': True, 'bg_color': '#FFFFFF'})
-        header_yellow = workbook.add_format({'bold': True, 'bg_color': '#FFFF00', 'border': 1, 'align': 'center', 'valign': 'vcenter', 'text_wrap': True})
-        fmt_text = workbook.add_format({'border': 1})
-        fmt_money = workbook.add_format({'num_format': '#,##0.00', 'border': 1})
-        fmt_money_bold = workbook.add_format({'num_format': '#,##0.00', 'border': 1, 'bold': True})
-        fmt_rate = workbook.add_format({'num_format': '#,##0.0000', 'border': 1})
+        fmt_text = workbook.add_format({'border': 1, 'valign': 'vcenter'})
+        fmt_money = workbook.add_format({'num_format': '#,##0.00', 'border': 1, 'valign': 'vcenter'})
+        fmt_money_bold = workbook.add_format({'num_format': '#,##0.00', 'border': 1, 'bold': True, 'bg_color': '#F2F2F2'})
+        fmt_rate = workbook.add_format({'num_format': '#,##0.0000', 'border': 1, 'valign': 'vcenter'})
         box_val = workbook.add_format({'num_format': '#,##0.00', 'border': 1, 'bold': True, 'align': 'center'})
         main_title = workbook.add_format({'bold': True, 'font_size': 14})
+        total_label = workbook.add_format({'bold': True, 'align': 'right', 'border': 1, 'bg_color': '#F2F2F2'})
 
         # ==========================================
         # HOJA 1: AJUSTES (Diseño Balance)
