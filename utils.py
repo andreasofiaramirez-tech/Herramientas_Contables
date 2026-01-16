@@ -477,84 +477,92 @@ def _generar_hoja_conciliados_estandar(workbook, formatos, df_conciliados, estra
     # Preparar DataFrame
     df = df_conciliados.copy()
     
-    # Caso especial nombres de columnas para Devoluciones
+    # Identificadores de caso
     es_devolucion = estrategia['id'] == 'devoluciones_proveedores'
     is_cofersa = estrategia['id'] == "fondos_transito_cofersa"
-    is_fondos_cofersa = estrategia['id'] == "fondos_transito_cofersa"
     
+    # 1. DETERMINAR ESTRUCTURA DE COLUMNAS (Jerarquía protegida)
     if is_cofersa:
-        # Estructura de columna única para COFERSA
-        columnas = ['Fecha', 'Asiento', 'Referencia', 'Monto Dólar', 'Monto Colones', 'Grupo de Conciliación']
-        df['Monto Colones'] = df['Monto_BS'] # El crédito ya es negativo por el Neto Local
+        # Estructura de COLUMNA ÚNICA para FONDOS COFERSA
+        # El crédito ya es negativo por la lógica Neto = D - C definida en el cargador
+        columnas = ['Fecha', 'Asiento', 'Referencia', 'Fuente', 'Monto Dólar', 'Monto Colones', 'Grupo de Conciliación']
+        df['Monto Colones'] = df['Monto_BS']
         df['Monto Dólar'] = df['Monto_USD']
         fmt_local = formatos['colones']
         fmt_total_local = formatos['total_colones']
-    
-    if es_devolucion:
+        
+    elif es_devolucion:
+        # Estructura para Devoluciones
         columnas = ['Fecha', 'Asiento', 'Referencia', 'Nombre del Proveedor', 'Monto Dólar', 'Monto Bs.', 'Grupo de Conciliación']
         df['Monto Dólar'] = df['Monto_USD']
         df['Monto Bs.'] = df['Monto_BS']
-        df['Grupo de Conciliación'] = df['Grupo_Conciliado']
+        fmt_local = formatos['bs']
+        fmt_total_local = formatos['total_bs']
+        
     else:
-        # Estándar
+        # Estructura Estándar de DOBLE COLUMNA (Débitos / Créditos)
         columnas = ['Fecha', 'Asiento', 'Referencia', 'Débitos Dólares', 'Créditos Dólares', 'Débitos Bs', 'Créditos Bs', 'Grupo de Conciliación']
         df['Débitos Dólares'] = df['Monto_USD'].apply(lambda x: x if x > 0 else 0)
-        df['Créditos Dólares'] = df['Monto_USD'].apply(lambda x: x if x < 0 else 0)
+        df['Créditos Dólares'] = df['Monto_USD'].apply(lambda x: abs(x) if x < 0 else 0)
         df['Débitos Bs'] = df['Monto_BS'].apply(lambda x: x if x > 0 else 0)
-        df['Créditos Bs'] = df['Monto_BS'].apply(lambda x: x if x < 0 else 0)
-        df['Grupo de Conciliación'] = df['Grupo_Conciliado']
-    
+        df['Créditos Bs'] = df['Monto_BS'].apply(lambda x: abs(x) if x < 0 else 0)
+        fmt_local = formatos['bs']
+        fmt_total_local = formatos['total_bs']
+
+    # Estandarizar nombre del grupo y reordenar
+    df['Grupo de Conciliación'] = df['Grupo_Conciliado']
     df = df.reindex(columns=columnas).sort_values(by=['Grupo de Conciliación', 'Fecha'])
     
-    # Escribir
+    # Escribir Encabezados
     ws.merge_range(0, 0, 0, len(columnas)-1, 'Detalle de Movimientos Conciliados', formatos['encabezado_sub'])
     ws.write_row(1, 0, columnas, formatos['header_tabla'])
     
-    # Indices
-    deb_usd_idx = get_col_idx(df, ['Débitos Dólares', 'Monto Dólar'])
-    cre_usd_idx = get_col_idx(df, ['Créditos Dólares']) 
-    deb_bs_idx = get_col_idx(df, ['Débitos Bs', 'Monto Bs.'])
-    cre_bs_idx = get_col_idx(df, ['Créditos Bs'])
-
+    # 2. ESCRITURA DE DATOS (Detección por nombre de columna para aplicar formatos)
     current_row = 2
     for _, row in df.iterrows():
-        for c_idx, val in enumerate(row):
-            if c_idx in [deb_usd_idx, cre_usd_idx]: ws.write_number(current_row, c_idx, val, formatos['usd'])
-            elif c_idx in [deb_bs_idx, cre_bs_idx]: ws.write_number(current_row, c_idx, val, formatos['bs'])
-            elif pd.isna(val): ws.write(current_row, c_idx, '')
-            elif isinstance(val, pd.Timestamp): ws.write_datetime(current_row, c_idx, val, formatos['fecha'])
-            else: ws.write(current_row, c_idx, val)
+        for c_idx, col_name in enumerate(columnas):
+            val = row[col_name]
+            
+            # Formatos de Moneda
+            if 'Dólar' in col_name or 'Dólares' in col_name:
+                ws.write_number(current_row, c_idx, val, formatos['usd'])
+            elif 'Colones' in col_name:
+                ws.write_number(current_row, c_idx, val, formatos['colones'])
+            elif 'Bs' in col_name:
+                ws.write_number(current_row, c_idx, val, formatos['bs'])
+            
+            # Formatos de Texto y Fecha
+            elif pd.isna(val):
+                ws.write(current_row, c_idx, '')
+            elif isinstance(val, pd.Timestamp):
+                ws.write_datetime(current_row, c_idx, val, formatos['fecha'])
+            else:
+                ws.write(current_row, c_idx, val)
         current_row += 1
     
-    # --- TOTALES Y COMPROBACIÓN ---
-    ws.write(current_row, 2, "TOTALES", formatos['total_label']) # Etiqueta en col Referencia
+    # 3. TOTALES GENERALES
+    ws.write(current_row, 2, "TOTALES", formatos['total_label'])
+    for c_idx, col_name in enumerate(columnas):
+        if any(k in col_name for k in ['Dólar', 'Dólares', 'Colones', 'Bs']):
+            suma = df[col_name].sum()
+            # Asignar formato de total correcto
+            if 'Dólar' in col_name or 'Dólares' in col_name: f = formatos['total_usd']
+            elif 'Colones' in col_name: f = formatos['total_colones']
+            else: f = formatos['total_bs']
+            ws.write_number(current_row, c_idx, suma, f)
     
-    sum_deb_usd = df.iloc[:, deb_usd_idx].sum() if deb_usd_idx != -1 else 0
-    sum_cre_usd = df.iloc[:, cre_usd_idx].sum() if cre_usd_idx != -1 else 0
-    sum_deb_bs = df.iloc[:, deb_bs_idx].sum() if deb_bs_idx != -1 else 0
-    sum_cre_bs = df.iloc[:, cre_bs_idx].sum() if cre_bs_idx != -1 else 0
+    # 4. FILA DE COMPROBACIÓN (Solo para doble columna estándar)
+    if not is_cofersa and not es_devolucion:
+        current_row += 1
+        ws.write(current_row, 2, "Comprobacion", formatos['subtotal_label'])
+        for c_idx, col_name in enumerate(columnas):
+            if 'Débitos Dólares' in col_name:
+                # En la data original los créditos son negativos, por lo que Sum(D)+Sum(C) debe ser 0
+                ws.write_number(current_row, c_idx, df['Débitos Dólares'].sum() - df['Créditos Dólares'].sum(), formatos['total_usd'])
+            if 'Débitos Bs' in col_name:
+                ws.write_number(current_row, c_idx, df['Débitos Bs'].sum() - df['Créditos Bs'].sum(), formatos['total_bs'])
 
-    if deb_usd_idx != -1: ws.write_number(current_row, deb_usd_idx, sum_deb_usd, formatos['total_usd'])
-    if cre_usd_idx != -1: ws.write_number(current_row, cre_usd_idx, sum_cre_usd, formatos['total_usd'])
-    if deb_bs_idx != -1: ws.write_number(current_row, deb_bs_idx, sum_deb_bs, formatos['total_bs'])
-    if cre_bs_idx != -1: ws.write_number(current_row, cre_bs_idx, sum_cre_bs, formatos['total_bs'])
-    
-    # --- FILA DE COMPROBACIÓN ---
-    # Como los créditos son negativos en la data, la suma algebraica (Débito + Crédito) debe dar 0.
-    current_row += 1
-    ws.write(current_row, 2, "Comprobacion", formatos['subtotal_label'])
-    
-    # Comprobación USD
-    if deb_usd_idx != -1 and cre_usd_idx != -1:
-        neto_usd = sum_deb_usd + sum_cre_usd 
-        ws.write_number(current_row, deb_usd_idx, neto_usd, formatos['total_usd'])
-        
-    # Comprobación Bs (o en devoluciones si solo hay 1 columna de monto, no aplica comprobación D-C)
-    if deb_bs_idx != -1 and cre_bs_idx != -1:
-        neto_bs = sum_deb_bs + sum_cre_bs
-        ws.write_number(current_row, deb_bs_idx, neto_bs, formatos['total_bs'])
-
-    ws.set_column('A:H', 18)
+    ws.set_column(0, len(columnas), 18)
 
 def _generar_hoja_conciliados_agrupada(workbook, formatos, df_conciliados, estrategia):
     """Para cuentas agrupadas: Cobros Viajeros, Otras CxP, Deudores, Haberes y Factoring."""
