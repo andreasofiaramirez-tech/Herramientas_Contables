@@ -1018,13 +1018,11 @@ def _generar_hoja_pendientes_corrida(workbook, formatos, df_saldos, estrategia, 
 
 def _generar_hoja_pendientes_proveedores(workbook, formatos, df_saldos, estrategia, casa, fecha_maxima):
     """
-    Hoja 1: Formato de agrupación por Proveedor (Encabezados).
-    Muestra los movimientos individuales con su Referencia real.
-    Sin subtotales por grupo, solo Gran Total al final.
+    Hoja 1: Resumen de saldos abiertos por Embarque.
+    La descripción mostrada es la referencia del movimiento ACREEDOR (monto negativo).
     """
     ws = workbook.add_worksheet(estrategia.get("nombre_hoja_excel", "Pendientes"))
     ws.hide_gridlines(2)
-    ws.freeze_panes(5, 0)
     
     # 1. ENCABEZADOS DE REPORTE
     if pd.notna(fecha_maxima):
@@ -1040,25 +1038,21 @@ def _generar_hoja_pendientes_proveedores(workbook, formatos, df_saldos, estrateg
     df = df_saldos[df_saldos['Conciliado'] == False].copy()
     if df.empty: return
 
-    # 2. PREPARACIÓN Y LIMPIEZA
+    # 2. PREPARACIÓN
     col_nit = 'NIT_Reporte' if 'NIT_Reporte' in df.columns else 'NIT_Norm'
     col_nombre = next((c for c in ['Descripción Nit', 'Descripcion Nit', 'Nombre del Proveedor'] if c in df.columns), 'NIT')
 
     df[col_nit] = df[col_nit].astype(str).replace(['nan', 'NaN', 'None', 'ND', '0'], 'SIN NIT')
     df[col_nombre] = df[col_nombre].astype(str).replace(['nan', 'NaN', 'None', '0', ''], 'PROVEEDOR NO IDENTIFICADO')
 
-    # Ordenamiento jerárquico
-    df = df.sort_values(by=[col_nit, 'Numero_Embarque', 'Fecha'])
-
     fmt_header_prov = workbook.add_format({'bold': True, 'bg_color': '#FFFFFF', 'bottom': 1})
     current_row = 5
     gran_total_usd = 0
     gran_total_bs = 0
 
-    # 3. BUCLE DE ESCRITURA AGRUPADO POR EMBARQUE
+    # 3. BUCLE POR PROVEEDOR
     for nit_val, grupo_prov in df.groupby(col_nit, sort=False):
         
-        # Saltamos si el total del proveedor es despreciable
         if abs(round(grupo_prov['Monto_USD'].sum(), 2)) <= 0.01:
             continue
 
@@ -1069,29 +1063,26 @@ def _generar_hoja_pendientes_proveedores(workbook, formatos, df_saldos, estrateg
         ws.write_row(current_row, 2, ["", "", ""], fmt_header_prov)
         current_row += 1
 
-        # AGRUPAMOS POR EMBARQUE para mostrar una sola línea por cada uno
-        resumen_embarques = grupo_prov.groupby('Numero_Embarque').agg({
-            'Monto_USD': 'sum',
-            'Monto_BS': 'sum'
-        }).reset_index()
+        # 4. BUCLE POR EMBARQUE (Agrupación para la fila única)
+        for emb_id, grupo_emb in grupo_prov.groupby('Numero_Embarque'):
+            s_usd = grupo_emb['Monto_USD'].sum()
+            s_bs = grupo_emb['Monto_BS'].sum()
 
-        for _, row_emb in resumen_embarques.iterrows():
-            emb_id = row_emb['Numero_Embarque']
-            s_usd = row_emb['Monto_USD']
-            s_bs = row_emb['Monto_BS']
-
-            # Solo mostrar si el embarque individual tiene saldo
             if abs(round(s_usd, 2)) > 0.01:
-                ws.write(current_row, 0, "", formatos['text']) # NIT vacío
+                # --- LÓGICA DE REFERENCIA ACREEDORA ---
+                # Buscamos la fila donde el monto sea negativo (Acreedor)
+                fila_acreedora = grupo_emb[grupo_emb['Monto_USD'] < 0]
                 
-                # --- CAMBIO SOLICITADO: Referencia del embarque en la descripción ---
-                desc_ref = f"SALDO PENDIENTE EMBARQUE: {emb_id}" if emb_id != 'NO_EMB' else "PARTIDAS SIN EMBARQUE"
-                ws.write(current_row, 1, desc_ref, formatos['text'])
+                if not fila_acreedora.empty:
+                    # Usamos la referencia de la primera fila negativa encontrada
+                    ref_acreedora = fila_acreedora.iloc[0]['Referencia']
+                else:
+                    # Fallback: Si por alguna razón no hay negativos, usamos la primera disponible
+                    ref_acreedora = grupo_emb.iloc[0]['Referencia']
                 
-                # Columna Embarque
+                ws.write(current_row, 0, "", formatos['text']) 
+                ws.write(current_row, 1, str(ref_acreedora), formatos['text'])
                 ws.write(current_row, 2, emb_id if emb_id != 'NO_EMB' else "", formatos['text'])
-                
-                # Montos totales del embarque
                 ws.write_number(current_row, 3, s_usd, formatos['usd'])
                 ws.write_number(current_row, 4, s_bs, formatos['bs'])
                 
@@ -1101,12 +1092,12 @@ def _generar_hoja_pendientes_proveedores(workbook, formatos, df_saldos, estrateg
 
         current_row += 1 # Espacio entre proveedores
 
-    # 4. TOTAL GENERAL (Único total al final)
+    # 5. TOTAL GENERAL
     current_row += 1
     ws.write(current_row, 2, "TOTAL GENERAL", formatos['total_label'])
     ws.write_number(current_row, 3, gran_total_usd, formatos['total_usd'])
     ws.write_number(current_row, 4, gran_total_bs, formatos['total_bs'])
-
+    
     # Ajuste de anchos
     ws.set_column('A:A', 15) # NIT
     ws.set_column('B:B', 55) # Referencia
