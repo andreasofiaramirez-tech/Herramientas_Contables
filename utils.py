@@ -2194,58 +2194,50 @@ def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, resumen_validaci
 
     return output.getvalue()
 
-def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_raw, nombre_empresa, validacion_data):
-    """
-    Genera Excel Ajustes USD con las 4 hojas solicitadas.
-    """
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        workbook = writer.book
-        
-        # --- DEFINICIÓN DE ESTILOS ---
-        fmt_header_raw = workbook.add_format({'bold': False, 'font_size': 10})
-        header_clean = workbook.add_format({'bold': True, 'border': 1, 'align': 'center', 'valign': 'vcenter', 'text_wrap': True, 'bg_color': '#FFFFFF'})
-        fmt_text = workbook.add_format({'border': 1, 'valign': 'vcenter'})
-        fmt_money = workbook.add_format({'num_format': '#,##0.00', 'border': 1, 'valign': 'vcenter'})
-        fmt_money_bold = workbook.add_format({'num_format': '#,##0.00', 'border': 1, 'bold': True, 'bg_color': '#F2F2F2'})
-        fmt_rate = workbook.add_format({'num_format': '#,##0.0000', 'border': 1, 'valign': 'vcenter'})
-        box_val = workbook.add_format({'num_format': '#,##0.00', 'border': 1, 'bold': True, 'align': 'center'})
-        main_title = workbook.add_format({'bold': True, 'font_size': 14})
-        total_label = workbook.add_format({'bold': True, 'align': 'right', 'border': 1, 'bg_color': '#F2F2F2'})
-
-        # ==========================================
-        # HOJA 1: AJUSTES (Diseño Balance)
+# ==========================================
+        # HOJA 1: AJUSTES
         # ==========================================
         ws1 = workbook.add_worksheet('1. Ajustes')
         ws1.hide_gridlines(2)
         
-        # 1. Encabezado Original (Filas 1-6)
+        # 1. RECREAR ENCABEZADO LIMPIO (Solo Columnas A y B)
         if df_balance_raw is not None and not df_balance_raw.empty:
             for r_idx in range(min(6, len(df_balance_raw))):
-                fila = df_balance_raw.iloc[r_idx]
-                for c_idx, val in enumerate(fila):
-                    if pd.notna(val): ws1.write(r_idx, c_idx, val, fmt_header_raw)
+                # Solo escribimos columnas 0 (A) y 1 (B) para evitar el texto rojo/basura
+                for c_idx in [0, 1]:
+                    val = df_balance_raw.iloc[r_idx, c_idx]
+                    if pd.notna(val):
+                        ws1.write(r_idx, c_idx, val, fmt_header_raw)
 
-        # 2. Cuadro de Validación
+        # 2. CUADRO DE VALIDACIÓN EN COLUMNAS I, J, K (Índices 8, 9, 10)
+        # Activo: Fila 2, Pasivo: Fila 3, Dif: Fila 5
         act = validacion_data.get('total_ajuste_activo', 0)
         pas = validacion_data.get('total_ajuste_pasivo', 0)
-        ws1.write('K2', "1", header_clean); ws1.write('L2', "ACTIVO", header_clean); ws1.write_number('M2', act, box_val)
-        ws1.write('K3', "2", header_clean); ws1.write('L3', "PASIVO", header_clean); ws1.write_number('M3', pas, box_val)
-        ws1.write('K5', "DIF", workbook.add_format({'bold': True, 'align': 'right'})); ws1.write_formula('M5', '=M2-M3', box_val)
+        
+        ws1.write(1, 8, "1", header_clean)    # Col I
+        ws1.write(1, 9, "ACTIVO", header_clean) # Col J
+        ws1.write_number(1, 10, act, box_val)   # Col K
+        
+        ws1.write(2, 8, "2", header_clean) 
+        ws1.write(2, 9, "PASIVO", header_clean) 
+        ws1.write_number(2, 10, pas, box_val)
+        
+        ws1.write(4, 9, "DIF", workbook.add_format({'bold': True, 'align': 'right'}))
+        ws1.write_formula(4, 10, '=K2-K3', box_val)
 
-        # 3. Títulos de Tabla
+        # 3. ENCABEZADOS DE LA TABLA
         ws1.merge_range('D6:E6', "Moneda Local", header_clean)
         ws1.merge_range('F6:G6', "Moneda Dólar", header_clean)
         ws1.write_row('A7', ['Cuenta', 'Descripción', 'Saldo Norm', 'Balance Final', 'Balance Final', 'AJUSTE', 'SALDO AJUSTADO', 'TASA'], header_clean) 
 
-        # 4. Mapeo de Ajustes
+        # 4. MAPEO DE AJUSTES
         mapa_ajustes = {}
         if not df_resumen.empty:
             for _, row in df_resumen.iterrows():
                 cta = str(row['Cuenta']).strip()
                 mapa_ajustes[cta] = mapa_ajustes.get(cta, 0.0) + row['Ajuste USD']
 
-        # 5. Escritura de Cuentas Transaccionales
+        # 5. ESCRITURA DE DATOS
         current_row = 7
         if df_balance_raw is not None and not df_balance_raw.empty:
             start_idx = 0
@@ -2281,7 +2273,9 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
                     ws1.write_number(current_row, 7, tasa, fmt_rate)
                     current_row += 1
                 except: continue
+        
         ws1.set_column('A:A', 15); ws1.set_column('B:B', 45); ws1.set_column('D:G', 18)
+        ws1.set_column('I:K', 12) # Columnas del Cuadro Resumen.
 
         # ==========================================
         # HOJA 2: DETALLE BANCOS (CON FÓRMULAS DINÁMICAS)
