@@ -4132,7 +4132,6 @@ def extraer_saldos_cg_ajustes(archivo, log_messages):
 
     return datos_cg
 
-# 3. MOTOR PRINCIPAL
 def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, f_haberes, tasa_bcv, tasa_corp, log):
     """
     Motor principal de Ajustes USD.
@@ -4255,15 +4254,18 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
                     
                     # --- GENERAR ASIENTO Y RESUMEN ---
                     if abs(ajuste_usd) > 0.001:
-                        desc_cg = datos_cg.get(cta, {}).get('descripcion', 'Banco')
+                        desc_cg = datos_cg.get(cta, {}).get('descripcion', desc_banco)
                         saldo_cg_usd = datos_cg.get(cta, {}).get('USD', 0.0)
                         
-                        # Acumulamos validación (Bancos son Activos 1.)
                         val_activo_ajuste += ajuste_usd
                         
+                        # Es Vital que 'Cuenta' sea el código exacto (ej. 1.1.1.02.1.002)
                         resumen_ajustes.append({
-                            'Cuenta': cta, 'Descripción': desc_cg, 'Origen': 'Bancos',
-                            'Saldo Actual USD': saldo_cg_usd, 'Ajuste USD': ajuste_usd,
+                            'Cuenta': cta, 
+                            'Descripción': desc_cg, 
+                            'Origen': 'Bancos',
+                            'Saldo Actual USD': saldo_cg_usd, 
+                            'Ajuste USD': ajuste_usd,
                             'Saldo Final USD': saldo_cg_usd + ajuste_usd
                         })
                         
