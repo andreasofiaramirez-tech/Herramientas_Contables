@@ -479,6 +479,7 @@ def _generar_hoja_conciliados_estandar(workbook, formatos, df_conciliados, estra
     
     # Caso especial nombres de columnas para Devoluciones
     es_devolucion = estrategia['id'] == 'devoluciones_proveedores'
+    is_cofersa = estrategia['id'] == "fondos_transito_cofersa"
     is_fondos_cofersa = estrategia['id'] == "fondos_transito_cofersa"
     
     if is_cofersa:
