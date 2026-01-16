@@ -4162,123 +4162,96 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
     # 1. CARGAR BALANCE (CG)
     datos_cg = extraer_saldos_cg_ajustes(f_balance, log) # Usa la función exclusiva para ajustes
     
-    # 2. PROCESAR BANCOS (CÁLCULO DETALLADO PARA HOJA 2)
+    # 2. PROCESAR BANCOS (CÁLCULO DETALLADO CON DETECCIÓN DE FILA 4)
     lista_bancos_reporte = []
     
     if f_bancos:
         try:
-            df_b = pd.read_excel(f_bancos)
+            # --- PASO A: DETECTAR FILA DE ENCABEZADO ---
+            df_raw_b = pd.read_excel(f_bancos, header=None)
+            header_idx_b = 0
+            for i, row in df_raw_b.head(15).iterrows():
+                row_str = [str(x).upper() for x in row.values]
+                if any("CUENTA CONTABLE" in s for s in row_str) or any("TIPO" in s for s in row_str):
+                    header_idx_b = i
+                    break
+            
+            # Cargar con el encabezado detectado
+            df_b = pd.read_excel(f_bancos, header=header_idx_b)
             df_b.columns = [str(c).strip().upper().replace('\n', ' ') for c in df_b.columns]
             
-            # Mapeo de columnas del archivo de entrada
-            col_no_conc = next((c for c in df_b.columns if ("BANCO" in c and "NO" in c) or ("CONCILIADOS" in c and "BANCO" in c)), None)
+            # --- PASO B: MAPEO DE COLUMNAS SEGÚN TU IMAGEN ---
+            col_no_conc = next((c for c in df_b.columns if "BANCO" in c and "NO" in c and "CONCILIADO" in c), None)
             col_cta = next((c for c in df_b.columns if "CUENTA CONTABLE" in c), None)
             col_tipo = next((c for c in df_b.columns if "TIPO" in c), None)
             col_desc = next((c for c in df_b.columns if "DESCRIPCI" in c), None)
-            col_nro = next((c for c in df_b.columns if "NRO" in c), None)
+            col_nro = next((c for c in df_b.columns if "NRO" in c or "NUMERO" in c), None)
             col_banc = next((c for c in df_b.columns if "BANCARIA" in c), None)
-            col_f_ini = next((c for c in df_b.columns if "INICIAL" in c), None)
-            col_f_fin = next((c for c in df_b.columns if "FINAL" in c), None)
             col_sal_lib = next((c for c in df_b.columns if "SALDO" in c and "LIBROS" in c), None)
             col_sal_bco = next((c for c in df_b.columns if "SALDO" in c and "BANCOS" in c), None)
             col_est = next((c for c in df_b.columns if "ESTADO" in c), None)
 
+            def limpiar_monto_venezuela(val):
+                if pd.isna(val) or str(val).strip() in ['', '-']: return 0.0
+                if isinstance(val, (int, float)): return float(val)
+                # Si viene como string "28.525,60" -> "28525.60"
+                t = str(val).replace('.', '').replace(',', '.')
+                try: return float(t)
+                except: return 0.0
+
             if col_no_conc and col_cta:
                 for _, row in df_b.iterrows():
-                    # Extracción de datos básicos
                     cta = str(row[col_cta]).strip()
+                    if cta == 'nan' or not cta: continue
+                    
                     tipo = str(row[col_tipo]).strip().upper() if col_tipo else "L"
-                    desc_banco = row[col_desc] if col_desc else ""
+                    desc_banco = str(row[col_desc]) if col_desc else ""
                     
-                    try: monto_nc = float(row[col_no_conc])
-                    except: monto_nc = 0.0
-                    
-                    try: s_lib_orig = float(row[col_sal_lib])
-                    except: s_lib_orig = 0.0
-                    
-                    try: s_bco_orig = float(row[col_sal_bco])
-                    except: s_bco_orig = 0.0
+                    monto_nc = limpiar_monto_venezuela(row[col_no_conc])
+                    s_lib_orig = limpiar_monto_venezuela(row[col_sal_lib])
+                    s_bco_orig = limpiar_monto_venezuela(row[col_sal_bco])
 
-                    # --- LÓGICA DE CÁLCULO DE LA IMAGEN ---
+                    # --- LÓGICA DE CÁLCULO ---
                     if tipo in ['E', 'C']: # Moneda Extranjera
                         tasa_ref = tasa_bcv
-                        # En cuentas E, el saldo original ya está en USD? 
-                        # Según tu imagen, parece que para E: Saldo Libros y Bancos BS se multiplica.
-                        # Asumiremos que el archivo de entrada trae montos en su moneda natural.
-                        
                         s_lib_bs = s_lib_orig * tasa_bcv
                         s_bco_bs = s_bco_orig * tasa_bcv
                         s_lib_usd = s_lib_orig
                         s_bco_usd = s_bco_orig
-                        
                         ajuste_bs = monto_nc * tasa_bcv
                         ajuste_usd = monto_nc
-                        
                     else: # Moneda Local (L)
                         tasa_ref = tasa_corp
-                        
                         s_lib_bs = s_lib_orig
                         s_bco_bs = s_bco_orig
                         s_lib_usd = s_lib_orig / tasa_corp if tasa_corp else 0
                         s_bco_usd = s_bco_orig / tasa_corp if tasa_corp else 0
-                        
                         ajuste_bs = monto_nc
                         ajuste_usd = monto_nc / tasa_corp if tasa_corp else 0
                     
-                    # Verificación (Debe tender a 0)
                     verificacion = (s_lib_usd + ajuste_usd) - s_bco_usd
 
-                    # Guardar fila para el reporte de Bancos (Hoja 2)
                     lista_bancos_reporte.append({
-                        'TIP': tipo, 'Cuenta Contable': cta, 'Descripción': desc_banco,
-                        'Nro. De Cuenta': row[col_nro] if col_nro else '',
-                        'Cuenta Bancaria': row[col_banc] if col_banc else '',
-                        'Fecha Inicial': row[col_f_ini] if col_f_ini else '',
-                        'Fecha Final': row[col_f_fin] if col_f_fin else '',
-                        'Saldo en Libros': s_lib_orig,
-                        'Saldo en Bancos': s_bco_orig,
-                        'Estado': row[col_est] if col_est else '',
-                        'Movimientos en Libros no Conciliados': 0, # Placeholder según imagen
+                        'TIPO': tipo, 'Cuenta Contable': cta, 'Descripción': desc_banco,
+                        'Saldo en Libros': s_lib_orig, 'Saldo en Bancos': s_bco_orig,
                         'Movimientos en Bancos no Conciliados': monto_nc,
-                        
-                        # Columnas Calculadas
-                        'Saldo en Libros BS': s_lib_bs,
-                        'Saldo en Bancos BS': s_bco_bs,
-                        'Saldo en Libros $': s_lib_usd,
-                        'Saldo en Bancos $': s_bco_usd,
-                        'AJUSTE BS': ajuste_bs,
-                        'AJUSTE $': ajuste_usd,
-                        'TASA': tasa_ref,
-                        'VERIFICACION': verificacion
+                        'Saldo en Libros BS': s_lib_bs, 'Saldo en Bancos BS': s_bco_bs,
+                        'Saldo en Libros $': s_lib_usd, 'Saldo en Bancos $': s_bco_usd,
+                        'AJUSTE BS': ajuste_bs, 'AJUSTE $': ajuste_usd,
+                        'TASA': tasa_ref, 'VERIFICACION': verificacion
                     })
                     
-                    # --- GENERAR ASIENTO Y RESUMEN ---
+                    # Agregar al resumen para Hoja 1
                     if abs(ajuste_usd) > 0.001:
-                        desc_cg = datos_cg.get(cta, {}).get('descripcion', desc_banco)
-                        saldo_cg_usd = datos_cg.get(cta, {}).get('USD', 0.0)
-                        
-                        val_activo_ajuste += ajuste_usd
-                        
-                        # Es Vital que 'Cuenta' sea el código exacto (ej. 1.1.1.02.1.002)
                         resumen_ajustes.append({
-                            'Cuenta': cta, 
-                            'Descripción': desc_cg, 
-                            'Origen': 'Bancos',
-                            'Saldo Actual USD': saldo_cg_usd, 
+                            'Cuenta': cta, 'Descripción': desc_banco, 'Origen': 'Bancos',
+                            'Saldo Actual USD': datos_cg.get(cta, {}).get('USD', 0.0), 
                             'Ajuste USD': ajuste_usd,
-                            'Saldo Final USD': saldo_cg_usd + ajuste_usd
+                            'Saldo Final USD': datos_cg.get(cta, {}).get('USD', 0.0) + ajuste_usd
                         })
-                        
-                        # Asiento
-                        if ajuste_usd > 0:
-                            asientos.append({'Cuenta': cta, 'Desc': desc_cg, 'DebeUSD': ajuste_usd, 'HaberUSD': 0})
-                            asientos.append({'Cuenta': '1.1.3.01.1.001', 'Desc': 'Deudores Comerciales (Ajuste Bco)', 'DebeUSD': 0, 'HaberUSD': ajuste_usd})
-                        else:
-                            m = abs(ajuste_usd)
-                            asientos.append({'Cuenta': '1.1.3.01.1.001', 'Desc': 'Deudores Comerciales (Ajuste Bco)', 'DebeUSD': m, 'HaberUSD': 0})
-                            asientos.append({'Cuenta': cta, 'Desc': desc_cg, 'DebeUSD': 0, 'HaberUSD': m})
+                        val_activo_ajuste += ajuste_usd
 
-        except Exception as e: log.append(f"❌ Error procesando Bancos: {e}")
+        except Exception as e: log.append(f"❌ Error detallado en Bancos: {str(e)}")
 
     df_bancos_final = pd.DataFrame(lista_bancos_reporte)
 
