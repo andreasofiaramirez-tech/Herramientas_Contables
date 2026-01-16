@@ -369,9 +369,9 @@ def render_inicio():
     
     col_c1, col_c2 = st.columns(2)
     with col_c1:
-        st.button("🚛 Envíos en Tránsito (115.07)", on_click=set_page, args=['cofersa'], use_container_width=True)
+        st.button("🚛 Envíos en Tránsito (101050200)", on_click=set_page, args=['cofersa'], use_container_width=True)
     with col_c2:
-        st.button("💰 Fondos en Tránsito (101.01)", on_click=set_page, args=['cofersa_fondos'], type="secondary", use_container_width=True)
+        st.button("💰 Fondos en Tránsito (101010300)", on_click=set_page, args=['cofersa_fondos'], type="secondary", use_container_width=True)
 
     st.markdown("---")
     st.caption("v2.1 - Sistema Integral de Automatización Contable.")
