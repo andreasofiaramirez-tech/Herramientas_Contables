@@ -2284,21 +2284,27 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
         ws1.set_column('A:A', 15); ws1.set_column('B:B', 45); ws1.set_column('D:G', 18)
 
         # ==========================================
-        # HOJA 2: DETALLE BANCOS (TESORERÍA)
+        # HOJA 2: DETALLE BANCOS (REDISEÑADA PARA ESTABILIDAD)
         # ==========================================
-        if df_bancos is not None:
-            ws2 = workbook.add_worksheet('2. Detalle Bancos')
-            ws2.hide_gridlines(2)
-            ws2.write('O1', "TASA BCV", workbook.add_format({'bold':True})); ws2.write('P1', validacion_data.get('tasa_bcv', 0), fmt_rate)
-            ws2.write('O2', "TASA CORP.", workbook.add_format({'bold':True})); ws2.write('P2', validacion_data.get('tasa_corp', 0), fmt_rate)
+        ws2 = workbook.add_worksheet('2. Detalle Bancos')
+        ws2.hide_gridlines(2)
+        ws2.write('O1', "TASA BCV", workbook.add_format({'bold':True})); ws2.write('P1', validacion_data.get('tasa_bcv', 0), fmt_rate)
+        ws2.write('O2', "TASA CORP.", workbook.add_format({'bold':True})); ws2.write('P2', validacion_data.get('tasa_corp', 0), fmt_rate)
+        
+        if df_bancos is not None and not df_bancos.empty:
+            # Escribir Encabezados
+            for c_idx, col_name in enumerate(df_bancos.columns):
+                ws2.write(3, c_idx, col_name, header_clean)
             
-            if not df_bancos.empty:
-                ws2.write_row('A4', df_bancos.columns, header_clean)
-                for r_idx, row in enumerate(df_bancos.values):
-                    for c_idx, val in enumerate(row):
-                        if isinstance(val, (int, float)): ws2.write_number(r_idx+4, c_idx, val, fmt_money)
-                        else: ws2.write(r_idx+4, c_idx, val, fmt_text)
-            ws2.set_column('A:Z', 15)
+            # Escribir Datos
+            for r_idx, row in enumerate(df_bancos.itertuples(index=False)):
+                for c_idx, value in enumerate(row):
+                    if isinstance(value, (int, float)) and not pd.isna(value):
+                        ws2.write_number(r_idx + 4, c_idx, value, fmt_money)
+                    else:
+                        ws2.write(r_idx + 4, c_idx, str(value) if pd.notna(value) else "", fmt_text)
+        ws2.set_column('A:Z', 18)
+
 
         # ==========================================
         # HOJA 3: ASIENTO CONTABLE
