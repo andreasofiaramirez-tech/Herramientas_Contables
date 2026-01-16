@@ -342,6 +342,7 @@ def _generar_hoja_pendientes(workbook, formatos, df_saldos, estrategia, casa, fe
     ws = workbook.add_worksheet(nombre_hoja)
     ws.hide_gridlines(2)
     cols = estrategia["columnas_reporte"]
+    fmt_moneda_local = formatos['colones'] if "COFERSA" in casa else formatos['bs']
     
     # Encabezados
     if pd.notna(fecha_maxima):
