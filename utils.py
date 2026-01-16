@@ -651,7 +651,7 @@ def _generar_hoja_conciliados_agrupada(workbook, formatos, df_conciliados, estra
                 
                 if col_name == 'Fecha' and pd.notna(val): ws.write_datetime(current_row, c_idx, val, formatos['fecha'])
                 elif col_name in ['Débitos', 'Créditos', 'Monto Bs.']: ws.write_number(current_row, c_idx, val, fmt_moneda)
-                elif col_name == 'Monto Bs.'
+                    elif col_name == 'Monto Bs.'
                 elif col_name == 'Saldo': pass
                 else: ws.write(current_row, c_idx, val if pd.notna(val) else '')
             
