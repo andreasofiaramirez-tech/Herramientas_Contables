@@ -649,11 +649,17 @@ def _generar_hoja_conciliados_agrupada(workbook, formatos, df_conciliados, estra
             for c_idx, col_name in enumerate(columnas):
                 val = row.get(col_name)
                 
-                if col_name == 'Fecha' and pd.notna(val): ws.write_datetime(current_row, c_idx, val, formatos['fecha'])
-                elif col_name in ['Débitos', 'Créditos', 'Monto Bs.']: ws.write_number(current_row, c_idx, val, fmt_moneda)
-                    elif col_name == 'Monto Bs.'
-                elif col_name == 'Saldo': pass
-                else: ws.write(current_row, c_idx, val if pd.notna(val) else '')
+                # Verificación de sangría estricta aquí:
+                if col_name == 'Fecha' and pd.notna(val): 
+                    ws.write_datetime(current_row, c_idx, val, formatos['fecha'])
+                elif col_name in ['Débitos', 'Créditos']: 
+                    ws.write_number(current_row, c_idx, val, fmt_moneda)
+                elif col_name == 'Monto Bs.': 
+                    ws.write_number(current_row, c_idx, val, formatos['bs'])
+                elif col_name == 'Saldo': 
+                    pass
+                else: 
+                    ws.write(current_row, c_idx, val if pd.notna(val) else '')
             
             if mostrar_saldo_linea:
                 sum_deb += row.get('Débitos', 0)
