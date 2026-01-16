@@ -4281,7 +4281,7 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
     return pd.DataFrame(resumen_ajustes), pd.DataFrame(lista_bancos_reporte), df_asiento, df_balance_raw, val_data
     
 # ==============================================================================
-# LÓGICA ENVIOS EN TRANSITO COFERSA (115.07.1.002)
+# LÓGICA ENVIOS EN TRANSITO COFERSA (101050200)
 # ==============================================================================
 
 def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
@@ -4396,4 +4396,82 @@ def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
     if progress_bar: progress_bar.progress(1.0, text="Proceso Finalizado.")
     
     df['Conciliado'] = df['Estado_Cofersa'] != 'PENDIENTE'
+    return df
+
+# ==============================================================================
+# LÓGICA FONDOS EN TRANSITO (101010300)
+# ==============================================================================
+def normalizar_fondos_transito_cofersa(df):
+    """Extrae números de referencia y fuente para búsqueda de depósitos."""
+    def extraer_id(texto):
+        if pd.isna(texto): return ""
+        # Extraemos solo los números de más de 4 dígitos (posibles depósitos)
+        nums = re.findall(r'\d{4,}', str(texto))
+        return nums[0] if nums else ""
+
+    df['Ref_Num'] = df['Referencia'].apply(extraer_id)
+    df['Fuente_Num'] = df['Fuente'].apply(extraer_id)
+    return df
+
+def run_conciliation_fondos_transito_cofersa(df, log_messages, progress_bar=None):
+    """
+    Lógica: 
+    1. Pares 1-1 por monto exacto.
+    2. Cruce de Referencia (Débito) contra Fuente (Crédito) usando ID de depósito.
+    """
+    log_messages.append("\n--- INICIANDO FONDOS EN TRÁNSITO COFERSA (101.01.03.00) ---")
+    
+    df = normalizar_fondos_transito_cofersa(df)
+    total_conciliados = 0
+    indices_usados = set()
+
+    # --- FASE 1: PARES 1-1 POR MONTO EXACTO (MISMA REFERENCIA) ---
+    # Prioridad: Que coincidan en monto y tengan algo en común en el texto
+    df_pendientes = df[~df['Conciliado']]
+    for monto, grupo in df_pendientes.groupby(df['Monto_BS'].abs()):
+        if len(grupo) < 2: continue
+        debitos = grupo[grupo['Monto_BS'] > 0].index.tolist()
+        creditos = grupo[grupo['Monto_BS'] < 0].index.tolist()
+        
+        for idx_d in debitos:
+            if idx_d in indices_usados: continue
+            for idx_c in creditos:
+                if idx_c in indices_usados: continue
+                # Si los montos son opuestos y las referencias coinciden
+                if df.loc[idx_d, 'Ref_Norm'] == df.loc[idx_c, 'Ref_Norm']:
+                    df.loc[[idx_d, idx_c], 'Conciliado'] = True
+                    df.loc[[idx_d, idx_c], 'Grupo_Conciliado'] = f"PAR_MONTO_REF"
+                    indices_usados.update([idx_d, idx_c])
+                    total_conciliados += 2
+                    break
+
+    # --- FASE 2: CRUCE REFERENCIA VS FUENTE (NÚMERO DE DEPÓSITO) ---
+    # Buscamos que el número extraído de la Referencia del Débito 
+    # sea igual al número de la Fuente del Crédito
+    df_pendientes = df[~df['Conciliado']]
+    debitos = df_pendientes[df_pendientes['Monto_BS'] > 0]
+    creditos = df_pendientes[df_pendientes['Monto_BS'] < 0]
+
+    for idx_d, row_d in debitos.iterrows():
+        id_deposito = row_d['Ref_Num']
+        if not id_deposito: continue
+        
+        # Buscamos un crédito que tenga ese mismo ID en su Fuente o Referencia
+        match = creditos[
+            (creditos['Fuente_Num'] == id_deposito) | 
+            (creditos['Ref_Num'] == id_deposito)
+        ]
+        
+        # Y que el monto sea el mismo (con tolerancia mínima)
+        match_monto = match[np.isclose(match['Monto_BS'] + row_d['Monto_BS'], 0, atol=0.01)]
+        
+        if not match_monto.empty:
+            idx_c = match_monto.index[0]
+            df.loc[[idx_d, idx_c], 'Conciliado'] = True
+            df.loc[[idx_d, idx_c], 'Grupo_Conciliado'] = f"DEPOSITO_{id_deposito}"
+            total_conciliados += 2
+            # Actualizamos la vista local de créditos para no re-usarlo
+            creditos = creditos.drop(idx_c)
+
+    log_messages.append(f"✔️ Conciliación finalizada. Total: {total_conciliados} movimientos.")
     return df
