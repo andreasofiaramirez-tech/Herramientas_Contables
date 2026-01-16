@@ -327,6 +327,7 @@ def _crear_formatos(workbook):
         'total_label': workbook.add_format({'bold': True, 'align': 'right', 'top': 2}),
         'total_usd': workbook.add_format({'bold': True, 'num_format': '$#,##0.00', 'top': 2, 'bottom': 1}),
         'total_bs': workbook.add_format({'bold': True, 'num_format': '#,##0.00', 'top': 2, 'bottom': 1}),
+        'total_colones': workbook.add_format({'bold': True, 'num_format': '₡#,##0.00', 'top': 2}),
         'proveedor_header': workbook.add_format({'bold': True, 'fg_color': '#F2F2F2', 'border': 1}),
         'subtotal_label': workbook.add_format({'bold': True, 'align': 'right', 'top': 1}),
         'subtotal_usd': workbook.add_format({'bold': True, 'num_format': '$#,##0.00', 'top': 1}),
@@ -478,6 +479,14 @@ def _generar_hoja_conciliados_estandar(workbook, formatos, df_conciliados, estra
     
     # Caso especial nombres de columnas para Devoluciones
     es_devolucion = estrategia['id'] == 'devoluciones_proveedores'
+    
+    if is_cofersa:
+        # Estructura de columna única para COFERSA
+        columnas = ['Fecha', 'Asiento', 'Referencia', 'Monto Dólar', 'Monto Colones', 'Grupo de Conciliación']
+        df['Monto Colones'] = df['Monto_BS'] # El crédito ya es negativo por el Neto Local
+        df['Monto Dólar'] = df['Monto_USD']
+        fmt_local = formatos['colones']
+        fmt_total_local = formatos['total_colones']
     
     if es_devolucion:
         columnas = ['Fecha', 'Asiento', 'Referencia', 'Nombre del Proveedor', 'Monto Dólar', 'Monto Bs.', 'Grupo de Conciliación']
