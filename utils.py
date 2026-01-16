@@ -319,6 +319,7 @@ def _crear_formatos(workbook):
         'encabezado_sub': workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'font_size': 11}),
         'header_tabla': workbook.add_format({'bold': True, 'text_wrap': True, 'valign': 'top', 'fg_color': '#D9EAD3', 'border': 1, 'align': 'center'}),
         'bs': workbook.add_format({'num_format': '#,##0.00'}),
+        'colones': workbook.add_format({'num_format': '₡#,##0.00'}),    
         'usd': workbook.add_format({'num_format': '$#,##0.00'}),
         'tasa': workbook.add_format({'num_format': '#,##0.0000'}),
         'fecha': workbook.add_format({'num_format': 'dd/mm/yyyy'}),
@@ -2409,7 +2410,7 @@ def generar_reporte_cofersa(df_procesado):
             cols_base.append('Tipo')
         
         cols_output = cols_base + [
-            'Referencia', 'Débito Bolivar', 'Crédito Bolivar', 'Neto Local',
+            'Referencia', 'Débito Colones', 'Crédito Colones', 'Neto Colones'
             'Débito Dolar', 'Crédito Dolar', 'Neto Dólar',
             'Nit', 'Descripción Nit'
         ]
