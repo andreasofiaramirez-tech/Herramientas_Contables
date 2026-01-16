@@ -365,12 +365,13 @@ def render_inicio():
         st.button("🖨️ Gestión Imprenta (TXT)", on_click=set_page, args=['imprenta'], use_container_width=True)
 
     st.divider()
-    st.subheader("Logística y Tránsito", anchor=False)
+    st.subheader("Logística y Tránsito COFERSA", anchor=False)
     
-    _, col_centro, _ = st.columns([1, 2, 1])
-    with col_centro:
-        # Apunta a la nueva página 'cofersa'
-        st.button("🚛 Envíos en Tránsito COFERSA", on_click=set_page, args=['cofersa'], type="secondary", use_container_width=True)
+    col_c1, col_c2 = st.columns(2)
+    with col_c1:
+        st.button("🚛 Envíos en Tránsito (115.07)", on_click=set_page, args=['cofersa'], use_container_width=True)
+    with col_c2:
+        st.button("💰 Fondos en Tránsito (101.01)", on_click=set_page, args=['cofersa_fondos'], type="secondary", use_container_width=True)
 
     st.markdown("---")
     st.caption("v2.1 - Sistema Integral de Automatización Contable.")
@@ -1122,6 +1123,72 @@ def render_cofersa():
             except Exception as e:
                 mostrar_error_amigable(e, "la Conciliación de Cofersa")
 
+def render_cofersa_fondos():
+    st.title("💰 Fondos en Tránsito COFERSA (101.01.03.00)", anchor=False)
+    
+    if st.button("⬅️ Volver al Inicio", key="back_cof_fondos"):
+        set_page('inicio')
+        st.rerun()
+
+    with st.expander("📖 Guía de Conciliación"):
+        st.markdown(LOGICA_POR_CUENTA.get("101.01.03.00 - Fondos en Transito COFERSA", "Guía no disponible."))
+
+    st.info("Esta herramienta utiliza el cargador robusto de Cofersa (reconoce acentos y comas decimales).")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        uploaded_actual = st.file_uploader("Movimientos del Mes (Excel)", type="xlsx", key="coff_actual")
+    with col2:
+        uploaded_anterior = st.file_uploader("Saldos Anteriores (Excel)", type="xlsx", key="coff_anterior")
+
+    if uploaded_actual and uploaded_anterior:
+        if st.button("▶️ Iniciar Conciliación de Fondos", type="primary", use_container_width=True):
+            log = []
+            try:
+                # IMPORTANTE: Usamos el cargador de Cofersa para evitar montos en 0
+                with st.spinner('Cargando y normalizando datos de Cofersa...'):
+                    df_full = cargar_datos_cofersa(uploaded_actual, uploaded_anterior, log)
+                
+                if df_full is not None:
+                    # Ejecutamos la lógica específica definida en logic.py
+                    estrategia = ESTRATEGIAS["101.01.03.00 - Fondos en Transito COFERSA"]
+                    df_res = run_conciliation_fondos_transito_cofersa(df_full.copy(), log)
+                    
+                    # Generamos el reporte usando la función estándar de reportes
+                    df_saldos = df_res[~df_res['Conciliado']]
+                    df_conciliados = df_res[df_res['Conciliado']]
+                    
+                    excel_reporte = generar_reporte_excel(
+                        df_res, df_saldos, df_conciliados, estrategia, "COFERSA", "101.01.03.00"
+                    )
+                    
+                    st.success("✅ Conciliación completada con éxito.")
+                    
+                    col_d1, col_d2 = st.columns(2)
+                    col_d1.download_button(
+                        "⬇️ Descargar Reporte Final",
+                        excel_reporte,
+                        "Conciliacion_Fondos_COFERSA.xlsx",
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True
+                    )
+                    
+                    # Generar archivo de saldos para el mes que viene
+                    excel_saldos = generar_excel_saldos_abiertos(df_saldos)
+                    col_d2.download_button(
+                        "⬇️ Descargar Saldos Próximo Mes",
+                        excel_saldos,
+                        "Saldos_Anteriores_COFERSA_Fondos.xlsx",
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True
+                    )
+
+                    with st.expander("Ver Log de Auditoría"):
+                        st.write(log)
+
+            except Exception as e:
+                mostrar_error_amigable(e, "la Conciliación de Fondos Cofersa")
+
 # ==============================================================================
 # FLUJO PRINCIPAL DE LA APLICACIÓN (ROUTER)
 # ==============================================================================
@@ -1136,6 +1203,7 @@ def main():
         'pensiones': render_pensiones,
         'ajustes_usd' : render_ajustes_usd,
         'cofersa': render_cofersa,     
+        'cofersa_fondos': render_cofersa_fondos,
     }
     
     current_page = st.session_state.get('page', 'inicio')
