@@ -4132,7 +4132,7 @@ def extraer_saldos_cg_ajustes(archivo, log_messages):
 
     return datos_cg
 
-    def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, f_haberes, tasa_bcv, tasa_corp, log):
+def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, f_haberes, tasa_bcv, tasa_corp, log):
     """
     Motor principal de Ajustes USD.
     MEJORA: Cálculo detallado de la Hoja de Bancos y Validación de Ajustes.
