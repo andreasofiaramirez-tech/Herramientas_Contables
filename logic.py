@@ -4171,7 +4171,7 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
             df_b.columns = [str(c).strip().upper().replace('\n', ' ') for c in df_b.columns]
             
             # Mapeo de columnas del archivo de entrada
-            col_no_conc = next((c for c in df_b.columns if "BANCOS" in c and "CONCILIADOS" in c), None)
+            col_no_conc = next((c for c in df_b.columns if ("BANCO" in c and "NO" in c) or ("CONCILIADOS" in c and "BANCO" in c)), None)
             col_cta = next((c for c in df_b.columns if "CUENTA CONTABLE" in c), None)
             col_tipo = next((c for c in df_b.columns if "TIPO" in c), None)
             col_desc = next((c for c in df_b.columns if "DESCRIPCI" in c), None)
