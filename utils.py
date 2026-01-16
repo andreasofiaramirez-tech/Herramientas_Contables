@@ -1055,10 +1055,10 @@ def _generar_hoja_pendientes_proveedores(workbook, formatos, df_saldos, estrateg
     gran_total_usd = 0
     gran_total_bs = 0
 
-    # 3. BUCLE DE ESCRITURA
+    # 3. BUCLE DE ESCRITURA AGRUPADO POR EMBARQUE
     for nit_val, grupo_prov in df.groupby(col_nit, sort=False):
         
-        # Omitir grupos que por alguna razón sumen cero
+        # Saltamos si el total del proveedor es despreciable
         if abs(round(grupo_prov['Monto_USD'].sum(), 2)) <= 0.01:
             continue
 
@@ -1069,28 +1069,37 @@ def _generar_hoja_pendientes_proveedores(workbook, formatos, df_saldos, estrateg
         ws.write_row(current_row, 2, ["", "", ""], fmt_header_prov)
         current_row += 1
 
-        # Detalle de Movimientos (Sin subtotales por NIT)
-        for _, row in grupo_prov.iterrows():
-            ws.write(current_row, 0, "", formatos['text']) # NIT vacío para no repetir
-            
-            # --- CAMBIO: Traer Referencia Real ---
-            ws.write(current_row, 1, str(row.get('Referencia', '')), formatos['text'])
-            
-            # Embarque
-            val_emb = "" if row['Numero_Embarque'] in ['NO_EMB', 'nan', ''] else row['Numero_Embarque']
-            ws.write(current_row, 2, val_emb, formatos['text'])
-            
-            # Montos
-            ws.write_number(current_row, 3, row['Monto_USD'], formatos['usd'])
-            ws.write_number(current_row, 4, row['Monto_BS'], formatos['bs'])
-            
-            # Acumular para el total final
-            gran_total_usd += row['Monto_USD']
-            gran_total_bs += row['Monto_BS']
-            current_row += 1
+        # AGRUPAMOS POR EMBARQUE para mostrar una sola línea por cada uno
+        resumen_embarques = grupo_prov.groupby('Numero_Embarque').agg({
+            'Monto_USD': 'sum',
+            'Monto_BS': 'sum'
+        }).reset_index()
 
-        # NOTA: Se eliminó el bloque de "Subtotal por NIT" para dejar la lista corrida
-        current_row += 1 # Solo un espacio visual entre proveedores
+        for _, row_emb in resumen_embarques.iterrows():
+            emb_id = row_emb['Numero_Embarque']
+            s_usd = row_emb['Monto_USD']
+            s_bs = row_emb['Monto_BS']
+
+            # Solo mostrar si el embarque individual tiene saldo
+            if abs(round(s_usd, 2)) > 0.01:
+                ws.write(current_row, 0, "", formatos['text']) # NIT vacío
+                
+                # --- CAMBIO SOLICITADO: Referencia del embarque en la descripción ---
+                desc_ref = f"SALDO PENDIENTE EMBARQUE: {emb_id}" if emb_id != 'NO_EMB' else "PARTIDAS SIN EMBARQUE"
+                ws.write(current_row, 1, desc_ref, formatos['text'])
+                
+                # Columna Embarque
+                ws.write(current_row, 2, emb_id if emb_id != 'NO_EMB' else "", formatos['text'])
+                
+                # Montos totales del embarque
+                ws.write_number(current_row, 3, s_usd, formatos['usd'])
+                ws.write_number(current_row, 4, s_bs, formatos['bs'])
+                
+                gran_total_usd += s_usd
+                gran_total_bs += s_bs
+                current_row += 1
+
+        current_row += 1 # Espacio entre proveedores
 
     # 4. TOTAL GENERAL (Único total al final)
     current_row += 1
