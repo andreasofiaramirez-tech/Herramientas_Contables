@@ -17,7 +17,8 @@ from guides import (
     GUIA_IMPRENTA,
     GUIA_GENERADOR,
     GUIA_PENSIONES,
-    GUIA_AJUSTES_USD
+    GUIA_AJUSTES_USD,
+    GUIA_DEBITO_FISCAL
 )
 
 # --- BLOQUE 2: IMPORTAR LÓGICA (Verifica las comas) ---
@@ -1196,6 +1197,9 @@ def render_debito_fiscal():
     if st.button("⬅️ Volver al Inicio"): 
         set_page('inicio')
         st.rerun()
+
+    with st.expander("📖 Guía de Uso: Preparación y Reglas de Negocio", expanded=False):
+        st.markdown(GUIA_DEBITO_FISCAL) # <--- Aquí usas la constante de guides.py
     
     st.info("Cruce de auditoría: Softland (Diario + Mayor) vs Libro de Ventas (Imprenta)")
     
