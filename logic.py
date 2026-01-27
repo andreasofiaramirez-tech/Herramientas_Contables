@@ -4485,16 +4485,16 @@ def run_conciliation_fondos_transito_cofersa(df, log_messages, progress_bar=None
     return df
 
 # ==============================================================================
-# LÓGICA CÁLCULO DÉBITO FISCAL
+# LÓGICA VERIFICACIÓN DE DÉBITO FISCAL (BS)
 # ==============================================================================
 
 def normalizar_doc_fiscal(texto):
     """Extrae solo los números de una referencia para emparejar documentos."""
     if pd.isna(texto): return ""
-    # Busca el bloque numérico (ignorando ceros a la izquierda y letras)
+    # Busca el último bloque numérico (ignora letras y ceros a la izquierda)
     nums = re.findall(r'\d+', str(texto))
     if nums:
-        return str(int(nums[-1])) # Retorna el último bloque numérico encontrado (el más probable)
+        return str(int(nums[-1]))
     return ""
 
 def preparar_datos_softland_debito(df_diario, df_mayor):
@@ -4507,10 +4507,9 @@ def preparar_datos_softland_debito(df_diario, df_mayor):
     
     # Buscar NIT dinámicamente
     nit_col = next((c for c in df_soft.columns if c.upper() in ['NIT', 'RIF']), None)
-    df_soft['NIT_Norm'] = df_soft[nit_col].astype(str).str.replace(r'[^A-Z0-9]', '', regex=True) if nit_col else "SIN_NIT"
+    df_soft['NIT_Norm'] = df_soft[nit_col].astype(str).str.upper().str.replace(r'[^A-Z0-9]', '', regex=True) if nit_col else "SIN_NIT"
     
-    # Monto Neto en Bs (Débito - Crédito). 
-    # En Débito Fiscal, los registros suelen ser Créditos (Haber).
+    # Monto Neto en Bs (Absoluto para comparar contra la verdad del Libro)
     df_soft['Monto_Bs_Soft'] = (df_soft.get('Débito Bolivar', 0) - df_soft.get('Crédito Bolivar', 0)).abs()
     
     return df_soft
@@ -4520,12 +4519,17 @@ def run_conciliation_debito_fiscal(df_soft_raw, df_imprenta_raw, tolerancia_bs, 
     
     # 1. Preparar Imprenta (La Verdad)
     df_imp = df_imprenta_raw.copy()
-    col_doc_imp = next((c for c in df_imp.columns if 'NUMERO' in c.upper() or 'FACTURA' in c.upper()), None)
-    col_nit_imp = next((c for c in df_imp.columns if 'RIF' in c.upper() or 'NIT' in c.upper()), None)
+    
+    # Buscador de columnas robusto para Imprenta
+    col_doc_imp = next((c for c in df_imp.columns if any(k in c.upper() for k in ['NUMERO', 'FACTURA', 'DOCUMENTO'])), None)
+    col_nit_imp = next((c for c in df_imp.columns if any(k in c.upper() for k in ['RIF', 'NIT'])), None)
     col_monto_imp = next((c for c in df_imp.columns if 'DEBITO' in c.upper() and 'FISCAL' in c.upper()), None)
     
+    if not all([col_doc_imp, col_nit_imp, col_monto_imp]):
+        raise KeyError(f"No se encontraron las columnas necesarias en el Libro de Ventas. Detectadas: {df_imp.columns.tolist()}")
+
     df_imp['Doc_Norm'] = df_imp[col_doc_imp].apply(normalizar_doc_fiscal)
-    df_imp['NIT_Norm'] = df_imp[col_nit_imp].astype(str).str.replace(r'[^A-Z0-9]', '', regex=True)
+    df_imp['NIT_Norm'] = df_imp[col_nit_imp].astype(str).str.upper().str.replace(r'[^A-Z0-9]', '', regex=True)
     df_imp['Monto_Imprenta'] = pd.to_numeric(df_imp[col_monto_imp], errors='coerce').fillna(0).abs()
 
     # 2. Agrupar Softland para tener un solo monto por documento/NIT
