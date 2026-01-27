@@ -1266,16 +1266,6 @@ def render_debito_fiscal():
                     file_name=f"Auditoria_Fiscal_{casa_sel}.xlsx",
                     use_container_width=True
                 )
-                    
-                    st.download_button(
-                        label="⬇️ Descargar Reporte de Diferencias",
-                        data=excel_bin,
-                        file_name=f"Auditoria_Debito_Fiscal_{casa_sel}.xlsx",
-                        use_container_width=True
-                    )
-                    with st.expander("Ver Log"): st.write(log)
-            except Exception as e:
-                st.error(f"Error detectado: {str(e)}")
                 
 # ==============================================================================
 # FLUJO PRINCIPAL DE LA APLICACIÓN (ROUTER)
