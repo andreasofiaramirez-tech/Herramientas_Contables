@@ -4525,7 +4525,7 @@ def preparar_datos_softland_debito(df_diario, df_mayor, tag_casa):
     return df_soft    
 
 def run_conciliation_debito_fiscal(df_soft_total, df_imprenta_logica, tolerancia_bs, log_messages):
-    """Cruce de auditoría manteniendo integridad de datos."""
+    """Cruce de auditoría con identificación de tipo de documento."""
     log_messages.append("\n--- INICIANDO AUDITORÍA DE DÉBITO FISCAL ---")
     
     df_imp = df_imprenta_logica.copy()
@@ -4535,41 +4535,47 @@ def run_conciliation_debito_fiscal(df_soft_total, df_imprenta_logica, tolerancia
     col_nc = next((c for c in df_imp.columns if 'NOTA DE CREDITO' in str(c).upper()), None)
     col_iva = next((c for c in df_imp.columns if 'IMPUESTO IVA G' in str(c).upper()), None)
 
-    if col_iva is None:
-        raise ValueError("No se encontró la columna 'Impuesto IVA G' en el archivo de Imprenta.")
+    # Función para extraer documento y su TIPO
+    def identificar_tipo_y_doc(row):
+        # Prioridad Legal: NC > ND > Factura
+        if pd.notna(row.get(col_nc)) and str(row.get(col_nc)).strip() != "":
+            return normalizar_doc_fiscal(row.get(col_nc)), "N/C"
+        if pd.notna(row.get(col_nd)) and str(row.get(col_nd)).strip() != "":
+            return normalizar_doc_fiscal(row.get(col_nd)), "N/D"
+        if pd.notna(row.get(col_fact)) and str(row.get(col_fact)).strip() != "":
+            return normalizar_doc_fiscal(row.get(col_fact)), "FACTURA"
+        return "", "DESCONOCIDO"
 
-    def extraer_doc(row):
-        for c in [col_nc, col_nd, col_fact]:
-            val = normalizar_doc_fiscal(row.get(c))
-            if val != "": return val
-        return ""
-
-    df_imp['_Doc_Norm'] = df_imp.apply(extraer_doc, axis=1)
+    # Aplicamos identificación en Imprenta
+    df_imp[['_Doc_Norm', '_Tipo']] = df_imp.apply(identificar_tipo_y_doc, axis=1, result_type='expand')
     df_imp['_NIT_Norm'] = df_imp[col_rif].astype(str).str.upper().str.replace(r'[^A-Z0-9]', '', regex=True) if col_rif else "SIN_NIT"
-    
-    # Convertimos a numérico y aplicamos valor absoluto
     df_imp['_Monto_Imprenta'] = pd.to_numeric(df_imp[col_iva], errors='coerce').fillna(0).abs()
 
-    # Agrupar Softland
+    # Agrupar Softland para el cruce
     soft_grouped = df_soft_total.groupby(['_NIT_Norm', '_Doc_Norm', 'CASA'], as_index=False)['_Monto_Bs_Soft'].sum()
 
-    # Cruce
+    # Cruce Outer Join
     merged = pd.merge(
         soft_grouped, 
-        df_imp[['_NIT_Norm', '_Doc_Norm', '_Monto_Imprenta']], 
+        df_imp[['_NIT_Norm', '_Doc_Norm', '_Monto_Imprenta', '_Tipo']], 
         on=['_NIT_Norm', '_Doc_Norm'], 
         how='outer', 
         indicator=True
     )
 
+    # Intentar recuperar el TIPO para los que solo están en Softland (viendo la referencia)
+    def recuperar_tipo_softland(row):
+        if pd.notna(row['_Tipo']): return row['_Tipo']
+        # Si no tiene tipo de imprenta, lo inferimos de Softland por la Casa (solo para estética)
+        return "POR DEFINIR"
+
+    merged['_Tipo'] = merged.apply(recuperar_tipo_softland, axis=1)
+
     def clasificar(row):
-        if row['_merge'] == 'left_only': return "NO ENCONTRADO EN LIBRO DE VENTAS"
-        if row['_merge'] == 'right_only': return "NO ENCONTRADO EN CONTABILIDAD"
-        
-        # Manejo de nulos en el cálculo de diferencia
+        if row['_merge'] == 'left_only': return "NO APARECE EN LIBRO DE VENTAS"
+        if row['_merge'] == 'right_only': return "NO APARECE EN CONTABILIDAD"
         m_s = float(row['_Monto_Bs_Soft']) if pd.notna(row['_Monto_Bs_Soft']) else 0.0
         m_i = float(row['_Monto_Imprenta']) if pd.notna(row['_Monto_Imprenta']) else 0.0
-        
         dif = abs(m_s - m_i)
         if dif > tolerancia_bs: return f"DIFERENCIA DE MONTO (Bs. {dif:,.2f})"
         return "OK"
