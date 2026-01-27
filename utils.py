@@ -2579,3 +2579,36 @@ def generar_reporte_cofersa(df_procesado):
         ws6.set_column('A:A', 20); ws6.set_column('B:D', 30); ws6.set_column('E:F', 20)
 
     return output.getvalue()
+
+def generar_reporte_debito_fiscal(df_final, df_mayor, df_imprenta, casa):
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        workbook = writer.book
+        fmt_header = workbook.add_format({'bold': True, 'bg_color': '#D9EAD3', 'border': 1})
+        fmt_money = workbook.add_format({'num_format': '#,##0.00', 'border': 1})
+        fmt_red = workbook.add_format({'bg_color': '#FFC7CE', 'font_color': '#9C0006', 'border': 1})
+        
+        # Hoja 1: Mayor de la Cuenta
+        df_mayor.to_excel(writer, sheet_name='1. Mayor Softland', index=False)
+        
+        # Hoja 2: Libro de Ventas
+        df_imprenta.to_excel(writer, sheet_name='2. Libro de Ventas', index=False)
+        
+        # Hoja 3: Incidencias
+        ws3 = workbook.add_worksheet('3. Incidencias y Resultados')
+        incidencias = df_final[df_final['Estado'] != 'OK'].copy()
+        
+        cols = ['NIT_Norm', 'Doc_Norm', 'Monto_Bs_Soft', 'Monto_Imprenta', 'Estado']
+        ws3.write_row(0, 0, cols, fmt_header)
+        
+        for r_idx, row in incidencias[cols].iterrows():
+            ws3.write(r_idx+1, 0, row['NIT_Norm'])
+            ws3.write(r_idx+1, 1, row['Doc_Norm'])
+            ws3.write_number(r_idx+1, 2, row['Monto_Bs_Soft'] if pd.notna(row['Monto_Bs_Soft']) else 0, fmt_money)
+            ws3.write_number(r_idx+1, 3, row['Monto_Imprenta'] if pd.notna(row['Monto_Imprenta']) else 0, fmt_money)
+            ws3.write(r_idx+1, 4, row['Estado'], fmt_red)
+
+        for i, sheet in enumerate(writer.sheets.values()):
+            sheet.set_column('A:Z', 18)
+
+    return output.getvalue()
