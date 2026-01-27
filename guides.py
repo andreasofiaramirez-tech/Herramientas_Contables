@@ -482,6 +482,6 @@ LOGICA_POR_CUENTA = {
     "212.07.9001 - CDC - Factoring": "Conciliación de contratos de factoring (FQ).",
     "212.05.1005 - Asientos por clasificar": "Limpieza de partidas transaccionales por NIT y monto.",
     "212.07.1012 - Proveedores d/Mcia - Costos Causados": "Cruce por número de embarque (EMB) con tolerancia de $1.00.",
-    "115.07.1.002 - Envios en Transito COFERSA": "Conciliación por Referencia y Pares con tolerancia de 100 Bs."
+    "115.07.1.002 - Envios en Transito COFERSA": "Conciliación por Referencia y Pares con tolerancia de 100 Bs.",
     LOGICA_POR_CUENTA["Verificación de Débito Fiscal"] = "Auditoría N-a-N entre Softland e Imprenta con normalización de NIT y documentos."
 }
