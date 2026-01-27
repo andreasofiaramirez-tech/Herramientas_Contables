@@ -2589,32 +2589,52 @@ def generar_reporte_debito_fiscal(df_final, df_soft_total, df_imprenta):
         fmt_text = workbook.add_format({'border': 1})
         fmt_red = workbook.add_format({'bg_color': '#FFC7CE', 'font_color': '#9C0006', 'border': 1})
 
-        # Hoja 1: Todo lo procesado de Softland (FB + SC)
+        # Hoja 1: Transacciones Softland (Manejamos NaNs automáticamente con pandas)
         df_soft_total.to_excel(writer, sheet_name='1. Transacciones Softland', index=False)
         
-        # Hoja 2: Libro de Ventas original
+        # Hoja 2: Libro de Ventas
         df_imprenta.to_excel(writer, sheet_name='2. Libro de Ventas', index=False)
         
-        # Hoja 3: Resultados de la Auditoría
+        # Hoja 3: Incidencias
         ws3 = workbook.add_worksheet('3. Incidencias')
         ws3.hide_gridlines(2)
         
-        # Filtrar incidencias (lo que no sea OK)
+        # Filtramos lo que no es OK
         incidencias = df_final[df_final['Estado'] != 'OK'].copy()
-        cols = ['Casa', 'NIT_Norm', 'Doc_Norm', 'Monto_Bs_Soft', 'Monto_Imprenta', 'Estado']
         
+        cols = ['Casa', 'NIT_Norm', 'Doc_Norm', 'Monto_Bs_Soft', 'Monto_Imprenta', 'Estado']
         ws3.write_row(0, 0, cols, fmt_header)
         
         for r_idx, (_, row) in enumerate(incidencias.iterrows()):
-            # 'Casa' vendrá como FB, SC, BE, PR o 'Imprenta'
-            ws3.write(r_idx+1, 0, row.get('Casa', 'Libro Ventas'), fmt_text)
-            ws3.write(r_idx+1, 1, row['NIT_Norm'], fmt_text)
-            ws3.write(r_idx+1, 2, row['Doc_Norm'], fmt_text)
-            ws3.write_number(r_idx+1, 3, row['Monto_Bs_Soft'] if pd.notna(row['Monto_Bs_Soft']) else 0, fmt_money)
-            ws3.write_number(r_idx+1, 4, row['Monto_Imprenta'] if pd.notna(row['Monto_Imprenta']) else 0, fmt_money)
-            ws3.write(r_idx+1, 5, row['Estado'], fmt_red if "DIFERENCIA" in str(row['Estado']) else fmt_text)
+            # Escribir Texto
+            ws3.write(r_idx+1, 0, str(row.get('Casa', 'Libro Ventas')), fmt_text)
+            ws3.write(r_idx+1, 1, str(row.get('NIT_Norm', 'S/N')), fmt_text)
+            ws3.write(r_idx+1, 2, str(row.get('Doc_Norm', 'S/D')), fmt_text)
+            
+            # --- BLINDAJE CONTRA NAN ---
+            # Si el valor es NaN (Not a Number), lo ponemos en 0.0 para que write_number no falle
+            monto_soft = row['Monto_Bs_Soft']
+            if pd.isna(monto_soft) or np.isinf(monto_soft):
+                monto_soft = 0.0
+            
+            monto_imp = row['Monto_Imprenta']
+            if pd.isna(monto_imp) or np.isinf(monto_imp):
+                monto_imp = 0.0
+            # ---------------------------
 
+            ws3.write_number(r_idx+1, 3, float(monto_soft), fmt_money)
+            ws3.write_number(r_idx+1, 4, float(monto_imp), fmt_money)
+            
+            # Formato condicional para el estado
+            estado_str = str(row.get('Estado', ''))
+            fmt_estado = fmt_red if "DIFERENCIA" in estado_str else fmt_text
+            ws3.write(r_idx+1, 5, estado_str, fmt_estado)
+
+        # Ajuste de ancho de columnas
         for sheet in writer.sheets.values():
-            sheet.set_column('A:Z', 20)
+            sheet.set_column('A:A', 12)
+            sheet.set_column('B:C', 18)
+            sheet.set_column('D:E', 20)
+            sheet.set_column('F:F', 45)
 
     return output.getvalue()
