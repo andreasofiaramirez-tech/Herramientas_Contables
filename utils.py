@@ -2584,25 +2584,83 @@ def generar_reporte_debito_fiscal(df_incidencias_raw, df_soft_raw, df_imp_raw):
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         workbook = writer.book
+        
+        # --- DEFINICIÓN DE FORMATOS ---
+        # Formato Moneda: 0.000,00 (Venezolano)
         fmt_money = workbook.add_format({'num_format': '#,##0.00', 'border': 1})
+        fmt_money_bold = workbook.add_format({'num_format': '#,##0.00', 'border': 1, 'bold': True, 'bg_color': '#F2F2F2'})
+        
+        # Formato Fecha: dd/mm/aaaa
+        fmt_date = workbook.add_format({'num_format': 'dd/mm/yyyy', 'border': 1, 'align': 'center'})
+        
         fmt_text = workbook.add_format({'border': 1})
         fmt_header = workbook.add_format({'bold': True, 'bg_color': '#D9EAD3', 'border': 1, 'align': 'center'})
         fmt_red = workbook.add_format({'bg_color': '#FFC7CE', 'font_color': '#9C0006', 'border': 1})
 
-        # Hoja 1: COPIA EXACTA SOFTLAND (Eliminamos solo nuestras columnas técnicas de apoyo)
+        # ============================================================
+        # HOJA 1: TRANSACCIONES SOFTLAND (CON FORMATO ESPECÍFICO)
+        # ============================================================
+        # Eliminamos solo las columnas técnicas de lógica (_) pero dejamos 'CASA'
         df_s_export = df_soft_raw.drop(columns=[c for c in df_soft_raw.columns if c.startswith('_')], errors='ignore')
-        df_s_export.to_excel(writer, sheet_name='1. Transacciones Softland', index=False)
         
-        # Hoja 2: COPIA EXACTA IMPRENTA
+        # Asegurar que la columna CASA sea la primera (opcional, para mejor visibilidad)
+        cols = ['CASA'] + [c for c in df_s_export.columns if c != 'CASA']
+        df_s_export = df_s_export[cols]
+
+        sheet_name1 = '1. Transacciones Softland'
+        df_s_export.to_excel(writer, sheet_name=sheet_name1, index=False)
+        ws1 = writer.sheets[sheet_name1]
+        
+        # Inmovilizar fila 1 (Requerimiento 5)
+        ws1.freeze_panes(1, 0)
+        
+        # Identificar índices de columnas para aplicar formatos
+        idx_date = -1
+        idx_deb = -1
+        idx_cre = -1
+        
+        for i, col in enumerate(df_s_export.columns):
+            c_u = col.upper()
+            if 'FECHA' in c_u: idx_date = i
+            if any(k in c_u for k in ['DEBITO BOLIVAR', 'DEBITO LOCAL', 'DEBITO VES']): idx_deb = i
+            if any(k in c_u for k in ['CREDITO BOLIVAR', 'CREDITO LOCAL', 'CREDITO VES']): idx_cre = i
+
+        # Aplicar formatos a las celdas de datos
+        num_rows = len(df_s_export)
+        for r in range(num_rows):
+            # Formato Fecha (Requerimiento 1)
+            if idx_date != -1:
+                ws1.write(r + 1, idx_date, df_s_export.iloc[r, idx_date], fmt_date)
+            
+            # Formato Moneda (Requerimiento 2)
+            if idx_deb != -1:
+                ws1.write_number(r + 1, idx_deb, float(df_s_export.iloc[r, idx_deb] or 0), fmt_money)
+            if idx_cre != -1:
+                ws1.write_number(r + 1, idx_cre, float(df_s_export.iloc[r, idx_cre] or 0), fmt_money)
+
+        # Agregar Fila de Totalización (Requerimiento 3)
+        total_row = num_rows + 1
+        ws1.write(total_row, 0, "TOTALES", workbook.add_format({'bold': True, 'border': 1, 'align': 'right'}))
+        
+        if idx_deb != -1:
+            ws1.write_formula(total_row, idx_deb, f'=SUM({xlsxwriter.utility.xl_col_to_name(idx_deb)}2:{xlsxwriter.utility.xl_col_to_name(idx_deb)}{total_row})', fmt_money_bold)
+        if idx_cre != -1:
+            ws1.write_formula(total_row, idx_cre, f'=SUM({xlsxwriter.utility.xl_col_to_name(idx_cre)}2:{xlsxwriter.utility.xl_col_to_name(idx_cre)}{total_row})', fmt_money_bold)
+
+        # ============================================================
+        # HOJA 2: COPIA EXACTA IMPRENTA
+        # ============================================================
         df_imp_raw.to_excel(writer, sheet_name='2. Libro de Ventas', index=False)
         
-        # Hoja 3: INCIDENCIAS
+        # ============================================================
+        # HOJA 3: INCIDENCIAS (Se mantiene igual)
+        # ============================================================
         ws3 = workbook.add_worksheet('3. Incidencias')
         ws3.hide_gridlines(2)
         incidencias = df_incidencias_raw[df_incidencias_raw['Estado'] != 'OK'].copy()
         
-        headers = ['Casa', 'NIT', 'Documento', 'Monto Softland', 'Monto Imprenta', 'Estado']
-        ws3.write_row(0, 0, headers, fmt_header)
+        headers_inc = ['Casa', 'NIT', 'Documento', 'Monto Softland', 'Monto Imprenta', 'Estado']
+        ws3.write_row(0, 0, headers_inc, fmt_header)
         
         for r_idx, (_, row) in enumerate(incidencias.iterrows()):
             ws3.write(r_idx+1, 0, str(row.get('_Casa', 'Libro Ventas')), fmt_text)
@@ -2616,6 +2674,7 @@ def generar_reporte_debito_fiscal(df_incidencias_raw, df_soft_raw, df_imp_raw):
             ws3.write_number(r_idx+1, 4, m_i, fmt_money)
             ws3.write(r_idx+1, 5, str(row['Estado']), fmt_red if "DIFERENCIA" in str(row['Estado']) else fmt_text)
 
+        # Ajuste de anchos para todas las hojas
         for sheet in writer.sheets.values():
             sheet.set_column('A:Z', 20)
 
