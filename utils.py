@@ -2580,7 +2580,7 @@ def generar_reporte_cofersa(df_procesado):
 
     return output.getvalue()
 
-def generar_reporte_debito_fiscal(df_final, df_soft_total, df_imprenta, casa_nombre):
+def generar_reporte_debito_fiscal(df_final, df_soft_total, df_imprenta):
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         workbook = writer.book
@@ -2589,22 +2589,25 @@ def generar_reporte_debito_fiscal(df_final, df_soft_total, df_imprenta, casa_nom
         fmt_text = workbook.add_format({'border': 1})
         fmt_red = workbook.add_format({'bg_color': '#FFC7CE', 'font_color': '#9C0006', 'border': 1})
 
-        # Hoja 1: Transacciones Softland
+        # Hoja 1: Todo lo procesado de Softland (FB + SC)
         df_soft_total.to_excel(writer, sheet_name='1. Transacciones Softland', index=False)
         
-        # Hoja 2: Libro de Ventas (Imprenta)
+        # Hoja 2: Libro de Ventas original
         df_imprenta.to_excel(writer, sheet_name='2. Libro de Ventas', index=False)
         
-        # Hoja 3: Incidencias
+        # Hoja 3: Resultados de la Auditoría
         ws3 = workbook.add_worksheet('3. Incidencias')
         ws3.hide_gridlines(2)
-        incidencias = df_final[df_final['Estado'] != 'OK'].copy()
         
+        # Filtrar incidencias (lo que no sea OK)
+        incidencias = df_final[df_final['Estado'] != 'OK'].copy()
         cols = ['Casa', 'NIT_Norm', 'Doc_Norm', 'Monto_Bs_Soft', 'Monto_Imprenta', 'Estado']
+        
         ws3.write_row(0, 0, cols, fmt_header)
         
         for r_idx, (_, row) in enumerate(incidencias.iterrows()):
-            ws3.write(r_idx+1, 0, row.get('Casa', 'Imprenta'), fmt_text)
+            # 'Casa' vendrá como FB, SC, BE, PR o 'Imprenta'
+            ws3.write(r_idx+1, 0, row.get('Casa', 'Libro Ventas'), fmt_text)
             ws3.write(r_idx+1, 1, row['NIT_Norm'], fmt_text)
             ws3.write(r_idx+1, 2, row['Doc_Norm'], fmt_text)
             ws3.write_number(r_idx+1, 3, row['Monto_Bs_Soft'] if pd.notna(row['Monto_Bs_Soft']) else 0, fmt_money)
