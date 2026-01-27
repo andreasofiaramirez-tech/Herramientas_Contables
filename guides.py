@@ -465,6 +465,7 @@ GUIA_IMPRENTA = "Validación de archivos TXT contra libros de ventas."
 GUIA_GENERADOR = "Generación de archivos de retenciones para GALAC."
 GUIA_PENSIONES = "Cálculo del aporte del 9% de la Ley de Pensiones."
 GUIA_AJUSTES_USD = "Valoración de activos y pasivos en moneda extranjera al cierre."
+["Verificación de Débito Fiscal"] = "Auditoría N-a-N entre Softland e Imprenta con normalización de NIT (solo números) y documentos."
 
 # ==============================================================================
 # DICCIONARIO DE GUÍAS POR CUENTA
