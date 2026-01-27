@@ -2580,61 +2580,46 @@ def generar_reporte_cofersa(df_procesado):
 
     return output.getvalue()
 
-def generar_reporte_debito_fiscal(df_final, df_soft_total, df_imprenta):
+def generar_reporte_debito_fiscal(df_final, df_soft_raw, df_imprenta_raw):
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         workbook = writer.book
-        fmt_header = workbook.add_format({'bold': True, 'bg_color': '#D9EAD3', 'border': 1, 'align': 'center'})
         fmt_money = workbook.add_format({'num_format': '#,##0.00', 'border': 1})
         fmt_text = workbook.add_format({'border': 1})
+        fmt_header = workbook.add_format({'bold': True, 'bg_color': '#D9EAD3', 'border': 1, 'align': 'center'})
         fmt_red = workbook.add_format({'bg_color': '#FFC7CE', 'font_color': '#9C0006', 'border': 1})
 
-        # Hoja 1: Transacciones Softland (Manejamos NaNs automáticamente con pandas)
-        df_soft_total.to_excel(writer, sheet_name='1. Transacciones Softland', index=False)
+        # --- HOJA 1: EXACTAMENTE EL FORMATO DE ENTRADA (SOFTLAND) ---
+        # Si hay columnas auxiliares de la lógica, las ocultamos o eliminamos para el reporte
+        df_soft_export = df_soft_raw.drop(columns=['Doc_Norm', 'NIT_Norm', 'Monto_Bs_Soft'], errors='ignore')
+        df_soft_export.to_excel(writer, sheet_name='1. Transacciones Softland', index=False)
         
-        # Hoja 2: Libro de Ventas
-        df_imprenta.to_excel(writer, sheet_name='2. Libro de Ventas', index=False)
+        # --- HOJA 2: EXACTAMENTE EL FORMATO DE ENTRADA (IMPRENTA) ---
+        df_imprenta_raw.to_excel(writer, sheet_name='2. Libro de Ventas', index=False)
         
-        # Hoja 3: Incidencias
+        # --- HOJA 3: RESULTADOS DE AUDITORÍA ---
         ws3 = workbook.add_worksheet('3. Incidencias')
         ws3.hide_gridlines(2)
-        
-        # Filtramos lo que no es OK
         incidencias = df_final[df_final['Estado'] != 'OK'].copy()
         
-        cols = ['Casa', 'NIT_Norm', 'Doc_Norm', 'Monto_Bs_Soft', 'Monto_Imprenta', 'Estado']
-        ws3.write_row(0, 0, cols, fmt_header)
+        cols_inc = ['Casa', 'NIT_Norm', 'Doc_Norm', 'Monto_Bs_Soft', 'Monto_Imprenta', 'Estado']
+        ws3.write_row(0, 0, cols_inc, fmt_header)
         
         for r_idx, (_, row) in enumerate(incidencias.iterrows()):
-            # Escribir Texto
             ws3.write(r_idx+1, 0, str(row.get('Casa', 'Libro Ventas')), fmt_text)
-            ws3.write(r_idx+1, 1, str(row.get('NIT_Norm', 'S/N')), fmt_text)
-            ws3.write(r_idx+1, 2, str(row.get('Doc_Norm', 'S/D')), fmt_text)
+            ws3.write(r_idx+1, 1, str(row.get('NIT_Norm', '')), fmt_text)
+            ws3.write(r_idx+1, 2, str(row.get('Doc_Norm', '')), fmt_text)
             
-            # --- BLINDAJE CONTRA NAN ---
-            # Si el valor es NaN (Not a Number), lo ponemos en 0.0 para que write_number no falle
-            monto_soft = row['Monto_Bs_Soft']
-            if pd.isna(monto_soft) or np.isinf(monto_soft):
-                monto_soft = 0.0
+            m_s = 0.0 if pd.isna(row['Monto_Bs_Soft']) else float(row['Monto_Bs_Soft'])
+            m_i = 0.0 if pd.isna(row['Monto_Imprenta']) else float(row['Monto_Imprenta'])
             
-            monto_imp = row['Monto_Imprenta']
-            if pd.isna(monto_imp) or np.isinf(monto_imp):
-                monto_imp = 0.0
-            # ---------------------------
+            ws3.write_number(r_idx+1, 3, m_s, fmt_money)
+            ws3.write_number(r_idx+1, 4, m_i, fmt_money)
+            
+            est = str(row.get('Estado', ''))
+            ws3.write(r_idx+1, 5, est, fmt_red if "DIFERENCIA" in est else fmt_text)
 
-            ws3.write_number(r_idx+1, 3, float(monto_soft), fmt_money)
-            ws3.write_number(r_idx+1, 4, float(monto_imp), fmt_money)
-            
-            # Formato condicional para el estado
-            estado_str = str(row.get('Estado', ''))
-            fmt_estado = fmt_red if "DIFERENCIA" in estado_str else fmt_text
-            ws3.write(r_idx+1, 5, estado_str, fmt_estado)
-
-        # Ajuste de ancho de columnas
         for sheet in writer.sheets.values():
-            sheet.set_column('A:A', 12)
-            sheet.set_column('B:C', 18)
-            sheet.set_column('D:E', 20)
-            sheet.set_column('F:F', 45)
+            sheet.set_column('A:Z', 20)
 
     return output.getvalue()
