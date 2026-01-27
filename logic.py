@@ -4498,30 +4498,25 @@ def normalizar_doc_fiscal(texto):
     return ""
 
 def preparar_datos_softland_debito(df_diario, df_mayor, tag_casa):
-    """Consolida Diario + Mayor de una casa y estandariza montos."""
-    df_soft = pd.concat([df_diario, df_mayor], ignore_index=True).drop_duplicates()
+    """Mantiene todas las columnas originales y agrega las llaves de cruce."""
+    # Unificar reportes manteniendo TODAS las columnas originales
+    df_soft = pd.concat([df_diario, df_mayor], ignore_index=True)
     
-    # Mapeo de columnas de Softland
-    rename_map = {}
-    for col in df_soft.columns:
-        c_upper = str(col).upper().strip()
-        if c_upper in ['DEBITO BOLIVAR', 'DEBITO LOCAL', 'DEBITO VES', 'DÉBITO BOLIVAR']: rename_map[col] = 'Debito'
-        elif c_upper in ['CREDITO BOLIVAR', 'CREDITO LOCAL', 'CREDITO VES', 'CRÉDITO BOLIVAR']: rename_map[col] = 'Credito'
-        elif c_upper in ['NIT', 'RIF', 'R.I.F.']: rename_map[col] = 'NIT'
-        elif c_upper in ['REFERENCIA']: rename_map[col] = 'Referencia'
-        elif c_upper in ['FECHA']: rename_map[col] = 'Fecha'
+    # Identificar columnas para la lógica de cruce sin renombrar las originales
+    col_deb = next((c for c in df_soft.columns if any(k in str(c).upper() for k in ['DEBITO BOLIVAR', 'DEBITO LOCAL', 'DEBITO VES'])), None)
+    col_cre = next((c for c in df_soft.columns if any(k in str(c).upper() for k in ['CREDITO BOLIVAR', 'CREDITO LOCAL', 'CREDITO VES'])), None)
+    col_rif = next((c for c in df_soft.columns if any(k in str(c).upper() for k in ['NIT', 'RIF'])), None)
+    col_ref = next((c for c in df_soft.columns if 'REFERENCIA' in str(c).upper()), None)
 
-    df_soft.rename(columns=rename_map, inplace=True)
-    
-    for c in ['Debito', 'Credito']:
-        if c not in df_soft.columns: df_soft[c] = 0.0
-    
-    df_soft['Doc_Norm'] = df_soft['Referencia'].apply(normalizar_doc_fiscal)
+    # Crear columnas auxiliares (estas no estorban a las originales)
+    df_soft['Doc_Norm'] = df_soft[col_ref].apply(normalizar_doc_fiscal) if col_ref else ""
     df_soft['Casa'] = tag_casa
-    df_soft['NIT_Norm'] = df_soft['NIT'].astype(str).str.upper().str.replace(r'[^A-Z0-9]', '', regex=True) if 'NIT' in df_soft.columns else "SIN_NIT"
+    df_soft['NIT_Norm'] = df_soft[col_rif].astype(str).str.upper().str.replace(r'[^A-Z0-9]', '', regex=True) if col_rif else "SIN_NIT"
     
-    # Débito Fiscal es Crédito (Haber). Calculamos monto absoluto.
-    df_soft['Monto_Bs_Soft'] = (df_soft['Debito'].fillna(0) - df_soft['Credito'].fillna(0)).abs()
+    # Cálculo del monto para la lógica
+    monto_deb = pd.to_numeric(df_soft[col_deb], errors='coerce').fillna(0) if col_deb else 0
+    monto_cre = pd.to_numeric(df_soft[col_cre], errors='coerce').fillna(0) if col_cre else 0
+    df_soft['Monto_Bs_Soft'] = (monto_deb - monto_cre).abs()
     
     return df_soft
 
