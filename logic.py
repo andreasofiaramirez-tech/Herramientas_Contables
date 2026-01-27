@@ -4544,7 +4544,7 @@ def preparar_datos_softland_debito(df_diario, df_mayor, tag_casa):
     return df_soft
     
 def run_conciliation_debito_fiscal(df_soft_total, df_imprenta_logica, tolerancia_bs, log_messages):
-    """Cruce de auditoría N-a-N con manejo de nulos en montos."""
+    """Cruce de auditoría N-a-N con filtro para documentos exentos."""
     log_messages.append("\n--- INICIANDO AUDITORÍA DE DÉBITO FISCAL ---")
     
     df_imp = df_imprenta_logica.copy()
@@ -4573,10 +4573,10 @@ def run_conciliation_debito_fiscal(df_soft_total, df_imprenta_logica, tolerancia
     df_imp['_NIT_Norm'] = df_imp[col_rif].astype(str).str.upper().str.replace(r'[^A-Z0-9]', '', regex=True) if col_rif else "SIN_NIT"
     df_imp['_Monto_Imprenta'] = pd.to_numeric(df_imp[col_iva], errors='coerce').fillna(0).abs()
 
-    # Agrupar Softland (Sumar montos de líneas repetidas del mismo documento)
+    # Agrupar Softland
     soft_grouped = df_soft_total.groupby(['_NIT_Norm', '_Doc_Norm', 'CASA', '_Tipo'], as_index=False)['_Monto_Bs_Soft'].sum()
 
-    # Cruce Outer Join por NIT y Documento
+    # Cruce Outer Join
     merged = pd.merge(
         soft_grouped, 
         df_imp[['_NIT_Norm', '_Doc_Norm', '_Monto_Imprenta', '_Tipo']], 
@@ -4587,12 +4587,17 @@ def run_conciliation_debito_fiscal(df_soft_total, df_imprenta_logica, tolerancia
     )
 
     def clasificar(row):
-        # Priorizar tipo de imprenta, si no, usar el de softland
         tipo_final = row['_Tipo_imp'] if pd.notna(row['_Tipo_imp']) else row['_Tipo_soft']
-        
         m_s = float(row['_Monto_Bs_Soft']) if pd.notna(row['_Monto_Bs_Soft']) else 0.0
         m_i = float(row['_Monto_Imprenta']) if pd.notna(row['_Monto_Imprenta']) else 0.0
         
+        # --- FILTRO DE EXENTOS (NUEVO) ---
+        # Si el monto de impuesto es 0 en ambos lados, es un documento exento 
+        # o sin movimiento de IVA, por lo tanto NO es una incidencia.
+        if m_i <= 0.001 and m_s <= 0.001:
+            return "OK", tipo_final
+        # ---------------------------------
+
         if row['_merge'] == 'left_only': return "NO APARECE EN LIBRO DE VENTAS", tipo_final
         if row['_merge'] == 'right_only': return "NO APARECE EN CONTABILIDAD", tipo_final
         
