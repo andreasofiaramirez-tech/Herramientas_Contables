@@ -2686,44 +2686,44 @@ def generar_reporte_debito_fiscal(df_incidencias_raw, df_soft_raw, df_imp_raw):
         # HOJA 3: INCIDENCIAS
         # ============================================================
         ws3 = workbook.add_worksheet('3. Incidencias')
-        ws3.hide_gridlines(2) # Fondo blanco
+        ws3.hide_gridlines(2)
         
         incidencias = df_incidencias_raw[df_incidencias_raw['Estado'] != 'OK'].copy()
         
-        # Agregamos 'Tipo' a los encabezados
-        headers_inc = ['Casa', 'NIT', 'Tipo Doc', 'Documento', 'Monto Softland', 'Monto Imprenta', 'Estado']
+        # Nueva estructura de encabezados: agregamos 'Nombre Proveedor'
+        headers_inc = ['Casa', 'NIT', 'Nombre Proveedor', 'Tipo Doc', 'Documento', 'Monto Softland', 'Monto Imprenta', 'Estado']
         ws3.write_row(0, 0, headers_inc, fmt_header)
         
         row_idx = 1
-        for r_idx, (_, row) in enumerate(incidencias.iterrows()):
-            ws3.write(r_idx+1, 0, str(row.get('CASA', 'Libro Ventas')), fmt_text)
-            ws3.write(r_idx+1, 1, str(row.get('_NIT_Norm', '')), fmt_text)
-            ws3.write(r_idx+1, 2, str(row.get('_Tipo_Final', 'FACTURA')), fmt_text) # Campo actualizado
-            ws3.write(r_idx+1, 3, str(row.get('_Doc_Norm', '')), fmt_text)
+        for _, row in incidencias.iterrows():
+            ws3.write(row_idx, 0, str(row.get('CASA', 'Libro Ventas')), fmt_text)
+            ws3.write(row_idx, 1, str(row.get('_NIT_Norm', '')), fmt_text)
+            ws3.write(row_idx, 2, str(row.get('_Nombre_Final', '')), fmt_text) # Nueva columna
+            ws3.write(row_idx, 3, str(row.get('_Tipo_Final', 'FACTURA')), fmt_text)
+            ws3.write(row_idx, 4, str(row.get('_Doc_Norm', '')), fmt_text)
             
-            # Montos
             m_s = float(row['_Monto_Bs_Soft']) if pd.notna(row['_Monto_Bs_Soft']) else 0.0
             m_i = float(row['_Monto_Imprenta']) if pd.notna(row['_Monto_Imprenta']) else 0.0
             
-            ws3.write_number(r_idx+1, 4, m_s, fmt_money)
-            ws3.write_number(r_idx+1, 5, m_i, fmt_money)
+            ws3.write_number(row_idx, 5, m_s, fmt_money)
+            ws3.write_number(row_idx, 6, m_i, fmt_money)
             
-            # Estado
             est = str(row['Estado'])
-            ws3.write(r_idx+1, 6, est, fmt_red if "DIFERENCIA" in est else fmt_text)
+            ws3.write(row_idx, 7, est, fmt_red if "DIFERENCIA" in est else fmt_text)
             row_idx += 1
 
-        # --- FILA DE TOTALIZACIÓN EN INCIDENCIAS ---
+        # Ajustar anchos (Columna C es el nombre, le damos más espacio)
+        ws3.set_column('A:B', 15)
+        ws3.set_column('C:C', 40) # Ancho para el nombre
+        ws3.set_column('D:E', 15)
+        ws3.set_column('F:G', 18)
+        ws3.set_column('H:H', 45)
+        
+        # ... (Fórmulas de suma deben rodarse a las columnas F y G ahora) ...
         if not incidencias.empty:
-            # Dibujar bordes vacíos
-            for c in range(len(headers_inc)):
-                ws3.write(row_idx, c, "", fmt_text)
-            
-            ws3.write(row_idx, 3, "TOTAL INCIDENCIAS:", fmt_total_label)
-            # Suma de Monto Softland (Columna E -> index 4)
-            ws3.write_formula(row_idx, 4, f'=SUM(E2:E{row_idx})', fmt_total_val)
-            # Suma de Monto Imprenta (Columna F -> index 5)
+            ws3.write(row_idx, 4, "TOTAL INCIDENCIAS:", fmt_total_label)
             ws3.write_formula(row_idx, 5, f'=SUM(F2:F{row_idx})', fmt_total_val)
+            ws3.write_formula(row_idx, 6, f'=SUM(G2:G{row_idx})', fmt_total_val)
 
         # Ajuste de anchos para todas las hojas
         for sheet in writer.sheets.values():
