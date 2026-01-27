@@ -1244,8 +1244,11 @@ def render_debito_fiscal():
                         soft_sc = preparar_datos_softland_debito(pd.read_excel(f_sc_d), pd.read_excel(f_sc_m), "SC")
                         soft_total = pd.concat([soft_fb, soft_sc], ignore_index=True)
                     else:
-                        soft_total = preparar_datos_softland_debito(pd.read_excel(f_d), pd.read_excel(f_m), casa_sel[:2])
-
+                        soft_total = preparar_datos_softland_debito(
+                            pd.read_excel(f_d), 
+                            pd.read_excel(f_m), 
+                            casa_sel[:2].upper() # Esto pondrá "BE" para Beval o "PR" para Prisma
+                        )
                     df_imp_data = pd.read_excel(f_imp)
                     df_res, soft_g, imp_g = run_conciliation_debito_fiscal(soft_total, df_imp_data, tolerancia, log)
                     
