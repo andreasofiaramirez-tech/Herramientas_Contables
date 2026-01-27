@@ -18,7 +18,7 @@ from guides import (
     GUIA_GENERADOR,
     GUIA_PENSIONES,
     GUIA_AJUSTES_USD,
-
+    GUIA_DEBITO_FISCAL  # <-- Asegúrate de agregar esta y verificar la coma anterior
 )
 
 # --- BLOQUE 2: IMPORTAR LÓGICA (Verifica las comas) ---
