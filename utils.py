@@ -2672,9 +2672,15 @@ def generar_reporte_debito_fiscal(df_incidencias_raw, df_soft_raw, df_imp_raw):
         # ============================================================
         # HOJA 2: LIBRO DE VENTAS (Copia exacta)
         # ============================================================
-        df_imp_raw.to_excel(writer, sheet_name='2. Libro de Ventas', index=False)
+        # Usamos header=False e index=False para que no cree títulos nuevos
+        df_imp_raw.to_excel(writer, sheet_name='2. Libro de Ventas', index=False, header=False)
         ws2 = writer.sheets['2. Libro de Ventas']
+
+        # Fondo Blanco (Ocultar líneas de división)
         ws2.hide_gridlines(2)
+
+        # Ajustar anchos para que se vea igual al original
+        ws2.set_column('A:Z', 15)
         
         # ============================================================
         # HOJA 3: INCIDENCIAS
