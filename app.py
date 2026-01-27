@@ -1250,7 +1250,7 @@ def render_debito_fiscal():
                         soft_total = preparar_datos_softland_debito(pd.read_excel(f_d), pd.read_excel(f_m), casa_sel[:2].upper())
 
                     # 2. Cargar Imprenta (Dos versiones)
-                    df_imp_raw = pd.read_excel(f_imp) # Para la Hoja 2 idéntica
+                    df_imp_raw = pd.read_excel(f_imp, header=None)
                     df_imp_logic = pd.read_excel(f_imp, header=7) # Para la lógica (Fila 8)
                     df_imp_logic.dropna(how='all', inplace=True)
 
