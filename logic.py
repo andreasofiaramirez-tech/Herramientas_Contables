@@ -4551,7 +4551,7 @@ def run_conciliation_debito_fiscal(df_soft_total, df_imprenta_logica, tolerancia
     df_imp['_Monto_Imprenta'] = pd.to_numeric(df_imp[col_iva], errors='coerce').fillna(0).abs()
 
     # Agrupar Softland
-    soft_grouped = df_soft_total.groupby(['_NIT_Norm', '_Doc_Norm', '_Casa'], as_index=False)['_Monto_Bs_Soft'].sum()
+    soft_grouped = df_soft_total.groupby(['_NIT_Norm', '_Doc_Norm', 'CASA'], as_index=False)['_Monto_Bs_Soft'].sum()
 
     # Cruce
     merged = pd.merge(
