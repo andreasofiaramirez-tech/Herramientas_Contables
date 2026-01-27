@@ -4497,50 +4497,44 @@ def normalizar_doc_fiscal(texto):
         return str(int(nums[-1]))
     return ""
 
-def preparar_datos_softland_debito(df_diario, df_mayor):
-    """Consolida la información de Softland (Diario + Mayor)."""
-    # Unificamos ambos reportes de Softland
+def preparar_datos_softland_debito(df_diario, df_mayor, tag_casa):
+    """Consolida Diario + Mayor y asigna la etiqueta de la casa (FB/SC)."""
     df_soft = pd.concat([df_diario, df_mayor], ignore_index=True).drop_duplicates()
     
-    # Normalización de columnas
     df_soft['Doc_Norm'] = df_soft['Referencia'].apply(normalizar_doc_fiscal)
+    df_soft['Casa'] = tag_casa  # Identificador FB o SC
     
-    # Buscar NIT dinámicamente
     nit_col = next((c for c in df_soft.columns if c.upper() in ['NIT', 'RIF']), None)
     df_soft['NIT_Norm'] = df_soft[nit_col].astype(str).str.upper().str.replace(r'[^A-Z0-9]', '', regex=True) if nit_col else "SIN_NIT"
     
-    # Monto Neto en Bs (Absoluto para comparar contra la verdad del Libro)
+    # Monto Neto en Bs
     df_soft['Monto_Bs_Soft'] = (df_soft.get('Débito Bolivar', 0) - df_soft.get('Crédito Bolivar', 0)).abs()
     
     return df_soft
 
-def run_conciliation_debito_fiscal(df_soft_raw, df_imprenta_raw, tolerancia_bs, log_messages):
-    log_messages.append("\n--- INICIANDO VERIFICACIÓN DE DÉBITO FISCAL ---")
+def run_conciliation_debito_fiscal(df_soft_consolidado, df_imprenta_raw, tolerancia_bs, log_messages):
+    log_messages.append("\n--- INICIANDO VERIFICACIÓN DE DÉBITO FISCAL (CASO CONSOLIDADO) ---")
     
-    # 1. Preparar Imprenta (La Verdad)
+    # 1. Preparar Imprenta
     df_imp = df_imprenta_raw.copy()
-    
-    # Buscador de columnas robusto para Imprenta
     col_doc_imp = next((c for c in df_imp.columns if any(k in c.upper() for k in ['NUMERO', 'FACTURA', 'DOCUMENTO'])), None)
     col_nit_imp = next((c for c in df_imp.columns if any(k in c.upper() for k in ['RIF', 'NIT'])), None)
     col_monto_imp = next((c for c in df_imp.columns if 'DEBITO' in c.upper() and 'FISCAL' in c.upper()), None)
     
-    if not all([col_doc_imp, col_nit_imp, col_monto_imp]):
-        raise KeyError(f"No se encontraron las columnas necesarias en el Libro de Ventas. Detectadas: {df_imp.columns.tolist()}")
-
     df_imp['Doc_Norm'] = df_imp[col_doc_imp].apply(normalizar_doc_fiscal)
     df_imp['NIT_Norm'] = df_imp[col_nit_imp].astype(str).str.upper().str.replace(r'[^A-Z0-9]', '', regex=True)
     df_imp['Monto_Imprenta'] = pd.to_numeric(df_imp[col_monto_imp], errors='coerce').fillna(0).abs()
 
-    # 2. Agrupar Softland para tener un solo monto por documento/NIT
-    soft_grouped = df_soft_raw.groupby(['NIT_Norm', 'Doc_Norm']).agg({
+    # 2. Agrupar Softland (Podría haber documentos repetidos en Diario y Mayor)
+    # Mantenemos 'Casa' en el agrupamiento
+    soft_grouped = df_soft_consolidado.groupby(['NIT_Norm', 'Doc_Norm', 'Casa']).agg({
         'Monto_Bs_Soft': 'sum',
         'Referencia': 'first',
         'Fecha': 'first',
         'Asiento': 'first'
     }).reset_index()
 
-    # 3. CRUCE (Outer Join)
+    # 3. CRUCE
     merged = pd.merge(
         soft_grouped, 
         df_imp[['NIT_Norm', 'Doc_Norm', 'Monto_Imprenta']], 
@@ -4549,7 +4543,7 @@ def run_conciliation_debito_fiscal(df_soft_raw, df_imprenta_raw, tolerancia_bs, 
         indicator=True
     )
 
-    # 4. DETERMINAR INCIDENCIAS
+    # 4. CLASIFICACIÓN
     def clasificar_incidencia(row):
         if row['_merge'] == 'left_only':
             return "DOCUMENTO NO ENCONTRADO EN IMPRENTA"
@@ -4562,8 +4556,5 @@ def run_conciliation_debito_fiscal(df_soft_raw, df_imprenta_raw, tolerancia_bs, 
         return "OK"
 
     merged['Estado'] = merged.apply(clasificar_incidencia, axis=1)
-    
-    count_ok = len(merged[merged['Estado'] == 'OK'])
-    log_messages.append(f"✔️ Proceso finalizado. Documentos cuadrados: {count_ok}")
     
     return merged, soft_grouped, df_imp
