@@ -4499,7 +4499,6 @@ def normalizar_doc_fiscal(texto):
 
 def preparar_datos_softland_debito(df_diario, df_mayor, tag_casa):
     """Mantiene columnas originales y agrega metadatos para el cruce."""
-    # Unificar reportes
     df_soft = pd.concat([df_diario, df_mayor], ignore_index=True)
     
     # Identificar columnas para el cruce
@@ -4508,28 +4507,22 @@ def preparar_datos_softland_debito(df_diario, df_mayor, tag_casa):
     col_rif = next((c for c in df_soft.columns if any(k in str(c).upper() for k in ['NIT', 'RIF'])), None)
     col_ref = next((c for c in df_soft.columns if 'REFERENCIA' in str(c).upper()), None)
 
-    # Creamos columnas técnicas con prefijo "_"
+    # Identificación de la Casa (Requerimiento 4 - Hoja 1)
+    df_soft['CASA'] = tag_casa 
+
+    # Columnas técnicas para la lógica de auditoría (Hoja 3)
     df_soft['_Doc_Norm'] = df_soft[col_ref].apply(normalizar_doc_fiscal) if col_ref else ""
-    df_soft['_Casa'] = tag_casa
     df_soft['_NIT_Norm'] = df_soft[col_rif].astype(str).str.upper().str.replace(r'[^A-Z0-9]', '', regex=True) if col_rif else "SIN_NIT"
     
-    # --- CORRECCIÓN DEL ERROR 'int' object has no attribute 'abs' ---
-    # Aseguramos que m_deb y m_cre sean siempre Series de Pandas, incluso si la columna no existe
-    if col_deb:
-        m_deb = pd.to_numeric(df_soft[col_deb], errors='coerce').fillna(0)
-    else:
-        m_deb = pd.Series(0.0, index=df_soft.index)
+    if col_deb: m_deb = pd.to_numeric(df_soft[col_deb], errors='coerce').fillna(0)
+    else: m_deb = pd.Series(0.0, index=df_soft.index)
 
-    if col_cre:
-        m_cre = pd.to_numeric(df_soft[col_cre], errors='coerce').fillna(0)
-    else:
-        m_cre = pd.Series(0.0, index=df_soft.index)
+    if col_cre: m_cre = pd.to_numeric(df_soft[col_cre], errors='coerce').fillna(0)
+    else: m_cre = pd.Series(0.0, index=df_soft.index)
 
-    # Usamos la función abs() nativa de Python que funciona tanto con números como con Series
     df_soft['_Monto_Bs_Soft'] = abs(m_deb - m_cre)
-    # ----------------------------------------------------------------
     
-    return df_soft
+    return df_soft    
 
 def run_conciliation_debito_fiscal(df_soft_total, df_imprenta_logica, tolerancia_bs, log_messages):
     """Cruce de auditoría manteniendo integridad de datos."""
