@@ -1195,35 +1195,35 @@ def render_debito_fiscal():
     st.title("⚖️ Verificación de Débito Fiscal (Bs.)", anchor=False)
     if st.button("⬅️ Volver al Inicio"): set_page('inicio'); st.rerun()
     
-    st.info("Cruce de auditoría entre Softland e Imprenta (Naturaleza: Débito Fiscal)")
+    st.info("Cruce de auditoría: Softland (213.04.1001) vs Libro de Ventas (Imprenta)")
     
-    # 1. Parámetros
     col_a, col_b = st.columns(2)
     with col_a:
         casa_sel = st.selectbox("Empresa:", ["FEBECA (FB + SC)", "BEVAL", "PRISMA"])
-        tolerancia = st.number_input("Tolerancia Máxima (Bs.):", min_value=0.0, value=50.0)
+        # Tolerancia en Bs (manual)
+        tolerancia = st.number_input("Margen de Tolerancia en Bs. (Sugerido: 50.00):", min_value=0.0, value=50.0)
 
     st.divider()
 
-    # 2. Carga de Archivos
+    # --- CARGA DE ARCHIVOS SEGÚN CASO ---
     if "FEBECA" in casa_sel:
-        st.subheader("📁 Archivos de Softland (Febeca + Sillaca)")
+        st.subheader("📁 Archivos Softland: Febeca + Sillaca")
         c1, c2 = st.columns(2)
         with c1:
-            st.caption("Casa Febeca (FB)")
-            f_fb_d = st.file_uploader("Transacciones del Diario (FB)", type=['xlsx'])
-            f_fb_m = st.file_uploader("Transacciones del Mayor (FB)", type=['xlsx'])
+            st.markdown("**Casa Febeca (FB)**")
+            f_fb_d = st.file_uploader("Transacciones Diario (FB)", type=['xlsx'])
+            f_fb_m = st.file_uploader("Transacciones Mayor (FB)", type=['xlsx'])
         with c2:
-            st.caption("Casa Sillaca (SC)")
-            f_sc_d = st.file_uploader("Transacciones del Diario (SC)", type=['xlsx'])
-            f_sc_m = st.file_uploader("Transacciones del Mayor (SC)", type=['xlsx'])
+            st.markdown("**Casa Sillaca (SC)**")
+            f_sc_d = st.file_uploader("Transacciones Diario (SC)", type=['xlsx'])
+            f_sc_m = st.file_uploader("Transacciones Mayor (SC)", type=['xlsx'])
         
-        st.subheader("📄 Libro de Ventas (Consolidado)")
+        st.subheader("📄 Libro de Ventas")
         f_imp = st.file_uploader("Archivo de Imprenta (La Verdad)", type=['xlsx'])
         
         ready = all([f_fb_d, f_fb_m, f_sc_d, f_sc_m, f_imp])
     else:
-        st.subheader(f"📁 Archivos: {casa_sel}")
+        st.subheader(f"📁 Archivos Softland: {casa_sel}")
         c1, c2 = st.columns(2)
         with c1:
             f_d = st.file_uploader("Transacciones del Diario", type=['xlsx'])
@@ -1232,28 +1232,32 @@ def render_debito_fiscal():
             f_imp = st.file_uploader("Libro de Ventas (Imprenta)", type=['xlsx'])
         ready = all([f_d, f_m, f_imp])
 
-    # 3. Procesamiento
+    # --- PROCESAMIENTO ---
     if ready:
-        if st.button("▶️ Ejecutar Verificación", type="primary", use_container_width=True):
+        if st.button("▶️ Ejecutar Verificación Cruzada", type="primary", use_container_width=True):
             log = []
             try:
-                with st.spinner("Procesando datos..."):
+                with st.spinner("Procesando y cruzando información..."):
+                    from logic import preparar_datos_softland_debito, run_conciliation_debito_fiscal
+                    from utils import generar_reporte_debito_fiscal
+
+                    # 1. Cargar y Taggear Softland
                     if "FEBECA" in casa_sel:
-                        # Consolidar ambas casas
                         soft_fb = preparar_datos_softland_debito(pd.read_excel(f_fb_d), pd.read_excel(f_fb_m), "FB")
                         soft_sc = preparar_datos_softland_debito(pd.read_excel(f_sc_d), pd.read_excel(f_sc_m), "SC")
                         soft_total = pd.concat([soft_fb, soft_sc], ignore_index=True)
                     else:
-                        soft_total = preparar_datos_softland_debito(
-                            pd.read_excel(f_d), 
-                            pd.read_excel(f_m), 
-                            casa_sel[:2].upper() # Esto pondrá "BE" para Beval o "PR" para Prisma
-                        )
-                    df_imp_data = pd.read_excel(f_imp)
+                        soft_total = preparar_datos_softland_debito(pd.read_excel(f_d), pd.read_excel(f_m), casa_sel[:2].upper())
+
+                    # 2. Cargar Imprenta (Header en fila 8 -> index 7)
+                    df_imp_data = pd.read_excel(f_imp, header=7)
+                    df_imp_data.dropna(how='all', inplace=True)
+
+                    # 3. Conciliar
                     df_res, soft_g, imp_g = run_conciliation_debito_fiscal(soft_total, df_imp_data, tolerancia, log)
                     
-                    st.success("¡Cruce finalizado!")
-                    excel_bin = generar_reporte_debito_fiscal(df_res, soft_total, df_imp_data, casa_sel)
+                    st.success("Auditoría Finalizada.")
+                    excel_bin = generar_reporte_debito_fiscal(df_res, soft_total, df_imp_data)
                     
                     st.download_button(
                         label="⬇️ Descargar Reporte de Diferencias",
@@ -1263,7 +1267,7 @@ def render_debito_fiscal():
                     )
                     with st.expander("Ver Log"): st.write(log)
             except Exception as e:
-                st.error(f"Error en el proceso: {str(e)}")
+                st.error(f"Error detectado: {str(e)}")
                 
 # ==============================================================================
 # FLUJO PRINCIPAL DE LA APLICACIÓN (ROUTER)
