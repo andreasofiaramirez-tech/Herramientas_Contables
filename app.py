@@ -44,6 +44,7 @@ from logic import (
     run_conciliation_envios_cofersa,
     run_conciliation_proveedores_costos,
     run_conciliation_fondos_transito_cofersa,
+    run_conciliation_debito_fiscal
 )
 
 # --- BLOQUE 3: IMPORTAR UTILS ---
@@ -59,7 +60,8 @@ from utils import (
     generar_reporte_pensiones,
     generar_reporte_ajustes_usd,
     generar_reporte_cofersa,
-    cargar_datos_cofersa
+    cargar_datos_cofersa,
+    generar_reporte_debito_fiscal
 )
 
 def mostrar_error_amigable(e, contexto=""):
@@ -359,6 +361,7 @@ def render_inicio():
     with c2:
         st.subheader("⚙️ Procesos Fiscales y Nómina")
         st.button("🛡️ Cálculo Pensiones (9%)", on_click=set_page, args=['pensiones'], use_container_width=True)
+        st.button("⚖️ Verificación Débito Fiscal", on_click=set_page, args=['debito_fiscal'], use_container_width=True)
         st.button("🧾 Relación Retenciones", on_click=set_page, args=['retenciones'], use_container_width=True)
         st.button("🖨️ Gestión Imprenta (TXT)", on_click=set_page, args=['imprenta'], use_container_width=True)
 
@@ -1187,6 +1190,48 @@ def render_cofersa_fondos():
             except Exception as e:
                 mostrar_error_amigable(e, "la Conciliación de Fondos Cofersa")
 
+def render_debito_fiscal():
+    st.title("⚖️ Verificación de Débito Fiscal (Bs.)", anchor=False)
+    if st.button("⬅️ Volver"): set_page('inicio'); st.rerun()
+    
+    st.info("Cruce de información entre el Mayor de Softland y el Libro de Ventas (Imprenta).")
+    
+    col_a, col_b = st.columns(2)
+    with col_a:
+        casa = st.selectbox("Empresa:", ["FEBECA", "SILLACA", "BEVAL", "PRISMA"])
+        tolerancia = st.number_input("Margen de Tolerancia en Bs.:", min_value=0.0, value=50.0, step=1.0)
+    
+    c1, c2, c3 = st.columns(3)
+    with c1: f_diario = st.file_uploader("1. Mayor del Diario (Softland)", type="xlsx")
+    with c2: f_mayor = st.file_uploader("2. Mayor del Mayor (Softland)", type="xlsx")
+    with c3: f_imprenta = st.file_uploader("3. Libro de Ventas (Imprenta)", type="xlsx")
+    
+    if f_diario and f_mayor and f_imprenta:
+        if st.button("▶️ Iniciar Verificación Cruzada", type="primary", use_container_width=True):
+            log = []
+            try:
+                # 1. Cargar datos
+                df_d = pd.read_excel(f_diario)
+                df_m = pd.read_excel(f_mayor)
+                df_i = pd.read_excel(f_imprenta)
+                
+                # 2. Ejecutar Lógica
+                from logic import preparar_datos_softland_debito, run_conciliation_debito_fiscal
+                from utils import generar_reporte_debito_fiscal
+                
+                soft_clean = preparar_datos_softland_debito(df_d, df_m)
+                df_res, soft_g, imp_g = run_conciliation_debito_fiscal(soft_clean, df_i, tolerancia, log)
+                
+                # 3. Resultados
+                st.success("✅ Verificación completada.")
+                excel_bin = generar_reporte_debito_fiscal(df_res, soft_g, imp_g, casa)
+                
+                st.download_button("⬇️ Descargar Reporte de Diferencias", excel_bin, f"Debito_Fiscal_{casa}.xlsx", use_container_width=True)
+                with st.expander("Ver Log"): st.write(log)
+                
+            except Exception as e:
+                st.error(f"Error: {e}")
+
 # ==============================================================================
 # FLUJO PRINCIPAL DE LA APLICACIÓN (ROUTER)
 # ==============================================================================
@@ -1202,6 +1247,7 @@ def main():
         'ajustes_usd' : render_ajustes_usd,
         'cofersa': render_cofersa,     
         'cofersa_fondos': render_cofersa_fondos,
+        'debito_fiscal': render_debito_fiscal,
     }
     
     current_page = st.session_state.get('page', 'inicio')
