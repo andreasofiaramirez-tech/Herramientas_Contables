@@ -2580,39 +2580,36 @@ def generar_reporte_cofersa(df_procesado):
 
     return output.getvalue()
 
-def generar_reporte_debito_fiscal(df_final, df_mayor_consolidado, df_imprenta, casa_nombre):
+def generar_reporte_debito_fiscal(df_final, df_soft_total, df_imprenta, casa_nombre):
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         workbook = writer.book
-        fmt_header = workbook.add_format({'bold': True, 'bg_color': '#D9EAD3', 'border': 1})
+        fmt_header = workbook.add_format({'bold': True, 'bg_color': '#D9EAD3', 'border': 1, 'align': 'center'})
         fmt_money = workbook.add_format({'num_format': '#,##0.00', 'border': 1})
-        fmt_red = workbook.add_format({'bg_color': '#FFC7CE', 'font_color': '#9C0006', 'border': 1})
         fmt_text = workbook.add_format({'border': 1})
+        fmt_red = workbook.add_format({'bg_color': '#FFC7CE', 'font_color': '#9C0006', 'border': 1})
 
-        # Hoja 1: Transacciones de Softland (Consolidado FB + SC)
-        df_mayor_consolidado.to_excel(writer, sheet_name='1. Transacciones Softland', index=False)
+        # Hoja 1: Transacciones Softland
+        df_soft_total.to_excel(writer, sheet_name='1. Transacciones Softland', index=False)
         
-        # Hoja 2: Libro de Ventas
+        # Hoja 2: Libro de Ventas (Imprenta)
         df_imprenta.to_excel(writer, sheet_name='2. Libro de Ventas', index=False)
         
         # Hoja 3: Incidencias
-        ws3 = workbook.add_worksheet('3. Incidencias y Resultados')
+        ws3 = workbook.add_worksheet('3. Incidencias')
         ws3.hide_gridlines(2)
+        incidencias = df_final[df_final['Estado'] != 'OK'].copy()
         
-        # Incluimos 'Casa' en las columnas
         cols = ['Casa', 'NIT_Norm', 'Doc_Norm', 'Monto_Bs_Soft', 'Monto_Imprenta', 'Estado']
         ws3.write_row(0, 0, cols, fmt_header)
         
-        # Filtrar incidencias (lo que no es OK)
-        incidencias = df_final[df_final['Estado'] != 'OK'].copy()
-        
         for r_idx, (_, row) in enumerate(incidencias.iterrows()):
-            ws3.write(r_idx+1, 0, row.get('Casa', 'Imprenta'), fmt_text) # Si es de Imprenta solo, no tiene Casa en Softland
+            ws3.write(r_idx+1, 0, row.get('Casa', 'Imprenta'), fmt_text)
             ws3.write(r_idx+1, 1, row['NIT_Norm'], fmt_text)
             ws3.write(r_idx+1, 2, row['Doc_Norm'], fmt_text)
             ws3.write_number(r_idx+1, 3, row['Monto_Bs_Soft'] if pd.notna(row['Monto_Bs_Soft']) else 0, fmt_money)
             ws3.write_number(r_idx+1, 4, row['Monto_Imprenta'] if pd.notna(row['Monto_Imprenta']) else 0, fmt_money)
-            ws3.write(r_idx+1, 5, row['Estado'], fmt_red)
+            ws3.write(r_idx+1, 5, row['Estado'], fmt_red if "DIFERENCIA" in str(row['Estado']) else fmt_text)
 
         for sheet in writer.sheets.values():
             sheet.set_column('A:Z', 20)
