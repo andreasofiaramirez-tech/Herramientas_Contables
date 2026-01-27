@@ -2586,21 +2586,31 @@ def generar_reporte_debito_fiscal(df_incidencias_raw, df_soft_raw, df_imp_raw):
         workbook = writer.book
         
         # --- DEFINICIÓN DE FORMATOS ---
-        # Fondo blanco se logra con hide_gridlines y asegurando bordes en celdas
         fmt_money = workbook.add_format({'num_format': '#,##0.00', 'border': 1})
-        fmt_money_bold = workbook.add_format({'num_format': '#,##0.00', 'border': 1, 'bold': True, 'bg_color': '#F2F2F2'})
+        # Formato para la fila de Totales (Fondo Amarillo + Negrita + Bordes)
+        fmt_total_val = workbook.add_format({
+            'num_format': '#,##0.00', 
+            'border': 1, 
+            'bold': True, 
+            'bg_color': '#FFFF00'  # Amarillo
+        })
+        fmt_total_label = workbook.add_format({
+            'bold': True, 
+            'border': 1, 
+            'align': 'right', 
+            'bg_color': '#F2F2F2'
+        })
         fmt_date = workbook.add_format({'num_format': 'dd/mm/yyyy', 'border': 1, 'align': 'center'})
         fmt_text = workbook.add_format({'border': 1})
         fmt_header = workbook.add_format({'bold': True, 'bg_color': '#D9EAD3', 'border': 1, 'align': 'center'})
         fmt_red = workbook.add_format({'bg_color': '#FFC7CE', 'font_color': '#9C0006', 'border': 1})
-        fmt_total_label = workbook.add_format({'bold': True, 'border': 1, 'align': 'right', 'bg_color': '#F2F2F2'})
 
         # ============================================================
         # HOJA 1: TRANSACCIONES SOFTLAND
         # ============================================================
         df_s_export = df_soft_raw.drop(columns=[c for c in df_soft_raw.columns if c.startswith('_')], errors='ignore')
         
-        # Reordenar para que CASA sea la primera columna
+        # Aseguramos que CASA sea la primera columna
         cols = ['CASA'] + [c for c in df_s_export.columns if c != 'CASA']
         df_s_export = df_s_export[cols]
 
@@ -2608,29 +2618,22 @@ def generar_reporte_debito_fiscal(df_incidencias_raw, df_soft_raw, df_imp_raw):
         df_s_export.to_excel(writer, sheet_name=sheet_name1, index=False)
         ws1 = writer.sheets[sheet_name1]
         
-        # 1. Fondo Blanco (Ocultar líneas de división)
-        ws1.hide_gridlines(2)
+        ws1.hide_gridlines(2) # Fondo blanco
+        ws1.freeze_panes(1, 0) # Inmovilizar fila 1
         
-        # 5. Inmovilizar fila 1
-        ws1.freeze_panes(1, 0)
-        
-        # Identificar índices de columnas
-        idx_date = -1
-        idx_deb = -1
-        idx_cre = -1
-        
+        # Identificar columnas
+        idx_date = -1; idx_deb = -1; idx_cre = -1
         for i, col in enumerate(df_s_export.columns):
             c_u = str(col).upper()
             if 'FECHA' in c_u: idx_date = i
-            if any(k in c_u for k in ['DEBITO BOLIVAR', 'DEBITO LOCAL', 'DEBITO VES']): idx_deb = i
-            if any(k in c_u for k in ['CREDITO BOLIVAR', 'CREDITO LOCAL', 'CREDITO VES']): idx_cre = i
+            if any(k in c_u for k in ['DEBITO BOLIVAR', 'DEBITO LOCAL', 'DEBITO VES', 'DÉBITO VES']): idx_deb = i
+            if any(k in c_u for k in ['CREDITO BOLIVAR', 'CREDITO LOCAL', 'CREDITO VES', 'CRÉDITO VES']): idx_cre = i
 
-        # 2. Aplicar bordes y 4. Formato de montos
+        # Aplicar datos con bordes y formatos
         num_rows = len(df_s_export)
         for r in range(num_rows):
             for c in range(len(df_s_export.columns)):
                 val = df_s_export.iloc[r, c]
-                
                 if c == idx_date:
                     ws1.write_datetime(r + 1, c, val, fmt_date)
                 elif c == idx_deb or c == idx_cre:
@@ -2638,27 +2641,33 @@ def generar_reporte_debito_fiscal(df_incidencias_raw, df_soft_raw, df_imp_raw):
                 else:
                     ws1.write(r + 1, c, str(val) if pd.notna(val) else "", fmt_text)
 
-        # 3. Agregar fórmulas de Suma y Saldo
-        total_row = num_rows + 1
-        # Escribir bordes en toda la fila de totales
+        # --- FILA DE TOTALES (AMARILLA) ---
+        total_row_idx = num_rows + 1
+        # Llenar toda la fila con bordes vacíos primero
         for c in range(len(df_s_export.columns)):
-            ws1.write(total_row, c, "", fmt_total_label)
+            ws1.write(total_row_idx, c, "", fmt_text)
 
-        ws1.write(total_row, 0, "TOTALES:", fmt_total_label)
+        ws1.write(total_row_idx, 0, "TOTALES:", fmt_total_label)
         
         if idx_deb != -1 and idx_cre != -1:
-            col_deb_letra = xlsxwriter.utility.xl_col_to_name(idx_deb)
-            col_cre_letra = xlsxwriter.utility.xl_col_to_name(idx_cre)
+            col_deb_letter = xlsxwriter.utility.xl_col_to_name(idx_deb)
+            col_cre_letter = xlsxwriter.utility.xl_col_to_name(idx_cre)
             
-            # Suma Débito
-            ws1.write_formula(total_row, idx_deb, f'=SUM({col_deb_letra}2:{col_deb_letra}{total_row})', fmt_money_bold)
-            # Suma Crédito
-            ws1.write_formula(total_row, idx_cre, f'=SUM({col_cre_letra}2:{col_cre_letra}{total_row})', fmt_money_bold)
+            # Fórmulas de Sumatoria
+            ws1.write_formula(total_row_idx, idx_deb, f'=SUM({col_deb_letter}2:{col_deb_letter}{total_row_idx})', fmt_total_val)
+            ws1.write_formula(total_row_idx, idx_cre, f'=SUM({col_cre_letter}2:{col_cre_letter}{total_row_idx})', fmt_total_val)
             
-            # Fórmula de Saldo (Crédito - Débito por ser cuenta de pasivo/impuesto)
-            # La colocamos en la columna siguiente a la última o donde mejor se vea
-            ws1.write(total_row + 1, idx_cre - 1, "SALDO NETO:", fmt_total_label)
-            ws1.write_formula(total_row + 1, idx_cre, f'={col_cre_letra}{total_row+1}-{col_deb_letra}{total_row+1}', fmt_money_bold)
+            # --- FILA DE SALDO (Débitos - Créditos) ---
+            saldo_row_idx = total_row_idx + 1
+            ws1.write(saldo_row_idx, 0, "SALDO:", fmt_total_label)
+            # Escribir bordes en la fila de saldo
+            for c in range(1, len(df_s_export.columns)):
+                ws1.write(saldo_row_idx, c, "", fmt_text)
+            
+            # El saldo se coloca debajo de la columna de Créditos (o donde prefieras)
+            # Requerimiento: "sume los debitos y reste creditos"
+            formula_saldo = f'={col_deb_letter}{saldo_row_idx}-{col_cre_letter}{saldo_row_idx}'
+            ws1.write_formula(saldo_row_idx, idx_cre, formula_saldo, fmt_total_val)
 
         # ============================================================
         # HOJA 2: LIBRO DE VENTAS (Copia exacta)
@@ -2689,7 +2698,6 @@ def generar_reporte_debito_fiscal(df_incidencias_raw, df_soft_raw, df_imp_raw):
             ws3.write_number(r_idx+1, 4, m_i, fmt_money)
             ws3.write(r_idx+1, 5, str(row['Estado']), fmt_red if "DIFERENCIA" in str(row['Estado']) else fmt_text)
 
-        # Ajuste de anchos
         for sheet in writer.sheets.values():
             sheet.set_column('A:Z', 20)
 
