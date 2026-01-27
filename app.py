@@ -1193,7 +1193,7 @@ def render_cofersa_fondos():
                 mostrar_error_amigable(e, "la Conciliación de Fondos Cofersa")
 
 def render_debito_fiscal():
-    st.title("⚖️ Verificación de Débito Fiscal (Bs.)", anchor=False)
+    st.title("📑 Verificación de Débito Fiscal (Bs.)", anchor=False)
     if st.button("⬅️ Volver al Inicio"): 
         set_page('inicio')
         st.rerun()
