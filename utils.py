@@ -2598,12 +2598,15 @@ def generar_reporte_debito_fiscal(df_incidencias_raw, df_soft_raw, df_imp_raw):
         fmt_total_yellow = workbook.add_format({'num_format': '#,##0.00', 'border': 1, 'bold': True, 'bg_color': '#FFFF00'})
         fmt_label_grey = workbook.add_format({'bold': True, 'border': 1, 'align': 'right', 'bg_color': '#F2F2F2'})    
         
-        # --- NUEVOS FORMATOS PARA EL RESUMEN ---
+        # Formatos para Tablas Resumen BI (Hoja 3)
         fmt_res_header = workbook.add_format({'bold': True, 'bg_color': '#D9EAD3', 'align': 'center', 'border': 1})
         fmt_res_total = workbook.add_format({'num_format': '#,##0.00', 'border': 1, 'bold': True, 'bg_color': '#E2EFDA'})
         fmt_res_label = workbook.add_format({'bold': True, 'border': 1, 'align': 'right', 'bg_color': '#E2EFDA'})
         fmt_red_incid = workbook.add_format({'font_color': '#FF0000', 'num_format': '#,##0.00', 'border': 1})
-        fmt_res_title = workbook.add_format({'bold': True, 'font_size': 12, 'align': 'left', 'bottom': 2})
+        
+        # Títulos de las tablas de control
+        fmt_res_title = workbook.add_format({'bold': True, 'font_size': 12, 'align': 'left', 'bottom': 2, 'font_color': '#003366'})
+        fmt_huerfanos_title = workbook.add_format({'bold': True, 'font_size': 12, 'align': 'left', 'bottom': 2, 'font_color': '#CC0000'})
         
         # ============================================================
         # HOJA 1: TRANSACCIONES SOFTLAND
@@ -2699,90 +2702,93 @@ def generar_reporte_debito_fiscal(df_incidencias_raw, df_soft_raw, df_imp_raw):
             ws3.write(row_i, 2, str(row.get('_Nombre_Final', '')), fmt_text)
             ws3.write(row_i, 3, str(row.get('_Tipo_Final', 'FACTURA')), fmt_text)
             ws3.write(row_i, 4, str(row.get('_Doc_Norm', '')), fmt_text)
+            
             m_s = float(row.get('_Monto_Bs_Soft', 0)) if pd.notna(row.get('_Monto_Bs_Soft')) else 0.0
             m_i = float(row.get('_Monto_Imprenta', 0)) if pd.notna(row.get('_Monto_Imprenta')) else 0.0
+            
             ws3.write_number(row_i, 5, m_s, fmt_money)
             ws3.write_number(row_i, 6, m_i, fmt_money)
             ws3.write(row_i, 7, str(row['Estado']), fmt_text)
             row_i += 1
 
-        # --- DIBUJAR TABLAS RESUMEN ---
+        # --- DIBUJAR TABLAS RESUMEN BI ---
+        # 1. Tablas por Casa
         casas = [c for c in df_incidencias_raw['CASA'].unique() if pd.notna(c) and c != 'Libro Ventas']
-        col_s = 9 # Empieza en columna J
+        col_start = 9 # Columna J
         
-        # A. TABLAS POR CASA (Softland vs Imprenta Emparejada)
         for c_idx, c_cod in enumerate(casas):
-            c_col = col_s + (c_idx * 4) # Espacio de 4 columnas por casa
-            df_c = df_incidencias_raw[df_incidencias_raw['CASA'] == c_cod]
+            c_col = col_start + (c_idx * 4)
+            df_casa_data = df_incidencias_raw[df_incidencias_raw['CASA'] == c_cod]
             ws3.write(0, c_col, f"ANÁLISIS: {c_cod}", fmt_res_title)
             
-            def draw_box(ws, start_r, start_c, title, m_col, data):
+            def draw_box(ws, start_r, start_c, title, m_col, source_df):
                 ws.write(start_r, start_c, title, fmt_res_header)
                 ws.write(start_r, start_c+1, "Cant.", fmt_res_header)
                 ws.write(start_r, start_c+2, "Monto", fmt_res_header)
+                
                 tipos = [("FACTURA", "Total Débito Facturas"), ("N/C", "Total Débito N/C"), ("N/D", "Total Débito N/D")]
                 curr_r, t_c, t_m = start_r + 1, 0, 0
+                
                 for code, label in tipos:
-                    sub = data[data['_Tipo_Final'] == code]
+                    sub = source_df[source_df['_Tipo_Final'] == code]
                     cant = len(sub[sub[m_col] > 0.01])
                     monto = sub[m_col].sum()
                     ws.write(curr_r, start_c, label, fmt_text)
                     ws.write(curr_r, start_c+1, cant, fmt_text)
                     ws.write_number(curr_r, start_c+2, monto, fmt_money)
                     t_c += cant; t_m += monto; curr_r += 1
+                
                 ws.write(curr_r, start_c, "Totales", fmt_res_label)
                 ws.write(curr_r, start_c+1, t_c, fmt_res_total)
                 ws.write_number(curr_r, start_c+2, t_m, fmt_res_total)
                 return curr_r + 2
 
-            r_next = draw_box(ws3, 1, c_col, "Softland", "_Monto_Bs_Soft", df_c)
-            r_next = draw_box(ws3, r_next, c_col, "Imprenta", "_Monto_Imprenta", df_c)
+            # Renderizar bloques Softland e Imprenta por casa
+            r_next = draw_box(ws3, 1, c_col, "Softland", "_Monto_Bs_Soft", df_casa_data)
+            r_next = draw_box(ws3, r_next, c_col, "Imprenta", "_Monto_Imprenta", df_casa_data)
             
-            # Bloque Diferencias de la Casa
+            # Bloque Diferencias
             ws3.write(r_next, c_col, "Diferencias", fmt_res_header)
             ws3.write(r_next, c_col+1, "Cant.", fmt_res_header)
             ws3.write(r_next, c_col+2, "Monto", fmt_res_header)
             r_next += 1
-            df_err = df_c[df_c['Estado'] != 'OK']
-            t_ce, t_me = 0, 0
+            
+            df_dif = df_casa_data[df_casa_data['Estado'] != 'OK']
+            te_c, te_m = 0, 0
             for code, label in [("FACTURA", "Total Débito Facturas"), ("N/C", "Total Débito N/C"), ("N/D", "Total Débito N/D")]:
-                sub_e = df_err[df_err['_Tipo_Final'] == code]
-                m_e = abs(sub_e['_Monto_Bs_Soft'].sum() - sub_e['_Monto_Imprenta'].sum())
+                sub_e = df_dif[df_dif['_Tipo_Final'] == code]
+                m_diff = abs(sub_e['_Monto_Bs_Soft'].sum() - sub_e['_Monto_Imprenta'].sum())
                 ws3.write(r_next, c_col, label, fmt_text)
                 ws3.write(r_next, c_col+1, len(sub_e), fmt_text)
-                if m_e > 0.01: ws3.write_number(r_next, c_col+2, m_e, fmt_red_incid)
+                if m_diff > 0.01: ws3.write_number(r_next, c_col+2, m_diff, fmt_red_incid)
                 else: ws3.write(r_next, c_col+2, "-", fmt_text)
-                t_ce += len(sub_e); t_me += m_e; r_next += 1
+                te_c += len(sub_e); te_m += m_diff; r_next += 1
+            
             ws3.write(r_next, c_col, "Totales", fmt_res_label)
-            ws3.write(r_next, c_col+1, t_ce, fmt_res_total)
-            ws3.write_number(r_next, c_col+2, t_me, fmt_res_total)
+            ws3.write(r_next, c_col+1, te_c, fmt_res_total)
+            ws3.write_number(r_next, c_col+2, te_m, fmt_res_total)
 
-        # B. NUEVO CUADRO: DOCUMENTOS SOLO EN IMPRENTA (Huerfanos)
-        # Identificamos registros que están en Imprenta pero no tienen Casa asignada de Softland
+        # 2. Tabla de Huérfanos (Solo en Imprenta)
         df_huerfanos = df_incidencias_raw[df_incidencias_raw['_merge'] == 'right_only']
+        h_col = col_start + (len(casas) * 4)
         
-        # Lo dibujamos después de las tablas de las casas
-        h_col = col_s + (len(casas) * 4)
         ws3.write(0, h_col, "SOLO EN IMPRENTA", fmt_huerfanos_title)
-        
-        ws3.write(1, h_col, "Faltan por Contabilizar", fmt_res_header)
+        ws3.write(1, h_col, "Documento", fmt_res_header)
         ws3.write(1, h_col+1, "Cant.", fmt_res_header)
         ws3.write(1, h_col+2, "Monto", fmt_res_header)
         
-        tipos_h = [("FACTURA", "Facturas Huérfanas"), ("N/C", "N/C Huérfanas"), ("N/D", "N/D Huérfanas")]
-        curr_rh, th_c, th_m = 2, 0, 0
-        for code, label in tipos_h:
+        tip_h = [("FACTURA", "Facturas Huérfanas"), ("N/C", "N/C Huérfanas"), ("N/D", "N/D Huérfanas")]
+        rh, thc, thm = 2, 0, 0
+        for code, label in tip_h:
             sub_h = df_huerfanos[df_huerfanos['_Tipo_Final'] == code]
-            c_h = len(sub_h)
-            m_h = sub_h['_Monto_Imprenta'].sum()
-            ws3.write(curr_rh, h_col, label, fmt_text)
-            ws3.write(curr_rh, h_col+1, c_h, fmt_text)
-            ws3.write_number(curr_rh, h_col+2, m_h, fmt_money)
-            th_c += c_h; th_m += m_h; curr_rh += 1
+            ws3.write(rh, h_col, label, fmt_text)
+            ws3.write(rh, h_col+1, len(sub_h), fmt_text)
+            ws3.write_number(rh, h_col+2, sub_h['_Monto_Imprenta'].sum(), fmt_money)
+            thc += len(sub_h); thm += sub_h['_Monto_Imprenta'].sum(); rh += 1
             
-        ws3.write(curr_rh, h_col, "Totales Huérfanos", fmt_res_label)
-        ws3.write(curr_rh, h_col+1, th_c, fmt_res_total)
-        ws3.write_number(curr_rh, h_col+2, th_m, fmt_res_total)
+        ws3.write(rh, h_col, "Total Huérfanos", fmt_res_label)
+        ws3.write(rh, h_col+1, thc, fmt_res_total)
+        ws3.write_number(rh, h_col+2, thm, fmt_res_total)
 
         # Ajuste de anchos final
         for sheet in writer.sheets.values():
