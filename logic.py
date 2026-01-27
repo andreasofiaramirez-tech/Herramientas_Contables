@@ -4542,15 +4542,14 @@ def preparar_datos_softland_debito(df_diario, df_mayor, tag_casa):
     return df_soft
     
 def run_conciliation_debito_fiscal(df_soft_total, df_imprenta_logica, tolerancia_bs, log_messages):
-    """Cruce de auditoría con rescate de nombres de ambos sistemas."""
+    """Cruce de auditoría con exclusión de documentos FEBECA (Terceros)."""
     log_messages.append("\n--- INICIANDO AUDITORÍA DE DÉBITO FISCAL ---")
     
     df_imp = df_imprenta_logica.copy()
     
     def find_col(keywords, df):
         for c in df.columns:
-            c_up = str(c).upper()
-            if any(k in c_up for k in keywords): return c
+            if any(k in str(c).upper() for k in keywords): return c
         return None
 
     col_rif = find_col(['RIF'], df_imp)
@@ -4558,7 +4557,7 @@ def run_conciliation_debito_fiscal(df_soft_total, df_imprenta_logica, tolerancia
     col_nd = find_col(['NOTA DE DEBITO'], df_imp)
     col_nc = find_col(['NOTA DE CREDITO'], df_imp)
     col_iva = find_col(['IMPUESTO IVA G'], df_imp)
-    col_nom_imp = find_col(['NOMBRE O RAZON SOCIAL', 'NOMBRE', 'RAZON SOCIAL'], df_imp) # Para el Libro de Ventas
+    col_nom_imp = find_col(['NOMBRE O RAZON SOCIAL', 'NOMBRE', 'RAZON SOCIAL'], df_imp)
 
     def identificar_tipo_y_doc_imp(row):
         if pd.notna(row.get(col_nc)) and str(row.get(col_nc)).strip() != "":
@@ -4572,13 +4571,18 @@ def run_conciliation_debito_fiscal(df_soft_total, df_imprenta_logica, tolerancia
     df_imp['_Monto_Imprenta'] = pd.to_numeric(df_imp[col_iva], errors='coerce').fillna(0).abs()
     df_imp['_Nombre_Imp'] = df_imp[col_nom_imp].fillna("SIN NOMBRE EN LIBRO") if col_nom_imp else "NOMBRE NO DETECTADO"
 
-    # Agrupar Softland (Tomamos el primer nombre que aparezca por NIT/Doc)
+    # --- EXCLUSIÓN DE DOCUMENTOS FEBECA (Requerimiento) ---
+    # Se eliminan de imprenta porque son débitos fiscales a cuenta de terceros
+    df_imp = df_imp[~df_imp['_Nombre_Imp'].str.upper().str.contains("FEBECA", na=False)]
+
     soft_grouped = df_soft_total.groupby(['_NIT_Norm', '_Doc_Norm', 'CASA', '_Tipo'], as_index=False).agg({
         '_Monto_Bs_Soft': 'sum',
         '_Nombre_Soft': 'first'
     })
+    
+    # También excluimos de Softland por si acaso
+    soft_grouped = soft_grouped[~soft_grouped['_Nombre_Soft'].str.upper().str.contains("FEBECA", na=False)]
 
-    # Cruce
     merged = pd.merge(
         soft_grouped, 
         df_imp[['_NIT_Norm', '_Doc_Norm', '_Monto_Imprenta', '_Tipo', '_Nombre_Imp']], 
@@ -4590,21 +4594,16 @@ def run_conciliation_debito_fiscal(df_soft_total, df_imprenta_logica, tolerancia
 
     def clasificar(row):
         tipo_final = row['_Tipo_imp'] if pd.notna(row['_Tipo_imp']) else row['_Tipo_soft']
-        # Rescate del nombre (Prioridad Libro de Ventas)
         nombre_final = row['_Nombre_Imp'] if pd.notna(row['_Nombre_Imp']) else row['_Nombre_Soft']
-        
         m_s = float(row['_Monto_Bs_Soft']) if pd.notna(row['_Monto_Bs_Soft']) else 0.0
         m_i = float(row['_Monto_Imprenta']) if pd.notna(row['_Monto_Imprenta']) else 0.0
         
-        if m_i <= 0.001 and m_s <= 0.001:
-            return "OK", tipo_final, nombre_final
-
+        if m_i <= 0.001 and m_s <= 0.001: return "OK", tipo_final, nombre_final
         if row['_merge'] == 'left_only': return "NO APARECE EN LIBRO DE VENTAS", tipo_final, nombre_final
         if row['_merge'] == 'right_only': return "NO APARECE EN CONTABILIDAD", tipo_final, nombre_final
         
         dif = abs(m_s - m_i)
-        if dif > tolerancia_bs: 
-            return f"DIFERENCIA DE MONTO (Bs. {dif:,.2f})", tipo_final, nombre_final
+        if dif > tolerancia_bs: return f"DIFERENCIA DE MONTO (Bs. {dif:,.2f})", tipo_final, nombre_final
         return "OK", tipo_final, nombre_final
 
     merged[['Estado', '_Tipo_Final', '_Nombre_Final']] = merged.apply(clasificar, axis=1, result_type='expand')
