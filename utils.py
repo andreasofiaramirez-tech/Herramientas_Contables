@@ -2695,20 +2695,22 @@ def generar_reporte_debito_fiscal(df_incidencias_raw, df_soft_raw, df_imp_raw):
         ws3.write_row(0, 0, headers_inc, fmt_header)
         
         row_idx = 1
-        for _, row in incidencias.iterrows():
-            ws3.write(row_idx, 0, str(row.get('CASA', 'Libro Ventas')), fmt_text)
-            ws3.write(row_idx, 1, str(row.get('_NIT_Norm', '')), fmt_text)
-            ws3.write(row_idx, 2, str(row.get('_Tipo', 'POR DEFINIR')), fmt_text) # Nueva Columna
-            ws3.write(row_idx, 3, str(row.get('_Doc_Norm', '')), fmt_text)
+        for r_idx, (_, row) in enumerate(incidencias.iterrows()):
+            ws3.write(r_idx+1, 0, str(row.get('CASA', 'Libro Ventas')), fmt_text)
+            ws3.write(r_idx+1, 1, str(row.get('_NIT_Norm', '')), fmt_text)
+            ws3.write(r_idx+1, 2, str(row.get('_Tipo_Final', 'FACTURA')), fmt_text) # Campo actualizado
+            ws3.write(r_idx+1, 3, str(row.get('_Doc_Norm', '')), fmt_text)
             
+            # Montos
             m_s = float(row['_Monto_Bs_Soft']) if pd.notna(row['_Monto_Bs_Soft']) else 0.0
             m_i = float(row['_Monto_Imprenta']) if pd.notna(row['_Monto_Imprenta']) else 0.0
             
-            ws3.write_number(row_idx, 4, m_s, fmt_money)
-            ws3.write_number(row_idx, 5, m_i, fmt_money)
+            ws3.write_number(r_idx+1, 4, m_s, fmt_money)
+            ws3.write_number(r_idx+1, 5, m_i, fmt_money)
             
+            # Estado
             est = str(row['Estado'])
-            ws3.write(row_idx, 6, est, fmt_red if "DIFERENCIA" in est else fmt_text)
+            ws3.write(r_idx+1, 6, est, fmt_red if "DIFERENCIA" in est else fmt_text)
             row_idx += 1
 
         # --- FILA DE TOTALIZACIÓN EN INCIDENCIAS ---
