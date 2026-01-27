@@ -4490,58 +4490,98 @@ def run_conciliation_fondos_transito_cofersa(df, log_messages, progress_bar=None
 
 def limpiar_monto_csv_ve(valor):
     """Convierte montos de formato CSV venezolano (1.234,56) a float."""
-    if pd.isna(valor) or str(valor).strip() == "": return 0.0
+    if pd.isna(valor) or str(valor).strip() == "" or str(valor).strip() == "-": return 0.0
+    # Si ya es numérico, solo retornar el absoluto
+    if isinstance(valor, (int, float)): return abs(float(valor))
+    
     t = str(valor).strip().replace('.', '').replace(',', '.')
     try: return abs(float(t))
     except: return 0.0
 
 def normalizar_doc_fiscal(texto):
     """Extrae solo los números de una referencia para emparejar documentos."""
-    if pd.isna(texto): return ""
-    # Busca el último bloque numérico (ignora letras y ceros a la izquierda)
+    if pd.isna(texto) or str(texto).strip() == "": return ""
+    # Si el valor ya es un número (ej. 12345 en Excel), convertir a string
+    if isinstance(texto, (int, float)):
+        return str(int(texto))
+    
     nums = re.findall(r'\d+', str(texto))
     if nums:
+        # Retorna el bloque numérico como entero y luego string para quitar ceros a la izquierda
         return str(int(nums[-1]))
     return ""
 
 def preparar_datos_softland_debito(df_diario, df_mayor, tag_casa):
-    """Consolida Diario + Mayor y asigna la etiqueta de la casa (FB/SC)."""
+    """Consolida Diario + Mayor, busca columnas de monto y etiqueta la casa."""
     df_soft = pd.concat([df_diario, df_mayor], ignore_index=True).drop_duplicates()
     
+    # --- BUSCADOR ROBUSTO DE COLUMNAS DE MONTO ---
+    def encontrar_columna(df, tipos, monedas):
+        for col in df.columns:
+            c_upper = str(col).upper()
+            # Verifica si el nombre de la columna contiene el TIPO (Debito/Credito) 
+            # Y la MONEDA (Ves/Bolivar/Local)
+            if any(t in c_upper for t in tipos) and any(m in c_upper for m in monedas):
+                return col
+        return None
+
+    sinonimos_deb = ['DEBITO', 'DÉBITO', 'DEBE']
+    sinonimos_cre = ['CREDITO', 'CRÉDITO', 'HABER']
+    sinonimos_ves = ['VES', 'BOLIVAR', 'BOLÍVAR', 'LOCAL', 'BS']
+
+    col_d = encontrar_columna(df_soft, sinonimos_deb, sinonimos_ves)
+    col_c = encontrar_columna(df_soft, sinonimos_cre, sinonimos_ves)
+
+    # Convertir a numérico de forma segura (si no existe la columna, usa 0)
+    val_d = pd.to_numeric(df_soft[col_d], errors='coerce').fillna(0) if col_d else pd.Series(0, index=df_soft.index)
+    val_c = pd.to_numeric(df_soft[col_c], errors='coerce').fillna(0) if col_c else pd.Series(0, index=df_soft.index)
+
+    # Cálculo del monto neto absoluto
+    df_soft['Monto_Bs_Soft'] = (val_d - val_c).abs()
+    
+    # Resto de la normalización
     df_soft['Doc_Norm'] = df_soft['Referencia'].apply(normalizar_doc_fiscal)
-    df_soft['Casa'] = tag_casa  # Identificador FB o SC
+    df_soft['Casa'] = tag_casa
     
     nit_col = next((c for c in df_soft.columns if c.upper() in ['NIT', 'RIF']), None)
     df_soft['NIT_Norm'] = df_soft[nit_col].astype(str).str.upper().str.replace(r'[^A-Z0-9]', '', regex=True) if nit_col else "SIN_NIT"
-    
-    # Monto Neto en Bs
-    df_soft['Monto_Bs_Soft'] = (df_soft.get('Débito Bolivar', 0) - df_soft.get('Crédito Bolivar', 0)).abs()
     
     return df_soft
 
 def run_conciliation_debito_fiscal(df_soft_consolidado, file_csv_imprenta, tolerancia_bs, log_messages):
     log_messages.append("\n--- INICIANDO VERIFICACIÓN DE DÉBITO FISCAL ---")
     
-    # 1. Cargar CSV de Imprenta (Basado en la imagen: sep=; , header=9, encoding='latin-1')
+    # 1. Cargar CSV de Imprenta
     try:
+        # Se asume encoding latin-1 y delimitador ; según la imagen
         df_imp = pd.read_csv(file_csv_imprenta, sep=';', header=9, encoding='latin-1', on_bad_lines='skip')
-        log_messages.append("✔️ CSV de Imprenta cargado correctamente (Saltando encabezado de 9 líneas).")
+        log_messages.append("✔️ CSV de Imprenta cargado correctamente.")
     except Exception as e:
         raise ValueError(f"Error al leer el CSV de Imprenta: {e}")
 
-    # 2. Normalizar Imprenta
-    # Identificar columnas por el nombre exacto que se ve en tu imagen
-    col_nit = 'RIF'
-    col_fac = 'N de Factura'
-    col_nd = 'Nota de Debito'
-    col_nc = 'Nota de Credito'
-    col_iva = 'Impuesto IVA G'
+    # 2. Normalizar Imprenta (Nombres de columna según imagen)
+    # Buscamos columnas de forma un poco más flexible por si cambian mayúsculas
+    def buscar_col_imp(df, names):
+        for n in names:
+            found = next((c for c in df.columns if n.upper() in c.upper()), None)
+            if found: return found
+        return None
 
-    # Función para obtener el número de documento de cualquiera de las 3 columnas
+    col_nit = buscar_col_imp(df_imp, ['RIF'])
+    col_fac = buscar_col_imp(df_imp, ['N de Factura', 'Factura'])
+    col_nd  = buscar_col_imp(df_imp, ['Nota de Debito', 'Debito'])
+    col_nc  = buscar_col_imp(df_imp, ['Nota de Credito', 'Credito'])
+    col_iva = buscar_col_imp(df_imp, ['Impuesto IVA G', 'IVA G', 'IVA'])
+
+    if not col_iva or not col_nit:
+        raise KeyError(f"No se pudieron identificar las columnas RIF o IVA en el CSV. Columnas: {df_imp.columns.tolist()}")
+
     def extraer_doc_imprenta(row):
-        doc = str(row[col_fac]) if pd.notna(row[col_fac]) else (
-              str(row[col_nd]) if pd.notna(row[col_nd]) else (
-              str(row[col_nc]) if pd.notna(row[col_nc]) else ""))
+        # Intentar extraer de Factura, si no de ND, si no de NC
+        doc = ""
+        if col_fac and pd.notna(row[col_fac]): doc = str(row[col_fac])
+        elif col_nd and pd.notna(row[col_nd]): doc = str(row[col_nd])
+        elif col_nc and pd.notna(row[col_nc]): doc = str(row[col_nc])
         return normalizar_doc_fiscal(doc)
 
     df_imp['Doc_Norm'] = df_imp.apply(extraer_doc_imprenta, axis=1)
@@ -4570,6 +4610,7 @@ def run_conciliation_debito_fiscal(df_soft_consolidado, file_csv_imprenta, toler
         if row['_merge'] == 'left_only': return "DOCUMENTO NO ENCONTRADO EN IMPRENTA"
         if row['_merge'] == 'right_only': return "DOCUMENTO NO ENCONTRADO EN SOFTLAND"
         
+        # Ambos existen, comparar montos
         dif = abs(row['Monto_Bs_Soft'] - row['Monto_Imprenta'])
         if dif > tolerancia_bs:
             return f"MONTO NO COINCIDE (Dif: {dif:,.2f})"
