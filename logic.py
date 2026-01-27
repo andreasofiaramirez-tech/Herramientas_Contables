@@ -4532,16 +4532,15 @@ def preparar_datos_softland_debito(df_diario, df_mayor, tag_casa):
     df_soft['CASA'] = tag_casa 
     df_soft['_Doc_Norm'] = df_soft.apply(extraer_doc_softland, axis=1)
     df_soft['_Tipo'] = df_soft.apply(detectar_tipo_softland, axis=1)
-    df_soft['_NIT_Norm'] = df_soft[col_rif].astype(str).str.upper().str.replace(r'[^A-Z0-9]', '', regex=True) if col_rif else "SIN_NIT"
+    df_soft['_NIT_Norm'] = df_soft[col_rif].astype(str).str.replace(r'[^0-9]', '', regex=True) if col_rif else "0"
     df_soft['_Nombre_Soft'] = df_soft[col_nom].fillna("SIN NOMBRE EN SOFTLAND") if col_nom else "COLUMNA NOMBRE NO DETECTADA"
-    
     val_deb = pd.to_numeric(df_soft[col_deb], errors='coerce').fillna(0) if col_deb else 0
     val_cre = pd.to_numeric(df_soft[col_cre], errors='coerce').fillna(0) if col_cre else 0
     df_soft['_Monto_Bs_Soft'] = abs(val_deb - val_cre)
     
     return df_soft
     
-def run_conciliation_debito_fiscal(df_soft_total, df_imprenta_logica, tolerancia_bs, log_messages):
+    def run_conciliation_debito_fiscal(df_soft_total, df_imprenta_logica, tolerancia_bs, log_messages):
     """Cruce de auditoría N-a-N con filtro para documentos exentos y exclusión de totales."""
     log_messages.append("\n--- INICIANDO AUDITORÍA DE DÉBITO FISCAL ---")
     
@@ -4590,7 +4589,7 @@ def run_conciliation_debito_fiscal(df_soft_total, df_imprenta_logica, tolerancia
     # Filtro adicional: Si después de normalizar no hay número de documento, es una fila de basura/resumen
     df_imp = df_imp[df_imp['_Doc_Norm'] != ""]
     
-    df_imp['_NIT_Norm'] = df_imp[col_rif].astype(str).str.upper().str.replace(r'[^A-Z0-9]', '', regex=True) if col_rif else "SIN_NIT"
+    df_imp['_NIT_Norm'] = df_imp[col_rif].astype(str).str.replace(r'[^0-9]', '', regex=True) if col_rif else "0"
     df_imp['_Monto_Imprenta'] = pd.to_numeric(df_imp[col_iva], errors='coerce').fillna(0).abs()
     df_imp['_Nombre_Imp'] = df_imp[col_nom_imp].fillna("SIN NOMBRE") if col_nom_imp else "NOMBRE NO DETECTADO"
 
