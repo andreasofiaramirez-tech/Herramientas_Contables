@@ -4520,57 +4520,82 @@ def preparar_datos_softland_debito(df_diario, df_mayor, tag_casa):
     
     return df_soft
 
-def run_conciliation_debito_fiscal(df_soft_consolidado, df_imprenta_raw, tolerancia_bs, log_messages):
-    """Cruce analítico entre Softland (Consolidado) e Imprenta Fiscal."""
-    log_messages.append("\n--- INICIANDO CRUCE DE DÉBITO FISCAL (IMPRENTA) ---")
-    
-    df_imp = df_imprenta_raw.copy()
+# ==============================================================================
+# LÓGICA VERIFICACIÓN DE DÉBITO FISCAL (BS)
+# ==============================================================================
 
-    # --- IDENTIFICACIÓN BASADA EN TU CAPTURA DE PANTALLA ---
+def normalizar_doc_fiscal(texto):
+    """Extrae el número de documento limpiando letras y ceros a la izquierda."""
+    if pd.isna(texto) or str(texto).strip() == "": return ""
+    nums = re.findall(r'\d+', str(texto))
+    if nums:
+        # Retorna el último bloque numérico como entero para quitar ceros (ej: 000501 -> 501)
+        return str(int(nums[-1]))
+    return ""
+
+def preparar_datos_softland_debito(df_diario, df_mayor, tag_casa):
+    """Mantiene columnas originales y agrega metadatos para el cruce."""
+    df_soft = pd.concat([df_diario, df_mayor], ignore_index=True)
+    
+    # Identificar columnas para el cruce sin renombrar las originales
+    col_deb = next((c for c in df_soft.columns if any(k in str(c).upper() for k in ['DEBITO BOLIVAR', 'DEBITO LOCAL', 'DEBITO VES'])), None)
+    col_cre = next((c for c in df_soft.columns if any(k in str(c).upper() for k in ['CREDITO BOLIVAR', 'CREDITO LOCAL', 'CREDITO VES'])), None)
+    col_rif = next((c for c in df_soft.columns if any(k in str(c).upper() for k in ['NIT', 'RIF'])), None)
+    col_ref = next((c for c in df_soft.columns if 'REFERENCIA' in str(c).upper()), None)
+
+    # Creamos columnas técnicas (prefijo _ para no chocar con las originales)
+    df_soft['_Doc_Norm'] = df_soft[col_ref].apply(normalizar_doc_fiscal) if col_ref else ""
+    df_soft['_Casa'] = tag_casa
+    df_soft['_NIT_Norm'] = df_soft[col_rif].astype(str).str.upper().str.replace(r'[^A-Z0-9]', '', regex=True) if col_rif else "SIN_NIT"
+    
+    m_deb = pd.to_numeric(df_soft[col_deb], errors='coerce').fillna(0) if col_deb else 0
+    m_cre = pd.to_numeric(df_soft[col_cre], errors='coerce').fillna(0) if col_cre else 0
+    df_soft['_Monto_Bs_Soft'] = (m_deb - m_cre).abs()
+    
+    return df_soft
+
+def run_conciliation_debito_fiscal(df_soft_total, df_imprenta_logica, tolerancia_bs, log_messages):
+    """Cruce de auditoría manteniendo integridad de datos."""
+    log_messages.append("\n--- INICIANDO AUDITORÍA DE DÉBITO FISCAL ---")
+    
+    # 1. Preparar Imprenta para lógica
+    df_imp = df_imprenta_logica.copy()
     col_rif = next((c for c in df_imp.columns if str(c).upper().strip() == 'RIF'), None)
     col_fact = next((c for c in df_imp.columns if 'N DE FACTURA' in str(c).upper()), None)
     col_nd = next((c for c in df_imp.columns if 'NOTA DE DEBITO' in str(c).upper()), None)
     col_nc = next((c for c in df_imp.columns if 'NOTA DE CREDITO' in str(c).upper()), None)
     col_iva = next((c for c in df_imp.columns if 'IMPUESTO IVA G' in str(c).upper()), None)
 
-    if not all([col_rif, col_iva]):
-        raise ValueError(f"No se detectaron columnas críticas en el Libro (RIF o Impuesto IVA G).")
-
     def extraer_doc(row):
-        # Prioridad de búsqueda en las columnas de la Imprenta
         for c in [col_nc, col_nd, col_fact]:
             val = normalizar_doc_fiscal(row.get(c))
             if val != "": return val
         return ""
 
-    df_imp['Doc_Norm'] = df_imp.apply(extraer_doc, axis=1)
-    df_imp['NIT_Norm'] = df_imp[col_rif].astype(str).str.upper().str.replace(r'[^A-Z0-9]', '', regex=True)
-    df_imp['Monto_Imprenta'] = pd.to_numeric(df_imp[col_iva], errors='coerce').fillna(0).abs()
+    df_imp['_Doc_Norm'] = df_imp.apply(extraer_doc, axis=1)
+    df_imp['_NIT_Norm'] = df_imp[col_rif].astype(str).str.upper().str.replace(r'[^A-Z0-9]', '', regex=True)
+    df_imp['_Monto_Imprenta'] = pd.to_numeric(df_imp[col_iva], errors='coerce').fillna(0).abs()
 
-    # Agrupar Softland para manejar consolidación FB+SC
-    soft_grouped = df_soft_consolidado.groupby(['NIT_Norm', 'Doc_Norm', 'Casa']).agg({
-        'Monto_Bs_Soft': 'sum',
-        'Referencia': 'first',
-        'Fecha': 'first'
+    # 2. Agrupar Softland para el cruce
+    soft_grouped = df_soft_total.groupby(['_NIT_Norm', '_Doc_Norm', '_Casa']).agg({
+        '_Monto_Bs_Soft': 'sum'
     }).reset_index()
 
-    # Cruce Outer Join
+    # 3. Cruzar
     merged = pd.merge(
         soft_grouped, 
-        df_imp[['NIT_Norm', 'Doc_Norm', 'Monto_Imprenta']], 
-        on=['NIT_Norm', 'Doc_Norm'], 
+        df_imp[['_NIT_Norm', '_Doc_Norm', '_Monto_Imprenta']], 
+        on=['_NIT_Norm', '_Doc_Norm'], 
         how='outer', 
         indicator=True
     )
 
     def clasificar(row):
-        if row['_merge'] == 'left_only': return "NO APARECE EN LIBRO DE VENTAS"
-        if row['_merge'] == 'right_only': return "NO APARECE EN SOFTLAND"
-        
-        dif = abs(row['Monto_Bs_Soft'] - row['Monto_Imprenta'])
+        if row['_merge'] == 'left_only': return "NO ENCONTRADO EN LIBRO DE VENTAS"
+        if row['_merge'] == 'right_only': return "NO ENCONTRADO EN CONTABILIDAD"
+        dif = abs(row['_Monto_Bs_Soft'] - row['_Monto_Imprenta'])
         if dif > tolerancia_bs: return f"DIFERENCIA DE MONTO (Bs. {dif:,.2f})"
         return "OK"
 
     merged['Estado'] = merged.apply(clasificar, axis=1)
-    
-    return merged, soft_grouped, df_imp
+    return merged
