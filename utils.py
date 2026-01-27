@@ -2587,16 +2587,23 @@ def generar_reporte_debito_fiscal(df_incidencias_raw, df_soft_raw, df_imp_raw):
         
         # --- FORMATOS EXISTENTES ---
         fmt_money = workbook.add_format({'num_format': '#,##0.00', 'border': 1})
+        fmt_date = workbook.add_format({'num_format': 'dd/mm/yyyy', 'border': 1, 'align': 'center'})
         fmt_total_val = workbook.add_format({'num_format': '#,##0.00', 'border': 1, 'bold': True, 'bg_color': '#E2EFDA'}) # Verde claro
         fmt_total_label = workbook.add_format({'bold': True, 'border': 1, 'align': 'right', 'bg_color': '#E2EFDA'})
         fmt_text = workbook.add_format({'border': 1})
         fmt_header = workbook.add_format({'bold': True, 'bg_color': '#D9EAD3', 'border': 1, 'align': 'center'})
         fmt_red_incidencia = workbook.add_format({'font_color': '#FF0000', 'num_format': '#,##0.00', 'border': 1})
+
+        # Formatos para Totales Amarillos (Hoja 1)
+        fmt_total_yellow = workbook.add_format({'num_format': '#,##0.00', 'border': 1, 'bold': True, 'bg_color': '#FFFF00'})
+        fmt_label_grey = workbook.add_format({'bold': True, 'border': 1, 'align': 'right', 'bg_color': '#F2F2F2'})    
         
         # --- NUEVOS FORMATOS PARA EL RESUMEN ---
-        fmt_resumen_header = workbook.add_format({'bold': True, 'bg_color': '#D9EAD3', 'align': 'center', 'border': 1})
-        fmt_resumen_title = workbook.add_format({'bold': True, 'font_size': 12, 'align': 'left'})
-        fmt_subtotal_header = workbook.add_format({'bold': True, 'bg_color': '#F2F2F2', 'border': 1})
+        fmt_res_header = workbook.add_format({'bold': True, 'bg_color': '#D9EAD3', 'align': 'center', 'border': 1})
+        fmt_res_total = workbook.add_format({'num_format': '#,##0.00', 'border': 1, 'bold': True, 'bg_color': '#E2EFDA'})
+        fmt_res_label = workbook.add_format({'bold': True, 'border': 1, 'align': 'right', 'bg_color': '#E2EFDA'})
+        fmt_red_incid = workbook.add_format({'font_color': '#FF0000', 'num_format': '#,##0.00', 'border': 1})
+        fmt_res_title = workbook.add_format({'bold': True, 'font_size': 12, 'align': 'left', 'bottom': 2})
         
         # ============================================================
         # HOJA 1: TRANSACCIONES SOFTLAND
@@ -2681,117 +2688,80 @@ def generar_reporte_debito_fiscal(df_incidencias_raw, df_soft_raw, df_imp_raw):
         ws3 = workbook.add_worksheet('3. Incidencias')
         ws3.hide_gridlines(2)
         
-        # 1. Tabla de Incidencias (Lado Izquierdo)
         incidencias = df_incidencias_raw[df_incidencias_raw['Estado'] != 'OK'].copy()
         headers_inc = ['Casa', 'NIT', 'Nombre Proveedor', 'Tipo Doc', 'Documento', 'Monto Softland', 'Monto Imprenta', 'Estado']
         ws3.write_row(0, 0, headers_inc, fmt_header)
         
-        row_idx = 1
+        row_i = 1
         for _, row in incidencias.iterrows():
-            ws3.write(row_idx, 0, str(row.get('CASA', 'Libro Ventas')), fmt_text)
-            ws3.write(row_idx, 1, str(row.get('_NIT_Norm', '')), fmt_text)
-            ws3.write(row_idx, 2, str(row.get('_Nombre_Final', '')), fmt_text)
-            ws3.write(row_idx, 3, str(row.get('_Tipo_Final', 'FACTURA')), fmt_text)
-            ws3.write(row_idx, 4, str(row.get('_Doc_Norm', '')), fmt_text)
-            
+            ws3.write(row_i, 0, str(row.get('CASA', 'Libro Ventas')), fmt_text)
+            ws3.write(row_i, 1, str(row.get('_NIT_Norm', '')), fmt_text)
+            ws3.write(row_i, 2, str(row.get('_Nombre_Final', '')), fmt_text)
+            ws3.write(row_i, 3, str(row.get('_Tipo_Final', 'FACTURA')), fmt_text)
+            ws3.write(row_i, 4, str(row.get('_Doc_Norm', '')), fmt_text)
             m_s = float(row.get('_Monto_Bs_Soft', 0)) if pd.notna(row.get('_Monto_Bs_Soft')) else 0.0
             m_i = float(row.get('_Monto_Imprenta', 0)) if pd.notna(row.get('_Monto_Imprenta')) else 0.0
-            
-            ws3.write_number(row_idx, 5, m_s, fmt_money)
-            ws3.write_number(row_idx, 6, m_i, fmt_money)
-            ws3.write(row_idx, 7, str(row['Estado']), fmt_text)
-            row_idx += 1
+            ws3.write_number(row_i, 5, m_s, fmt_money)
+            ws3.write_number(row_i, 6, m_i, fmt_money)
+            ws3.write(row_i, 7, str(row['Estado']), fmt_text)
+            row_i += 1
 
-        # 2. TABLAS RESUMEN (Lado Derecho - Empieza en columna J)
-        # Identificar casas presentes (FB, SC, BE, etc.)
-        casas_presentes = [c for c in df_incidencias_raw['CASA'].unique() if pd.notna(c) and c != 'Libro Ventas']
+        # --- DIBUJAR TABLAS RESUMEN ---
+        casas = [c for c in df_incidencias_raw['CASA'].unique() if pd.notna(c) and c != 'Libro Ventas']
+        col_s = 9 # Empieza en J
         
-        col_start = 9 # Columna J
-        
-        for c_idx, casa_cod in enumerate(casas_presentes):
-            # Posicionamiento: si hay 2 casas, la segunda va más a la derecha
-            current_col = col_start + (c_idx * 5)
-            r = 1
+        for c_idx, c_cod in enumerate(casas):
+            c_col = col_s + (c_idx * 5)
+            df_c = df_incidencias_raw[df_incidencias_raw['CASA'] == c_cod]
+            ws3.write(0, c_col, f"ANÁLISIS: {c_cod}", fmt_res_title)
             
-            # --- CÁLCULOS PARA ESTA CASA ---
-            # Filtramos el dataframe de resultados para esta casa específica
-            df_c = df_incidencias_raw[df_incidencias_raw['CASA'] == casa_cod]
-            
-            def render_block(ws, start_row, start_col, title, monto_col, filter_merge=None):
-                ws.write(start_row, start_col, title, fmt_resumen_header)
-                ws.write(start_row, start_col + 1, "Cantidad", fmt_resumen_header)
-                ws.write(start_row, start_col + 2, "Monto", fmt_resumen_header)
-                
-                tipos = [("FACTURA", "Total Debito fiscal facturas"), 
-                         ("N/C", "Total debito fiscal notas de credito"), 
-                         ("N/D", "Total Debito Fiscal notas de debito")]
-                
-                curr_r = start_row + 1
-                t_cant, t_monto = 0, 0
-                
-                for t_cod, t_label in tipos:
-                    # Lógica de filtrado: 
-                    # Softland suma lo que está en 'both' y 'left_only'
-                    # Imprenta suma lo que está en 'both' y 'right_only'
-                    subset = df_c[df_c['_Tipo_Final'] == t_cod]
-                    
-                    cant = len(subset[subset[monto_col] > 0])
-                    monto = subset[monto_col].sum()
-                    
-                    ws.write(curr_r, start_col, t_label, fmt_text)
-                    ws.write(curr_r, start_col + 1, cant, fmt_text)
-                    ws.write_number(curr_r, start_col + 2, monto, fmt_money)
-                    
-                    t_cant += cant
-                    t_monto += monto
-                    curr_r += 1
-                
-                ws.write(curr_r, start_col, "Totales", fmt_total_label)
-                ws.write(curr_r, start_col + 1, t_cant, fmt_total_val)
-                ws.write_number(curr_r, start_col + 2, t_monto, fmt_total_val)
+            def draw_box(ws, start_r, start_c, title, m_col):
+                ws.write(start_r, start_c, title, fmt_res_header)
+                ws.write(start_r, start_c+1, "Cant.", fmt_res_header)
+                ws.write(start_r, start_c+2, "Monto", fmt_res_header)
+                tipos = [("FACTURA", "Total Débito Facturas"), ("N/C", "Total Débito N/C"), ("N/D", "Total Débito N/D")]
+                curr_r, t_c, t_m = start_r + 1, 0, 0
+                for code, label in tipos:
+                    sub = df_c[df_c['_Tipo_Final'] == code]
+                    # Solo contamos cantidad si el monto en esa columna es > 0
+                    cant = len(sub[sub[m_col] > 0.01])
+                    monto = sub[m_col].sum()
+                    ws.write(curr_r, start_c, label, fmt_text)
+                    ws.write(curr_r, start_c+1, cant, fmt_text)
+                    ws.write_number(curr_r, start_c+2, monto, fmt_money)
+                    t_c += cant; t_m += monto; curr_r += 1
+                ws.write(curr_r, start_c, "Totales", fmt_res_label)
+                ws.write(curr_r, start_c+1, t_c, fmt_res_total)
+                ws.write_number(curr_r, start_c+2, t_m, fmt_res_total)
                 return curr_r + 2
 
-            # Título de la Casa
-            ws3.write(0, current_col, casa_cod, fmt_resumen_title)
+            # Renderizar los 3 bloques solicitados
+            r_next = draw_box(ws3, 1, c_col, "Softland", "_Monto_Bs_Soft")
+            r_next = draw_box(ws3, r_next, c_col, "Imprenta", "_Monto_Imprenta")
             
-            # Bloque 1: Softland
-            r = render_block(ws3, 1, current_col, "Softland", "_Monto_Bs_Soft")
-            
-            # Bloque 2: Imprenta
-            r = render_block(ws3, r, current_col, "Imprenta", "_Monto_Imprenta")
-            
-            # Bloque 3: Diferencias
-            ws3.write(r, current_col, "Diferencias", fmt_resumen_header)
-            ws3.write(r, current_col + 1, "Cantidad", fmt_resumen_header)
-            ws3.write(r, current_col + 2, "Monto", fmt_resumen_header)
-            r += 1
-            
-            df_dif = df_c[df_c['Estado'] != 'OK']
-            t_cant_d, t_monto_d = 0, 0
-            for t_cod, t_label in [("FACTURA", "Total Debito fiscal facturas"), ("N/C", "Total debito fiscal notas de credito"), ("N/D", "Total Debito Fiscal notas de debito")]:
-                sub_dif = df_dif[df_dif['_Tipo_Final'] == t_cod]
-                # Calculamos la diferencia neta del error
-                m_dif = abs(sub_dif['_Monto_Bs_Soft'].sum() - sub_dif['_Monto_Imprenta'].sum())
-                c_dif = len(sub_dif)
-                
-                # Formato rojo si hay diferencia
-                style = fmt_red_incidencia if m_dif > 0 else fmt_money
-                
-                ws3.write(r, current_col, t_label, fmt_text)
-                ws3.write(r, current_col + 1, c_dif, fmt_text)
-                if m_dif > 0: ws3.write_number(r, current_col + 2, m_dif, style)
-                else: ws3.write(r, current_col + 2, "-", fmt_text)
-                
-                t_cant_d += c_dif
-                t_monto_d += m_dif
-                r += 1
-            
-            ws3.write(r, current_col, "Totales", fmt_total_label)
-            ws3.write(r, current_col + 1, t_cant_d, fmt_total_val)
-            ws3.write_number(r, current_col + 2, t_monto_d, fmt_total_val)
+            # Bloque de Diferencias
+            ws3.write(r_next, c_col, "Diferencias", fmt_res_header)
+            ws3.write(r_next, c_col+1, "Cant.", fmt_res_header)
+            ws3.write(r_next, c_col+2, "Monto", fmt_res_header)
+            r_next += 1
+            df_err = df_c[df_c['Estado'] != 'OK']
+            t_ce, t_me = 0, 0
+            for code, label in [("FACTURA", "Total Débito Facturas"), ("N/C", "Total Débito N/C"), ("N/D", "Total Débito N/D")]:
+                sub_e = df_err[df_err['_Tipo_Final'] == code]
+                m_e = abs(sub_e['_Monto_Bs_Soft'].sum() - sub_e['_Monto_Imprenta'].sum())
+                ws3.write(r_next, c_col, label, fmt_text)
+                ws3.write(r_next, c_col+1, len(sub_e), fmt_text)
+                if m_e > 0.01: ws3.write_number(r_next, c_col+2, m_e, fmt_red_incid)
+                else: ws3.write(r_next, c_col+2, "-", fmt_text)
+                t_ce += len(sub_e); t_me += m_e; r_next += 1
+            ws3.write(r_next, c_col, "Totales", fmt_res_label)
+            ws3.write(r_next, c_col+1, t_ce, fmt_res_total)
+            ws3.write_number(r_next, c_col+2, t_me, fmt_res_total)
 
-        # Ajuste final de anchos
-        ws3.set_column('A:H', 18)
-        ws3.set_column('J:Z', 15)
+        # Ajuste de anchos final
+        for sheet in writer.sheets.values():
+            sheet.set_column('A:I', 18)
+            sheet.set_column('C:C', 35) # Nombre Proveedor
+            sheet.set_column('J:Z', 15)
 
     return output.getvalue()
