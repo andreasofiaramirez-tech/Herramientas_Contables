@@ -465,7 +465,6 @@ GUIA_IMPRENTA = "Validación de archivos TXT contra libros de ventas."
 GUIA_GENERADOR = "Generación de archivos de retenciones para GALAC."
 GUIA_PENSIONES = "Cálculo del aporte del 9% de la Ley de Pensiones."
 GUIA_AJUSTES_USD = "Valoración de activos y pasivos en moneda extranjera al cierre."
-["Verificación de Débito Fiscal"] = "Auditoría N-a-N entre Softland e Imprenta con normalización de NIT (solo números) y documentos."
 
 # ==============================================================================
 # DICCIONARIO DE GUÍAS POR CUENTA
@@ -484,4 +483,5 @@ LOGICA_POR_CUENTA = {
     "212.05.1005 - Asientos por clasificar": "Limpieza de partidas transaccionales por NIT y monto.",
     "212.07.1012 - Proveedores d/Mcia - Costos Causados": "Cruce por número de embarque (EMB) con tolerancia de $1.00.",
     "115.07.1.002 - Envios en Transito COFERSA": "Conciliación por Referencia y Pares con tolerancia de 100 Bs."
+    LOGICA_POR_CUENTA["Verificación de Débito Fiscal"] = "Auditoría N-a-N entre Softland e Imprenta con normalización de NIT y documentos."
 }
