@@ -4498,7 +4498,7 @@ def normalizar_doc_fiscal(texto):
     return ""
 
 def preparar_datos_softland_debito(df_diario, df_mayor, tag_casa):
-    """Mantiene columnas originales y agrega metadatos incluyendo el nombre del proveedor."""
+    """Mantiene columnas originales y agrega metadatos. NIT normalizado solo a números."""
     df_soft = pd.concat([df_diario, df_mayor], ignore_index=True)
     
     def normalizar_header(t):
@@ -4507,7 +4507,6 @@ def preparar_datos_softland_debito(df_diario, df_mayor, tag_casa):
                       if unicodedata.category(c) != 'Mn').upper().strip()
 
     col_deb, col_cre, col_rif, col_ref, col_fue, col_nom = None, None, None, None, None, None
-    
     for c in df_soft.columns:
         c_norm = normalizar_header(c)
         if any(k in c_norm for k in ['DEBITO BOLIVAR', 'DEBITO LOCAL', 'DEBITO VES']): col_deb = c
@@ -4515,7 +4514,6 @@ def preparar_datos_softland_debito(df_diario, df_mayor, tag_casa):
         elif any(k in c_norm for k in ['NIT', 'RIF']): col_rif = c
         elif 'REFERENCIA' in c_norm: col_ref = c
         elif 'FUENTE' in c_norm: col_fue = c
-        # Nueva búsqueda para el Nombre
         elif any(k in c_norm for k in ['NOMBRE', 'RAZON SOCIAL', 'DESCRIPCION NIT', 'CLIENTE']): col_nom = c
 
     def extraer_doc_softland(row):
@@ -4532,78 +4530,68 @@ def preparar_datos_softland_debito(df_diario, df_mayor, tag_casa):
     df_soft['CASA'] = tag_casa 
     df_soft['_Doc_Norm'] = df_soft.apply(extraer_doc_softland, axis=1)
     df_soft['_Tipo'] = df_soft.apply(detectar_tipo_softland, axis=1)
+    
+    # --- CAMBIO CLAVE: NIT SOLO NÚMEROS ---
     df_soft['_NIT_Norm'] = df_soft[col_rif].astype(str).str.replace(r'[^0-9]', '', regex=True) if col_rif else "0"
-    df_soft['_Nombre_Soft'] = df_soft[col_nom].fillna("SIN NOMBRE EN SOFTLAND") if col_nom else "COLUMNA NOMBRE NO DETECTADA"
+    
+    df_soft['_Nombre_Soft'] = df_soft[col_nom].fillna("SIN NOMBRE") if col_nom else "NOMBRE NO DETECTADO"
     val_deb = pd.to_numeric(df_soft[col_deb], errors='coerce').fillna(0) if col_deb else 0
     val_cre = pd.to_numeric(df_soft[col_cre], errors='coerce').fillna(0) if col_cre else 0
     df_soft['_Monto_Bs_Soft'] = abs(val_deb - val_cre)
     
     return df_soft
-    
-    def run_conciliation_debito_fiscal(df_soft_total, df_imprenta_logica, tolerancia_bs, log_messages):
-    """Cruce de auditoría N-a-N con filtro para documentos exentos y exclusión de totales."""
+
+def run_conciliation_debito_fiscal(df_soft_total, df_imprenta_logica, tolerancia_bs, log_messages):
+    """Cruce N-a-N con NIT numérico, filtro exentos y exclusión de FEBECA/Totales."""
     log_messages.append("\n--- INICIANDO AUDITORÍA DE DÉBITO FISCAL ---")
     
-    # 1. Limpieza inicial del Libro de Ventas (Eliminar totales y cuadros de resumen)
     df_imp = df_imprenta_logica.copy()
-    
-    # Identificar columna RIF y Nombre para limpieza
     def find_col(keywords, df):
         for c in df.columns:
             if any(k in str(c).upper() for k in keywords): return c
         return None
 
     col_rif = find_col(['RIF'], df_imp)
-    col_nom_imp = find_col(['NOMBRE O RAZON SOCIAL', 'NOMBRE', 'RAZON SOCIAL'], df_imp)
-    
-    # --- FILTRO ANTI-TOTALES (NUEVO) ---
-    # Eliminamos cualquier fila donde aparezca la palabra 'TOTALES' o 'VENTAS INTERNAS' 
-    # en cualquier parte del documento (esto limpia el cuadro verde y el resumen inferior)
-    if col_rif:
-        # Filtro 1: RIF debe tener contenido (las filas de totales suelen tener el RIF vacío)
-        df_imp = df_imp[df_imp[col_rif].notna()]
-        
-        # Filtro 2: Excluir explícitamente la palabra TOTALES
-        mask_totales = df_imp.astype(str).apply(lambda x: x.str.contains('TOTALES', case=False, na=False)).any(axis=1)
-        df_imp = df_imp[~mask_totales]
-    
-    # Identificar resto de columnas
     col_fact = find_col(['N DE FACTURA'], df_imp)
     col_nd = find_col(['NOTA DE DEBITO'], df_imp)
     col_nc = find_col(['NOTA DE CREDITO'], df_imp)
     col_iva = find_col(['IMPUESTO IVA G'], df_imp)
+    col_nom_imp = find_col(['NOMBRE O RAZON SOCIAL', 'NOMBRE', 'RAZON SOCIAL'], df_imp)
+
+    # Filtro Anti-Totales/Resúmenes
+    if col_rif:
+        df_imp = df_imp[df_imp[col_rif].notna()]
+        mask_totales = df_imp.astype(str).apply(lambda x: x.str.contains('TOTALES', case=False, na=False)).any(axis=1)
+        df_imp = df_imp[~mask_totales]
 
     def identificar_tipo_y_doc_imp(row):
         if pd.notna(row.get(col_nc)) and str(row.get(col_nc)).strip() != "":
             return normalizar_doc_fiscal(row.get(col_nc)), "N/C"
         if pd.notna(row.get(col_nd)) and str(row.get(col_nd)).strip() != "":
             return normalizar_doc_fiscal(row.get(col_nd)), "N/D"
-        # Si no hay NC ni ND, buscamos Factura. Si factura también es vacío, no es un documento
         val_f = str(row.get(col_fact, "")).strip()
         if val_f == "" or val_f == "nan": return "", "RESUMEN"
         return normalizar_doc_fiscal(val_f), "FACTURA"
 
-    # Aplicamos identificación
     df_imp[['_Doc_Norm', '_Tipo']] = df_imp.apply(identificar_tipo_y_doc_imp, axis=1, result_type='expand')
-    
-    # Filtro adicional: Si después de normalizar no hay número de documento, es una fila de basura/resumen
     df_imp = df_imp[df_imp['_Doc_Norm'] != ""]
     
+    # --- CAMBIO CLAVE: NIT SOLO NÚMEROS ---
     df_imp['_NIT_Norm'] = df_imp[col_rif].astype(str).str.replace(r'[^0-9]', '', regex=True) if col_rif else "0"
+    
     df_imp['_Monto_Imprenta'] = pd.to_numeric(df_imp[col_iva], errors='coerce').fillna(0).abs()
     df_imp['_Nombre_Imp'] = df_imp[col_nom_imp].fillna("SIN NOMBRE") if col_nom_imp else "NOMBRE NO DETECTADO"
 
-    # Exclusión de registros FEBECA (Terceros)
+    # Exclusión FEBECA (Terceros)
     df_imp = df_imp[~df_imp['_Nombre_Imp'].str.upper().str.contains("FEBECA", na=False)]
 
-    # 2. Agrupar Softland
     soft_grouped = df_soft_total.groupby(['_NIT_Norm', '_Doc_Norm', 'CASA', '_Tipo'], as_index=False).agg({
         '_Monto_Bs_Soft': 'sum',
         '_Nombre_Soft': 'first'
     })
     soft_grouped = soft_grouped[~soft_grouped['_Nombre_Soft'].str.upper().str.contains("FEBECA", na=False)]
 
-    # 3. Cruce Maestro
+    # Cruce por NIT numérico + Documento numérico
     merged = pd.merge(
         soft_grouped, 
         df_imp[['_NIT_Norm', '_Doc_Norm', '_Monto_Imprenta', '_Tipo', '_Nombre_Imp']], 
