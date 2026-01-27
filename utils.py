@@ -2708,22 +2708,22 @@ def generar_reporte_debito_fiscal(df_incidencias_raw, df_soft_raw, df_imp_raw):
 
         # --- DIBUJAR TABLAS RESUMEN ---
         casas = [c for c in df_incidencias_raw['CASA'].unique() if pd.notna(c) and c != 'Libro Ventas']
-        col_s = 9 # Empieza en J
+        col_s = 9 # Empieza en columna J
         
+        # A. TABLAS POR CASA (Softland vs Imprenta Emparejada)
         for c_idx, c_cod in enumerate(casas):
-            c_col = col_s + (c_idx * 5)
+            c_col = col_s + (c_idx * 4) # Espacio de 4 columnas por casa
             df_c = df_incidencias_raw[df_incidencias_raw['CASA'] == c_cod]
             ws3.write(0, c_col, f"ANÁLISIS: {c_cod}", fmt_res_title)
             
-            def draw_box(ws, start_r, start_c, title, m_col):
+            def draw_box(ws, start_r, start_c, title, m_col, data):
                 ws.write(start_r, start_c, title, fmt_res_header)
                 ws.write(start_r, start_c+1, "Cant.", fmt_res_header)
                 ws.write(start_r, start_c+2, "Monto", fmt_res_header)
                 tipos = [("FACTURA", "Total Débito Facturas"), ("N/C", "Total Débito N/C"), ("N/D", "Total Débito N/D")]
                 curr_r, t_c, t_m = start_r + 1, 0, 0
                 for code, label in tipos:
-                    sub = df_c[df_c['_Tipo_Final'] == code]
-                    # Solo contamos cantidad si el monto en esa columna es > 0
+                    sub = data[data['_Tipo_Final'] == code]
                     cant = len(sub[sub[m_col] > 0.01])
                     monto = sub[m_col].sum()
                     ws.write(curr_r, start_c, label, fmt_text)
@@ -2735,11 +2735,10 @@ def generar_reporte_debito_fiscal(df_incidencias_raw, df_soft_raw, df_imp_raw):
                 ws.write_number(curr_r, start_c+2, t_m, fmt_res_total)
                 return curr_r + 2
 
-            # Renderizar los 3 bloques solicitados
-            r_next = draw_box(ws3, 1, c_col, "Softland", "_Monto_Bs_Soft")
-            r_next = draw_box(ws3, r_next, c_col, "Imprenta", "_Monto_Imprenta")
+            r_next = draw_box(ws3, 1, c_col, "Softland", "_Monto_Bs_Soft", df_c)
+            r_next = draw_box(ws3, r_next, c_col, "Imprenta", "_Monto_Imprenta", df_c)
             
-            # Bloque de Diferencias
+            # Bloque Diferencias de la Casa
             ws3.write(r_next, c_col, "Diferencias", fmt_res_header)
             ws3.write(r_next, c_col+1, "Cant.", fmt_res_header)
             ws3.write(r_next, c_col+2, "Monto", fmt_res_header)
@@ -2757,6 +2756,33 @@ def generar_reporte_debito_fiscal(df_incidencias_raw, df_soft_raw, df_imp_raw):
             ws3.write(r_next, c_col, "Totales", fmt_res_label)
             ws3.write(r_next, c_col+1, t_ce, fmt_res_total)
             ws3.write_number(r_next, c_col+2, t_me, fmt_res_total)
+
+        # B. NUEVO CUADRO: DOCUMENTOS SOLO EN IMPRENTA (Huerfanos)
+        # Identificamos registros que están en Imprenta pero no tienen Casa asignada de Softland
+        df_huerfanos = df_incidencias_raw[df_incidencias_raw['_merge'] == 'right_only']
+        
+        # Lo dibujamos después de las tablas de las casas
+        h_col = col_s + (len(casas) * 4)
+        ws3.write(0, h_col, "SOLO EN IMPRENTA", fmt_huerfanos_title)
+        
+        ws3.write(1, h_col, "Faltan por Contabilizar", fmt_res_header)
+        ws3.write(1, h_col+1, "Cant.", fmt_res_header)
+        ws3.write(1, h_col+2, "Monto", fmt_res_header)
+        
+        tipos_h = [("FACTURA", "Facturas Huérfanas"), ("N/C", "N/C Huérfanas"), ("N/D", "N/D Huérfanas")]
+        curr_rh, th_c, th_m = 2, 0, 0
+        for code, label in tipos_h:
+            sub_h = df_huerfanos[df_huerfanos['_Tipo_Final'] == code]
+            c_h = len(sub_h)
+            m_h = sub_h['_Monto_Imprenta'].sum()
+            ws3.write(curr_rh, h_col, label, fmt_text)
+            ws3.write(curr_rh, h_col+1, c_h, fmt_text)
+            ws3.write_number(curr_rh, h_col+2, m_h, fmt_money)
+            th_c += c_h; th_m += m_h; curr_rh += 1
+            
+        ws3.write(curr_rh, h_col, "Totales Huérfanos", fmt_res_label)
+        ws3.write(curr_rh, h_col+1, th_c, fmt_res_total)
+        ws3.write_number(curr_rh, h_col+2, th_m, fmt_res_total)
 
         # Ajuste de anchos final
         for sheet in writer.sheets.values():
