@@ -4488,6 +4488,13 @@ def run_conciliation_fondos_transito_cofersa(df, log_messages, progress_bar=None
 # LÓGICA VERIFICACIÓN DE DÉBITO FISCAL (BS)
 # ==============================================================================
 
+def limpiar_monto_csv_ve(valor):
+    """Convierte montos de formato CSV venezolano (1.234,56) a float."""
+    if pd.isna(valor) or str(valor).strip() == "": return 0.0
+    t = str(valor).strip().replace('.', '').replace(',', '.')
+    try: return abs(float(t))
+    except: return 0.0
+
 def normalizar_doc_fiscal(texto):
     """Extrae solo los números de una referencia para emparejar documentos."""
     if pd.isna(texto): return ""
@@ -4512,21 +4519,36 @@ def preparar_datos_softland_debito(df_diario, df_mayor, tag_casa):
     
     return df_soft
 
-def run_conciliation_debito_fiscal(df_soft_consolidado, df_imprenta_raw, tolerancia_bs, log_messages):
-    log_messages.append("\n--- INICIANDO VERIFICACIÓN DE DÉBITO FISCAL (CASO CONSOLIDADO) ---")
+def run_conciliation_debito_fiscal(df_soft_consolidado, file_csv_imprenta, tolerancia_bs, log_messages):
+    log_messages.append("\n--- INICIANDO VERIFICACIÓN DE DÉBITO FISCAL ---")
     
-    # 1. Preparar Imprenta
-    df_imp = df_imprenta_raw.copy()
-    col_doc_imp = next((c for c in df_imp.columns if any(k in c.upper() for k in ['NUMERO', 'FACTURA', 'DOCUMENTO'])), None)
-    col_nit_imp = next((c for c in df_imp.columns if any(k in c.upper() for k in ['RIF', 'NIT'])), None)
-    col_monto_imp = next((c for c in df_imp.columns if 'DEBITO' in c.upper() and 'FISCAL' in c.upper()), None)
-    
-    df_imp['Doc_Norm'] = df_imp[col_doc_imp].apply(normalizar_doc_fiscal)
-    df_imp['NIT_Norm'] = df_imp[col_nit_imp].astype(str).str.upper().str.replace(r'[^A-Z0-9]', '', regex=True)
-    df_imp['Monto_Imprenta'] = pd.to_numeric(df_imp[col_monto_imp], errors='coerce').fillna(0).abs()
+    # 1. Cargar CSV de Imprenta (Basado en la imagen: sep=; , header=9, encoding='latin-1')
+    try:
+        df_imp = pd.read_csv(file_csv_imprenta, sep=';', header=9, encoding='latin-1', on_bad_lines='skip')
+        log_messages.append("✔️ CSV de Imprenta cargado correctamente (Saltando encabezado de 9 líneas).")
+    except Exception as e:
+        raise ValueError(f"Error al leer el CSV de Imprenta: {e}")
 
-    # 2. Agrupar Softland (Podría haber documentos repetidos en Diario y Mayor)
-    # Mantenemos 'Casa' en el agrupamiento
+    # 2. Normalizar Imprenta
+    # Identificar columnas por el nombre exacto que se ve en tu imagen
+    col_nit = 'RIF'
+    col_fac = 'N de Factura'
+    col_nd = 'Nota de Debito'
+    col_nc = 'Nota de Credito'
+    col_iva = 'Impuesto IVA G'
+
+    # Función para obtener el número de documento de cualquiera de las 3 columnas
+    def extraer_doc_imprenta(row):
+        doc = str(row[col_fac]) if pd.notna(row[col_fac]) else (
+              str(row[col_nd]) if pd.notna(row[col_nd]) else (
+              str(row[col_nc]) if pd.notna(row[col_nc]) else ""))
+        return normalizar_doc_fiscal(doc)
+
+    df_imp['Doc_Norm'] = df_imp.apply(extraer_doc_imprenta, axis=1)
+    df_imp['NIT_Norm'] = df_imp[col_nit].astype(str).str.upper().str.replace(r'[^A-Z0-9]', '', regex=True)
+    df_imp['Monto_Imprenta'] = df_imp[col_iva].apply(limpiar_monto_csv_ve)
+
+    # 3. Agrupar Softland
     soft_grouped = df_soft_consolidado.groupby(['NIT_Norm', 'Doc_Norm', 'Casa']).agg({
         'Monto_Bs_Soft': 'sum',
         'Referencia': 'first',
@@ -4534,7 +4556,7 @@ def run_conciliation_debito_fiscal(df_soft_consolidado, df_imprenta_raw, toleran
         'Asiento': 'first'
     }).reset_index()
 
-    # 3. CRUCE
+    # 4. CRUCE (Outer Join)
     merged = pd.merge(
         soft_grouped, 
         df_imp[['NIT_Norm', 'Doc_Norm', 'Monto_Imprenta']], 
@@ -4543,18 +4565,16 @@ def run_conciliation_debito_fiscal(df_soft_consolidado, df_imprenta_raw, toleran
         indicator=True
     )
 
-    # 4. CLASIFICACIÓN
-    def clasificar_incidencia(row):
-        if row['_merge'] == 'left_only':
-            return "DOCUMENTO NO ENCONTRADO EN IMPRENTA"
-        if row['_merge'] == 'right_only':
-            return "DOCUMENTO NO ENCONTRADO EN SOFTLAND"
+    # 5. CLASIFICACIÓN DE INCIDENCIAS
+    def clasificar(row):
+        if row['_merge'] == 'left_only': return "DOCUMENTO NO ENCONTRADO EN IMPRENTA"
+        if row['_merge'] == 'right_only': return "DOCUMENTO NO ENCONTRADO EN SOFTLAND"
         
         dif = abs(row['Monto_Bs_Soft'] - row['Monto_Imprenta'])
         if dif > tolerancia_bs:
             return f"MONTO NO COINCIDE (Dif: {dif:,.2f})"
         return "OK"
 
-    merged['Estado'] = merged.apply(clasificar_incidencia, axis=1)
+    merged['Estado'] = merged.apply(clasificar, axis=1)
     
     return merged, soft_grouped, df_imp
