@@ -1234,30 +1234,38 @@ def render_debito_fiscal():
 
     # --- PROCESAMIENTO ---
     if ready:
-        if st.button("▶️ Ejecutar Verificación Cruzada", type="primary", use_container_width=True):
-            log = []
-            try:
-                with st.spinner("Procesando y cruzando información..."):
-                    from logic import preparar_datos_softland_debito, run_conciliation_debito_fiscal
-                    from utils import generar_reporte_debito_fiscal
+    if st.button("▶️ Ejecutar Verificación Cruzada", type="primary", use_container_width=True):
+        log = []
+        try:
+            with st.spinner("Procesando..."):
+                # 1. Cargar Softland (Preservando todo)
+                if "FEBECA" in casa_sel:
+                    soft_fb = preparar_datos_softland_debito(pd.read_excel(f_fb_d), pd.read_excel(f_fb_m), "FB")
+                    soft_sc = preparar_datos_softland_debito(pd.read_excel(f_sc_d), pd.read_excel(f_sc_m), "SC")
+                    soft_total = pd.concat([soft_fb, soft_sc], ignore_index=True)
+                else:
+                    soft_total = preparar_datos_softland_debito(pd.read_excel(f_d), pd.read_excel(f_m), casa_sel[:2].upper())
 
-                    # 1. Cargar y Taggear Softland
-                    if "FEBECA" in casa_sel:
-                        soft_fb = preparar_datos_softland_debito(pd.read_excel(f_fb_d), pd.read_excel(f_fb_m), "FB")
-                        soft_sc = preparar_datos_softland_debito(pd.read_excel(f_sc_d), pd.read_excel(f_sc_m), "SC")
-                        soft_total = pd.concat([soft_fb, soft_sc], ignore_index=True)
-                    else:
-                        soft_total = preparar_datos_softland_debito(pd.read_excel(f_d), pd.read_excel(f_m), casa_sel[:2].upper())
+                # 2. Cargar Imprenta (Dos versiones: Una para la Lógica y una para el Reporte)
+                df_imp_para_reporte = pd.read_excel(f_imp) # Copia idéntica desde fila 0
+                df_imp_para_logica = pd.read_excel(f_imp, header=7) # Para la lógica (Fila 8)
+                df_imp_para_logica.dropna(how='all', inplace=True)
 
-                    # 2. Cargar Imprenta (Header en fila 8 -> index 7)
-                    df_imp_data = pd.read_excel(f_imp, header=7)
-                    df_imp_data.dropna(how='all', inplace=True)
-
-                    # 3. Conciliar
-                    df_res, soft_g, imp_g = run_conciliation_debito_fiscal(soft_total, df_imp_data, tolerancia, log)
-                    
-                    st.success("Auditoría Finalizada.")
-                    excel_bin = generar_reporte_debito_fiscal(df_res, soft_total, df_imp_data)
+                # 3. Ejecutar Auditoría
+                from logic import run_conciliation_debito_fiscal
+                df_res, _, _ = run_conciliation_debito_fiscal(soft_total, df_imp_para_logica, tolerancia, log)
+                
+                # 4. Generar Reporte con los archivos crudos
+                from utils import generar_reporte_debito_fiscal
+                excel_bin = generar_reporte_debito_fiscal(df_res, soft_total, df_imp_para_reporte)
+                
+                st.success("¡Auditoría finalizada con éxito!")
+                st.download_button(
+                    label="⬇️ Descargar Reporte de Auditoría",
+                    data=excel_bin,
+                    file_name=f"Auditoria_Fiscal_{casa_sel}.xlsx",
+                    use_container_width=True
+                )
                     
                     st.download_button(
                         label="⬇️ Descargar Reporte de Diferencias",
