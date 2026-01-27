@@ -2663,7 +2663,7 @@ def generar_reporte_debito_fiscal(df_incidencias_raw, df_soft_raw, df_imp_raw):
         ws3.write_row(0, 0, headers_inc, fmt_header)
         
         for r_idx, (_, row) in enumerate(incidencias.iterrows()):
-            ws3.write(r_idx+1, 0, str(row.get('_Casa', 'Libro Ventas')), fmt_text)
+            ws3.write(r_idx+1, 0, str(row.get('CASA', 'Libro Ventas')), fmt_text)
             ws3.write(r_idx+1, 1, str(row.get('_NIT_Norm', '')), fmt_text)
             ws3.write(r_idx+1, 2, str(row.get('_Doc_Norm', '')), fmt_text)
             
