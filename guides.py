@@ -412,41 +412,7 @@ Esta herramienta automatiza la valoración de moneda extranjera y reclasificacio
 *   **Haberes:** Incrementa el pasivo según el reporte de saldos negativos.
 """
 
-GUIA_DEBITO_FISCAL = """
-### 📑 Manual de Usuario: Verificación de Débito Fiscal
 
-Esta herramienta realiza una auditoría integral entre la contabilidad (**Softland**) y la información fiscal (**Libro de Ventas de Imprenta**) para asegurar que todo el IVA (Débito Fiscal) facturado esté correctamente registrado.
-
----
-
-#### 📂 1. Archivos Requeridos
-
-**A. Transacciones de Softland (Diario y Mayor)**
-*   **Fuente:** Cuenta `213.04.1001` (IVA Débito Fiscal).
-*   **Formato:** Excel (`.xlsx`).
-*   **Caso Especial FEBECA-SILLACA:** Debe subir 4 archivos (Diario y Mayor de Febeca + Diario y Mayor de Sillaca). La herramienta los consolidará automáticamente.
-
-**B. Libro de Ventas (Imprenta)**
-*   **Estructura:** El sistema asume que los encabezados están en la **Fila 8**.
-*   **Columnas Clave:** Se analizan "N de Factura", "N/C", "N/D" e "Impuesto IVA G".
-
----
-
-#### 🧠 2. Inteligencia de Conciliación
-
-*   **ADN Numérico:** La herramienta limpia documentos (ej: `FAC-000123` -> `123`) y NITs (solo números, ignora J-V-G) para asegurar un match perfecto.
-*   **Exclusión de Terceros:** Se descartan automáticamente registros a nombre de **"FEBECA"**, ya que son débitos fiscales a cuenta de terceros.
-*   **Filtro de Exentos:** Facturas con IVA 0.00 en el Libro de Ventas son ignoradas para no generar ruidos en la auditoría.
-*   **Escudo de Totales:** Se omiten automáticamente las filas verdes de "TOTALES" y los resúmenes de alícuotas del final del libro.
-
----
-
-#### 🚥 3. ¿Cómo leer el reporte de Incidencias (Hoja 3)?
-
-*   **Listado (Izquierda):** Detalle de diferencias agrupado por Casa (FB/SC) y **Huérfanos** (documentos que están en Imprenta pero nadie ha contabilizado).
-*   **Tablas BI (Derecha):** Cuadros de mando ejecutivos que comparan Cantidades y Montos de Softland vs Imprenta.
-*   **Validación de Totales:** Los subtotales del listado de incidencias coinciden exactamente con los montos de "Diferencia" de los cuadros de mando.
-"""
 
 # ==============================================================================
 # GUÍAS GENERALES
@@ -483,5 +449,41 @@ LOGICA_POR_CUENTA = {
     "212.05.1005 - Asientos por clasificar": "Limpieza de partidas transaccionales por NIT y monto.",
     "212.07.1012 - Proveedores d/Mcia - Costos Causados": "Cruce por número de embarque (EMB) con tolerancia de $1.00.",
     "115.07.1.002 - Envios en Transito COFERSA": "Conciliación por Referencia y Pares con tolerancia de 100 Bs.",
-    LOGICA_POR_CUENTA["Verificación de Débito Fiscal"] = "Auditoría N-a-N entre Softland e Imprenta con normalización de NIT y documentos."
+    "Verificación de Débito Fiscal" : "Auditoría N-a-N entre Softland e Imprenta con normalización de NIT y documentos."
 }
+
+GUIA_DEBITO_FISCAL = """
+### 📑 Manual de Usuario: Verificación de Débito Fiscal
+
+Esta herramienta realiza una auditoría integral entre la contabilidad (**Softland**) y la información fiscal (**Libro de Ventas de Imprenta**) para asegurar que todo el IVA (Débito Fiscal) facturado esté correctamente registrado.
+
+---
+
+#### 📂 1. Archivos Requeridos
+
+**A. Transacciones de Softland (Diario y Mayor)**
+*   **Fuente:** Cuenta `213.04.1001` (IVA Débito Fiscal).
+*   **Formato:** Excel (`.xlsx`).
+*   **Caso Especial FEBECA-SILLACA:** Debe subir 4 archivos (Diario y Mayor de Febeca + Diario y Mayor de Sillaca). La herramienta los consolidará automáticamente.
+
+**B. Libro de Ventas (Imprenta)**
+*   **Estructura:** El sistema asume que los encabezados están en la **Fila 8**.
+*   **Columnas Clave:** Se analizan "N de Factura", "N/C", "N/D" e "Impuesto IVA G".
+
+---
+
+#### 🧠 2. Inteligencia de Conciliación
+
+*   **ADN Numérico:** La herramienta limpia documentos (ej: `FAC-000123` -> `123`) y NITs (solo números, ignora J-V-G) para asegurar un match perfecto.
+*   **Exclusión de Terceros:** Se descartan automáticamente registros a nombre de **"FEBECA"**, ya que son débitos fiscales a cuenta de terceros.
+*   **Filtro de Exentos:** Facturas con IVA 0.00 en el Libro de Ventas son ignoradas para no generar ruidos en la auditoría.
+*   **Escudo de Totales:** Se omiten automáticamente las filas verdes de "TOTALES" y los resúmenes de alícuotas del final del libro.
+
+---
+
+#### 🚥 3. ¿Cómo leer el reporte de Incidencias (Hoja 3)?
+
+*   **Listado (Izquierda):** Detalle de diferencias agrupado por Casa (FB/SC) y **Huérfanos** (documentos que están en Imprenta pero nadie ha contabilizado).
+*   **Tablas BI (Derecha):** Cuadros de mando ejecutivos que comparan Cantidades y Montos de Softland vs Imprenta.
+*   **Validación de Totales:** Los subtotales del listado de incidencias coinciden exactamente con los montos de "Diferencia" de los cuadros de mando.
+"""
