@@ -3334,7 +3334,8 @@ def run_cuadre_cb_cg(file_cb, file_cg, nombre_empresa, log_messages):
         log_messages.append(f"🏢 Configuración activa: BEVAL")
 
     # 2. Extracción
-    data_cb = extraer_saldos_cb(file_cb, log_messages)
+    raw_cb = extraer_saldos_cb(file_cb, log_messages)
+    data_cb = {str(k).strip(): v for k, v in raw_cb.items()} # Limpieza de llaves CB
     data_cg = extraer_saldos_cg(file_cg, log_messages)
     
     cb_encontrados = set(data_cb.keys())
