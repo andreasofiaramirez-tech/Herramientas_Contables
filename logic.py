@@ -3322,9 +3322,9 @@ def run_cuadre_cb_cg(file_cb, file_cg, nombre_empresa, log_messages):
     if "PRISMA" in empresa_upper:
         mapeo_actual = MAPEO_CB_CG_PRISMA
         log_messages.append(f"🏢 Configuración activa: PRISMA")
-    elif "SILLACA" in empresa_upper:
+    elif "SILLACA" in empresa_upper or "QUINCALLA" in empresa_upper:
         mapeo_actual = MAPEO_CB_CG_SILLACA
-        log_messages.append(f"🏢 Configuración activa: SILLACA")
+        log_messages.append(f"🏢 Configuración activa: SILLACA / QUINCALLA")
     elif "FEBECA" in empresa_upper:
         # Aplica tanto para Febeca C.A. como Febeca Quincalla
         mapeo_actual = MAPEO_CB_CG_FEBECA
@@ -3346,6 +3346,7 @@ def run_cuadre_cb_cg(file_cb, file_cg, nombre_empresa, log_messages):
     # 3. Pre-cálculo agrupación
     suma_cb_por_cuenta = {}
     for codigo_cb, config in mapeo_actual.items():
+        cod_limpio = str(codigo_cb).strip()
         cuenta_cg = config['cta']
         saldo_individual = data_cb.get(codigo_cb, {}).get('final', 0.0)
         if cuenta_cg not in suma_cb_por_cuenta: suma_cb_por_cuenta[cuenta_cg] = 0.0
