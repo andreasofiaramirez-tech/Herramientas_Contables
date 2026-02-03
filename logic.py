@@ -2907,59 +2907,54 @@ MAPEO_CB_CG_PRISMA = {
     "0501E":  {"cta": "1.1.1.03.6.024", "moneda": "USD"},
 }
 
-# 5. MAPEO SILLACA
+# 5. MAPEO SILLACA - VERSIÓN LIMPIA Y SIN DUPLICADOS
 MAPEO_CB_CG_SILLACA = {
-    "0102E":  {"cta": "1.1.1.02.6.003", "moneda": "USD"},
-    "0102EU": {"cta": "1.1.1.02.6.213", "moneda": "EUR"},
+    # --- VES ---
     "0102L":  {"cta": "1.1.1.02.1.016", "moneda": "VES"},
     "0104L":  {"cta": "1.1.1.02.1.112", "moneda": "VES"},
-    "0104L2": {"cta": "1.1.1.02.1.112", "moneda": "VES"}, # Duplicado intencional
-    "0105E":  {"cta": "1.1.1.02.6.001", "moneda": "USD"},
-    "0105E2": {"cta": "1.1.1.02.6.001", "moneda": "USD"}, # Duplicado intencional
+    "0104L2": {"cta": "1.1.1.02.1.112", "moneda": "VES"},
     "0105L":  {"cta": "1.1.1.02.1.009", "moneda": "VES"},
-    "0105L2": {"cta": "1.1.1.02.1.009", "moneda": "VES"}, # Duplicado intencional
-    "0108E":  {"cta": "1.1.1.02.6.013", "moneda": "USD"},
+    "0105L2": {"cta": "1.1.1.02.1.009", "moneda": "VES"},
     "0108L":  {"cta": "1.1.1.02.1.004", "moneda": "VES"},
-    "0114E":  {"cta": "1.1.1.02.6.006", "moneda": "USD"},
     "0114L":  {"cta": "1.1.1.02.1.011", "moneda": "VES"},
     "0115L":  {"cta": "1.1.1.02.1.015", "moneda": "VES"},
-    "0134EC": {"cta": "1.1.1.02.6.005", "moneda": "USD"},
     "0134L":  {"cta": "1.1.1.02.1.007", "moneda": "VES"},
-    "0137CP": {"cta": "1.1.1.02.6.214", "moneda": "COP"},
-    "0137E":  {"cta": "1.1.1.02.6.015", "moneda": "USD"},
     "0137L":  {"cta": "1.1.1.02.1.022", "moneda": "VES"},
-    "0172E":  {"cta": "1.1.1.02.6.011", "moneda": "USD"},
     "0172L":  {"cta": "1.1.1.02.1.021", "moneda": "VES"},
-    "0174E":  {"cta": "1.1.1.02.6.010", "moneda": "USD"},
-    "0174E2": {"cta": "1.1.1.02.6.010", "moneda": "USD"}, # Duplicado intencional
-    "0174EU": {"cta": "1.1.1.02.6.210", "moneda": "EUR"},
     "0174L":  {"cta": "1.1.1.02.1.132", "moneda": "VES"},
-    "0174L2": {"cta": "1.1.1.02.1.132", "moneda": "VES"}, # Duplicado intencional
     "0175L":  {"cta": "1.1.1.02.1.115", "moneda": "VES"},
-    "0191E":  {"cta": "1.1.1.02.6.002", "moneda": "USD"},
     "0191L":  {"cta": "1.1.1.02.1.124", "moneda": "VES"},
+    # --- USD ---
+    "0102E":  {"cta": "1.1.1.02.6.003", "moneda": "USD"},
+    "0105E":  {"cta": "1.1.1.02.6.001", "moneda": "USD"},
+    "0105E2": {"cta": "1.1.1.02.6.001", "moneda": "USD"},
+    "0108E":  {"cta": "1.1.1.02.6.013", "moneda": "USD"},
+    "0114E":  {"cta": "1.1.1.02.6.006", "moneda": "USD"},
+    "0134EC": {"cta": "1.1.1.02.6.005", "moneda": "USD"},
+    "0137E":  {"cta": "1.1.1.02.6.015", "moneda": "USD"},
+    "0172E":  {"cta": "1.1.1.02.6.011", "moneda": "USD"},
+    "0174E":  {"cta": "1.1.1.02.6.010", "moneda": "USD"},
+    "0174E2": {"cta": "1.1.1.02.6.010", "moneda": "USD"},
+    "0191E":  {"cta": "1.1.1.02.6.002", "moneda": "USD"},
     "0201E":  {"cta": "1.1.1.03.6.012", "moneda": "USD"},
     "0202E":  {"cta": "1.1.1.03.6.002", "moneda": "USD"},
     "0203E":  {"cta": "1.1.4.01.7.020", "moneda": "USD"},
     "0204E":  {"cta": "1.1.1.03.6.028", "moneda": "USD"},
     "0205E":  {"cta": "1.1.1.03.6.026", "moneda": "USD"},
-    "0205E2": {"cta": "1.1.1.03.6.026", "moneda": "USD"}, # Duplicado intencional
+    "0205E2": {"cta": "1.1.1.03.6.026", "moneda": "USD"},
     "0206E":  {"cta": "1.1.1.06.6.001", "moneda": "USD"},
     "0207E":  {"cta": "1.1.4.01.7.021", "moneda": "USD"},
     "0209E":  {"cta": "1.1.1.01.6.001", "moneda": "USD"},
-    "0210EU": {"cta": "1.1.1.01.6.002", "moneda": "EUR"},
     "0211E":  {"cta": "1.1.1.03.6.015", "moneda": "USD"},
     "0501E":  {"cta": "1.1.1.03.6.024", "moneda": "USD"},
-    "0501E2": {"cta": "1.1.1.03.6.024", "moneda": "USD"}, # Duplicado intencional
+    "0501E2": {"cta": "1.1.1.03.6.024", "moneda": "USD"},
     "2407E":  {"cta": "1.1.1.06.6.003", "moneda": "USD"},
-    "0104L2": {"cta": "1.1.1.02.1.112", "moneda": "VES"}, # Venecredito VES (2)
-    "0105E2": {"cta": "1.1.1.02.6.001", "moneda": "USD"}, # Mercantil USD (2)
-    "0105L2": {"cta": "1.1.1.02.1.009", "moneda": "VES"}, # Mercantil VES (2)
-    "0174E2": {"cta": "1.1.1.02.6.010", "moneda": "USD"}, # Banplus USD (2)
-    "0205E2": {"cta": "1.1.1.03.6.026", "moneda": "USD"}, # Mercantil Panama (2)
-    "0501E2": {"cta": "1.1.1.03.6.024", "moneda": "USD"}, # BVC Cayman (2)
+    # --- OTROS ---
+    "0102EU": {"cta": "1.1.1.02.6.213", "moneda": "EUR"},
+    "0174EU": {"cta": "1.1.1.02.6.210", "moneda": "EUR"},
+    "0210EU": {"cta": "1.1.1.01.6.002", "moneda": "EUR"},
+    "0137CP": {"cta": "1.1.1.02.6.214", "moneda": "COP"},
 }
-
 def limpiar_monto_pdf(texto):
     """
     Convierte texto a float. Maneja formatos US/VE, paréntesis y guiones (-).
@@ -3335,7 +3330,10 @@ def run_cuadre_cb_cg(file_cb, file_cg, nombre_empresa, log_messages):
 
     # 2. Extracción
     raw_cb = extraer_saldos_cb(file_cb, log_messages)
-    data_cb = {str(k).strip(): v for k, v in raw_cb.items()} # Limpieza de llaves CB
+    data_cb = {}
+    for k, v in raw_cb.items():
+        key_limpia = str(k).strip().replace(".", "").replace(",", "").replace("\t", "")
+        data_cb[key_limpia] = v
     data_cg = extraer_saldos_cg(file_cg, log_messages)
     
     cb_encontrados = set(data_cb.keys())
@@ -3346,9 +3344,13 @@ def run_cuadre_cb_cg(file_cb, file_cg, nombre_empresa, log_messages):
     # 3. Pre-cálculo agrupación
     suma_cb_por_cuenta = {}
     for codigo_cb, config in mapeo_actual.items():
-        cod_limpio = str(codigo_cb).strip()
+        cod_key = str(codigo_cb).strip()
+        cb_mapeados.add(cod_key) # Registramos que este código ya lo procesamos
+        
+        info_banco = data_cb.get(cod_key, {})
+        saldo_individual = info_banco.get('final', 0.0)
+        
         cuenta_cg = config['cta']
-        saldo_individual = data_cb.get(codigo_cb, {}).get('final', 0.0)
         if cuenta_cg not in suma_cb_por_cuenta: suma_cb_por_cuenta[cuenta_cg] = 0.0
         suma_cb_por_cuenta[cuenta_cg] += saldo_individual
 
