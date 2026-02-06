@@ -3735,7 +3735,7 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
 # LÓGICA CÁLCULO LEY PROTECCIÓN PENSIONES
 # ==============================================================================
 
-def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empresa, log_messages):
+def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empresa, log_messages, num_asiento):
     """
     Motor de cálculo para el impuesto del 9%.
     """
