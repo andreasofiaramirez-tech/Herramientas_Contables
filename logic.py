@@ -3738,7 +3738,6 @@ def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
 def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empresa, log_messages):
     """
     Motor de cálculo para el impuesto del 9%.
-    MEJORA: Suma global de filas de nómina (Caso Prisma) y valida año del mayor.
     """
     log_messages.append(f"--- INICIANDO CÁLCULO DE PENSIONES (9%) - {nombre_empresa} ---")
     
@@ -3907,15 +3906,23 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
     asiento_data['Crédito VES'] = 0.0
     asiento_data['Crédito USD'] = 0.0
     asiento_data['Tasa'] = tasa_cambio
+    asiento_data['Asiento'] = num_asiento
+    asiento_data['Nit'] = "ND" 
+    asiento_data['Fuente'] = "PENSIONES"
+    asiento_data['Referencia'] = f"APORTE PENSIONES {mes_detectado[:3]}.{anio_detectado[-2:]}"
 
     # 5. Calcular Totales para la línea del Pasivo (Crédito)
     total_impuesto_ves = asiento_data['Débito VES'].sum().round(2)
     total_impuesto_usd = asiento_data['Débito USD'].sum().round(4) # Ahora coincide con el total de débitos
     
     linea_pasivo = pd.DataFrame([{
+        'Asiento': num_asiento,
+        'Nit': "ND",
         'Centro Costo': '00.00.000.00', 
         'Cuenta Contable': '2.1.3.02.3.005', 
         'Descripción': 'Contribuciones Sociales por Pagar', 
+        'Fuente': "PENSIONES",
+        'Referencia': f"APORTE PENSIONES {mes_detectado[:3]}.{anio_detectado[-2:]}",
         'Débito VES': 0.0, 
         'Crédito VES': total_impuesto_ves,
         'Débito USD': 0.0,
