@@ -3883,34 +3883,35 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
         log_messages.append(f"⚠️ Error leyendo Nómina: {str(e)}")
 
     # --- 3. GENERAR ASIENTO ---
-    # A. Agrupamos Gasto por Centro de Costo (Débitos)
+    # 1. Agrupamos y redondeamos el Débito en BS
     asiento_data = df_agrupado.groupby('Centro de Costo (Padre)')['Impuesto (9%)'].sum().reset_index()
-    # Redondeo explícito tras la suma
-    asiento_data['Impuesto (9%)'] = asiento_data['Impuesto (9%)'].round(2)
-    
-    asiento_data.rename(columns={'Centro de Costo (Padre)': 'Centro Costo', 'Impuesto (9%)': 'Débito VES'}, inplace=True)
+    asiento_data['Débito VES'] = asiento_data['Impuesto (9%)'].round(2)
+    asiento_data.rename(columns={'Centro de Costo (Padre)': 'Centro Costo'}, inplace=True)
+
+    # 2. Convertimos a USD línea por línea
+    asiento_data['Débito USD'] = (asiento_data['Débito VES'] / tasa_cambio).round(2)
+
+    # 3. CUADRE MATEMÁTICO: Forzamos que la suma de USD sea exacta a la Tasa del Total
+    total_ves_general = asiento_data['Débito VES'].sum()
+    total_usd_objetivo = round(total_ves_general / tasa_cambio, 2)
+    diferencia_centavos = round(total_usd_objetivo - asiento_data['Débito USD'].sum(), 2)
+
+    if diferencia_centavos != 0 and not asiento_data.empty:
+        # Aplicamos el centavo de ajuste a la fila con el monto más alto para que sea imperceptible
+        idx_max = asiento_data['Débito USD'].idxmax()
+        asiento_data.loc[idx_max, 'Débito USD'] += diferencia_centavos
+
+    # 4. Completamos el resto de las columnas del asiento
     asiento_data['Cuenta Contable'] = '7.1.1.07.1.001'
     asiento_data['Descripción'] = 'Contribucion ley de Pensiones'
     asiento_data['Crédito VES'] = 0.0
     asiento_data['Crédito USD'] = 0.0
-    
-    # B. Cálculo de Dólares por línea (Gasto)
-    if tasa_cambio > 0:
-        asiento_data['Débito USD'] = (asiento_data['Débito VES'] / tasa_cambio).round(2)
-        asiento_data['Tasa'] = tasa_cambio
-    else:
-        asiento_data['Débito USD'] = 0.0
-        asiento_data['Tasa'] = 0.0
+    asiento_data['Tasa'] = tasa_cambio
 
-    # C. Calcular Totales para el Pasivo (Contrapartida)
-    # Importante: El Crédito en Bs es la suma de los Débitos en Bs.
+    # 5. Calcular Totales para la línea del Pasivo (Crédito)
     total_impuesto_ves = asiento_data['Débito VES'].sum().round(2)
+    total_impuesto_usd = asiento_data['Débito USD'].sum().round(2) # Ahora coincide con el total de débitos
     
-    # Importante: El Crédito en USD es la suma de los Débitos en USD (para que cuadre el asiento en moneda extranjera)
-    # Si convirtiéramos el total en Bs, podría haber diferencia de céntimos.
-    total_impuesto_usd = asiento_data['Débito USD'].sum().round(2)
-    
-    # D. Crear línea del Pasivo
     linea_pasivo = pd.DataFrame([{
         'Centro Costo': '00.00.000.00', 
         'Cuenta Contable': '2.1.3.02.3.005', 
@@ -3919,7 +3920,7 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
         'Crédito VES': total_impuesto_ves,
         'Débito USD': 0.0,
         'Crédito USD': total_impuesto_usd,
-        'Tasa': tasa_cambio if tasa_cambio > 0 else 0
+        'Tasa': tasa_cambio
     }])
     
     df_asiento = pd.concat([asiento_data, linea_pasivo], ignore_index=True)
