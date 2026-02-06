@@ -902,7 +902,7 @@ def render_pensiones():
                     # Alertas de Validación
                     if dict_val.get('estado') == 'OK':
                         st.success(f"✅ Cálculo exitoso para {empresa_sel}. Total a Pagar: Bs. {total_pagar:,.2f}")
-                        else:
+                    else:
                         st.warning(
                             f"⚠️ Atención: Descuadres detectados (Ver Hoja 1).\n"
                             f"• Dif. Salarios: {dict_val.get('dif_salario', 0):,.2f}\n"
