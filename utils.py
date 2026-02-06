@@ -1933,7 +1933,7 @@ def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, resumen_validaci
         fmt_code_company = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'bottom': 1})
         fmt_input = workbook.add_format({'bg_color': '#FFFFFF', 'border': 1, 'align': 'center', 'bold': True})
         fmt_date_calc = workbook.add_format({'bg_color': '#FFFFFF', 'border': 1, 'align': 'center', 'bold': True, 'num_format': 'dd/mm/yyyy'})
-        fmt_calc = workbook.add_format({'bg_color': '#FFFFFF', 'border': 1, 'align': 'center', 'bold': True})
+        fmt_calc = workbook.add_format({'bg_color': '#FFFFFF', 'border': 1, 'align': 'center', 'bold': True,'num_format': '#,##0.00'})
         box_header = workbook.add_format({'bold': True, 'border': 1, 'align': 'center', 'valign': 'vcenter', 'text_wrap': True, 'bg_color': '#FFFFFF'})
         box_data_center = workbook.add_format({'border': 1, 'align': 'center', 'valign': 'vcenter'})
         box_data_left = workbook.add_format({'border': 1, 'align': 'left', 'valign': 'vcenter'})
@@ -2189,15 +2189,15 @@ def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, resumen_validaci
             ws3.write(row_idx, 3, "(Máximo 40 posiciones...)", small_text)
             ws3.write(row_idx+1, 0, "TEXTO DEL DEBE", fmt_title_label)
             ws3.merge_range(row_idx+1, 3, row_idx+1, 5, texto_concepto, fmt_calc)
-            ws3.write(row_idx+1, 7, df_asiento['Crédito VES'].sum(), text_center)
-            ws3.write(row_idx+1, 9, df_asiento['Crédito USD'].sum(), text_center)
+            ws3.write(row_idx+1, 7, df_asiento['Débito VES'].sum(), fmt_calc) 
+            ws3.write(row_idx+1, 9, df_asiento['Débito USD'].sum(), fmt_calc)
             row_idx += 4
 
             ws3.write(row_idx, 3, "(Máximo 40 posiciones...)", small_text)
             ws3.write(row_idx+1, 0, "TEXTO DEL HABER", fmt_title_label)
             ws3.merge_range(row_idx+1, 3, row_idx+1, 5, texto_concepto, fmt_calc)
-            ws3.write(row_idx+1, 7, df_asiento['Crédito VES'].sum(), text_center)
-            ws3.write(row_idx+1, 9, df_asiento['Crédito USD'].sum(), text_center)
+            ws3.write(row_idx+1, 7, df_asiento['Crédito VES'].sum(), fmt_calc)
+            ws3.write(row_idx+1, 9, df_asiento['Crédito USD'].sum(), fmt_calc)
             row_idx += 3
 
             top_line = workbook.add_format({'top': 1, 'font_size': 9})
