@@ -60,6 +60,7 @@ from utils import (
     generar_reporte_auditoria_txt,
     generar_archivo_txt,
     generar_reporte_pensiones,
+    generar_cargador_asiento_pensiones,
     generar_reporte_ajustes_usd,
     generar_reporte_cofersa,
     cargar_datos_cofersa,
@@ -950,6 +951,18 @@ def render_pensiones():
                     
                     # Generar Reporte Excel
                     excel_data = generar_reporte_pensiones(df_calc, df_base, df_asiento, dict_val, empresa_sel, tasa, fecha_cierre)
+
+                    cargador_bin = generar_cargador_asiento_pensiones(df_asiento, fecha_cierre)
+    
+                    st.divider()
+                    st.subheader("🚀 Generación de Cargador")
+                    st.download_button(
+                        label="⬇️ Descargar Cargador para el Sistema (.xlsx)",
+                        data=cargador_bin,
+                        file_name=f"CARGADOR_{num_asiento}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True
+                    )
                     
                     st.download_button(
                         "⬇️ Descargar Reporte Completo (Excel)",
