@@ -2270,11 +2270,16 @@ def generar_cargador_asiento_pensiones(df_asiento, fecha_asiento):
         ws2.write_row(0, 0, headers_nd, header_fmt)
 
         for i, row in df_asiento.iterrows():
+            for i, row in df_asiento.iterrows():
             r = i + 1
             ws2.write(r, 0, row['Asiento'], data_fmt)
             ws2.write(r, 1, i + 1, data_fmt)
             ws2.write(r, 2, row['Nit'], data_fmt)
-            ws2.write(r, 3, row['Centro Costo'], data_fmt)
+            
+            # Modificación: se concatena '001' al centro de costo existente
+            centro_costo_completo = f"{row['Centro Costo']}001"
+            ws2.write(r, 3, centro_costo_completo, data_fmt)
+            
             ws2.write(r, 4, row['Cuenta Contable'], data_fmt)
             ws2.write(r, 5, row['Fuente'], data_fmt)
             ws2.write(r, 6, row['Referencia'], data_fmt)
