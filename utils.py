@@ -2235,6 +2235,56 @@ def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, resumen_validaci
 
     return output.getvalue()
 
+def generar_cargador_asiento_pensiones(df_asiento, fecha_asiento):
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        workbook = writer.book
+        # Formatos
+        header_fmt = workbook.add_format({'bold': True, 'bg_color': '#212121', 'font_color': 'white', 'border': 1, 'align': 'center'})
+        data_fmt = workbook.add_format({'border': 1})
+        num_fmt = workbook.add_format({'num_format': '#,##0.00', 'border': 1})
+        date_fmt = workbook.add_format({'num_format': 'dd/mm/yyyy', 'border': 1, 'align': 'center'})
+
+        # --- PESTAÑA 1: "Asiento" ---
+        ws1 = workbook.add_worksheet("Asiento")
+        headers_asiento = ["Asiento", "Paquete", "Tipo Asiento", "Fecha", "Contabilidad"]
+        ws1.write_row(0, 0, headers_asiento, header_fmt)
+        
+        ws1.write(1, 0, df_asiento['Asiento'].iloc[0], data_fmt)
+        ws1.write(1, 1, "AJTB", data_fmt) # Paquete fijo según imagen
+        ws1.write(1, 2, "AJTB", data_fmt) # Tipo fijo según imagen
+        ws1.write_datetime(1, 3, fecha_asiento, date_fmt)
+        ws1.write(1, 4, "C", data_fmt) # Contabilidad fija según imagen
+        ws1.set_column('A:E', 15)
+
+        # --- PESTAÑA 2: "ND" ---
+        ws2 = workbook.add_worksheet("ND")
+        headers_nd = ["Asiento", "Consecutivo", "Nit", "Centro De Costo", "Cuenta Contable", "Fuente", "Referencia", "Débito Local", "Débito Dólar", "Crédito Local", "Crédito Dólar"]
+        ws2.write_row(0, 0, headers_nd, header_fmt)
+
+        for i, row in df_asiento.iterrows():
+            r = i + 1
+            ws2.write(r, 0, row['Asiento'], data_fmt)
+            ws2.write(r, 1, i + 1, data_fmt) # Consecutivo
+            ws2.write(r, 2, row['Nit'], data_fmt)
+            ws2.write(r, 3, row['Centro Costo'], data_fmt)
+            ws2.write(r, 4, row['Cuenta Contable'], data_fmt)
+            ws2.write(r, 5, row['Fuente'], data_fmt)
+            ws2.write(r, 6, row['Referencia'], data_fmt)
+            
+            # Montos (Si es 0 ponemos vacío o 0.00 según prefieras, la imagen muestra celdas vacías con un guion)
+            ws2.write_number(r, 7, row['Débito VES'], num_fmt)
+            ws2.write_number(r, 8, row['Débito USD'], num_fmt)
+            ws2.write_number(r, 9, row['Crédito VES'], num_fmt)
+            ws2.write_number(r, 10, row['Crédito USD'], num_fmt)
+
+        ws2.set_column('A:A', 15)
+        ws2.set_column('C:C', 15)
+        ws2.set_column('D:G', 25)
+        ws2.set_column('H:K', 15)
+
+    return output.getvalue()
+
 def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_raw, nombre_empresa, validacion_data):
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
