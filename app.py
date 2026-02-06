@@ -879,24 +879,15 @@ def render_pensiones():
         if st.button("Calcular Impuesto", type="primary", use_container_width=True, key="btn_calc_pen"):
             log = []
             try:
-                with st.spinner("Procesando archivos y analizando columnas..."):
-                    # Llamada a la lógica
-                    resultado = procesar_calculo_pensiones(file_mayor, file_nomina, tasa, empresa_sel, log)
+                from logic import procesar_calculo_pensiones
+                from utils import generar_reporte_pensiones
                 
-                # --- VALIDACIÓN DE ERROR EN LENGUAJE HUMANO ---
-                # Si el cuarto elemento devuelto es una cadena de texto, significa que hubo un error controlado
-                if isinstance(resultado[3], str) and resultado[0] is None:
-                    st.error(f"📍 No se pudo realizar el cálculo: {resultado[3]}")
-                    st.info("💡 **Sugerencia:** Verifique que el archivo Excel sea el correcto y que no se hayan modificado los nombres de las columnas originales del sistema.")
-                    
-                    with st.expander("Ver bitácora técnica para soporte"):
-                        st.write(log)
-                    return # Detenemos la ejecución aquí
+                with st.spinner("Procesando mayor contable y cruzando con nómina..."):
+                    # Ejecutar lógica principal
+                    df_calc, df_base, df_asiento, dict_val = procesar_calculo_pensiones(file_mayor, file_nomina, tasa, empresa_sel, log)
                 
-                # Si el proceso fue exitoso, desempaquetamos los datos
-                df_calc, df_base, df_asiento, dict_val = resultado
-
                 if df_asiento is not None and not df_asiento.empty:
+                    # Mostrar resultados en pantalla
                     total_pagar = df_asiento['Crédito VES'].sum()
                     
                     # Alertas de Validación
