@@ -3889,7 +3889,7 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
     asiento_data.rename(columns={'Centro de Costo (Padre)': 'Centro Costo'}, inplace=True)
 
     # 2. Convertimos a USD línea por línea
-    asiento_data['Débito USD'] = (asiento_data['Débito VES'] / tasa_cambio).round(2)
+    asiento_data['Débito USD'] = (asiento_data['Débito VES'] / tasa_cambio).round(4)
 
     # 3. CUADRE MATEMÁTICO: Forzamos que la suma de USD sea exacta a la Tasa del Total
     total_ves_general = asiento_data['Débito VES'].sum()
@@ -3910,7 +3910,7 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
 
     # 5. Calcular Totales para la línea del Pasivo (Crédito)
     total_impuesto_ves = asiento_data['Débito VES'].sum().round(2)
-    total_impuesto_usd = asiento_data['Débito USD'].sum().round(2) # Ahora coincide con el total de débitos
+    total_impuesto_usd = asiento_data['Débito USD'].sum().round(4) # Ahora coincide con el total de débitos
     
     linea_pasivo = pd.DataFrame([{
         'Centro Costo': '00.00.000.00', 
