@@ -3835,12 +3835,37 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
     
     df_asiento = pd.concat([asiento_data, linea_pasivo], ignore_index=True)
 
-    # Creamos el diccionario de validación final
+    # --- 4. RESUMEN Y VALIDACIÓN FINAL (PARA EL EXCEL) ---
+    # Calculamos las bases contables
+    base_sal_cont = df_agrupado[df_agrupado['Cuenta Contable'].str.contains('7.1.1.01', na=False)]['Base_Neta'].sum()
+    base_tkt_cont = df_agrupado[df_agrupado['Cuenta Contable'].str.contains('7.1.1.09', na=False)]['Base_Neta'].sum()
+    
+    # Calculamos las diferencias contra nómina
+    dif_salario = round(base_sal_cont - resumen_nom['sal_nom'], 2)
+    dif_ticket = round(base_tkt_cont - resumen_nom['tkt_nom'], 2)
+    
+    total_base_cont = round(base_sal_cont + base_tkt_cont, 2)
+    total_base_nom = round(resumen_nom['sal_nom'] + resumen_nom['tkt_nom'], 2)
+    
+    # IMPORTANTE: Este diccionario debe tener exactamente estas llaves para que utils.py las encuentre
     dict_val = {
-        'salario_cont': df_agrupado[df_agrupado['Cuenta Contable'].str.contains('7.1.1.01')]['Base_Neta'].sum(),
-        'ticket_cont': df_agrupado[df_agrupado['Cuenta Contable'].str.contains('7.1.1.09')]['Base_Neta'].sum(),
-        'salario_nom': resumen_nom['sal_nom'], 'ticket_nom': resumen_nom['tkt_nom'],
-        'imp_calc': total_ves, 'imp_nom': resumen_nom['imp_nom'], 'estado': 'OK'
+        'salario_cont': base_sal_cont,
+        'salario_nom': resumen_nom['sal_nom'],
+        'dif_salario': dif_salario, # <--- Aquí está lo que faltaba
+        
+        'ticket_cont': base_tkt_cont,
+        'ticket_nom': resumen_nom['tkt_nom'],
+        'dif_ticket': dif_ticket,
+        
+        'total_base_cont': total_base_cont,
+        'total_base_nom': total_base_nom,
+        'dif_base_total': round(total_base_cont - total_base_nom, 2),
+        
+        'imp_calc': total_ves,
+        'imp_nom': resumen_nom['imp_nom'],
+        'dif_imp': round(total_ves - resumen_nom['imp_nom'], 2),
+        
+        'estado': 'OK' if (abs(dif_salario) < 1.00 and abs(dif_ticket) < 1.00) else 'DESCUADRE'
     }
 
     return df_agrupado, df_filtrado, df_asiento, dict_val
