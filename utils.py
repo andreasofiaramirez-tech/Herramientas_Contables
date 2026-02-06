@@ -2270,7 +2270,6 @@ def generar_cargador_asiento_pensiones(df_asiento, fecha_asiento):
         ws2.write_row(0, 0, headers_nd, header_fmt)
 
         for i, row in df_asiento.iterrows():
-            for i, row in df_asiento.iterrows():
             r = i + 1
             ws2.write(r, 0, row['Asiento'], data_fmt)
             ws2.write(r, 1, i + 1, data_fmt)
