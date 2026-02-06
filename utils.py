@@ -2076,8 +2076,8 @@ def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, resumen_validaci
         
         # Ajuste de Anchos
         ws1.set_column('A:B', 20)
-        ws1.set_column('C:D', 18)
-        ws1.set_column('E:F', 2) # Separador visual
+        ws1.set_column('C:E', 18) # Aumentamos E de 2 a 18 para mostrar la Diferencia
+        ws1.set_column('F:F', 2)  # Mantenemos solo la F como separador estrecho
         ws1.set_column('G:I', 18)
 
         # ==========================================
