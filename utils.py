@@ -2172,11 +2172,22 @@ def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, resumen_validaci
                 ws3.merge_range(row_idx, 3, row_idx, 5, row['Descripción'], box_data_left)
                 
                 d_v = row['Débito VES']; h_v = row['Crédito VES']
-                d_u = row['Débito USD']; h_u = row['Crédito USD']
+                d_u = row['Débito USD']; h_u = row['Crédito USD']    
+        
                 ws3.write(row_idx, 6, d_v if d_v > 0 else "", box_money)
                 ws3.write(row_idx, 7, h_v if h_v > 0 else "", box_money)
-                ws3.write_number(row_idx, 8, d_u if d_u > 0 else 0, fmt_usd_4) 
-                ws3.write_number(row_idx, 9, h_u if h_u > 0 else 0, fmt_usd_4)
+
+                # Escribir Debe USD (Columna 8): solo si es mayor a 0, de lo contrario vacío ""
+                if d_u > 0:
+                    ws3.write_number(row_idx, 8, d_u, fmt_usd_4)
+                else:
+                    ws3.write(row_idx, 8, "", fmt_usd_4)
+
+                # Escribir Haber USD (Columna 9): solo si es mayor a 0, de lo contrario vacío ""
+                if h_u > 0:
+                    ws3.write_number(row_idx, 9, h_u, fmt_usd_4)
+                else:
+                    ws3.write(row_idx, 9, "", fmt_usd_4)
                 row_idx += 1
             
             ws3.write(row_idx, 6, df_asiento['Débito VES'].sum(), box_money_bold)
