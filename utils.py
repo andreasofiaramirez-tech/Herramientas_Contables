@@ -2277,7 +2277,7 @@ def generar_cargador_asiento_pensiones(df_asiento, fecha_asiento):
             ws2.write(r, 2, row['Nit'], data_fmt)
             
             # Modificación: se concatena '001' al centro de costo existente
-            centro_costo_completo = f"{row['Centro Costo']}001"
+            centro_costo_completo = f"{row['Centro Costo']}01"
             ws2.write(r, 3, centro_costo_completo, data_fmt)
             
             ws2.write(r, 4, row['Cuenta Contable'], data_fmt)
