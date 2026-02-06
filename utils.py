@@ -1933,7 +1933,10 @@ def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, resumen_validaci
         fmt_code_company = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'bottom': 1})
         fmt_input = workbook.add_format({'bg_color': '#FFFFFF', 'border': 1, 'align': 'center', 'bold': True})
         fmt_date_calc = workbook.add_format({'bg_color': '#FFFFFF', 'border': 1, 'align': 'center', 'bold': True, 'num_format': 'dd/mm/yyyy'})
+        fmt_usd_4 = workbook.add_format({'num_format': '#,##0.0000', 'border': 1, 'valign': 'vcenter'})
         fmt_calc = workbook.add_format({'bg_color': '#FFFFFF', 'border': 1, 'align': 'center', 'bold': True,'num_format': '#,##0.00'})
+        fmt_calc_usd = workbook.add_format({'bg_color': '#FFFFFF', 'border': 1, 'align': 'center', 'bold': True, 'num_format': '#,##0.0000'})
+        fmt_calc_ves = workbook.add_format({'bg_color': '#FFFFFF', 'border': 1,'align': 'center', 'bold': True, 'num_format': '#,##0.00'})
         box_header = workbook.add_format({'bold': True, 'border': 1, 'align': 'center', 'valign': 'vcenter', 'text_wrap': True, 'bg_color': '#FFFFFF'})
         box_data_center = workbook.add_format({'border': 1, 'align': 'center', 'valign': 'vcenter'})
         box_data_left = workbook.add_format({'border': 1, 'align': 'left', 'valign': 'vcenter'})
@@ -2172,8 +2175,8 @@ def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, resumen_validaci
                 d_u = row['Débito USD']; h_u = row['Crédito USD']
                 ws3.write(row_idx, 6, d_v if d_v > 0 else "", box_money)
                 ws3.write(row_idx, 7, h_v if h_v > 0 else "", box_money)
-                ws3.write(row_idx, 8, d_u if d_u > 0 else "", box_money)
-                ws3.write(row_idx, 9, h_u if h_u > 0 else "", box_money)
+                ws3.write_number(row_idx, 8, d_u if d_u > 0 else 0, fmt_usd_4) 
+                ws3.write_number(row_idx, 9, h_u if h_u > 0 else 0, fmt_usd_4)
                 row_idx += 1
             
             ws3.write(row_idx, 6, df_asiento['Débito VES'].sum(), box_money_bold)
@@ -2189,15 +2192,15 @@ def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, resumen_validaci
             ws3.write(row_idx, 3, "(Máximo 40 posiciones...)", small_text)
             ws3.write(row_idx+1, 0, "TEXTO DEL DEBE", fmt_title_label)
             ws3.merge_range(row_idx+1, 3, row_idx+1, 5, texto_concepto, fmt_calc)
-            ws3.write(row_idx+1, 7, df_asiento['Débito VES'].sum(), fmt_calc) 
-            ws3.write(row_idx+1, 9, df_asiento['Débito USD'].sum(), fmt_calc)
+            ws3.write(row_idx+1, 7, df_asiento['Débito VES'].sum(), fmt_calc_ves) # Total VES
+            ws3.write(row_idx+1, 9, df_asiento['Débito USD'].sum(), fmt_calc_usd) # Total USD con 4 decimales
             row_idx += 4
 
             ws3.write(row_idx, 3, "(Máximo 40 posiciones...)", small_text)
             ws3.write(row_idx+1, 0, "TEXTO DEL HABER", fmt_title_label)
             ws3.merge_range(row_idx+1, 3, row_idx+1, 5, texto_concepto, fmt_calc)
-            ws3.write(row_idx+1, 7, df_asiento['Crédito VES'].sum(), fmt_calc)
-            ws3.write(row_idx+1, 9, df_asiento['Crédito USD'].sum(), fmt_calc)
+            ws3.write(row_idx+1, 7, df_asiento['Crédito VES'].sum(), fmt_calc_ves) # Total VES
+            ws3.write(row_idx+1, 9, df_asiento['Crédito USD'].sum(), fmt_calc_usd) # Total USD con 4 decimales
             row_idx += 3
 
             top_line = workbook.add_format({'top': 1, 'font_size': 9})
