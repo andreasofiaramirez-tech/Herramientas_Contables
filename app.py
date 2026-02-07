@@ -978,38 +978,39 @@ def render_pensiones():
                 with st.expander("Ver Log de Proceso"):
                     st.write(log)
 
-# ==========================================
-    # BLOQUE TEMPORAL DE DIAGNÓSTICO (BORRAR LUEGO)
-    # ==========================================
-    st.divider()
-    st.subheader("🔍 Diagnóstico de Formato de Carga")
-    st.info("Sube aquí un archivo de cargador que tu sistema contable SÍ acepte para identificar su configuración interna.")
+            # ==========================================
+                # BLOQUE TEMPORAL DE DIAGNÓSTICO (BORRAR LUEGO)
+                # ==========================================
+                st.divider()
+                st.subheader("🔍 Diagnóstico de Formato de Carga")
+                st.info("Sube aquí un archivo de cargador que tu sistema contable SÍ acepte para identificar su configuración interna.")
     
-    archivo_muestra = st.file_uploader("Subir cargador de muestra (Correcto)", type=['xlsx'], key="diag_pensiones")
+                archivo_muestra = st.file_uploader("Subir cargador de muestra (Correcto)", type=['xlsx'], key="diag_pensiones")
     
-    if archivo_muestra:
-        if st.button("Analizar Tripas del Archivo"):
-            try:
-                import openpyxl
-                wb = openpyxl.load_workbook(archivo_muestra)
-                # Analizamos la Hoja Asiento, Celda D2 (donde suele estar la fecha)
-                ws = wb["Asiento"]
-                celda = ws['D2']
+                if archivo_muestra:
+                    if st.button("Analizar Tripas del Archivo"):
+                        try:
+                            import openpyxl
+                            wb = openpyxl.load_workbook(archivo_muestra)
+                            # Analizamos la Hoja Asiento, Celda D2 (donde suele estar la fecha)
+                            ws = wb["Asiento"]
+                            celda = ws['D2']
                 
-                st.write("### 📊 Resultados del Análisis:")
-                st.write(f"**Valor leido:** `{celda.value}`")
-                st.write(f"**Tipo de dato en Excel (Data Type):** `{celda.data_type}`") 
-                st.write(f"**Máscara de formato (Number Format):** `{celda.number_format}`")
+                            st.write("### 📊 Resultados del Análisis:")
+                            st.write(f"**Valor leido:** `{celda.value}`")
+                            st.write(f"**Tipo de dato en Excel (Data Type):** `{celda.data_type}`") 
+                            st.write(f"**Máscara de formato (Number Format):** `{celda.number_format}`")
                 
-                if celda.data_type == 's':
-                    st.success("🎯 El sistema espera la fecha como **TEXTO (String)**")
-                elif celda.data_type == 'd':
-                    st.success("🎯 El sistema espera la fecha como **FECHA REAL (Date)**")
-                else:
-                    st.warning(f"🎯 El sistema recibe un tipo: `{celda.data_type}` (n=número, s=texto, d=fecha)")
-            except Exception as e:
-                st.error(f"Error analizando el archivo: {e}")
+                            if celda.data_type == 's':
+                                st.success("🎯 El sistema espera la fecha como **TEXTO (String)**")
+                            elif celda.data_type == 'd':
+                                st.success("🎯 El sistema espera la fecha como **FECHA REAL (Date)**")
+                            else:
+                                st.warning(f"🎯 El sistema recibe un tipo: `{celda.data_type}` (n=número, s=texto, d=fecha)")
+                        except Exception as e:
+                            st.error(f"Error analizando el archivo: {e}")
     # ==========================================
+            
             except Exception as e:
                 mostrar_error_amigable(e, "el Cálculo de Pensiones")
 
