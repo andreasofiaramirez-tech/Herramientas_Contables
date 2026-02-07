@@ -2246,7 +2246,7 @@ def generar_cargador_asiento_pensiones(df_asiento, fecha_asiento):
         data_fmt = workbook.add_format({'align': 'center'})
         num_fmt_ves = workbook.add_format({'num_format': '#,##0.00'})
         num_fmt_usd = workbook.add_format({'num_format': '#,##0.0000'}) # 4 decimales exactos
-        date_fmt = workbook.add_format({'num_format': 'mm-dd-yy', 'align': 'left'})
+        date_fmt = workbook.add_format({'num_format': 'mm-dd-yy'})
 
         # --- HOJA 1: "Asiento" ---
         ws1 = workbook.add_worksheet("Asiento")
@@ -2262,10 +2262,11 @@ def generar_cargador_asiento_pensiones(df_asiento, fecha_asiento):
         ws1.write_string(1, 3, fecha_texto, data_fmt)
       
         f_dt = pd.to_datetime(fecha_asiento)
-        fecha_final = datetime.datetime(f_dt.year, f_dt.month, f_dt.day)
-        
-        # Usamos .write en lugar de .write_datetime para máxima compatibilidad con importadores
-        ws1.write(1, 3, fecha_final, date_fmt)
+        # Creamos un datetime con hora 00:00:00 para que coincida al 100%
+        fecha_exacta_diag = datetime.datetime(f_dt.year, f_dt.month, f_dt.day, 0, 0, 0)
+
+        # IMPORTANTE: Usamos 'solo_fecha_fmt' (sin el 'data_fmt' que tiene bordes/alineación)
+        ws1.write_datetime(1, 3, fecha_exacta_diag, solo_fecha_fmt)
         
         ws1.write(1, 4, "A", data_fmt) # Requerimiento: A
         ws1.set_column('A:E', 15)
