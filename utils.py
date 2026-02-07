@@ -2256,8 +2256,8 @@ def generar_cargador_asiento_pensiones(df_asiento, fecha_asiento):
         ws1.write(1, 0, df_asiento['Asiento'].iloc[0], data_fmt)
         ws1.write(1, 1, "CG", data_fmt) # Requerimiento: CG
         ws1.write(1, 2, "CG", data_fmt) # Requerimiento: CG
-        fecha_final = pd.to_datetime(fecha_asiento).date()
-        ws1.write_datetime(1, 3, fecha_final, date_fmt)
+        fecha_pura = pd.to_datetime(fecha_asiento).to_pydatetime()
+        ws1.write_datetime(1, 3, fecha_pura, date_fmt)
         ws1.write(1, 4, "A", data_fmt) # Requerimiento: A
         ws1.set_column('A:E', 15)
 
@@ -2278,7 +2278,7 @@ def generar_cargador_asiento_pensiones(df_asiento, fecha_asiento):
             
             cuenta_actual = str(row['Cuenta Contable']).strip()
             if cuenta_actual == '2.1.3.02.3.005':
-                centro_costo_final = '00.00.000.01'
+                centro_costo_final = '00.00.000.00'
             else:
             # Para las demás cuentas (7.1.1...), mantiene la lógica de añadir 01 al final del padre
                 centro_costo_final = f"{str(row['Centro Costo']).strip()}01"
