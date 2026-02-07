@@ -853,23 +853,6 @@ def render_imprenta():
 def render_pensiones():
     st.title("🛡️ Cálculo Ley Protección Pensiones (9%)", anchor=False)
     
-    # --- INICIO BLOQUE DIAGNÓSTICO TEMPORAL ---
-    with st.sidebar.expander("🔍 DIAGNÓSTICO DE FORMATO", expanded=True):
-        st.write("Sube un cargador que SÍ funcione:")
-        archivo_muestra = st.file_uploader("Archivo de muestra", type=['xlsx'], key="diag_uploader")
-        if archivo_muestra:
-            try:
-                import openpyxl
-                wb = openpyxl.load_workbook(archivo_muestra, data_only=False)
-                ws = wb["Asiento"]
-                celda = ws['D2']
-                st.warning(f"Valor: {celda.value}")
-                st.warning(f"Tipo: {celda.data_type}")
-                st.warning(f"Máscara: {celda.number_format}")
-            except Exception as e:
-                st.error(f"Error: {e}")
-    # --- FIN BLOQUE DIAGNÓSTICO ---
-    
     with st.expander("📖 Guía de Uso"):
         st.markdown(GUIA_PENSIONES)
 
