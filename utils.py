@@ -2283,6 +2283,7 @@ def generar_cargador_asiento_pensiones(df_asiento, fecha_asiento):
             # Para las demás cuentas (7.1.1...), mantiene la lógica de añadir 01 al final del padre
                 centro_costo_final = f"{str(row['Centro Costo']).strip()}01"
             
+            ws2.write(r, 3, centro_costo_final, data_fmt)
             ws2.write(r, 4, row['Cuenta Contable'], data_fmt)
             ws2.write(r, 5, row['Fuente'], data_fmt)
             ws2.write(r, 6, row['Referencia'], data_fmt)
