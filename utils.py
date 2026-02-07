@@ -2246,7 +2246,8 @@ def generar_cargador_asiento_pensiones(df_asiento, fecha_asiento):
         data_fmt = workbook.add_format({'align': 'center'})
         num_fmt_ves = workbook.add_format({'num_format': '#,##0.00'})
         num_fmt_usd = workbook.add_format({'num_format': '#,##0.0000'}) # 4 decimales exactos
-        date_fmt = workbook.add_format({'num_format': 'mm-dd-yy'})
+        solo_fecha_fmt = workbook.add_format({'num_format': 'mm-dd-yy'})
+
 
         # --- HOJA 1: "Asiento" ---
         ws1 = workbook.add_worksheet("Asiento")
