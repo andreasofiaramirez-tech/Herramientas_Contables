@@ -2257,9 +2257,16 @@ def generar_cargador_asiento_pensiones(df_asiento, fecha_asiento):
         ws1.write(1, 0, df_asiento['Asiento'].iloc[0], data_fmt)
         ws1.write(1, 1, "CG", data_fmt) # Requerimiento: CG
         ws1.write(1, 2, "CG", data_fmt) # Requerimiento: CG
+
         f_dt = pd.to_datetime(fecha_asiento)
         fecha_final_excel = datetime.datetime(f_dt.year, f_dt.month, f_dt.day)
         ws1.write_datetime(1, 3, fecha_final_excel, date_fmt)
+
+        f_temp = pd.to_datetime(fecha_asiento)
+        fecha_pura = date(f_temp.year, f_temp.month, f_temp.day)
+        # Escribimos la fecha con write_datetime
+        ws1.write_datetime(1, 3, fecha_pura, date_fmt)
+        
         ws1.write(1, 4, "A", data_fmt) # Requerimiento: A
         ws1.set_column('A:E', 15)
 
