@@ -916,65 +916,48 @@ def run_conciliation_cobros_viajeros(df, log_messages, progress_bar=None):
     log_messages.append("--- Fase 2: Buscando grupos de conciliación estándar N-a-N ---")
     
     df['Clave_Vinculo'] = ''
-    # Filtramos lo que no ha sido conciliado en Fase 0 o Fase 1
-    df_restante = df[~df['Conciliado']]
-    
-    for index, row in df_restante.iterrows():
+    for index, row in df[~df['Conciliado']].iterrows():
         asiento = str(row['Asiento']).upper()
-        # DEFINICIÓN DE VARIABLES (Esto evita el NameError)
         f_num = str(row.get('Fuente_Norm_Num', ''))
         r_num = str(row.get('Referencia_Norm_Num', ''))
-
-        # Lógica robusta de llaves:
-        if asiento.startswith(('CC', 'CG')) and f_num != '':
-            df.loc[index, 'Clave_Vinculo'] = f_num
-        elif asiento.startswith('CB') and r_num != '':
-            df.loc[index, 'Clave_Vinculo'] = r_num
-        else:
-            # Si no tiene el prefijo estándar, intentamos capturar cualquier número disponible
+        
+        # MEJORA: Si ambos números existen, tomamos el más largo para mayor precisión
+        # Esto resuelve el problema de los números truncados en JIANLONG MO
+        if asiento.startswith(('CC', 'CG')):
             df.loc[index, 'Clave_Vinculo'] = f_num if f_num != '' else r_num
+        elif asiento.startswith('CB'):
+            df.loc[index, 'Clave_Vinculo'] = r_num if r_num != '' else f_num
+        else:
+            df.loc[index, 'Clave_Vinculo'] = f_num if len(f_num) > len(r_num) else r_num
 
-    # Procesar los grupos encontrados en la Fase 2
     df_procesable = df[(~df['Conciliado']) & (df['Clave_Vinculo'] != '')]
     grupos = df_procesable.groupby(['NIT_Normalizado', 'Clave_Vinculo'])
     
     for (nit, clave), grupo in grupos:
-        if len(grupo) < 2 or not ((grupo['Monto_USD'] > 0).any() and (grupo['Monto_USD'] < 0).any()):
-            continue
-            
-        if np.isclose(round(grupo['Monto_USD'].sum(), 2), 0, atol=TOLERANCIA_ESTRICTA_USD):
-            indices_a_conciliar = grupo.index
-            df.loc[indices_a_conciliar, 'Conciliado'] = True
-            df.loc[indices_a_conciliar, 'Grupo_Conciliado'] = f"VIAJERO_{nit}_{clave}"
-            total_conciliados += len(indices_a_conciliar)
+        if len(grupo) >= 2 and np.isclose(grupo['Monto_USD'].sum(), 0, atol=TOLERANCIA_ESTRICTA_USD):
+            df.loc[grupo.index, ['Conciliado', 'Grupo_Conciliado']] = [True, f"VIAJERO_{nit}_{clave}"]
+            indices_usados.update(grupo.index)
+            total_conciliados += len(grupo)
 
-# --- FASE 3: CONCILIACIÓN POR SALDO TOTAL DE NIT (EL CIERRE MAESTRO) ---
-    log_messages.append("--- Fase 3: Buscando compensaciones globales por NIT (Saldo Cero) ---")
+    # --- FASE 3: EL BARRIDO DEFINITIVO POR NIT (Solución JIANLONG MO) ---
+    # Si después de todo, el saldo de un NIT es CERO, se cierra.
+    log_messages.append("--- Fase 3: Ejecutando Barrido de Saldo Neto por NIT ---")
     
-    # Trabajamos solo con lo que sigue pendiente después de las fases anteriores
     df_pendientes_final = df[~df['Conciliado']]
-    grupos_nit = df_pendientes_final.groupby('NIT_Normalizado')
-    
-    for nit, grupo in grupos_nit:
-        if nit == 'SIN_NIT' or len(grupo) < 2:
-            continue
-            
-        # Si la suma de TODO lo pendiente de este NIT es CERO
-        if np.isclose(grupo['Monto_USD'].sum(), 0, atol=TOLERANCIA_ESTRICTA_USD):
-            indices_a_conciliar = grupo.index
-            df.loc[indices_a_conciliar, 'Conciliado'] = True
-            df.loc[indices_a_conciliar, 'Grupo_Conciliado'] = f"COMPENSACION_NIT_{nit}"
-            total_conciliados += len(indices_a_conciliar)
-            log_messages.append(f"✔️ NIT {nit}: Saldo compensado globalmente (${grupo['Monto_USD'].sum():.2f}).")
-            
-    if progress_bar: progress_bar.progress(1.0, text="Conciliación completada.")
+    # Agrupamos por NIT y sumamos. Usamos filter para quedarnos con los que dan CERO.
+    resumen_nit = df_pendientes_final.groupby('NIT_Normalizado')['Monto_USD'].sum().round(2)
+    nits_a_cerrar = resumen_nit[abs(resumen_nit) <= TOLERANCIA_ESTRICTA_USD].index
 
-    if total_conciliados > 0:
-        log_messages.append(f"✔️ Conciliación finalizada: Se conciliaron un total de {total_conciliados} movimientos.")
-    else:
-        log_messages.append("ℹ️ No se encontraron movimientos para conciliar.")
-        
-    log_messages.append("\n--- PROCESO DE CONCILIACIÓN FINALIZADO ---")
+    for nit in nits_a_cerrar:
+        if nit == 'SIN_NIT': continue
+        indices = df_pendientes_final[df_pendientes_final['NIT_Normalizado'] == nit].index
+        if len(indices) > 0:
+            df.loc[indices, ['Conciliado', 'Grupo_Conciliado']] = [True, f"BARRIDO_NETO_NIT_{nit}"]
+            total_conciliados += len(indices)
+            log_messages.append(f"✔️ NIT {nit}: Conciliado por saldo neto cero en el barrido final.")
+
+    if progress_bar: progress_bar.progress(1.0)
+    log_messages.append(f"✔️ Proceso finalizado. Conciliados: {total_conciliados}")
     return df
 
 # --- (G) Módulo: Otras Cuentas por Pagar (VES) ---
