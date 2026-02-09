@@ -2590,13 +2590,13 @@ def generar_reporte_cofersa(df_procesado):
             
             row_idx = 1
             gran_total_bs = 0
-            idx_neto_bs = cols_output.index('Neto Local')
+            idx_neto_bs = cols_output.index('Neto Colones')
             idx_ref = cols_output.index('Referencia')
             
             for ref, grupo in df_data.groupby('Ref_Norm'):
                 subtotal_grupo = 0
                 for _, data in grupo.iterrows():
-                    subtotal_grupo += data.get('Neto Local', 0)
+                    subtotal_grupo += data.get('Neto Colones', 0)
                     for i, col in enumerate(cols_output):
                         val = data.get(col, '')
                         fmt = money_fmt if i in idx_nums else text_fmt
@@ -2608,12 +2608,12 @@ def generar_reporte_cofersa(df_procesado):
                     row_idx += 1
                 
                 ws.write(row_idx, idx_ref, f"SALDO {ref}:", label_fmt)
-                ws.write_number(row_idx, idx_neto_bs, subtotal_grupo, estilo_subtotal)
-                gran_total_bs += subtotal_grupo
+                ws.write_number(row_idx, idx_neto_crc, subtotal_grupo, estilo_subtotal)
+                gran_total_crc += subtotal_grupo
                 row_idx += 2
                 
             ws.write(row_idx, idx_ref, titulo_total, label_fmt)
-            ws.write_number(row_idx, idx_neto_bs, gran_total_bs, total_fmt)
+            ws.write_number(row_idx, idx_neto_crc, gran_total_crc, total_fmt)
             ws.set_column(0, len(cols_output), 15)
 
         # --- 4. GENERACIÓN DE HOJAS ---
