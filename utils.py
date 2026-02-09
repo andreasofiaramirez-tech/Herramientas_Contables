@@ -2580,6 +2580,8 @@ def generar_reporte_cofersa(df_procesado):
 
         def escribir_hoja_agrupada(nombre_hoja, df_data, titulo_total, estilo_subtotal):
             if df_data.empty: return
+            
+            # Aseguramos que exista la clave de agrupación
             if 'Ref_Norm' not in df_data.columns:
                 df_data['Ref_Norm'] = df_data['Referencia'].astype(str).str.strip().str.upper()
             
@@ -2589,29 +2591,45 @@ def generar_reporte_cofersa(df_procesado):
             ws.write_row(0, 0, cols_output, header_fmt)
             
             row_idx = 1
-            gran_total_bs = 0
-            idx_neto_bs = cols_output.index('Neto Colones')
+            gran_total_crc = 0
+            
+            # --- LOCALIZACIÓN DE ÍNDICES CRÍTICOS ---
+            # Buscamos 'Neto Colones'. Si por error no está, buscamos 'Neto Local'
+            try:
+                idx_neto_crc = cols_output.index('Neto Colones')
+            except ValueError:
+                idx_neto_crc = cols_output.index('Neto Local')
+                
             idx_ref = cols_output.index('Referencia')
             
             for ref, grupo in df_data.groupby('Ref_Norm'):
                 subtotal_grupo = 0
                 for _, data in grupo.iterrows():
-                    subtotal_grupo += data.get('Neto Colones', 0)
+                    # Sumamos el neto (manejando ambos posibles nombres de columna)
+                    monto_fila = data.get('Neto Colones', data.get('Neto Local', 0))
+                    subtotal_grupo += monto_fila
+                    
                     for i, col in enumerate(cols_output):
                         val = data.get(col, '')
                         fmt = money_fmt if i in idx_nums else text_fmt
-                        if 'Fecha' in col and pd.notna(val): ws.write_datetime(row_idx, i, val, date_fmt)
-                        elif i in idx_nums:
+                        
+                        if 'Fecha' in col and pd.notna(val): 
+                            ws.write_datetime(row_idx, i, val, date_fmt)
+                        elif i in idx_nums: 
+                            # Validación de string vacío para evitar el error de float('')
                             num_val = float(val) if (pd.notna(val) and str(val).strip() != "") else 0.0
                             ws.write_number(row_idx, i, num_val, fmt)
-                        else: ws.write(row_idx, i, str(val) if pd.notna(val) else "", fmt)
+                        else: 
+                            ws.write(row_idx, i, str(val) if pd.notna(val) else "", fmt)
                     row_idx += 1
                 
+                # Escritura del SUB-TOTAL del grupo
                 ws.write(row_idx, idx_ref, f"SALDO {ref}:", label_fmt)
                 ws.write_number(row_idx, idx_neto_crc, subtotal_grupo, estilo_subtotal)
                 gran_total_crc += subtotal_grupo
                 row_idx += 2
                 
+            # Escritura del TOTAL GENERAL de la hoja
             ws.write(row_idx, idx_ref, titulo_total, label_fmt)
             ws.write_number(row_idx, idx_neto_crc, gran_total_crc, total_fmt)
             ws.set_column(0, len(cols_output), 15)
