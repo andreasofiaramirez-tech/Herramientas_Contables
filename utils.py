@@ -2237,44 +2237,47 @@ def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, resumen_validaci
     return output.getvalue()
 
 def generar_cargador_asiento_pensiones(df_asiento, fecha_asiento):
+    import datetime
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         workbook = writer.book
         
-        # --- NUEVOS FORMATOS (SIN BORDES NI FONDOS) ---
+        # --- FORMATOS ESTÁNDAR ---
         header_fmt = workbook.add_format({'bold': True, 'align': 'center'})
         data_fmt = workbook.add_format({'align': 'center'})
         num_fmt_ves = workbook.add_format({'num_format': '#,##0.00'})
-        num_fmt_usd = workbook.add_format({'num_format': '#,##0.0000'}) # 4 decimales exactos
-        solo_fecha_fmt = workbook.add_format({'num_format': 'mm-dd-yy'})
-
+        num_fmt_usd = workbook.add_format({'num_format': '#,##0.0000'})
+        
+        # --- SOLUCIÓN NUCLEAR PARA SOFTLAND (ID 14) ---
+        # Al usar el número 14, forzamos a Excel a usar su "ID Nativo" de fecha.
+        # Es el que tiene el asterisco (*) y el único que Softland reconoce sin error.
+        # No añadimos bordes ni alineación para mantener la celda "pura".
+        fmt_fecha_nativa = workbook.add_format({'num_format': 14})
 
         # --- HOJA 1: "Asiento" ---
         ws1 = workbook.add_worksheet("Asiento")
-        ws1.hide_gridlines(2) # Quita las líneas de división de Excel
+        ws1.hide_gridlines(2)
         headers_asiento = ["Asiento", "Paquete", "Tipo Asiento", "Fecha", "Contabilidad"]
         ws1.write_row(0, 0, headers_asiento, header_fmt)
         
         ws1.write(1, 0, df_asiento['Asiento'].iloc[0], data_fmt)
-        ws1.write(1, 1, "CG", data_fmt) # Requerimiento: CG
-        ws1.write(1, 2, "CG", data_fmt) # Requerimiento: CG
-
-        fecha_texto = pd.to_datetime(fecha_asiento).strftime('%d/%m/%Y')
-        ws1.write_string(1, 3, fecha_texto, data_fmt)
-      
-        f_dt = pd.to_datetime(fecha_asiento)
-        # Creamos un datetime con hora 00:00:00 para que coincida al 100%
-        fecha_exacta_diag = datetime.datetime(f_dt.year, f_dt.month, f_dt.day, 0, 0, 0)
-
-        # IMPORTANTE: Usamos 'solo_fecha_fmt' (sin el 'data_fmt' que tiene bordes/alineación)
-        ws1.write_datetime(1, 3, fecha_exacta_diag, solo_fecha_fmt)
+        ws1.write(1, 1, "CG", data_fmt)
+        ws1.write(1, 2, "CG", data_fmt)
         
-        ws1.write(1, 4, "A", data_fmt) # Requerimiento: A
+        # REPLICACIÓN DEL ARCHIVO EXITOSO:
+        # 1. Convertimos a datetime puro con hora 00:00:00
+        f_raw = pd.to_datetime(fecha_asiento)
+        fecha_exacta = datetime.datetime(f_raw.year, f_raw.month, f_raw.day, 0, 0, 0)
+        
+        # 2. Escribimos con el formato de ID Nativo 14
+        ws1.write_datetime(1, 3, fecha_exacta, fmt_fecha_nativa)
+        
+        ws1.write(1, 4, "A", data_fmt)
         ws1.set_column('A:E', 15)
 
         # --- HOJA 2: "ND" ---
         ws2 = workbook.add_worksheet("ND")
-        ws2.hide_gridlines(2) # Quita las líneas de división de Excel
+        ws2.hide_gridlines(2)
         headers_nd = [
             "Asiento", "Consecutivo", "Nit", "Centro De Costo", "Cuenta Contable", 
             "Fuente", "Referencia", "Débito Local", "Débito Dólar", "Crédito Local", "Crédito Dólar"
@@ -2287,11 +2290,11 @@ def generar_cargador_asiento_pensiones(df_asiento, fecha_asiento):
             ws2.write(r, 1, i + 1, data_fmt)
             ws2.write(r, 2, row['Nit'], data_fmt)
             
-            cuenta_actual = str(row['Cuenta Contable']).strip()
-            if cuenta_actual == '2.1.3.02.3.005':
-                centro_costo_final = '00.00.000.00'
+            # LÓGICA DEL CENTRO DE COSTO ESPECÍFICO (00.00.000.01)
+            cta_actual = str(row['Cuenta Contable']).strip()
+            if cta_actual == '2.1.3.02.3.005':
+                centro_costo_final = '00.00.000.01'
             else:
-            # Para las demás cuentas (7.1.1...), mantiene la lógica de añadir 01 al final del padre
                 centro_costo_final = f"{str(row['Centro Costo']).strip()}01"
             
             ws2.write(r, 3, centro_costo_final, data_fmt)
@@ -2299,17 +2302,17 @@ def generar_cargador_asiento_pensiones(df_asiento, fecha_asiento):
             ws2.write(r, 5, row['Fuente'], data_fmt)
             ws2.write(r, 6, row['Referencia'], data_fmt)
             
-            # --- ESCRITURA CONDICIONAL (EN BLANCO SI ES 0) ---
+            # ESCRITURA DE MONTOS
             def write_clean(col, val, fmt):
                 if val != 0 and pd.notna(val):
                     ws2.write_number(r, col, val, fmt)
                 else:
-                    ws2.write(r, col, "") # Celda vacía si es cero
+                    ws2.write(r, col, "")
 
             write_clean(7, row['Débito VES'], num_fmt_ves)
-            write_clean(8, row['Débito USD'], num_fmt_usd) # Aplica 4 decimales
+            write_clean(8, row['Débito USD'], num_fmt_usd)
             write_clean(9, row['Crédito VES'], num_fmt_ves)
-            write_clean(10, row['Crédito USD'], num_fmt_usd) # Aplica 4 decimales
+            write_clean(10, row['Crédito USD'], num_fmt_usd)
 
         ws2.set_column('A:B', 15)
         ws2.set_column('C:C', 10)
