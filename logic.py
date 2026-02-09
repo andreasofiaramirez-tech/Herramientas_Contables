@@ -920,8 +920,8 @@ def run_conciliation_cobros_viajeros(df, log_messages, progress_bar=None):
     
     for index, row in df_restante.iterrows():    
         asiento = str(row['Asiento']).upper()
-        fuente_num = str(row.get('Fuente_Norm_Num', ''))
-        ref_num = str(row.get('Referencia_Norm_Num', ''))
+        f_num = str(row.get('Fuente_Norm_Num', ''))
+        r_num = str(row.get('Referencia_Norm_Num', ''))
 
         if asiento.startswith(('CC', 'CG')) and fuente_num != '':
             df.loc[index, 'Clave_Vinculo'] = fuente_num
