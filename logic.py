@@ -919,10 +919,18 @@ def run_conciliation_cobros_viajeros(df, log_messages, progress_bar=None):
     df_restante = df[~df.index.isin(indices_usados) & ~df['Conciliado']]
     
     for index, row in df_restante.iterrows():
-        if row['Asiento'].startswith('CC'):
-            df.loc[index, 'Clave_Vinculo'] = row['Fuente_Norm_Num']
-        elif row['Asiento'].startswith('CB'):
-            df.loc[index, 'Clave_Vinculo'] = row['Referencia_Norm_Num']
+        # Extendemos la lógica para incluir asientos CG y priorizar Fuente si existe el número
+        asiento = str(row['Asiento']).upper()
+        fuente_num = str(row.get('Fuente_Norm_Num', ''))
+        ref_num = str(row.get('Referencia_Norm_Num', ''))
+
+        if asiento.startswith(('CC', 'CG')) and fuente_num != '':
+            df.loc[index, 'Clave_Vinculo'] = fuente_num
+        elif asiento.startswith('CB') and ref_num != '':
+            df.loc[index, 'Clave_Vinculo'] = ref_num
+        else:
+            # Fallback: si no cumple los anteriores pero hay un número en Fuente, lo usamos
+            df.loc[index, 'Clave_Vinculo'] = fuente_num if fuente_num != '' else ref_num
 
     df_procesable = df[(~df['Conciliado']) & (df['Clave_Vinculo'] != '')]
     grupos = df_procesable.groupby(['NIT_Normalizado', 'Clave_Vinculo'])
@@ -932,7 +940,7 @@ def run_conciliation_cobros_viajeros(df, log_messages, progress_bar=None):
             continue
             
         # Comparación con tolerancia 0.00
-        if np.isclose(grupo['Monto_USD'].sum(), 0, atol=TOLERANCIA_ESTRICTA_USD):
+        if np.isclose(round(grupo['Monto_USD'].sum(), 2), 0, atol=TOLERANCIA_ESTRICTA_USD):
             indices_a_conciliar = grupo.index
             df.loc[indices_a_conciliar, 'Conciliado'] = True
             df.loc[indices_a_conciliar, 'Grupo_Conciliado'] = f"VIAJERO_{nit}_{clave}"
