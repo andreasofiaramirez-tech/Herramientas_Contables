@@ -912,25 +912,29 @@ def run_conciliation_cobros_viajeros(df, log_messages, progress_bar=None):
 
     if progress_bar: progress_bar.progress(0.5, text="Fase de Reversos completada.")
 
-    # --- FASE 2: CONCILIACIÓN ESTÁNDAR N-a-N ---
+    # --- FASE 2: CONCILIACIÓN ESTÁNDAR N-a-N (Búsqueda por Recibo/Depósito) ---
     log_messages.append("--- Fase 2: Buscando grupos de conciliación estándar N-a-N ---")
     
     df['Clave_Vinculo'] = ''
+    # Filtramos lo que no ha sido conciliado en Fase 0 o Fase 1
     df_restante = df[~df['Conciliado']]
     
-    for index, row in df_restante.iterrows():    
+    for index, row in df_restante.iterrows():
         asiento = str(row['Asiento']).upper()
+        # DEFINICIÓN DE VARIABLES (Esto evita el NameError)
         f_num = str(row.get('Fuente_Norm_Num', ''))
         r_num = str(row.get('Referencia_Norm_Num', ''))
 
-        if asiento.startswith(('CC', 'CG')) and fuente_num != '':
-            df.loc[index, 'Clave_Vinculo'] = fuente_num
-        elif asiento.startswith('CB') and ref_num != '':
-            df.loc[index, 'Clave_Vinculo'] = ref_num
+        # Lógica robusta de llaves:
+        if asiento.startswith(('CC', 'CG')) and f_num != '':
+            df.loc[index, 'Clave_Vinculo'] = f_num
+        elif asiento.startswith('CB') and r_num != '':
+            df.loc[index, 'Clave_Vinculo'] = r_num
         else:
-            # Fallback: si no cumple los anteriores pero hay un número en Fuente, lo usamos
+            # Si no tiene el prefijo estándar, intentamos capturar cualquier número disponible
             df.loc[index, 'Clave_Vinculo'] = f_num if f_num != '' else r_num
 
+    # Procesar los grupos encontrados en la Fase 2
     df_procesable = df[(~df['Conciliado']) & (df['Clave_Vinculo'] != '')]
     grupos = df_procesable.groupby(['NIT_Normalizado', 'Clave_Vinculo'])
     
@@ -938,12 +942,10 @@ def run_conciliation_cobros_viajeros(df, log_messages, progress_bar=None):
         if len(grupo) < 2 or not ((grupo['Monto_USD'] > 0).any() and (grupo['Monto_USD'] < 0).any()):
             continue
             
-        # Comparación con tolerancia 0.00
         if np.isclose(round(grupo['Monto_USD'].sum(), 2), 0, atol=TOLERANCIA_ESTRICTA_USD):
             indices_a_conciliar = grupo.index
             df.loc[indices_a_conciliar, 'Conciliado'] = True
             df.loc[indices_a_conciliar, 'Grupo_Conciliado'] = f"VIAJERO_{nit}_{clave}"
-            indices_usados.update(indices_a_conciliar)
             total_conciliados += len(indices_a_conciliar)
 
 # --- FASE 3: CONCILIACIÓN POR SALDO TOTAL DE NIT (EL CIERRE MAESTRO) ---
