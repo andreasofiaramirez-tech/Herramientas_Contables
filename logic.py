@@ -4327,10 +4327,17 @@ def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
     df['Neto Local'] = pd.to_numeric(df['Neto Local'], errors='coerce').fillna(0).round(2)
     
     # Normalización de Referencia (Clave maestra)
-    if 'Referencia' in df.columns:
-        df['Ref_Norm'] = df['Referencia'].astype(str).str.strip().str.upper()
-    else:
-        df['Ref_Norm'] = 'SIN_REF'
+    def extraer_id_embarque(row):
+        # Unificamos Referencia y Tipo para buscar el código EM o M
+        texto_busqueda = (str(row.get('Referencia', '')) + " " + str(row.get('Tipo', ''))).upper()
+        # Regex: Busca una E o M seguida de números (ej: EM00035941 o M35941)
+        match = re.search(r'([EM]\d+)', texto_busqueda)
+        if match:
+            return match.group(1)
+        return str(row.get('Referencia', '')).strip().upper()
+
+    df['Ref_Norm'] = df.apply(extraer_id_embarque, axis=1)
+    # ------------------------------------------
 
     df['Estado_Cofersa'] = 'PENDIENTE' 
     indices_usados = set()
