@@ -2290,10 +2290,10 @@ def generar_cargador_asiento_pensiones(df_asiento, fecha_asiento):
             ws2.write(r, 1, i + 1, data_fmt)
             ws2.write(r, 2, row['Nit'], data_fmt)
             
-            # LÓGICA DEL CENTRO DE COSTO ESPECÍFICO (00.00.000.01)
+            # LÓGICA DEL CENTRO DE COSTO ESPECÍFICO (00.00.000.00)
             cta_actual = str(row['Cuenta Contable']).strip()
             if cta_actual == '2.1.3.02.3.005':
-                centro_costo_final = '00.00.000.01'
+                centro_costo_final = '00.00.000.00'
             else:
                 centro_costo_final = f"{str(row['Centro Costo']).strip()}01"
             
