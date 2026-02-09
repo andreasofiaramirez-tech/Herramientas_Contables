@@ -2677,29 +2677,41 @@ def generar_reporte_cofersa(df_procesado):
         ws6 = workbook.add_worksheet('6. Especificación')
         ws6.hide_gridlines(2)
         ws6.merge_range('A1:F1', "RESUMEN DE SALDOS ABIERTOS (COFERSA)", workbook.add_format({'bold':True, 'font_size':14, 'align':'center'}))
-        headers_spec = ['Categoría', 'Referencia', 'NIT', 'Descripción Nit', 'Fecha (Max)', 'Saldo (VES)']
+        headers_spec = ['Categoría', 'Referencia', 'NIT', 'Descripción Nit', 'Fecha (Max)', 'Saldo (Colones)']
         ws6.write_row('A3', headers_spec, header_fmt)
         
         # Recolectar datos para el resumen
         df_open = df_procesado[~df_procesado['Estado_Cofersa'].isin(['PARES_1_A_1', 'CRUCE_POR_REFERENCIA'])].copy()
         if not df_open.empty:
-            if 'Ref_Norm' not in df_open.columns: df_open['Ref_Norm'] = df_open['Referencia'].astype(str).str.strip().str.upper()
+            if 'Ref_Norm' not in df_open.columns: 
+                df_open['Ref_Norm'] = df_open['Referencia'].astype(str).str.strip().str.upper()
             
+            # --- CORRECCIÓN DE NOMBRES EN AGG ---
             resumen = df_open.groupby('Ref_Norm').agg({
-                'Neto Local': 'sum', 'Fecha': 'max', 'Nit': 'first', 'Descripción Nit': 'first'
+                'Neto Colones': 'sum',      # Cambiado de 'Neto Local'
+                'Fecha': 'max', 
+                'NIT': 'first',             # Cambiado de 'Nit'
+                'Descripción Nit': 'first'
             }).reset_index()
             
             r_idx = 3
             total_gral = 0
             for _, row in resumen.iterrows():
-                if abs(row['Neto Local']) > 0.01:
+                # --- CORRECCIÓN DE ACCESO A COLUMNAS ---
+                monto_colones = row['Neto Colones']
+                if abs(monto_colones) > 0.01:
                     ws6.write(r_idx, 0, "PENDIENTE", text_fmt)
                     ws6.write(r_idx, 1, row['Ref_Norm'], text_fmt)
-                    ws6.write(r_idx, 2, row['Nit'], text_fmt)
+                    ws6.write(r_idx, 2, row['NIT'], text_fmt) # Usar 'NIT'
                     ws6.write(r_idx, 3, row['Descripción Nit'], text_fmt)
-                    ws6.write_datetime(r_idx, 4, row['Fecha'], date_fmt)
-                    ws6.write_number(r_idx, 5, row['Neto Colones'], money_fmt)
-                    total_gral += row['Neto Colones']
+                    
+                    if pd.notna(row['Fecha']):
+                        ws6.write_datetime(r_idx, 4, row['Fecha'], date_fmt)
+                    else:
+                        ws6.write(r_idx, 4, "-", text_fmt)
+                        
+                    ws6.write_number(r_idx, 5, monto_colones, money_fmt)
+                    total_gral += monto_colones
                     r_idx += 1
             
             ws6.write(r_idx, 4, "SALDO TOTAL:", label_fmt)
