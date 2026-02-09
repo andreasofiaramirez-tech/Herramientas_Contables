@@ -1065,7 +1065,7 @@ def render_ajustes_usd():
                 mostrar_error_amigable(e, "el Cálculo de Ajustes de Balance")
 
 def render_cofersa():
-    st.title("🚛 Envíos en Tránsito COFERSA (115.07.1.002)", anchor=False)
+    st.title("🚛 Envíos en Tránsito COFERSA Local (101050200)", anchor=False)
     
     if st.button("⬅️ Volver al Inicio", key="back_from_cofersa"):
         set_page('inicio')
