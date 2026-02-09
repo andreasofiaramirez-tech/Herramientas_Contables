@@ -874,7 +874,7 @@ def render_pensiones():
         file_nomina = st.file_uploader("2. Resumen Nómina (Validación)", type=['xlsx'], key="pen_nom")
     with c3:
         tasa = st.number_input("Tasa de Cambio", min_value=0.01, value=1.0, format="%.4f", key="pen_tasa")
-        num_asiento = st.text_input("Número de Asiento (Cargador)", value="ASIENTO_001", key="pen_num_asiento")
+        num_asiento = st.text_input("Número de Asiento (Cargador)", value="CG0000", key="pen_num_asiento")
 
     # 3. Botón de Acción
     if file_mayor and tasa > 0:
