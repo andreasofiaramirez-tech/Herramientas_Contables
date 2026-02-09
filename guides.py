@@ -470,26 +470,6 @@ GUIA_GENERADOR = "Generación de archivos de retenciones para GALAC."
 GUIA_PENSIONES = "Cálculo del aporte del 9% de la Ley de Pensiones."
 GUIA_AJUSTES_USD = "Valoración de activos y pasivos en moneda extranjera al cierre."
 
-# ==============================================================================
-# DICCIONARIO DE GUÍAS POR CUENTA
-# ==============================================================================
-
-LOGICA_POR_CUENTA = {
-    "111.04.1001 - Fondos en Tránsito": "Conciliación en Bs por grupos de referencia y montos.",
-    "111.04.6001 - Fondos por Depositar - ME": "Conciliación en USD con búsqueda de pares 1-a-N.",
-    "212.07.6009 - Devoluciones a Proveedores": "Cruce de devoluciones vs notas de crédito por NIT y Comprobante.",
-    "114.03.1002 - Cuentas de viajes - anticipos de gastos": "Cruce de anticipos vs legalizaciones por NIT.",
-    "114.02.6006 - Deudores Empleados - Otros (ME)": "Conciliación de saldos por empleado en USD.",
-    "111.04.6003 - Fondos por Depositar - Cobros Viajeros - ME": "Liquidación de cobros con tolerancia cero.",
-    "212.05.1019 - Otras Cuentas por Pagar": "Cruce por NIT y número de envío (ENV).",
-    "212.05.1108 - Haberes de Clientes": "Manejo de saldos a favor de clientes por NIT y Monto.",
-    "212.07.9001 - CDC - Factoring": "Conciliación de contratos de factoring (FQ).",
-    "212.05.1005 - Asientos por clasificar": "Limpieza de partidas transaccionales por NIT y monto.",
-    "212.07.1012 - Proveedores d/Mcia - Costos Causados": "Cruce por número de embarque (EMB) con tolerancia de $1.00.",
-    "115.07.1.002 - Envios en Transito COFERSA": "Conciliación por Referencia y Pares con tolerancia de 100 Bs.",
-    "Verificación de Débito Fiscal" : "Auditoría N-a-N entre Softland e Imprenta con normalización de NIT y documentos."
-}
-
 GUIA_DEBITO_FISCAL = """
 ### 📑 Manual de Usuario: Verificación de Débito Fiscal
 
