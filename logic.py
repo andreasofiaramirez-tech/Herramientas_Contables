@@ -4374,20 +4374,21 @@ def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
 
     # --- FASE 2: CRUCE POR REFERENCIA (Agrupación N-a-N) ---
     # Reemplaza la lógica de 'Tipo' por 'Referencia'
-    df_pendientes = df[~df.index.isin(indices_usados)].copy()
+     df_pendientes = df[~df.index.isin(indices_usados)].copy()
+    count_fase2 = 0  # <--- AGREGA ESTA LÍNEA AQUÍ (Inicialización)
     
-    # Ahora agrupamos por el ID extraído (ej: EM00035941)
-    for ref_val, grupo in df_pendientes.groupby('Ref_Norm'):
-        if ref_val in ['', 'NAN', 'NONE', 'SIN_REF']: continue
-        if len(grupo) < 2: continue
-        
-        # Al estar unificados bajo la misma llave, la suma ahora sí dará CERO
-        suma_grupo = grupo['Neto Local'].sum().round(2)
-        if abs(suma_grupo) <= TOLERANCIA_COFERSA:
+    if not df_pendientes.empty:
+        # Agrupamos por Referencia (que ahora es el ID EM/M extraído)
+        for ref_val, grupo in df_pendientes.groupby('Ref_Norm'):
+            if ref_val in ['', 'NAN', 'NONE', 'SIN_REF']: continue
+            if len(grupo) < 2: continue
+            
+            suma_grupo = grupo['Neto Local'].sum().round(2)
+            if abs(suma_grupo) <= TOLERANCIA_COFERSA:
                 indices_grupo = grupo.index
                 df.loc[indices_grupo, 'Estado_Cofersa'] = 'CRUCE_POR_REFERENCIA'
                 indices_usados.update(indices_grupo)
-                count_fase2 += len(indices_grupo)
+                count_fase2 += len(indices_grupo) # Ahora sí funcionará
         
         log_messages.append(f"✔️ Fase 2 (Cruce por Referencia +/- 100): {count_fase2} movimientos.")
     
