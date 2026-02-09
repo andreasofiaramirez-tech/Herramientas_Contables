@@ -4327,16 +4327,19 @@ def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
     df['Neto Local'] = pd.to_numeric(df['Neto Local'], errors='coerce').fillna(0).round(2)
     
     # Normalización de Referencia (Clave maestra)
-    def extraer_id_embarque(row):
-        # Unificamos Referencia y Tipo para buscar el código EM o M
-        texto_busqueda = (str(row.get('Referencia', '')) + " " + str(row.get('Tipo', ''))).upper()
-        # Regex: Busca una E o M seguida de números (ej: EM00035941 o M35941)
-        match = re.search(r'([EM]\d+)', texto_busqueda)
+    def extraer_llave_embarque(row):
+        # Combinamos Referencia y Tipo para la búsqueda
+        busqueda = (str(row.get('Referencia', '')) + " " + str(row.get('Tipo', ''))).upper()
+        
+        # Regex: Busca el patrón EM seguido de números o solo M seguido de números
+        match = re.search(r'(EM\d+|M\d+)', busqueda)
         if match:
             return match.group(1)
+        
+        # Si no hay patrón EM/M, devolvemos la referencia limpia como último recurso
         return str(row.get('Referencia', '')).strip().upper()
 
-    df['Ref_Norm'] = df.apply(extraer_id_embarque, axis=1)
+    df['Ref_Norm'] = df.apply(extraer_llave_embarque, axis=1)
     # ------------------------------------------
 
     df['Estado_Cofersa'] = 'PENDIENTE' 
@@ -4372,16 +4375,15 @@ def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
     # --- FASE 2: CRUCE POR REFERENCIA (Agrupación N-a-N) ---
     # Reemplaza la lógica de 'Tipo' por 'Referencia'
     df_pendientes = df[~df.index.isin(indices_usados)].copy()
-    count_fase2 = 0
     
-    if not df_pendientes.empty:
-        # Agrupamos por Referencia y verificamos si la suma del grupo cuadra
-        for ref_val, grupo in df_pendientes.groupby('Ref_Norm'):
-            if ref_val in ['', 'NAN', 'NONE', 'SIN_REF']: continue
-            if len(grupo) < 2: continue
-            
-            suma_grupo = grupo['Neto Local'].sum().round(2)
-            if abs(suma_grupo) <= TOLERANCIA_COFERSA:
+    # Ahora agrupamos por el ID extraído (ej: EM00035941)
+    for ref_val, grupo in df_pendientes.groupby('Ref_Norm'):
+        if ref_val in ['', 'NAN', 'NONE', 'SIN_REF']: continue
+        if len(grupo) < 2: continue
+        
+        # Al estar unificados bajo la misma llave, la suma ahora sí dará CERO
+        suma_grupo = grupo['Neto Local'].sum().round(2)
+        if abs(suma_grupo) <= TOLERANCIA_COFERSA:
                 indices_grupo = grupo.index
                 df.loc[indices_grupo, 'Estado_Cofersa'] = 'CRUCE_POR_REFERENCIA'
                 indices_usados.update(indices_grupo)
