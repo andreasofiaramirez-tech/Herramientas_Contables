@@ -2537,14 +2537,14 @@ def generar_reporte_cofersa(df_procesado):
             cols_base.append('Tipo')
         
         cols_output = cols_base + [
-            'Referencia', 'Débito Colones', 'Crédito Colones', 'Neto Colones'
+            'Referencia', 'Débito Colones', 'Crédito Colones', 'Neto Colones',
             'Débito Dolar', 'Crédito Dolar', 'Neto Dólar',
             'Nit', 'Descripción Nit'
         ]
         
         # Detectar índices para formato moneda (usualmente empiezan en Débito Bolivar)
         try:
-            start_num_idx = cols_output.index('Débito Bolivar')
+            start_num_idx = cols_output.index('Débito Colones')
             idx_nums = range(start_num_idx, start_num_idx + 6)
         except ValueError:
             idx_nums = range(6, 12)
@@ -2569,7 +2569,9 @@ def generar_reporte_cofersa(df_procesado):
                     val = data.get(col, '')
                     fmt = money_fmt if i in idx_nums else text_fmt
                     if 'Fecha' in col and pd.notna(val): ws.write_datetime(r, i, val, date_fmt)
-                    elif i in idx_nums: ws.write_number(r, i, float(val) if pd.notna(val) else 0, fmt)
+                    elif i in idx_nums: 
+                        num_val = float(val) if (pd.notna(val) and str(val).strip() != "") else 0.0
+                        ws.write_number(r, i, num_val, fmt)
                     else: ws.write(r, i, str(val) if pd.notna(val) else "", fmt)
                 r += 1
             ws.write(r, cols_output.index('Referencia'), titulo_total, label_fmt)
@@ -2599,7 +2601,9 @@ def generar_reporte_cofersa(df_procesado):
                         val = data.get(col, '')
                         fmt = money_fmt if i in idx_nums else text_fmt
                         if 'Fecha' in col and pd.notna(val): ws.write_datetime(row_idx, i, val, date_fmt)
-                        elif i in idx_nums: ws.write_number(row_idx, i, float(val) if pd.notna(val) else 0, fmt)
+                        elif i in idx_nums:
+                            num_val = float(val) if (pd.notna(val) and str(val).strip() != "") else 0.0
+                            ws.write_number(row_idx, i, num_val, fmt)
                         else: ws.write(row_idx, i, str(val) if pd.notna(val) else "", fmt)
                     row_idx += 1
                 
