@@ -2245,8 +2245,8 @@ def generar_cargador_asiento_pensiones(df_asiento, fecha_asiento):
         # --- FORMATOS ESTÁNDAR ---
         header_fmt = workbook.add_format({'bold': True, 'align': 'center'})
         data_fmt = workbook.add_format({'align': 'center'})
-        num_fmt_ves = workbook.add_format({'num_format': '#,##0.00'})
-        num_fmt_usd = workbook.add_format({'num_format': '#,##0.0000'})
+        num_fmt_ves = workbook.add_format({'num_format': '0.0000'})
+        num_fmt_usd = workbook.add_format({'num_format': '0.0000'})
         
         # --- SOLUCIÓN NUCLEAR PARA SOFTLAND (ID 14) ---
         # Al usar el número 14, forzamos a Excel a usar su "ID Nativo" de fecha.
@@ -2304,10 +2304,17 @@ def generar_cargador_asiento_pensiones(df_asiento, fecha_asiento):
             
             # ESCRITURA DE MONTOS
             def write_clean(col, val, fmt):
-                if val != 0 and pd.notna(val):
-                    ws2.write_number(r, col, val, fmt)
+                # Convertimos a float explícitamente para evitar que viaje como objeto
+                try:
+                    valor_num = float(val)
+                except:
+                    valor_num = 0.0
+
+                if valor_num != 0:
+                    # Forzamos write_number para que Softland no lo confunda con texto o fecha
+                    ws2.write_number(r, col, valor_num, fmt)
                 else:
-                    ws2.write(r, col, "")
+                    ws2.write(r, col, "") # Celda vacía si es cero
 
             write_clean(7, row['Débito VES'], num_fmt_ves)
             write_clean(8, row['Débito USD'], num_fmt_usd)
