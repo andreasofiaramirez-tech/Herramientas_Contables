@@ -66,57 +66,6 @@ LOGICA_POR_CUENTA = {
             *   Después de analizar por categorías, la herramienta revisa **todos los movimientos pendientes** y busca pares o grupos que compartan la misma referencia literal (ej: un número de transferencia) y se anulen entre sí.
         """,
 
-    "111.04.6003 - Fondos por Depositar - Cobros Viajeros - ME": """
-### 🧳 Manual de Operaciones: Conciliación de Cobros Viajeros (ME)
-
-Esta herramienta automatiza el cruce de cobros liquidados por viajeros, integrando asientos de caja, bancos y ajustes contables manuales. La lógica está diseñada para limpiar el listado de movimientos que, aunque tengan referencias distintas, ya están compensados financieramente.
-
----
-
-#### 📂 1. Insumos Requeridos (Archivos Excel)
-
-Debe cargar dos archivos con extensión **.xlsx** que contengan el movimiento analítico de la cuenta:
-
-1.  **Movimientos del Mes Actual:** Exportación del sistema con los nuevos registros del período.
-2.  **Saldos del Mes Anterior:** Archivo de "Saldos Abiertos" generado por esta herramienta en el cierre previo.
-
-**Columnas Críticas para el Proceso:**
-*   **NIT:** Identificador único del viajero/colaborador.
-*   **Asiento:** Prefijos CC (Caja), CB (Bancos) o CG (Ajustes Generales).
-*   **Referencia y Fuente:** Campos donde se encuentran los números de recibos y depósitos.
-*   **Débito/Crédito Dólar:** Montos en moneda extranjera (la conciliación principal se ejecuta en USD).
-
----
-
-#### 🧠 2. ¿Cómo funciona la Lógica de Conciliación? (V13)
-
-La herramienta ejecuta un algoritmo de **cuatro fases progresivas** para garantizar que no quede ningún saldo compensado por error:
-
-*   **Fase 0: Depuración de Diferencial:** Identifica y cierra automáticamente líneas de "Ajuste Cambiario" o "Diff", evitando que los céntimos de valoración inflen el reporte de pendientes.
-*   **Fase 1: Match de Reversos:** Busca movimientos marcados como "REVERSO". El sistema es capaz de ignorar textos adicionales y encontrar la partida original comparando el NIT y el monto exacto.
-*   **Fase 2: Cruce por Inteligencia de Llaves:** 
-    *   Analiza los números de recibos/depósitos dentro de las columnas Fuente y Referencia.
-    *   Crea un vínculo entre asientos **CC/CG** y **CB** incluso si la información está en columnas cruzadas o si el número fue digitado con sufijos (ej. "12345TI").
-*   **Fase 3: Barrido Global por NIT (Cierre Maestro):** 
-    *   Es la red de seguridad final. Si un viajero tiene múltiples líneas pendientes que no pudieron emparejarse por número de recibo, el sistema suma el **Saldo Neto Total del NIT**.
-    *   Si la suma de débitos y créditos del NIT da **$0.00**, el sistema entiende que la cuenta está saldada y concilia todas las líneas de golpe.
-
----
-
-#### 🚥 3. Interpretación de Resultados
-
-*   **VIAJERO_[NIT]_[NUMERO]:** Indica que el cruce fue perfecto mediante un identificador de recibo o depósito.
-*   **BARRIDO_NETO_NIT_[NIT]:** Indica que se aplicó el cierre maestro; el colaborador no debe dinero al cierre, aunque sus referencias internas no coincidían exactamente.
-*   **Tolerancia:** El sistema permite una diferencia de hasta **$0.01** para absorber errores de redondeo derivados de la exportación de Excel.
-
----
-
-#### 💡 Tips de Uso para el Contador
-
-1.  **NITs Limpios:** Asegúrese de que la columna NIT no tenga caracteres extraños, aunque la herramienta limpia los espacios automáticamente, la uniformidad ayuda a la rapidez del proceso.
-2.  **Referencia "TI":** No se preocupe por las referencias que terminan en "TI" (Ajustes de Tesorería); el sistema está programado para ignorar esas letras y extraer solo el número de recibo valioso.
-3.  **Ciclo Mensual:** El archivo que hoy descargue como **"Saldos para el Próximo Mes"** debe ser guardado sin modificaciones, ya que será su insumo obligatorio para el proceso del mes siguiente.
-""",
 
     "111.04.6001 - Fondos por Depositar - ME": """
         #### 🔎 Lógica de Conciliación Automática (Dólares - USD)
@@ -184,20 +133,57 @@ La herramienta ejecuta un algoritmo de **cuatro fases progresivas** para garanti
         """,
     
     "111.04.6003 - Fondos por Depositar - Cobros Viajeros - ME": """
-        #### 🔎 Lógica de Conciliación Automática (Dólares - USD)
+### 🧳 Manual de Operaciones: Conciliación de Cobros Viajeros (ME)
 
-        Gestión de liquidación de cobros de viajeros (Cruce CC vs CB). **Nota:** Esta cuenta usa una tolerancia estricta de **0.00 USD**.
+Esta herramienta automatiza el cruce de cobros liquidados por viajeros, integrando asientos de caja, bancos y ajustes contables manuales. La lógica está diseñada para limpiar el listado de movimientos que, aunque tengan referencias distintas, ya están compensados financieramente.
 
-        1.  **Limpieza Automática:**
-            *   Se cierran automáticamente los ajustes por Diferencial Cambiario para no ensuciar los saldos.
+---
 
-        2.  **Conciliación de Reversos:**
-            *   Detecta movimientos marcados como "REVERSO". Usa coincidencia parcial de referencias (ej: "REV-123" vs "123") para anularlos.
+#### 📂 1. Insumos Requeridos (Archivos Excel)
 
-        3.  **Cruce Estándar (N-a-N):**
-            *   Agrupa por **NIT** y construye una **Clave de Vínculo** (números extraídos de la referencia/fuente).
-            *   Si la suma del grupo es 0.00, se concilia.
-        """,
+Debe cargar dos archivos con extensión **.xlsx** que contengan el movimiento analítico de la cuenta:
+
+1.  **Movimientos del Mes Actual:** Exportación del sistema con los nuevos registros del período.
+2.  **Saldos del Mes Anterior:** Archivo de "Saldos Abiertos" generado por esta herramienta en el cierre previo.
+
+**Columnas Críticas para el Proceso:**
+*   **NIT:** Identificador único del viajero/colaborador.
+*   **Asiento:** Prefijos CC (Caja), CB (Bancos) o CG (Ajustes Generales).
+*   **Referencia y Fuente:** Campos donde se encuentran los números de recibos y depósitos.
+*   **Débito/Crédito Dólar:** Montos en moneda extranjera (la conciliación principal se ejecuta en USD).
+
+---
+
+#### 🧠 2. ¿Cómo funciona la Lógica de Conciliación? (V13)
+
+La herramienta ejecuta un algoritmo de **cuatro fases progresivas** para garantizar que no quede ningún saldo compensado por error:
+
+*   **Fase 0: Depuración de Diferencial:** Identifica y cierra automáticamente líneas de "Ajuste Cambiario" o "Diff", evitando que los céntimos de valoración inflen el reporte de pendientes.
+*   **Fase 1: Match de Reversos:** Busca movimientos marcados como "REVERSO". El sistema es capaz de ignorar textos adicionales y encontrar la partida original comparando el NIT y el monto exacto.
+*   **Fase 2: Cruce por Inteligencia de Llaves:** 
+    *   Analiza los números de recibos/depósitos dentro de las columnas Fuente y Referencia.
+    *   Crea un vínculo entre asientos **CC/CG** y **CB** incluso si la información está en columnas cruzadas o si el número fue digitado con sufijos (ej. "12345TI").
+*   **Fase 3: Barrido Global por NIT (Cierre Maestro):** 
+    *   Es la red de seguridad final. Si un viajero tiene múltiples líneas pendientes que no pudieron emparejarse por número de recibo, el sistema suma el **Saldo Neto Total del NIT**.
+    *   Si la suma de débitos y créditos del NIT da **$0.00**, el sistema entiende que la cuenta está saldada y concilia todas las líneas de golpe.
+
+---
+
+#### 🚥 3. Interpretación de Resultados
+
+*   **VIAJERO_[NIT]_[NUMERO]:** Indica que el cruce fue perfecto mediante un identificador de recibo o depósito.
+*   **BARRIDO_NETO_NIT_[NIT]:** Indica que se aplicó el cierre maestro; el colaborador no debe dinero al cierre, aunque sus referencias internas no coincidían exactamente.
+*   **Tolerancia:** El sistema permite una diferencia de hasta **$0.01** para absorber errores de redondeo derivados de la exportación de Excel.
+
+---
+
+#### 💡 Tips de Uso para el Contador
+
+1.  **NITs Limpios:** Asegúrese de que la columna NIT no tenga caracteres extraños, aunque la herramienta limpia los espacios automáticamente, la uniformidad ayuda a la rapidez del proceso.
+2.  **Referencia "TI":** No se preocupe por las referencias que terminan en "TI" (Ajustes de Tesorería); el sistema está programado para ignorar esas letras y extraer solo el número de recibo valioso.
+3.  **Ciclo Mensual:** El archivo que hoy descargue como **"Saldos para el Próximo Mes"** debe ser guardado sin modificaciones, ya que será su insumo obligatorio para el proceso del mes siguiente.
+""",
+    
     "212.05.1108 - Haberes de Clientes": """
         #### 🔎 Lógica de Conciliación Automática (Bolívares - Bs.)
 
