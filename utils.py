@@ -2680,8 +2680,8 @@ def generar_reporte_cofersa(df_procesado):
                     ws6.write(r_idx, 2, row['Nit'], text_fmt)
                     ws6.write(r_idx, 3, row['Descripción Nit'], text_fmt)
                     ws6.write_datetime(r_idx, 4, row['Fecha'], date_fmt)
-                    ws6.write_number(r_idx, 5, row['Neto Local'], money_fmt)
-                    total_gral += row['Neto Local']
+                    ws6.write_number(r_idx, 5, row['Neto Colones'], money_fmt)
+                    total_gral += row['Neto Colones']
                     r_idx += 1
             
             ws6.write(r_idx, 4, "SALDO TOTAL:", label_fmt)
