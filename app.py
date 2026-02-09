@@ -8,7 +8,7 @@ import pandas as pd
 import traceback
 from functools import partial
 
-# --- BLOQUE 1: IMPORTAR GUÍAS (Verifica las comas) ---
+# --- BLOQUE 1: IMPORTAR GUÍAS  ---
 from guides import (
     GUIA_GENERAL_ESPECIFICACIONES, 
     LOGICA_POR_CUENTA, 
@@ -18,10 +18,10 @@ from guides import (
     GUIA_GENERADOR,
     GUIA_PENSIONES,
     GUIA_AJUSTES_USD,
-    GUIA_DEBITO_FISCAL  # <-- Asegúrate de agregar esta y verificar la coma anterior
+    GUIA_DEBITO_FISCAL
 )
 
-# --- BLOQUE 2: IMPORTAR LÓGICA (Verifica las comas) ---
+# --- BLOQUE 2: IMPORTAR LÓGICA  ---
 from logic import (
     # Conciliaciones
     run_conciliation_fondos_en_transito,
@@ -416,7 +416,6 @@ def render_retenciones():
             with st.spinner('Ejecutando auditoría... Este proceso puede tardar unos momentos.'):
                 log_messages = []
                 
-                # --- TRY / EXCEPT QUE ACABAMOS DE HACER ---
                 try:
                     reporte_resultado = run_conciliation_retenciones(
                         file_cp, file_cg, file_iva, file_islr, file_mun, log_messages
@@ -506,7 +505,6 @@ def render_especificaciones():
                 with st.spinner('Cargando y limpiando datos...'):
                     df_full = cargar_y_limpiar_datos(uploaded_actual, uploaded_anterior, log_messages)
                 if df_full is not None:
-                    # ... (Lógica de conciliación existente) ...
                     progress_container.progress(0, text="Iniciando fases de conciliación...")
                     df_resultado = estrategia_actual["funcion_principal"](df_full.copy(), log_messages, progress_bar=progress_container)
                     progress_container.progress(1.0, text="¡Proceso completado!")
@@ -514,7 +512,7 @@ def render_especificaciones():
                     st.session_state.df_saldos_abiertos = df_resultado[~df_resultado['Conciliado']].copy()
                     st.session_state.df_conciliados = df_resultado[df_resultado['Conciliado']].copy()
                     
-                    # --- NUEVO: GENERACIÓN DE NOMBRE DE ARCHIVO ---
+                    # --- GENERACIÓN DE NOMBRE DE ARCHIVO ---
                     codigos_casa = {
                         "FEBECA, C.A": "004",
                         "MAYOR BEVAL, C.A": "207",
@@ -562,8 +560,6 @@ def render_especificaciones():
         res_col1, res_col2 = st.columns(2, gap="small")
         with res_col1:
             st.metric("Movimientos Conciliados", len(st.session_state.df_conciliados))
-            
-            # --- USAMOS EL NOMBRE DINÁMICO AQUÍ ---
             nombre_descarga = st.session_state.get('nombre_archivo_salida', 'reporte_conciliacion.xlsx')
             
             st.download_button(
@@ -574,8 +570,7 @@ def render_especificaciones():
                 use_container_width=True, 
                 key="download_excel"
             )
-            # --------------------------------------
-
+            
         with res_col2:
             st.metric("Saldos Abiertos (Pendientes)", len(st.session_state.df_saldos_abiertos))
             
