@@ -4343,7 +4343,7 @@ def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
             suma_local = round(grupo['Neto Local'].sum(), 2)
             suma_usd = round(grupo['Neto Dólar'].sum(), 2)
             
-            if abs(suma_local) <= TOLERANCIA and abs(suma_usd) <= TOLERANCIA:
+            if abs(suma_local) <= TOLERANCIA_ESTRICTA and abs(suma_usd) <= TOLERANCIA_ESTRICTA:
                 idx_grupo = grupo.index
                 df.loc[idx_grupo, 'Conciliado'] = True
                 df.loc[idx_grupo, 'Estado_Cofersa'] = f'GRUPO_CERRADO_{tipo_val}'
