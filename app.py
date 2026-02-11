@@ -190,10 +190,13 @@ if not st.session_state.get("password_correct", False):
                 st.info("Por favor, ingresa la contraseña para continuar.")
 
         st.divider()
-
-        st.markdown("<p style='text-align: center;'>Una herramienta para las empresas del grupo:</p>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center; margin-bottom: 5px; font-size: 0.9rem;'>Una herramienta para las empresas del grupo:</p>", unsafe_allow_html=True)
         
-        logo_cols = st.columns(3)
+        # Creamos 5 columnas: 1 vacía, 3 para logos, 1 vacía. 
+        # Esto reduce el ancho efectivo de los logos y hace el encabezado más angosto.
+        _, col1, col2, col3, _ = st.columns([1, 2, 2, 2, 1]) 
+        
+        logo_cols = [col1, col2, col3]
         logos_info = [
             {"path": "assets/logo_febeca.png", "fallback": "FEBECA, C.A."},
             {"path": "assets/logo_beval.png", "fallback": "MAYOR BEVAL, C.A."},
@@ -203,7 +206,8 @@ if not st.session_state.get("password_correct", False):
         for i, col in enumerate(logo_cols):
             with col:
                 try:
-                    st.image(logos_info[i]["path"], use_container_width=True)
+                    # Quitamos use_container_width o controlamos el tamaño con CSS
+                    st.image(logos_info[i]["path"], width=150) # Ajusta el width a tu gusto (120-150 suele ser ideal)
                 except:
                     st.markdown(f"<p style='text-align: center; font-size: small;'>{logos_info[i]['fallback']}</p>", unsafe_allow_html=True)
 
