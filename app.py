@@ -379,6 +379,7 @@ def render_inicio():
     st.divider()
 
     st.title("🤖 Portal de Herramientas Contables")
+    st.subheader("Grupo Mayoreo", anchor=False)
     st.markdown("Seleccione una herramienta para comenzar:")
 
     c1, c2 = st.columns(2, gap="medium")
@@ -397,7 +398,8 @@ def render_inicio():
         st.button("🖨️ Gestión Imprenta (TXT)", on_click=set_page, args=['imprenta'], use_container_width=True)
 
     st.divider()
-    st.subheader("Logística y Tránsito COFERSA", anchor=False)
+    st.subheader("COFERSA", anchor=False)
+    st.markdown("Seleccione una herramienta para comenzar:")
     
     col_c1, col_c2 = st.columns(2)
     with col_c1:
