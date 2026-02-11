@@ -4389,8 +4389,14 @@ def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
     if progress_bar:
         progress_bar.progress(1.0)
 
-    log_messages.append(f"🏁 Proceso finalizado. Total movimientos cerrados: {total_conciliados}")
-    return df
+    conteo_pares = len(df[df['Estado_Cofersa'].str.contains('PAR_', na=False)])
+    conteo_grupos = len(df[df['Estado_Cofersa'].str.contains('GRUPO_|AJUSTE_', na=False)])
+    conteo_pendientes = len(df[df['Estado_Cofersa'] == 'PENDIENTE'])
+
+    log_messages.append(f"🏁 Proceso finalizado. Total movimientos cerrados: {total_final}")
+    
+    # IMPORTANTE: Retornar tanto el DF como los contadores
+return df, conteo_pares, conteo_grupos, conteo_pendientes
 
 # ==============================================================================
 # LÓGICA FONDOS EN TRANSITO (101010300)
