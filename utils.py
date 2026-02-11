@@ -240,20 +240,23 @@ def cargar_datos_cofersa(uploaded_actual, uploaded_anterior, log_messages):
         return df
 
     # --- EJECUCIÓN ---
-    df_act = procesar_excel_cofersa(uploaded_actual)
-    df_ant = procesar_excel_cofersa(uploaded_anterior)
+    # 1. Aplicamos el rename primero
+    df_act.rename(columns=rename_map, inplace=True)
+    df_ant.rename(columns=rename_map, inplace=True)
 
-    if df_act is None or df_ant is None: return None
-
+    # 2. Unimos los archivos
     df_full = pd.concat([df_ant, df_act], ignore_index=True)
     
-    # Calcular NETOS (Ya son números seguros)
-    df_full['Neto Local'] = (df_full['Débito Bolivar'] - df_full['Crédito Bolivar']).round(2)
-    df_full['Neto Dólar'] = (df_full['Débito Dolar'] - df_full['Crédito Dolar']).round(2)
+    # 3. Calculamos los NETOS usando los nuevos nombres (COLONES)
+    # Esto es vital para que la lógica de logic.py funcione
+    df_full['Neto Local'] = (df_full['Débito Colones'].fillna(0) - df_full['Crédito Colones'].fillna(0)).round(2)
+    df_full['Neto Dólar'] = (df_full['Débito Dolar'].fillna(0) - df_full['Crédito Dolar'].fillna(0)).round(2)
     
+    # Sincronizamos nombres internos
     df_full['Monto_BS'] = df_full['Neto Local']
     df_full['Monto_USD'] = df_full['Neto Dólar']
     df_full['Conciliado'] = False
+    
     
     log_messages.append(f"✅ Datos COFERSA cargados exitosamente (Columnas con acento detectadas).")
     return df_full
