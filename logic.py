@@ -4330,7 +4330,7 @@ def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
         if tipo_val == 'SIN_TIPO': continue
         if len(grupo) < 2: continue
         
-        suma_grupo = grupo['Neto Local'].sum().round(2)
+        suma_grupo = round(grupo['Neto Local'].sum(), 2)
         if abs(suma_grupo) <= TOLERANCIA_COFERSA:
             indices_grupo = grupo.index
             df.loc[indices_grupo, 'Estado_Cofersa'] = f'CONCILIADO_TIPO_{tipo_val}'
