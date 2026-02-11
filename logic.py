@@ -4309,54 +4309,33 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
 # LÓGICA ENVIOS EN TRANSITO COFERSA (101050200)
 # ==============================================================================
 def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
-    log_messages.append("\n--- INICIANDO CONCILIACIÓN COFERSA (BASE: TIPO) ---")
+    log_messages.append("\n--- INICIANDO CONCILIACIÓN COFERSA (V14 - ORIENTADO A TIPO) ---")
     
     TOLERANCIA_COFERSA = 100.00
 
-    # 1. Normalización: La llave maestra es estrictamente la columna TIPO
-    df['Ref_Norm'] = df['Tipo'].astype(str).str.strip().str.upper().replace(['NAN', 'NONE', ''], 'SIN_TIPO')
+    # 1. Normalización: La llave maestra es la columna TIPO
+    df['Ref_Norm'] = df['Tipo'].astype(str).str.strip().str.upper().replace(['NAN', 'NONE', '', '0'], 'SIN_TIPO')
     
-    # Asegurar montos numéricos
+    # Asegurar montos numéricos y estado inicial
     df['Neto Local'] = pd.to_numeric(df['Neto Local'], errors='coerce').fillna(0).round(2)
+    df['Conciliado'] = False
     df['Estado_Cofersa'] = 'PENDIENTE' 
-    indices_usados = set()
     total_conciliados = 0
 
-    # --- FASE 1: PARES 1 A 1 (Mismo Monto Absoluto) ---
-    # Buscamos parejas globales para limpiar anulaciones rápidas
-    df_pool = df.copy()
-    df_pool['Abs_Val'] = df_pool['Neto Local'].abs()
+    # --- ÚNICA FASE DE CRUCE: AGRUPACIÓN POR COLUMNA "TIPO" ---
+    # Solo conciliamos si el grupo bajo el mismo 'Tipo' suma cero dentro de la tolerancia.
+    df_pendientes = df.copy()
     
-    for monto_abs, grupo in df_pool.groupby('Abs_Val'):
-        if monto_abs <= 0.01 or len(grupo) < 2: continue
+    for tipo_val, grupo in df_pendientes.groupby('Ref_Norm'):
+        if tipo_val == 'SIN_TIPO': continue
+        if len(grupo) < 2: continue
         
-        positivos = grupo[grupo['Neto Local'] > 0].index.tolist()
-        negativos = grupo[grupo['Neto Local'] < 0].index.tolist()
-        
-        while positivos and negativos:
-            idx_pos = positivos.pop(0)
-            idx_neg = negativos.pop(0)
-            df.loc[[idx_pos, idx_neg], 'Estado_Cofersa'] = 'PARES_1_A_1'
-            df.loc[[idx_pos, idx_neg], 'Conciliado'] = True
-            indices_usados.add(idx_pos); indices_usados.add(idx_neg)
-            total_conciliados += 2
-
-    # --- FASE 2: CRUCE POR COLUMNA "TIPO" (Agrupación N-a-N) ---
-    df_pendientes = df[~df['Conciliado']].copy()
-    
-    if not df_pendientes.empty:
-        # Agrupamos por la columna TIPO
-        for tipo_val, grupo in df_pendientes.groupby('Ref_Norm'):
-            if tipo_val == 'SIN_TIPO': continue
-            if len(grupo) < 2: continue
-            
-            suma_grupo = grupo['Neto Local'].sum().round(2)
-            if abs(suma_grupo) <= TOLERANCIA_COFERSA:
-                indices_grupo = grupo.index
-                df.loc[indices_grupo, 'Estado_Cofersa'] = 'CRUCE_POR_TIPO'
-                df.loc[indices_grupo, 'Conciliado'] = True
-                indices_usados.update(indices_grupo)
-                total_conciliados += len(indices_grupo)
+        suma_grupo = grupo['Neto Local'].sum().round(2)
+        if abs(suma_grupo) <= TOLERANCIA_COFERSA:
+            indices_grupo = grupo.index
+            df.loc[indices_grupo, 'Estado_Cofersa'] = f'CONCILIADO_TIPO_{tipo_val}'
+            df.loc[indices_grupo, 'Conciliado'] = True
+            total_conciliados += len(indices_grupo)
 
     if progress_bar: progress_bar.progress(1.0)
     log_messages.append(f"✔️ Conciliación finalizada. Total: {total_conciliados} movimientos.")
