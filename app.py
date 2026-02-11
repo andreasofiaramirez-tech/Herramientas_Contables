@@ -1134,9 +1134,9 @@ def render_cofersa():
                     st.success("✅ Conciliación completada.")
                     
                     # Calculamos las métricas usando el DataFrame recién generado
-                    count_pares = len(df_res[df_res['Estado_Cofersa'].str.contains('PAR_INTERNO', na=False)])
-                    count_cruces = len(df_res[df_res['Estado_Cofersa'].str.contains('GRUPO_NETO|CONCILIADO_TIPO', na=False)])
-                    count_pendientes = len(df_res[~df_res['Conciliado']])
+                    count_pares = len(df_res[df_res['Estado_Cofersa'].str.contains('PAR_', na=False)])
+                    count_cruces = len(df_res[df_res['Estado_Cofersa'].str.contains('GRUPO_|AJUSTE_', na=False)])
+                    count_pendientes = len(df_res[df_res['Estado_Cofersa'] == 'PENDIENTE'])
 
                     # Visualización de métricas
                     c1, c2, c3 = st.columns(3)
