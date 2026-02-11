@@ -65,7 +65,7 @@ from utils import (
     generar_reporte_cofersa,
     cargar_datos_cofersa,
     generar_reporte_debito_fiscal,
-    _generar_hoja_pendientes_dev_cofersa
+    generar_hoja_pendientes_dev_cofersa
 )
 
 def mostrar_error_amigable(e, contexto=""):
