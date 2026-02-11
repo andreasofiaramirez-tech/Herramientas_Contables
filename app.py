@@ -1117,7 +1117,7 @@ def render_cofersa():
                 if df_full is not None:
                     # 2. Ejecutar Lógica Específica
                     progress.progress(0, text="Analizando pares y tipos...")
-                    df_res = run_conciliation_envios_cofersa(df_full.copy(), log, progress_bar=progress)
+                    df_res, count_pares, count_cruces, count_pendientes = run_conciliation_envios_cofersa(df_full.copy(), log, progress_bar=progress)
                     
                     # --- CORRECCIÓN CLAVE: Guardar en session_state ---
                     st.session_state.df_cofersa_res = df_res 
