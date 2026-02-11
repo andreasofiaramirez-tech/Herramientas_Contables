@@ -2519,12 +2519,18 @@ def generar_reporte_cofersa(df_procesado):
     output = BytesIO()
     
     # --- LIMPIEZA Y PREPARACIÓN ---
-    cols_num = ['Débito Colones', 'Crédito Colones', 'Neto Colones', 'Débito Dolar', 'Crédito Dolar', 'Neto Dólar']
-    for col in cols_num:
+    cols_moneda = ['Débito Colones', 'Crédito Colones', 'Neto Colones', 'Débito Dolar', 'Crédito Dolar', 'Neto Dólar']
+    
+    for col in cols_moneda:
         if col in df_procesado.columns:
-            df_procesado = df_procesado[
-        (df_procesado['Neto Colones'].abs() > 0.01) | 
-        (df_procesado['Asiento'].notna())
+            # Forzamos conversión a número y reemplazamos cualquier error o vacío por 0.0
+            df_procesado[col] = pd.to_numeric(df_procesado[col], errors='coerce').fillna(0.0)
+
+    # ELIMINAR FILAS REALMENTE VACÍAS (Evita el problema del print anterior)
+    # Solo conservamos filas donde al menos un monto sea distinto de cero
+    df_procesado = df_procesado[
+        (df_procesado['Neto Colones'].abs() > 0.001) | 
+        (df_procesado['Neto Dólar'].abs() > 0.001)
     ].copy()
     
     fecha_max = df_procesado['Fecha'].dropna().max()
@@ -2548,7 +2554,7 @@ def generar_reporte_cofersa(df_procesado):
         cols_pend = ['Fecha', 'Asiento', 'Fuente', 'Origen', 'Tipo', 'Referencia', 'Débito Colones', 'Crédito Colones', 'Neto Colones']
 
         # --- HOJA 2: AGRUPACIONES POR TIPO (NO EMBARQUES) ---
-        df_h2 = df_procesado[(~df_procesado['Conciliado']) & (df_procesado['Ref_Norm'] != 'SIN_TIPO') & (~df_procesado['Ref_Norm'].str.contains(r'EM\d+|M\d+', na=False)) & (df_procesado['Neto Colones'].abs() > 0.01)]
+        df_h2 = df_procesado[(~df_procesado['Conciliated']) & (df_procesado['Ref_Norm'] != 'SIN_TIPO') & (~df_procesado['Ref_Norm'].str.contains(r'EM\d+|M\d+', na=False)) & (df_procesado['Neto Colones'].abs() > 0.001)]
         if not df_h2.empty:
             ws2 = workbook.add_worksheet('2. Agrup. Tipo Abiertas')
             ws2.write_row(0, 0, cols_pend, fmt_header)
@@ -2557,14 +2563,14 @@ def generar_reporte_cofersa(df_procesado):
             for _, row in grupo.iterrows():
                 ws2.write_datetime(r, 0, row['Fecha'], fmt_date) if pd.notna(row['Fecha']) else ws2.write(r, 0, '-')
                 ws2.write_row(r, 1, [str(row['Asiento']), str(row['Fuente']), str(row.get('Origen','')), str(row['Tipo']), str(row['Referencia'])], fmt_text)
-                ws2.write_number(r, 6, row['Débito Colones'], fmt_num)
-                ws2.write_number(r, 7, row['Crédito Colones'], fmt_num)
-                ws2.write_number(r, 8, row['Neto Colones'], fmt_num)
+                ws2.write_number(r, 6, float(row['Débito Colones']), fmt_num)
+                ws2.write_number(r, 7, float(row['Crédito Colones']), fmt_num)
+                ws2.write_number(r, 8, float(row['Neto Colones']), fmt_num)
                 r += 1
             ws2.write(r, 5, f"SALDO {tipo}:", fmt_total_lbl); ws2.write_number(r, 8, grupo['Neto Colones'].sum(), fmt_num_bold); r += 2
 
         # --- HOJA 3: EMB PENDIENTES (SOLO EM/M) ---
-        df_h3 = df_procesado[(~df_procesado['Conciliado']) & (df_procesado['Ref_Norm'].str.contains(r'EM\d+|M\d+', na=False)) & (df_procesado['Neto Colones'].abs() > 0.01)]
+        df_h3 = df_procesado[(~df_procesado['Conciliated']) & (df_procesado['Ref_Norm'].str.contains(r'EM\d+|M\d+', na=False)) & (df_procesado['Neto Colones'].abs() > 0.001)]
         if not df_h3.empty:
             ws3 = workbook.add_worksheet('3. EMB Pendientes')
             ws3.write_row(0, 0, cols_pend, fmt_header)
@@ -2578,7 +2584,7 @@ def generar_reporte_cofersa(df_procesado):
             ws3.write(r, 5, f"SALDO {tipo}:", fmt_total_lbl); ws3.write_number(r, 8, grupo['Neto Colones'].sum(), fmt_num_bold); r += 2
 
         # --- HOJA 4: OTROS PENDIENTES ---
-        df_h4 = df_procesado[(~df_procesado['Conciliado']) & (df_procesado['Ref_Norm'] == 'SIN_TIPO') & (df_procesado['Neto Colones'].abs() > 0.01)]
+        df_h4 = df_procesado[(~df_procesado['Conciliated']) & (df_procesado['Ref_Norm'] == 'SIN_TIPO') & (df_procesado['Neto Colones'].abs() > 0.001)]
         if not df_h4.empty:
             ws4 = workbook.add_worksheet('4. Otros Pendientes')
             ws4.write_row(0, 0, cols_pend, fmt_header)
