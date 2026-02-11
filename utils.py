@@ -2547,8 +2547,10 @@ def generar_reporte_cofersa(df_procesado):
         # --- HOJA 2: AGRUPACIONES POR TIPO (NO EMBARQUES) ---
         ws2 = workbook.add_worksheet('2. Agrup. Tipo Abiertas')
         df_h2 = df_procesado[(~df_procesado['Conciliado']) & (df_procesado['Ref_Norm'] != 'SIN_TIPO') & (~df_procesado['Ref_Norm'].str.contains(r'EM\d+|M\d+', na=False))]
-        ws2.write_row(0, 0, cols_pend, fmt_header)
-        r = 1
+        if not df_h2.empty:
+            ws2 = workbook.add_worksheet('2. Agrup. Tipo Abiertas')
+            ws2.write_row(0, 0, cols_pend, fmt_header)
+            r = 1
         for tipo, grupo in df_h2.groupby('Ref_Norm'):
             for _, row in grupo.iterrows():
                 ws2.write_datetime(r, 0, row['Fecha'], fmt_date) if pd.notna(row['Fecha']) else ws2.write(r, 0, '-')
@@ -2562,8 +2564,10 @@ def generar_reporte_cofersa(df_procesado):
         # --- HOJA 3: EMB PENDIENTES (SOLO EM/M) ---
         ws3 = workbook.add_worksheet('3. EMB Pendientes')
         df_h3 = df_procesado[(~df_procesado['Conciliado']) & (df_procesado['Ref_Norm'].str.contains(r'EM\d+|M\d+', na=False))]
-        ws3.write_row(0, 0, cols_pend, fmt_header)
-        r = 1
+        if not df_h3.empty:
+            ws3 = workbook.add_worksheet('3. EMB Pendientes')
+            ws3.write_row(0, 0, cols_pend, fmt_header)
+            r = 1
         for tipo, grupo in df_h3.groupby('Ref_Norm'):
             for _, row in grupo.iterrows():
                 ws3.write_datetime(r, 0, row['Fecha'], fmt_date) if pd.notna(row['Fecha']) else ws3.write(r, 0, '-')
@@ -2575,8 +2579,10 @@ def generar_reporte_cofersa(df_procesado):
         # --- HOJA 4: OTROS PENDIENTES ---
         ws4 = workbook.add_worksheet('4. Otros Pendientes')
         df_h4 = df_procesado[(~df_procesado['Conciliado']) & (df_procesado['Ref_Norm'] == 'SIN_TIPO')]
-        ws4.write_row(0, 0, cols_pend, fmt_header)
-        r = 1
+        if not df_h4.empty:
+            ws4 = workbook.add_worksheet('4. Otros Pendientes')
+            ws4.write_row(0, 0, cols_pend, fmt_header)
+            r = 1
         for idx, row in df_h4.iterrows():
             ws4.write_datetime(r, 0, row['Fecha'], fmt_date) if pd.notna(row['Fecha']) else ws4.write(r, 0, '-')
             ws4.write_row(r, 1, [str(row['Asiento']), str(row['Fuente']), str(row.get('Origen','')), str(row['Tipo']), str(row['Referencia'])], fmt_text)
@@ -2585,7 +2591,10 @@ def generar_reporte_cofersa(df_procesado):
 
         # --- HOJA 5: ESPECIFICACIÓN (CON ENCABEZADO DE EMPRESA) ---
         ws5 = workbook.add_worksheet('5. Especificación')
-        ws5.hide_gridlines(2)
+        df_open = df_procesado[~df_procesado['Conciliado']].copy()
+        if not df_open.empty:
+            ws5 = workbook.add_worksheet('5. Especificación')
+            ws5.hide_gridlines(2)
         cols_spec = ['NIT', 'Descripción Nit', 'Fecha', 'Asiento', 'Referencia', 'Fuente', 'Monto Dólar', 'Colones', 'Tasa']
         
         # Único lugar con encabezado identificador
@@ -2616,6 +2625,9 @@ def generar_reporte_cofersa(df_procesado):
         cols_conc = ['Fecha', 'Asiento', 'Fuente', 'Tipo', 'Referencia', 'Débito Colones', 'Crédito Colones', 'Débito Dolar', 'Crédito Dolar', 'Grupo']
         ws6.write_row(0, 0, cols_conc, fmt_header)
         df_c = df_procesado[df_procesado['Conciliado']]
+        if not df_c.empty:
+            ws6 = workbook.add_worksheet('6. Conciliados')
+            ws6.hide_gridlines(2)
         r = 1
         for _, row in df_c.iterrows():
             ws6.write_datetime(r, 0, row['Fecha'], fmt_date) if pd.notna(row['Fecha']) else ws6.write(r, 0, '-')
