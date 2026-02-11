@@ -4309,96 +4309,57 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
 # LÓGICA ENVIOS EN TRANSITO COFERSA (101050200)
 # ==============================================================================
 def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
-    """
-    Conciliación para Envíos en Tránsito COFERSA (VES).
-    LÓGICA ACTUALIZADA: Basada primordialmente en REFERENCIA.
-    """
-    log_messages.append("\n--- INICIANDO CONCILIACIÓN ENVIOS COFERSA (VES) ---")
+    log_messages.append("\n--- INICIANDO CONCILIACIÓN COFERSA (BASE: TIPO) ---")
     
     TOLERANCIA_COFERSA = 100.00
 
-    # 1. Normalización
-    if 'Neto Local' not in df.columns:
-        deb = df.get('Débito Bolivar', 0)
-        cre = df.get('Crédito Bolivar', 0)
-        df['Neto Local'] = deb - cre
+    # 1. Normalización: La llave maestra es estrictamente la columna TIPO
+    df['Ref_Norm'] = df['Tipo'].astype(str).str.strip().str.upper().replace(['NAN', 'NONE', ''], 'SIN_TIPO')
     
+    # Asegurar montos numéricos
     df['Neto Local'] = pd.to_numeric(df['Neto Local'], errors='coerce').fillna(0).round(2)
-    
-    # --- NORMALIZACIÓN ROBUSTA DE LLAVE DE CRUCE ---
-    def extraer_llave_embarque(row):
-        busqueda = (str(row.get('Referencia', '')) + " " + str(row.get('Tipo', ''))).upper()
-        match = re.search(r'(EM\d+|M\d+)', busqueda)
-        if match:
-            return match.group(1)
-        return str(row.get('Referencia', '')).strip().upper()
-
-    df['Ref_Norm'] = df.apply(extraer_llave_embarque, axis=1)
-
     df['Estado_Cofersa'] = 'PENDIENTE' 
     indices_usados = set()
     total_conciliados = 0
 
-    # --- FASE 1: PARES 1 A 1 ---
+    # --- FASE 1: PARES 1 A 1 (Mismo Monto Absoluto) ---
+    # Buscamos parejas globales para limpiar anulaciones rápidas
     df_pool = df.copy()
-    df_pool['Abs_Int'] = df_pool['Neto Local'].abs().astype(int)
+    df_pool['Abs_Val'] = df_pool['Neto Local'].abs()
     
-    for monto_int, grupo in df_pool.groupby('Abs_Int'):
-        if monto_int == 0 or len(grupo) < 2: continue
+    for monto_abs, grupo in df_pool.groupby('Abs_Val'):
+        if monto_abs <= 0.01 or len(grupo) < 2: continue
+        
         positivos = grupo[grupo['Neto Local'] > 0].index.tolist()
         negativos = grupo[grupo['Neto Local'] < 0].index.tolist()
         
         while positivos and negativos:
             idx_pos = positivos.pop(0)
-            for i, idx_neg in enumerate(negativos):
-                suma = df.loc[idx_pos, 'Neto Local'] + df.loc[idx_neg, 'Neto Local']
-                if abs(suma) <= TOLERANCIA_COFERSA:
-                    df.loc[[idx_pos, idx_neg], 'Estado_Cofersa'] = 'PARES_1_A_1'
-                    indices_usados.add(idx_pos); indices_usados.add(idx_neg)
-                    total_conciliados += 2
-                    negativos.pop(i)
-                    break
-    
-    # --- FASE 2: CRUCE POR REFERENCIA (Agrupación N-a-N) ---
-    # AQUÍ ESTABA EL ERROR DE INDENTACIÓN (Línea 4377)
-    df_pendientes = df[~df.index.isin(indices_usados)].copy()
-    count_fase2 = 0 
+            idx_neg = negativos.pop(0)
+            df.loc[[idx_pos, idx_neg], 'Estado_Cofersa'] = 'PARES_1_A_1'
+            df.loc[[idx_pos, idx_neg], 'Conciliado'] = True
+            indices_usados.add(idx_pos); indices_usados.add(idx_neg)
+            total_conciliados += 2
+
+    # --- FASE 2: CRUCE POR COLUMNA "TIPO" (Agrupación N-a-N) ---
+    df_pendientes = df[~df['Conciliado']].copy()
     
     if not df_pendientes.empty:
-        for ref_val, grupo in df_pendientes.groupby('Ref_Norm'):
-            if ref_val in ['', 'NAN', 'NONE', 'SIN_REF']: continue
+        # Agrupamos por la columna TIPO
+        for tipo_val, grupo in df_pendientes.groupby('Ref_Norm'):
+            if tipo_val == 'SIN_TIPO': continue
             if len(grupo) < 2: continue
             
             suma_grupo = grupo['Neto Local'].sum().round(2)
             if abs(suma_grupo) <= TOLERANCIA_COFERSA:
                 indices_grupo = grupo.index
-                df.loc[indices_grupo, 'Estado_Cofersa'] = 'CRUCE_POR_REFERENCIA'
+                df.loc[indices_grupo, 'Estado_Cofersa'] = 'CRUCE_POR_TIPO'
+                df.loc[indices_grupo, 'Conciliado'] = True
                 indices_usados.update(indices_grupo)
-                count_fase2 += len(indices_grupo)
+                total_conciliados += len(indices_grupo)
 
-    # --- FASE 3: RECUPERACIÓN GLOBAL ---
-    remanentes = df[df['Estado_Cofersa'] == 'PENDIENTE'].copy()
-    if not remanentes.empty:
-        pos_items = remanentes[remanentes['Neto Local'] > 0]
-        neg_items = remanentes[remanentes['Neto Local'] < 0]
-        neg_list = sorted([(row['Neto Local'], idx) for idx, row in neg_items.iterrows()], key=lambda x: x[0])
-        neg_values = [x[0] for x in neg_list]
-        
-        for idx_pos, row in pos_items.iterrows():
-            val_pos = row['Neto Local']
-            target_min = -val_pos - TOLERANCIA_COFERSA
-            target_max = -val_pos + TOLERANCIA_COFERSA
-            start_idx = bisect.bisect_left(neg_values, target_min)
-            for i in range(start_idx, len(neg_list)):
-                val_neg, idx_neg = neg_list[i]
-                if val_neg > target_max: break
-                if idx_neg not in indices_usados:
-                    df.loc[[idx_pos, idx_neg], 'Estado_Cofersa'] = 'RECUPERACION_GLOBAL'
-                    indices_usados.add(idx_pos); indices_usados.add(idx_neg)
-                    total_conciliados += 2
-                    break
-
-    df['Conciliado'] = df['Estado_Cofersa'] != 'PENDIENTE'
+    if progress_bar: progress_bar.progress(1.0)
+    log_messages.append(f"✔️ Conciliación finalizada. Total: {total_conciliados} movimientos.")
     return df
 
 # ==============================================================================
