@@ -4330,16 +4330,80 @@ def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
     # Solo conciliamos si el grupo bajo el mismo 'Tipo' suma cero dentro de la tolerancia.
     df_pendientes = df.copy()
     
-    for tipo_val, grupo in df_pendientes.groupby('Ref_Norm'):
-        if tipo_val == 'SIN_TIPO': continue
-        if len(grupo) < 2: continue
-        
-        suma_grupo = round(grupo['Neto Local'].sum(), 2)
-        if abs(suma_grupo) <= TOLERANCIA_COFERSA:
-            indices_grupo = grupo.index
-            df.loc[indices_grupo, 'Estado_Cofersa'] = f'CONCILIADO_TIPO_{tipo_val}'
-            df.loc[indices_grupo, 'Conciliado'] = True
-            total_conciliados += len(indices_grupo)
+    @st.cache_data
+def cargar_datos_cofersa(uploaded_actual, uploaded_anterior, log_messages):
+    import unicodedata
+
+    def normalizar_texto(texto):
+        if not isinstance(texto, str): return str(texto)
+        return ''.join(c for c in unicodedata.normalize('NFD', texto)
+                      if unicodedata.category(c) != 'Mn').upper().strip()
+
+    def limpiar_monto_robusto(val):
+        if pd.isna(val) or str(val).strip() in ['', '-', 'nan']: return 0.0
+        if isinstance(val, (int, float)): return float(val)
+        t = str(val).strip().replace('Bs', '').replace('$', '').replace(' ', '')
+        if ',' in t and '.' in t:
+            if t.rfind(',') > t.rfind('.'): t = t.replace(',', '')
+            else: t = t.replace('.', '').replace(',', '.')
+        elif ',' in t: t = t.replace(',', '.')
+        t = re.sub(r'[^\d.-]', '', t)
+        try: return float(t)
+        except: return 0.0
+
+    def procesar_excel_cofersa(archivo_buffer):
+        try:
+            archivo_buffer.seek(0)
+            df = pd.read_excel(archivo_buffer, engine='openpyxl')
+            
+            # --- MAPEO DE COLUMNAS DENTRO DEL PROCESADOR ---
+            rename_map = {}
+            for col in df.columns:
+                norm_col = normalizar_texto(col)
+                if 'DEBITO' in norm_col and 'LOCAL' in norm_col: rename_map[col] = 'Débito Colones'
+                elif 'CREDITO' in norm_col and 'LOCAL' in norm_col: rename_map[col] = 'Crédito Colones'
+                elif 'DEBITO' in norm_col and 'DOLAR' in norm_col: rename_map[col] = 'Débito Dolar'
+                elif 'CREDITO' in norm_col and 'DOLAR' in norm_col: rename_map[col] = 'Crédito Dolar'
+                elif 'ASIENTO' in norm_col: rename_map[col] = 'Asiento'
+                elif 'FECHA' in norm_col: rename_map[col] = 'Fecha'
+                elif 'TIPO' in norm_col: rename_map[col] = 'Tipo'
+                elif 'REFERENCIA' in norm_col: rename_map[col] = 'Referencia'
+                elif 'FUENTE' in norm_col: rename_map[col] = 'Fuente'
+                elif 'NIT' in norm_col or 'RIF' in norm_col: rename_map[col] = 'NIT'
+                elif 'DESCRIPCI' in norm_col: rename_map[col] = 'Descripción Nit'
+
+            df.rename(columns=rename_map, inplace=True)
+            df = df.loc[:, ~df.columns.duplicated()] # Evitar columnas repetidas
+
+            # Limpieza de montos inmediata
+            for c in ['Débito Colones', 'Crédito Colones', 'Débito Dolar', 'Crédito Dolar']:
+                if c in df.columns: df[c] = df[c].apply(limpiar_monto_robusto)
+                else: df[c] = 0.0
+            
+            return df
+        except Exception as e:
+            log_messages.append(f"❌ Error al leer Excel COFERSA: {e}")
+            return None
+
+    # --- EJECUCIÓN PRINCIPAL DE CARGA ---
+    df_act = procesar_excel_cofersa(uploaded_actual)
+    df_ant = procesar_excel_cofersa(uploaded_anterior)
+
+    if df_act is None or df_ant is None: return None
+
+    # Unir archivos
+    df_full = pd.concat([df_ant, df_act], ignore_index=True)
+    
+    # --- CÁLCULO DE NETOS (Crucial para eliminar los 183 millones) ---
+    df_full['Neto Local'] = (df_full['Débito Colones'] - df_full['Crédito Colones']).round(2)
+    df_full['Neto Dólar'] = (df_full['Débito Dolar'] - df_full['Crédito Dolar']).round(2)
+    
+    df_full['Monto_BS'] = df_full['Neto Local']
+    df_full['Monto_USD'] = df_full['Neto Dólar']
+    df_full['Conciliado'] = False
+    
+    log_messages.append(f"✅ Datos cargados y normalizados a Colones.")
+    return df_full
 
     if progress_bar: progress_bar.progress(1.0)
     log_messages.append(f"✔️ Conciliación finalizada. Total: {total_conciliados} movimientos.")
