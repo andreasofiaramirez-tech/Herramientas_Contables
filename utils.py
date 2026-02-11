@@ -2545,7 +2545,6 @@ def generar_reporte_cofersa(df_procesado):
         cols_pend = ['Fecha', 'Asiento', 'Fuente', 'Origen', 'Tipo', 'Referencia', 'Débito Colones', 'Crédito Colones', 'Neto Colones']
 
         # --- HOJA 2: AGRUPACIONES POR TIPO (NO EMBARQUES) ---
-        ws2 = workbook.add_worksheet('2. Agrup. Tipo Abiertas')
         df_h2 = df_procesado[(~df_procesado['Conciliado']) & (df_procesado['Ref_Norm'] != 'SIN_TIPO') & (~df_procesado['Ref_Norm'].str.contains(r'EM\d+|M\d+', na=False))]
         if not df_h2.empty:
             ws2 = workbook.add_worksheet('2. Agrup. Tipo Abiertas')
@@ -2562,7 +2561,6 @@ def generar_reporte_cofersa(df_procesado):
             ws2.write(r, 5, f"SALDO {tipo}:", fmt_total_lbl); ws2.write_number(r, 8, grupo['Neto Colones'].sum(), fmt_num_bold); r += 2
 
         # --- HOJA 3: EMB PENDIENTES (SOLO EM/M) ---
-        ws3 = workbook.add_worksheet('3. EMB Pendientes')
         df_h3 = df_procesado[(~df_procesado['Conciliado']) & (df_procesado['Ref_Norm'].str.contains(r'EM\d+|M\d+', na=False))]
         if not df_h3.empty:
             ws3 = workbook.add_worksheet('3. EMB Pendientes')
@@ -2577,7 +2575,6 @@ def generar_reporte_cofersa(df_procesado):
             ws3.write(r, 5, f"SALDO {tipo}:", fmt_total_lbl); ws3.write_number(r, 8, grupo['Neto Colones'].sum(), fmt_num_bold); r += 2
 
         # --- HOJA 4: OTROS PENDIENTES ---
-        ws4 = workbook.add_worksheet('4. Otros Pendientes')
         df_h4 = df_procesado[(~df_procesado['Conciliado']) & (df_procesado['Ref_Norm'] == 'SIN_TIPO')]
         if not df_h4.empty:
             ws4 = workbook.add_worksheet('4. Otros Pendientes')
@@ -2590,7 +2587,6 @@ def generar_reporte_cofersa(df_procesado):
             r += 1
 
         # --- HOJA 5: ESPECIFICACIÓN (CON ENCABEZADO DE EMPRESA) ---
-        ws5 = workbook.add_worksheet('5. Especificación')
         df_open = df_procesado[~df_procesado['Conciliado']].copy()
         if not df_open.empty:
             ws5 = workbook.add_worksheet('5. Especificación')
@@ -2621,7 +2617,6 @@ def generar_reporte_cofersa(df_procesado):
             ws5.write_number(r, 7, df_open['Neto Colones'].sum(), fmt_num_bold)
 
         # --- HOJA 6: CONCILIADOS (ESTRUCTURA COMPLETA) ---
-        ws6 = workbook.add_worksheet('6. Conciliados')
         cols_conc = ['Fecha', 'Asiento', 'Fuente', 'Tipo', 'Referencia', 'Débito Colones', 'Crédito Colones', 'Débito Dolar', 'Crédito Dolar', 'Grupo']
         ws6.write_row(0, 0, cols_conc, fmt_header)
         df_c = df_procesado[df_procesado['Conciliado']]
