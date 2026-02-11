@@ -4309,43 +4309,69 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
 # LÓGICA ENVIOS EN TRANSITO COFERSA (101050200)
 # ==============================================================================
 def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
-    log_messages.append("\n--- INICIANDO CONCILIACIÓN COFERSA (V14 - ORIENTADO A TIPO) ---")
+    """
+    Conciliación para Envíos en Tránsito COFERSA (V15).
+    Lógica estricta basada en la columna TIPO con tolerancia cero.
+    """
+    log_messages.append("\n--- INICIANDO CONCILIACIÓN COFERSA (V15 - SALDO CERO ESTRICTO) ---")
     
-    # REINICIO DE ESTADOS PARA SEGURIDAD
+    # 1. REINICIO Y LIMPIEZA DE ESTADOS
+    # Limpiamos cualquier rastro de procesos anteriores para evitar falsos positivos
     df['Conciliado'] = False
     df['Estado_Cofersa'] = 'PENDIENTE'
     
-    TOLERANCIA_COFERSA = 0.01 # Permitimos 1 céntimo por redondeos de Excel
+    # Tolerancia mínima técnica (0.01) para absorber errores de redondeo de Excel
+    TOLERANCIA_ESTRICTA = 0.01 
 
-    # Aseguramos que la llave Ref_Norm se cree correctamente desde TIPO
-    df['Ref_Norm'] = df['Tipo'].astype(str).str.strip().str.upper().replace(['NAN', 'NONE', '', '0', '0.0'], 'SIN_TIPO')
+    # 2. NORMALIZACIÓN DE LA LLAVE MAESTRA (Columna TIPO)
+    # Convertimos a texto limpio y tratamos los vacíos como 'SIN_TIPO'
+    df['Ref_Norm'] = (
+        df['Tipo'].astype(str)
+        .str.strip()
+        .str.upper()
+        .replace(['NAN', 'NONE', '', '0', '0.0'], 'SIN_TIPO')
+    )
     
-    # Recalculamos Neto Local por si acaso
-    df['Neto Local'] = (df['Débito Colones'].fillna(0) - df['Crédito Colones'].fillna(0)).round(2)
-    df['Conciliado'] = False
-    df['Estado_Cofersa'] = 'PENDIENTE' 
+    # 3. SINCRONIZACIÓN DE MONTOS
+    # Aseguramos que 'Neto Local' esté calculado sobre las columnas de Colones
+    df['Neto Local'] = (
+        df['Débito Colones'].fillna(0) - df['Crédito Colones'].fillna(0)
+    ).round(2)
+    
     total_conciliados = 0
+    indices_usados = set()
 
-    # --- ÚNICA FASE DE CRUCE: AGRUPACIÓN POR COLUMNA "TIPO" ---
-    # Solo conciliamos si el grupo bajo el mismo 'Tipo' suma cero dentro de la tolerancia.
-    df_pendientes = df.copy()
+    # --- FASE ÚNICA: CONCILIACIÓN POR AGRUPACIÓN DE TIPO ---
+    # Solo procesamos grupos que tengan un TIPO válido (no 'SIN_TIPO')
+    df_procesable = df[df['Ref_Norm'] != 'SIN_TIPO'].copy()
     
-   for tipo_val, grupo in df_pendientes.groupby('Ref_Norm'):
-        if tipo_val == 'SIN_TIPO': continue
-        if len(grupo) < 2: continue
-        
-        # Suma estricta
-        suma_grupo = round(grupo['Neto Local'].sum(), 2)
-        
-        # SOLO SI ES CERO ABSOLUTO (Tolerancia mínima para errores de Excel)
-        if abs(suma_grupo) <= 0.01:
-            indices_grupo = grupo.index
-            df.loc[indices_grupo, 'Estado_Cofersa'] = f'CONCILIADO_TIPO_{tipo_val}'
-            df.loc[indices_grupo, 'Conciliado'] = True
-            total_conciliados += len(indices_grupo)
+    if not df_procesable.empty:
+        for tipo_val, grupo in df_procesable.groupby('Ref_Norm'):
+            if len(grupo) < 2:
+                continue
+            
+            # Calculamos la suma algebraica del grupo
+            suma_grupo = round(grupo['Neto Local'].sum(), 2)
+            
+            # REGLA DE ORO: Solo se concilia si el saldo del grupo es CERO
+            if abs(suma_grupo) <= TOLERANCIA_ESTRICTA:
+                indices_del_grupo = grupo.index
+                df.loc[indices_del_grupo, 'Conciliado'] = True
+                df.loc[indices_del_grupo, 'Estado_Cofersa'] = f'CONCILIADO_{tipo_val}'
+                indices_usados.update(indices_del_grupo)
+                total_conciliados += len(indices_del_grupo)
+                log_messages.append(f"✔️ Grupo TIPO '{tipo_val}' conciliado exitosamente (Saldo 0.00).")
 
-    if progress_bar: progress_bar.progress(1.0)
-    log_messages.append(f"✔️ Conciliación finalizada. Total: {total_conciliados} movimientos.")
+    # --- FASE DE SEGURIDAD: OTROS PENDIENTES ---
+    # Lo que no entró en la Fase anterior queda marcado como PENDIENTE
+    # para ser listado en las Hojas 2, 3 o 4 según corresponda.
+    
+    if progress_bar:
+        progress_bar.progress(1.0, text="Conciliación COFERSA finalizada.")
+
+    log_messages.append(f"🏁 Proceso finalizado. Total movimientos cerrados: {total_conciliados}")
+    log_messages.append(f"⚠️ Movimientos que permanecen abiertos: {len(df) - total_conciliados}")
+    
     return df
 
 # ==============================================================================
