@@ -2673,7 +2673,9 @@ def generar_reporte_cofersa(df_procesado):
             ws6.write_number(r, 8, df_c['Crédito Dolar'].sum(), fmt_num_bold)
             
             ws6.write(r+1, 4, "SALDO NETO (CERO):", fmt_total_lbl)
-            saldo_final_conciliado = round(df_c['Débito Colones'].sum() - df_c['Crédito Colones'].sum(), 2)
+            suma_debitos_c = df_c['Débito Colones'].sum()
+            suma_creditos_c = df_c['Crédito Colones'].sum()
+            saldo_final_conciliado = round(suma_debitos_c - suma_creditos_c, 2)
             ws6.write_number(r+1, 5, saldo_final_conciliado, fmt_num_bold)
             
             # Ancho de columna específico para esta hoja
