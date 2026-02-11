@@ -4338,8 +4338,17 @@ def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
     
     if not df_procesable.empty:
         for tipo_val, grupo in df_procesable.groupby('Ref_Norm'):
-            if len(grupo) < 2:
-                continue
+            # --- MEJORA: VALIDACIÓN GLOBAL DEL GRUPO (BI-MONEDA) ---
+            # Si TODO el grupo suma cero en Colones Y en Dólares, cerramos todo de una vez
+            suma_local = round(grupo['Neto Local'].sum(), 2)
+            suma_usd = round(grupo['Neto Dólar'].sum(), 2)
+            
+            if abs(suma_local) <= TOLERANCIA and abs(suma_usd) <= TOLERANCIA:
+                idx_grupo = grupo.index
+                df.loc[idx_grupo, 'Conciliado'] = True
+                df.loc[idx_grupo, 'Estado_Cofersa'] = f'GRUPO_CERRADO_{tipo_val}'
+                indices_usados.update(idx_grupo)
+                continue # Pasa al siguiente grupo
             
             # --- SUB-FASE A: BUSCAR PARES EXACTOS DENTRO DEL TIPO ---
             # Esto resuelve el caso de Débito y Crédito iguales que se quedaban abiertos
@@ -4356,14 +4365,13 @@ def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
                 
                 if not match_credito.empty:
                     idx_c = match_credito.index[0]
-                    indices_pareja = [idx_d, idx_c]
-                    
-                    df.loc[indices_pareja, 'Conciliado'] = True
-                    df.loc[indices_pareja, 'Estado_Cofersa'] = f'PAR_INTERNO_{tipo_val}'
-                    indices_usados.update(indices_pareja)
-                    total_conciliados += 2
-                    # Eliminamos de la lista local de créditos para no re-usarlo
-                    creditos = creditos.drop(idx_c)
+                    # Validamos que el par también sume cero en USD o sea despreciable
+                    # Si no suma cero en USD, lo dejamos para la sub-fase B
+                    if abs(row_d['Neto Dólar'] + df.loc[idx_c, 'Neto Dólar']) <= TOLERANCIA:
+                        indices_pareja = [idx_d, idx_c]
+                        df.loc[indices_pareja, 'Conciliado'] = True
+                        df.loc[indices_pareja, 'Estado_Cofersa'] = f'PAR_BI_MONEDA_{tipo_val}'
+                        indices_usados.update(indices_pareja)
 
             # --- SUB-FASE B: VERIFICAR SI EL RESTO DEL GRUPO SUMA CERO ---
             # Lo que no se concilió como par exacto, vemos si suma cero como bloque
