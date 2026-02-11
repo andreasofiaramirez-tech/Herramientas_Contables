@@ -2517,6 +2517,14 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
     
 def generar_reporte_cofersa(df_procesado):
     output = BytesIO()
+    
+    # --- LIMPIEZA PREVIA DE DATOS ---
+    # Convertimos todos los NaN en 0 en las columnas numéricas para evitar el error de xlsxwriter
+    cols_a_limpiar = ['Débito Colones', 'Crédito Colones', 'Débito Dolar', 'Crédito Dolar', 'Neto Colones']
+    for col in cols_a_limpiar:
+        if col in df_procesado.columns:
+            df_procesado[col] = pd.to_numeric(df_procesado[col], errors='coerce').fillna(0)
+
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         workbook = writer.book
         
@@ -2525,68 +2533,74 @@ def generar_reporte_cofersa(df_procesado):
         money_fmt = workbook.add_format({'num_format': '#,##0.00', 'border': 1})
         text_fmt = workbook.add_format({'border': 1})
         date_fmt = workbook.add_format({'num_format': 'dd/mm/yyyy', 'border': 1, 'align': 'center'})
-        label_fmt = workbook.add_format({'bold': True, 'bg_color': '#F2F2F2', 'border': 1, 'align': 'right'})
 
-        # Columnas para hojas de pendientes
+        # Definición de columnas para las hojas de pendientes
         cols_pendientes = ['Fecha', 'Asiento', 'Fuente', 'Tipo', 'Referencia', 'Débito Colones', 'Crédito Colones', 'Neto Colones']
         
-        # --- HOJA 1: PARES 1 A 1 ---
-        df_pares = df_procesado[df_procesado['Estado_Cofersa'] == 'PARES_1_A_1']
-        df_pares[cols_pendientes].to_excel(writer, sheet_name='1. Pares 1 a 1', index=False)
-
-        # --- HOJA 2: AGRUPACIONES POR TIPO (ABIERTAS) ---
-        # Filtramos lo NO conciliado que SÍ tiene un TIPO
+        # --- HOJAS 1 A 4 (Mantenemos lógica de filtrado) ---
+        df_procesado[df_procesado['Estado_Cofersa'] == 'PARES_1_A_1'][cols_pendientes].to_excel(writer, sheet_name='1. Pares 1 a 1', index=False)
+        
         df_tipo_abierto = df_procesado[(~df_procesado['Conciliado']) & (df_procesado['Ref_Norm'] != 'SIN_TIPO')]
         df_tipo_abierto[cols_pendientes].to_excel(writer, sheet_name='2. Agrup. Tipo Abiertas', index=False)
-
-        # --- HOJA 3: EMB PENDIENTES (Solo códigos EM/M abiertos) ---
+        
         mask_emb = df_procesado['Ref_Norm'].str.contains(r'EM\d+|M\d+', na=False)
         df_emb_pend = df_procesado[(~df_procesado['Conciliado']) & mask_emb]
         df_emb_pend[cols_pendientes].to_excel(writer, sheet_name='3. EMB Pendientes', index=False)
-
-        # --- HOJA 4: OTROS PENDIENTES (Sin Grupo / Sin Tipo) ---
+        
         df_otros = df_procesado[(~df_procesado['Conciliado']) & (df_procesado['Ref_Norm'] == 'SIN_TIPO')]
         df_otros[cols_pendientes].to_excel(writer, sheet_name='4. Otros Pendientes', index=False)
 
-        # --- HOJA 5: ESPECIFICACIÓN (Resumen de Saldos) ---
+        # --- HOJA 5: ESPECIFICACIÓN ---
         ws5 = workbook.add_worksheet('5. Especificación')
+        ws5.hide_gridlines(2)
         df_open = df_procesado[~df_procesado['Conciliado']]
-        resumen = df_open.groupby('Ref_Norm').agg({'Neto Colones': 'sum', 'Fecha': 'max', 'NIT': 'first'}).reset_index()
-        ws5.write_row(0, 0, ['Tipo / Grupo', 'NIT', 'Fecha Máx', 'Saldo Neto Colones'], header_fmt)
-        for r_idx, row in resumen.iterrows():
-            ws5.write(r_idx+1, 0, row['Ref_Norm'], text_fmt)
-            ws5.write(r_idx+1, 1, row['NIT'], text_fmt)
-            ws5.write(r_idx+1, 2, row['Fecha'].strftime('%d/%m/%Y') if pd.notna(row['Fecha']) else '-', text_fmt)
-            ws5.write_number(r_idx+1, 3, row['Neto Colones'], money_fmt)
+        if not df_open.empty:
+            resumen = df_open.groupby('Ref_Norm').agg({'Neto Colones': 'sum', 'Fecha': 'max', 'NIT': 'first'}).reset_index()
+            ws5.write_row(0, 0, ['Tipo / Grupo', 'NIT', 'Fecha Máx', 'Saldo Neto Colones'], header_fmt)
+            for r_idx, row in resumen.iterrows():
+                ws5.write(r_idx+1, 0, str(row['Ref_Norm']), text_fmt)
+                ws5.write(r_idx+1, 1, str(row['NIT']), text_fmt)
+                ws5.write(r_idx+1, 2, row['Fecha'].strftime('%d/%m/%Y') if pd.notna(row['Fecha']) else '-', text_fmt)
+                ws5.write_number(r_idx+1, 3, float(row['Neto Colones']), money_fmt)
 
-        # --- HOJA 6: CONCILIADOS (Estructura Solicitada) ---
+        # --- HOJA 6: CONCILIADOS (ESTRUCTURA CORREGIDA Y BLINDADA) ---
         ws6 = workbook.add_worksheet('6. Conciliados')
+        ws6.hide_gridlines(2)
         cols_conciliados = [
             'Fecha', 'Asiento', 'Fuente', 'Tipo', 'Referencia', 
             'Débito Colones', 'Crédito Colones', 'Débito Dolar', 'Crédito Dolar', 'Grupo_Conciliado'
         ]
         ws6.write_row(0, 0, cols_conciliados, header_fmt)
-        df_conc = df_procesado[df_procesado['Conciliado']].sort_values(by=['Estado_Cofersa', 'Ref_Norm'])
         
-        for r_idx, row in enumerate(df_conc.itertuples()):
-            r = r_idx + 1
-            ws6.write_datetime(r, 0, row.Fecha, date_fmt) if pd.notna(row.Fecha) else ws6.write(r, 0, '-')
-            ws6.write(r, 1, row.Asiento, text_fmt)
-            ws6.write(r, 2, row.Fuente, text_fmt)
-            ws6.write(r, 3, row.Tipo, text_fmt)
-            ws6.write(r, 4, row.Referencia, text_fmt)
-            ws6.write_number(r, 5, row._7, money_fmt)  # Débito Bolivar (Mapeado a Colones)
-            ws6.write_number(r, 6, row._8, money_fmt)  # Crédito Bolivar
-            ws6.write_number(r, 7, row._9, money_fmt)  # Débito Dolar
-            ws6.write_number(r, 8, row._10, money_fmt) # Crédito Dolar
-            ws6.write(r, 9, row.Estado_Cofersa, text_fmt)
+        df_conc = df_procesado[df_procesado['Conciliado']].copy()
+        if not df_conc.empty:
+            df_conc = df_conc.sort_values(by=['Estado_Cofersa', 'Ref_Norm'])
+            
+            # Usamos iterrows para acceder por nombre de columna, evitando el error de row._7
+            for r_idx, (index, row) in enumerate(df_conc.iterrows()):
+                r = r_idx + 1
+                # Escribir Datos
+                if pd.notna(row['Fecha']): ws6.write_datetime(r, 0, row['Fecha'], date_fmt)
+                else: ws6.write(r, 0, '-')
+                
+                ws6.write(r, 1, str(row['Asiento']), text_fmt)
+                ws6.write(r, 2, str(row['Fuente']), text_fmt)
+                ws6.write(r, 3, str(row['Tipo']), text_fmt)
+                ws6.write(r, 4, str(row['Referencia']), text_fmt)
+                
+                # Escritura Numérica Segura (Cero si es NaN)
+                ws6.write_number(r, 5, float(row.get('Débito Colones', 0)), money_fmt)
+                ws6.write_number(r, 6, float(row.get('Crédito Colones', 0)), money_fmt)
+                ws6.write_number(r, 7, float(row.get('Débito Dolar', 0)), money_fmt)
+                ws6.write_number(r, 8, float(row.get('Crédito Dolar', 0)), money_fmt)
+                
+                ws6.write(r, 9, str(row['Estado_Cofersa']), text_fmt)
 
         # Ajuste de anchos para todas las hojas
         for sheet in workbook.worksheets():
             sheet.set_column('A:Z', 18)
 
     return output.getvalue()
-
 def generar_reporte_debito_fiscal(df_incidencias_raw, df_soft_raw, df_imp_raw):
     output = BytesIO()
     
