@@ -323,6 +323,33 @@ ESTRATEGIAS = {
         "nombre_hoja_excel": "101.01.03.00",
         "columnas_requeridas": ['Fecha', 'Asiento', 'Referencia', 'Fuente', 'Débito Bolivar', 'Crédito Bolivar']
     },
+    "201081300 - Dev. a Prov. Pais (Colones)": {
+        "id": "dev_prov_crc",
+        "funcion_principal": lambda df, log, pb: run_conciliation_dev_proveedores_cofersa(df, log, 'CRC'),
+        "label_actual": "Movimientos del Mes",
+        "label_anterior": "Saldos Anteriores",
+        "columnas_reporte": ['NIT', 'Descripción Nit', 'Fecha', 'Asiento', 'Tipo', 'Referencia', 'Neto Colones', 'Neto Dólar'],
+        "nombre_hoja_excel": "201081300",
+        "columnas_requeridas": ['Fecha', 'Asiento', 'Referencia', 'NIT', 'Débito Bolivar', 'Crédito Bolivar']
+    },
+    "201081400 - Dev. a Prov. Exterior (Dólares)": {
+        "id": "dev_prov_usd_ext",
+        "funcion_principal": lambda df, log, pb: run_conciliation_dev_proveedores_cofersa(df, log, 'USD'),
+        "label_actual": "Movimientos del Mes",
+        "label_anterior": "Saldos Anteriores",
+        "columnas_reporte": ['NIT', 'Descripción Nit', 'Fecha', 'Asiento', 'Tipo', 'Referencia', 'Neto Dólar', 'Neto Colones'],
+        "nombre_hoja_excel": "201081400",
+        "columnas_requeridas": ['Fecha', 'Asiento', 'Referencia', 'NIT', 'Débito Dolar', 'Crédito Dolar']
+    },
+    "Dev. a Prov. Pais ME (Dólares)": {
+        "id": "dev_prov_usd_me",
+        "funcion_principal": lambda df, log, pb: run_conciliation_dev_proveedores_cofersa(df, log, 'USD'),
+        "label_actual": "Movimientos del Mes",
+        "label_anterior": "Saldos Anteriores",
+        "columnas_reporte": ['NIT', 'Descripción Nit', 'Fecha', 'Asiento', 'Tipo', 'Referencia', 'Neto Dólar', 'Neto Colones'],
+        "nombre_hoja_excel": "DEV_PROV_ME",
+        "columnas_requeridas": ['Fecha', 'Asiento', 'Referencia', 'NIT', 'Débito Dolar', 'Crédito Dolar']
+    },
     
 }
 
