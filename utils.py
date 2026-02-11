@@ -166,32 +166,21 @@ def cargar_y_limpiar_datos(uploaded_actual, uploaded_anterior, log_messages):
 
 @st.cache_data
 def cargar_datos_cofersa(uploaded_actual, uploaded_anterior, log_messages):
-    """
-    Función de carga EXCLUSIVA para COFERSA.
-    MEJORA: Ignora acentos en encabezados y procesa comas decimales correctamente.
-    """
     import unicodedata
 
     def normalizar_texto(texto):
-        """Quita acentos y convierte a mayúsculas."""
         if not isinstance(texto, str): return str(texto)
         return ''.join(c for c in unicodedata.normalize('NFD', texto)
                       if unicodedata.category(c) != 'Mn').upper().strip()
 
     def limpiar_monto_robusto(val):
-        """Convierte montos (con comas o puntos) a float puro."""
         if pd.isna(val) or str(val).strip() in ['', '-', 'nan']: return 0.0
         if isinstance(val, (int, float)): return float(val)
-        
         t = str(val).strip().replace('Bs', '').replace('$', '').replace(' ', '')
-        # Caso: 1.234.567,89 -> 1234567.89
         if ',' in t and '.' in t:
-            if t.rfind(',') > t.rfind('.'): t = t.replace('.', '').replace(',', '.')
-            else: t = t.replace(',', '')
-        # Caso: 1234,56 -> 1234.56
-        elif ',' in t:
-            t = t.replace(',', '.')
-            
+            if t.rfind(',') > t.rfind('.'): t = t.replace(',', '')
+            else: t = t.replace('.', '').replace(',', '.')
+        elif ',' in t: t = t.replace(',', '.')
         t = re.sub(r'[^\d.-]', '', t)
         try: return float(t)
         except: return 0.0
@@ -200,67 +189,56 @@ def cargar_datos_cofersa(uploaded_actual, uploaded_anterior, log_messages):
         try:
             archivo_buffer.seek(0)
             df = pd.read_excel(archivo_buffer, engine='openpyxl')
+            
+            # --- MAPEO DE COLUMNAS DENTRO DEL PROCESADOR ---
+            rename_map = {}
+            for col in df.columns:
+                norm_col = normalizar_texto(col)
+                if 'DEBITO' in norm_col and 'LOCAL' in norm_col: rename_map[col] = 'Débito Colones'
+                elif 'CREDITO' in norm_col and 'LOCAL' in norm_col: rename_map[col] = 'Crédito Colones'
+                elif 'DEBITO' in norm_col and 'DOLAR' in norm_col: rename_map[col] = 'Débito Dolar'
+                elif 'CREDITO' in norm_col and 'DOLAR' in norm_col: rename_map[col] = 'Crédito Dolar'
+                elif 'ASIENTO' in norm_col: rename_map[col] = 'Asiento'
+                elif 'FECHA' in norm_col: rename_map[col] = 'Fecha'
+                elif 'TIPO' in norm_col: rename_map[col] = 'Tipo'
+                elif 'REFERENCIA' in norm_col: rename_map[col] = 'Referencia'
+                elif 'FUENTE' in norm_col: rename_map[col] = 'Fuente'
+                elif 'NIT' in norm_col or 'RIF' in norm_col: rename_map[col] = 'NIT'
+                elif 'DESCRIPCI' in norm_col: rename_map[col] = 'Descripción Nit'
+
+            df.rename(columns=rename_map, inplace=True)
+            df = df.loc[:, ~df.columns.duplicated()] # Evitar columnas repetidas
+
+            # Limpieza de montos inmediata
+            for c in ['Débito Colones', 'Crédito Colones', 'Débito Dolar', 'Crédito Dolar']:
+                if c in df.columns: df[c] = df[c].apply(limpiar_monto_robusto)
+                else: df[c] = 0.0
+            
+            return df
         except Exception as e:
             log_messages.append(f"❌ Error al leer Excel COFERSA: {e}")
             return None
 
-        # 1. Mapeo Robusto de Columnas (Quitando acentos)
-        rename_map = {}
-        for col in df.columns:
-            norm_col = normalizar_texto(col)
-            
-            if 'DEBITO' in norm_col and 'LOCAL' in norm_col: rename_map[col] = 'Débito Colones'
-            elif 'CREDITO' in norm_col and 'LOCAL' in norm_col: rename_map[col] = 'Crédito Colones'
-            elif 'DEBITO' in norm_col and 'DOLAR' in norm_col: rename_map[col] = 'Débito Dolar'
-            elif 'CREDITO' in norm_col and 'DOLAR' in norm_col: rename_map[col] = 'Crédito Dolar'
-            
-            elif 'ASIENTO' in norm_col: rename_map[col] = 'Asiento'
-            elif 'FECHA' in norm_col: rename_map[col] = 'Fecha'
-            elif 'REFERENCIA' in norm_col: rename_map[col] = 'Referencia'
-            elif 'TIPO' in norm_col: rename_map[col] = 'Tipo'
-            elif 'FUENTE' in norm_col: rename_map[col] = 'Fuente'
-            elif 'NIT' in norm_col or 'RIF' in norm_col: rename_map[col] = 'NIT'
-            elif 'DESCRIPCI' in norm_col: rename_map[col] = 'Descripcion NIT'
+    # --- EJECUCIÓN PRINCIPAL DE CARGA ---
+    df_act = procesar_excel_cofersa(uploaded_actual)
+    df_ant = procesar_excel_cofersa(uploaded_anterior)
 
-        df.rename(columns=rename_map, inplace=True)
-        # Eliminar columnas duplicadas si las hay después del rename
-        df = df.loc[:, ~df.columns.duplicated()]
-        
-        # 2. Limpieza de Datos
-        if 'Fecha' in df.columns: df['Fecha'] = pd.to_datetime(df['Fecha'], errors='coerce')
-        
-        # 3. Limpieza de montos usando el nuevo motor robusto
-        cols_fin = ['Débito Bolivar', 'Crédito Bolivar', 'Débito Dolar', 'Crédito Dolar']
-        for c in cols_fin:
-            if c in df.columns:
-                df[c] = df[c].apply(limpiar_monto_robusto)
-            else:
-                df[c] = 0.0
-        
-        return df
+    if df_act is None or df_ant is None: return None
 
-    # --- EJECUCIÓN ---
-    # 1. Aplicamos el rename primero
-    df_act.rename(columns=rename_map, inplace=True)
-    df_ant.rename(columns=rename_map, inplace=True)
-
-    # 2. Unimos los archivos
+    # Unir archivos
     df_full = pd.concat([df_ant, df_act], ignore_index=True)
     
-    # 3. Calculamos los NETOS usando los nuevos nombres (COLONES)
-    # Esto es vital para que la lógica de logic.py funcione
-    df_full['Neto Local'] = (df_full['Débito Colones'].fillna(0) - df_full['Crédito Colones'].fillna(0)).round(2)
-    df_full['Neto Dólar'] = (df_full['Débito Dolar'].fillna(0) - df_full['Crédito Dolar'].fillna(0)).round(2)
+    # --- CÁLCULO DE NETOS (Crucial para eliminar los 183 millones) ---
+    df_full['Neto Local'] = (df_full['Débito Colones'] - df_full['Crédito Colones']).round(2)
+    df_full['Neto Dólar'] = (df_full['Débito Dolar'] - df_full['Crédito Dolar']).round(2)
     
-    # Sincronizamos nombres internos
     df_full['Monto_BS'] = df_full['Neto Local']
     df_full['Monto_USD'] = df_full['Neto Dólar']
     df_full['Conciliado'] = False
     
-    
-    log_messages.append(f"✅ Datos COFERSA cargados exitosamente (Columnas con acento detectadas).")
+    log_messages.append(f"✅ Datos cargados y normalizados a Colones.")
     return df_full
-
+    
 @st.cache_data
 def generar_excel_saldos_abiertos(df_saldos_abiertos):
     """
