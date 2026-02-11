@@ -44,6 +44,7 @@ from logic import (
     run_conciliation_envios_cofersa,
     run_conciliation_proveedores_costos,
     run_conciliation_fondos_transito_cofersa,
+    run_conciliation_dev_proveedores_cofersa,
     preparar_datos_softland_debito,
     run_conciliation_debito_fiscal
 )
@@ -63,7 +64,8 @@ from utils import (
     generar_reporte_ajustes_usd,
     generar_reporte_cofersa,
     cargar_datos_cofersa,
-    generar_reporte_debito_fiscal
+    generar_reporte_debito_fiscal,
+    _generar_hoja_pendientes_dev_cofersa
 )
 
 def mostrar_error_amigable(e, contexto=""):
