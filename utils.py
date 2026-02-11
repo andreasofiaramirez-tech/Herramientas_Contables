@@ -2529,10 +2529,9 @@ def generar_reporte_cofersa(df_procesado):
 
         # --- 3. HOJAS 1 A 4: PENDIENTES (ESTRUCTURA NETOS) ---
         hojas_pendientes = [
-            ('1. Pares 1 a 1', df_procesado[df_procesado['Estado_Cofersa'] == 'PARES_1_A_1']),
-            ('2. Agrup. Tipo Abiertas', df_procesado[(~df_procesado['Conciliado']) & (df_procesado['Ref_Norm'] != 'SIN_TIPO') & (~df_procesado['Ref_Norm'].str.contains(r'EM\d+|M\d+', na=False))]),
-            ('3. EMB Pendientes', df_procesado[(~df_procesado['Conciliado']) & (df_procesado['Ref_Norm'].str.contains(r'EM\d+|M\d+', na=False))]),
-            ('4. Otros Pendientes', df_procesado[(~df_procesado['Conciliado']) & (df_procesado['Ref_Norm'] == 'SIN_TIPO')])
+            ('Agrup. Tipo Abiertas', df_procesado[(~df_procesado['Conciliado']) & (df_procesado['Ref_Norm'] != 'SIN_TIPO') & (~df_procesado['Ref_Norm'].str.contains(r'EM\d+|M\d+', na=False))]),
+            ('EMB Pendientes', df_procesado[(~df_procesado['Conciliado']) & (df_procesado['Ref_Norm'].str.contains(r'EM\d+|M\d+', na=False))]),
+            ('Otros Pendientes', df_procesado[(~df_procesado['Conciliado']) & (df_procesado['Ref_Norm'] == 'SIN_TIPO')])
         ]
 
         for nombre_hoja, df_h in hojas_pendientes:
@@ -2570,7 +2569,7 @@ def generar_reporte_cofersa(df_procesado):
         # --- HOJA 5: ESPECIFICACIÓN (CON ENCABEZADO DE EMPRESA) ---
         df_open = df_procesado[(~df_procesado['Conciliado']) & (df_procesado['Neto Colones'].abs() > 0.001)].copy()
         if not df_open.empty:
-            ws5 = workbook.add_worksheet('5. Especificación')
+            ws5 = workbook.add_worksheet('Especificación')
             ws5.hide_gridlines(2)
         cols_spec = ['NIT', 'Descripción Nit', 'Fecha', 'Asiento', 'Referencia', 'Fuente', 'Monto Dólar', 'Colones', 'Tasa']
         
