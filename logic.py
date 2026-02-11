@@ -4374,7 +4374,7 @@ def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
                     idx_c = match_credito.index[0]
                     # Validamos que el par también sume cero en USD o sea despreciable
                     # Si no suma cero en USD, lo dejamos para la sub-fase B
-                    if abs(row_d['Neto Dólar'] + df.loc[idx_c, 'Neto Dólar']) <= TOLERANCIA:
+                    if abs(row_d['Neto Dólar'] + df.loc[idx_c, 'Neto Dólar']) <= TOLERANCIA_ESTRICTA:
                         indices_pareja = [idx_d, idx_c]
                         df.loc[indices_pareja, 'Conciliado'] = True
                         df.loc[indices_pareja, 'Estado_Cofersa'] = f'PAR_BI_MONEDA_{tipo_val}'
