@@ -4396,7 +4396,7 @@ def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
     log_messages.append(f"🏁 Proceso finalizado. Total movimientos cerrados: {total_final}")
     
     # IMPORTANTE: Retornar tanto el DF como los contadores
-return df, conteo_pares, conteo_grupos, conteo_pendientes
+    return df, conteo_pares, conteo_grupos, conteo_pendientes
 
 # ==============================================================================
 # LÓGICA FONDOS EN TRANSITO (101010300)
