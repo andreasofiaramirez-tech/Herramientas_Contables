@@ -2506,7 +2506,7 @@ def generar_reporte_cofersa(df_procesado):
             df_procesado[col] = pd.to_numeric(df_procesado[col], errors='coerce').fillna(0.0)
 
     # Filtro preventivo de filas vacías
-    df_procesado = df_procesado[df_procesado['Neto Colones'].abs() > 0.001) | (df_procesado['Neto Dólar'].abs() > 0.001)].copy()
+    df_procesado = df_procesado[(df_procesado['Asiento'].notna())].copy()
     
     fecha_max = df_procesado['Fecha'].dropna().max()
     meses_es = {1: "ENERO", 2: "FEBRERO", 3: "MARZO", 4: "ABRIL", 5: "MAYO", 6: "JUNIO", 7: "JULIO", 8: "AGOSTO", 9: "SEPTIEMBRE", 10: "OCTUBRE", 11: "NOVIEMBRE", 12: "DICIEMBRE"}
