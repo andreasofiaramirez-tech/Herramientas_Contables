@@ -4311,13 +4311,17 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
 def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
     log_messages.append("\n--- INICIANDO CONCILIACIÓN COFERSA (V14 - ORIENTADO A TIPO) ---")
     
-    TOLERANCIA_COFERSA = 00.01
-
-    # 1. Normalización: La llave maestra es la columna TIPO
-    df['Ref_Norm'] = df['Tipo'].astype(str).str.strip().str.upper().replace(['NAN', 'NONE', '', '0'], 'SIN_TIPO')
+    # REINICIO DE ESTADOS PARA SEGURIDAD
+    df['Conciliado'] = False
+    df['Estado_Cofersa'] = 'PENDIENTE'
     
-    # Asegurar montos numéricos y estado inicial
-    df['Neto Local'] = pd.to_numeric(df['Neto Local'], errors='coerce').fillna(0).round(2)
+    TOLERANCIA_COFERSA = 0.01 # Permitimos 1 céntimo por redondeos de Excel
+
+    # Aseguramos que la llave Ref_Norm se cree correctamente desde TIPO
+    df['Ref_Norm'] = df['Tipo'].astype(str).str.strip().str.upper().replace(['NAN', 'NONE', '', '0', '0.0'], 'SIN_TIPO')
+    
+    # Recalculamos Neto Local por si acaso
+    df['Neto Local'] = (df['Débito Colones'].fillna(0) - df['Crédito Colones'].fillna(0)).round(2)
     df['Conciliado'] = False
     df['Estado_Cofersa'] = 'PENDIENTE' 
     total_conciliados = 0
