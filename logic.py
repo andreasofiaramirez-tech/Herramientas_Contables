@@ -4308,7 +4308,6 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
 # ==============================================================================
 # LÓGICA ENVIOS EN TRANSITO COFERSA (101050200)
 # ==============================================================================
-
 def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
     """
     Conciliación para Envíos en Tránsito COFERSA (VES).
@@ -4326,39 +4325,31 @@ def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
     
     df['Neto Local'] = pd.to_numeric(df['Neto Local'], errors='coerce').fillna(0).round(2)
     
-    # Normalización de Referencia (Clave maestra)
+    # --- NORMALIZACIÓN ROBUSTA DE LLAVE DE CRUCE ---
     def extraer_llave_embarque(row):
-        # Combinamos Referencia y Tipo para la búsqueda
         busqueda = (str(row.get('Referencia', '')) + " " + str(row.get('Tipo', ''))).upper()
-        
-        # Regex: Busca el patrón EM seguido de números o solo M seguido de números
         match = re.search(r'(EM\d+|M\d+)', busqueda)
         if match:
             return match.group(1)
-        
-        # Si no hay patrón EM/M, devolvemos la referencia limpia como último recurso
         return str(row.get('Referencia', '')).strip().upper()
 
     df['Ref_Norm'] = df.apply(extraer_llave_embarque, axis=1)
-    # ------------------------------------------
 
     df['Estado_Cofersa'] = 'PENDIENTE' 
     indices_usados = set()
     total_conciliados = 0
 
-    # --- FASE 1: PARES 1 A 1 (Mismo Monto Absoluto) ---
+    # --- FASE 1: PARES 1 A 1 ---
     df_pool = df.copy()
     df_pool['Abs_Int'] = df_pool['Neto Local'].abs().astype(int)
     
     for monto_int, grupo in df_pool.groupby('Abs_Int'):
         if monto_int == 0 or len(grupo) < 2: continue
-        
         positivos = grupo[grupo['Neto Local'] > 0].index.tolist()
         negativos = grupo[grupo['Neto Local'] < 0].index.tolist()
         
         while positivos and negativos:
             idx_pos = positivos.pop(0)
-            match_found = False
             for i, idx_neg in enumerate(negativos):
                 suma = df.loc[idx_pos, 'Neto Local'] + df.loc[idx_neg, 'Neto Local']
                 if abs(suma) <= TOLERANCIA_COFERSA:
@@ -4366,15 +4357,11 @@ def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
                     indices_usados.add(idx_pos); indices_usados.add(idx_neg)
                     total_conciliados += 2
                     negativos.pop(i)
-                    match_found = True
                     break
     
-    log_messages.append(f"✔️ Fase 1 (Pares Rápidos): {total_conciliados} movimientos.")
-    if progress_bar: progress_bar.progress(0.3, text="Fase 1 completada.")
-
     # --- FASE 2: CRUCE POR REFERENCIA (Agrupación N-a-N) ---
-    # Reemplaza la lógica de 'Tipo' por 'Referencia'
-     df_pendientes = df[~df.index.isin(indices_usados)].copy()
+    # AQUÍ ESTABA EL ERROR DE INDENTACIÓN (Línea 4377)
+    df_pendientes = df[~df.index.isin(indices_usados)].copy()
     count_fase2 = 0 
     
     if not df_pendientes.empty:
@@ -4388,47 +4375,29 @@ def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
                 df.loc[indices_grupo, 'Estado_Cofersa'] = 'CRUCE_POR_REFERENCIA'
                 indices_usados.update(indices_grupo)
                 count_fase2 += len(indices_grupo)
-        
-        log_messages.append(f"✔️ Fase 2 (Cruce por Referencia +/- 100): {count_fase2} movimientos.")
-    
-    if progress_bar: progress_bar.progress(0.6, text="Fase 2 completada.")
 
-    # --- FASE 3: RECUPERACIÓN DE PARES (BÚSQUEDA BINARIA) ---
-    remanentes = df[~df.index.isin(indices_usados)]
-    pos_items = remanentes[remanentes['Neto Local'] > 0][['Neto Local']].sort_values('Neto Local', ascending=False)
-    neg_items = remanentes[remanentes['Neto Local'] < 0][['Neto Local']].sort_values('Neto Local')
-    
-    neg_list = sorted([(row['Neto Local'], idx) for idx, row in neg_items.iterrows()], key=lambda x: x[0])
-    neg_values = [x[0] for x in neg_list]
-    
-    used_negs = set()
-    count_recuperados = 0
-    
-    for idx_pos, row in pos_items.iterrows():
-        val_pos = row['Neto Local']
-        target_min = -val_pos - TOLERANCIA_COFERSA
-        target_max = -val_pos + TOLERANCIA_COFERSA
+    # --- FASE 3: RECUPERACIÓN GLOBAL ---
+    remanentes = df[df['Estado_Cofersa'] == 'PENDIENTE'].copy()
+    if not remanentes.empty:
+        pos_items = remanentes[remanentes['Neto Local'] > 0]
+        neg_items = remanentes[remanentes['Neto Local'] < 0]
+        neg_list = sorted([(row['Neto Local'], idx) for idx, row in neg_items.iterrows()], key=lambda x: x[0])
+        neg_values = [x[0] for x in neg_list]
         
-        import bisect
-        start_idx = bisect.bisect_left(neg_values, target_min)
-        
-        for i in range(start_idx, len(neg_list)):
-            val_neg, idx_neg = neg_list[i]
-            if val_neg > target_max: break
-            
-            if idx_neg not in used_negs:
-                df.loc[[idx_pos, idx_neg], 'Estado_Cofersa'] = 'RECUPERACION_GLOBAL'
-                indices_usados.add(idx_pos); indices_usados.add(idx_neg)
-                used_negs.add(idx_neg)
-                count_recuperados += 2
-                break
+        for idx_pos, row in pos_items.iterrows():
+            val_pos = row['Neto Local']
+            target_min = -val_pos - TOLERANCIA_COFERSA
+            target_max = -val_pos + TOLERANCIA_COFERSA
+            start_idx = bisect.bisect_left(neg_values, target_min)
+            for i in range(start_idx, len(neg_list)):
+                val_neg, idx_neg = neg_list[i]
+                if val_neg > target_max: break
+                if idx_neg not in indices_usados:
+                    df.loc[[idx_pos, idx_neg], 'Estado_Cofersa'] = 'RECUPERACION_GLOBAL'
+                    indices_usados.add(idx_pos); indices_usados.add(idx_neg)
+                    total_conciliados += 2
+                    break
 
-    if count_recuperados > 0:
-        log_messages.append(f"🚀 Fase 3 (Recuperación): {count_recuperados} movimientos cerrados.")
-        total_conciliados += count_recuperados
-
-    if progress_bar: progress_bar.progress(1.0, text="Proceso Finalizado.")
-    
     df['Conciliado'] = df['Estado_Cofersa'] != 'PENDIENTE'
     return df
 
