@@ -2544,84 +2544,95 @@ def generar_reporte_cofersa(df_procesado):
 
         cols_pend = ['Fecha', 'Asiento', 'Fuente', 'Origen', 'Tipo', 'Referencia', 'Débito Colones', 'Crédito Colones', 'Neto Colones']
 
-        # --- HOJA 2: AGRUPACIONES POR TIPO (CONDICIONAL) ---
+        # --- HOJA 2: AGRUPACIONES POR TIPO (NO EMBARQUES) ---
+        ws2 = workbook.add_worksheet('2. Agrup. Tipo Abiertas')
         df_h2 = df_procesado[(~df_procesado['Conciliado']) & (df_procesado['Ref_Norm'] != 'SIN_TIPO') & (~df_procesado['Ref_Norm'].str.contains(r'EM\d+|M\d+', na=False))]
-        if not df_h2.empty:
-            ws2 = workbook.add_worksheet('2. Agrup. Tipo Abiertas')
-            ws2.write_row(0, 0, cols_pend, fmt_header)
-            r = 1
-            for tipo, grupo in df_h2.groupby('Ref_Norm'):
-                for _, row in grupo.iterrows():
-                    ws2.write_datetime(r, 0, row['Fecha'], fmt_date) if pd.notna(row['Fecha']) else ws2.write(r, 0, '-')
-                    ws2.write_row(r, 1, [str(row['Asiento']), str(row['Fuente']), str(row.get('Origen','')), str(row['Tipo']), str(row['Referencia'])], fmt_text)
-                    ws2.write_number(r, 6, row['Débito Colones'], fmt_num); ws2.write_number(r, 7, row['Crédito Colones'], fmt_num); ws2.write_number(r, 8, row['Neto Colones'], fmt_num)
-                    r += 1
-                ws2.write(r, 5, f"SALDO {tipo}:", fmt_total_lbl); ws2.write_number(r, 8, grupo['Neto Colones'].sum(), fmt_num_bold); r += 2
-
-        # --- HOJA 3: EMB PENDIENTES (CONDICIONAL) ---
-        df_h3 = df_procesado[(~df_procesado['Conciliado']) & (df_procesado['Ref_Norm'].str.contains(r'EM\d+|M\d+', na=False))]
-        if not df_h3.empty:
-            ws3 = workbook.add_worksheet('3. EMB Pendientes')
-            ws3.write_row(0, 0, cols_pend, fmt_header)
-            r = 1
-            for tipo, grupo in df_h3.groupby('Ref_Norm'):
-                for _, row in grupo.iterrows():
-                    ws3.write_datetime(r, 0, row['Fecha'], fmt_date) if pd.notna(row['Fecha']) else ws3.write(r, 0, '-')
-                    ws3.write_row(r, 1, [str(row['Asiento']), str(row['Fuente']), str(row.get('Origen','')), str(row['Tipo']), str(row['Referencia'])], fmt_text)
-                    ws3.write_number(r, 6, row['Débito Colones'], fmt_num); ws3.write_number(r, 7, row['Crédito Colones'], fmt_num); ws3.write_number(r, 8, row['Neto Colones'], fmt_num)
-                    r += 1
-                ws3.write(r, 5, f"SALDO {tipo}:", fmt_total_lbl); ws3.write_number(r, 8, grupo['Neto Colones'].sum(), fmt_num_bold); r += 2
-
-        # --- HOJA 4: OTROS PENDIENTES (CONDICIONAL) ---
-        df_h4 = df_procesado[(~df_procesado['Conciliado']) & (df_procesado['Ref_Norm'] == 'SIN_TIPO')]
-        if not df_h4.empty:
-            ws4 = workbook.add_worksheet('4. Otros Pendientes')
-            ws4.write_row(0, 0, cols_pend, fmt_header)
-            r = 1
-            for _, row in df_h4.iterrows():
-                ws4.write_datetime(r, 0, row['Fecha'], fmt_date) if pd.notna(row['Fecha']) else ws4.write(r, 0, '-')
-                ws4.write_row(r, 1, [str(row['Asiento']), str(row['Fuente']), str(row.get('Origen','')), str(row['Tipo']), str(row['Referencia'])], fmt_text)
-                ws4.write_number(r, 6, row['Débito Colones'], fmt_num); ws4.write_number(r, 7, row['Crédito Colones'], fmt_num); ws4.write_number(r, 8, row['Neto Colones'], fmt_num)
+        ws2.write_row(0, 0, cols_pend, fmt_header)
+        r = 1
+        for tipo, grupo in df_h2.groupby('Ref_Norm'):
+            for _, row in grupo.iterrows():
+                ws2.write_datetime(r, 0, row['Fecha'], fmt_date) if pd.notna(row['Fecha']) else ws2.write(r, 0, '-')
+                ws2.write_row(r, 1, [str(row['Asiento']), str(row['Fuente']), str(row.get('Origen','')), str(row['Tipo']), str(row['Referencia'])], fmt_text)
+                ws2.write_number(r, 6, row['Débito Colones'], fmt_num)
+                ws2.write_number(r, 7, row['Crédito Colones'], fmt_num)
+                ws2.write_number(r, 8, row['Neto Colones'], fmt_num)
                 r += 1
+            ws2.write(r, 5, f"SALDO {tipo}:", fmt_total_lbl); ws2.write_number(r, 8, grupo['Neto Colones'].sum(), fmt_num_bold); r += 2
 
-        # --- HOJA 5: ESPECIFICACIÓN (SIEMPRE EXISTE SI HAY PENDIENTES) ---
+        # --- HOJA 3: EMB PENDIENTES (SOLO EM/M) ---
+        ws3 = workbook.add_worksheet('3. EMB Pendientes')
+        df_h3 = df_procesado[(~df_procesado['Conciliado']) & (df_procesado['Ref_Norm'].str.contains(r'EM\d+|M\d+', na=False))]
+        ws3.write_row(0, 0, cols_pend, fmt_header)
+        r = 1
+        for tipo, grupo in df_h3.groupby('Ref_Norm'):
+            for _, row in grupo.iterrows():
+                ws3.write_datetime(r, 0, row['Fecha'], fmt_date) if pd.notna(row['Fecha']) else ws3.write(r, 0, '-')
+                ws3.write_row(r, 1, [str(row['Asiento']), str(row['Fuente']), str(row.get('Origen','')), str(row['Tipo']), str(row['Referencia'])], fmt_text)
+                ws3.write_number(r, 6, row['Débito Colones'], fmt_num); ws3.write_number(r, 7, row['Crédito Colones'], fmt_num); ws3.write_number(r, 8, row['Neto Colones'], fmt_num)
+                r += 1
+            ws3.write(r, 5, f"SALDO {tipo}:", fmt_total_lbl); ws3.write_number(r, 8, grupo['Neto Colones'].sum(), fmt_num_bold); r += 2
+
+        # --- HOJA 4: OTROS PENDIENTES ---
+        ws4 = workbook.add_worksheet('4. Otros Pendientes')
+        df_h4 = df_procesado[(~df_procesado['Conciliado']) & (df_procesado['Ref_Norm'] == 'SIN_TIPO')]
+        ws4.write_row(0, 0, cols_pend, fmt_header)
+        r = 1
+        for idx, row in df_h4.iterrows():
+            ws4.write_datetime(r, 0, row['Fecha'], fmt_date) if pd.notna(row['Fecha']) else ws4.write(r, 0, '-')
+            ws4.write_row(r, 1, [str(row['Asiento']), str(row['Fuente']), str(row.get('Origen','')), str(row['Tipo']), str(row['Referencia'])], fmt_text)
+            ws4.write_number(r, 6, row['Débito Colones'], fmt_num); ws4.write_number(r, 7, row['Crédito Colones'], fmt_num); ws4.write_number(r, 8, row['Neto Colones'], fmt_num)
+            r += 1
+
+        # --- HOJA 5: ESPECIFICACIÓN (CON ENCABEZADO DE EMPRESA) ---
+        ws5 = workbook.add_worksheet('5. Especificación')
+        ws5.hide_gridlines(2)
+        cols_spec = ['NIT', 'Descripción Nit', 'Fecha', 'Asiento', 'Referencia', 'Fuente', 'Monto Dólar', 'Colones', 'Tasa']
+        
+        # Único lugar con encabezado identificador
+        ws5.merge_range(0, 0, 0, len(cols_spec)-1, "COFERSA", fmt_empresa)
+        ws5.merge_range(1, 0, 1, len(cols_spec)-1, "ESPECIFICACION DE LA CUENTA 115.07.1.002", fmt_subtitulo)
+        ws5.merge_range(2, 0, 2, len(cols_spec)-1, txt_fecha, fmt_subtitulo)
+        ws5.write_row(4, 0, cols_spec, fmt_header)
+        
         df_open = df_procesado[~df_procesado['Conciliado']].copy()
         if not df_open.empty:
-            ws5 = workbook.add_worksheet('5. Especificación')
-            ws5.hide_gridlines(2)
-            cols_spec = ['NIT', 'Descripción Nit', 'Fecha', 'Asiento', 'Referencia', 'Fuente', 'Monto Dólar', 'Colones', 'Tasa']
-            ws5.merge_range(0, 0, 0, len(cols_spec)-1, "COFERSA", fmt_empresa)
-            ws5.merge_range(1, 0, 1, len(cols_spec)-1, "ESPECIFICACION DE LA CUENTA 115.07.1.002", fmt_subtitulo)
-            ws5.merge_range(2, 0, 2, len(cols_spec)-1, txt_fecha, fmt_subtitulo)
-            ws5.write_row(4, 0, cols_spec, fmt_header)
             df_open['Tasa'] = (df_open['Neto Colones'].abs() / df_open['Neto Dólar'].abs()).replace([np.inf, -np.inf], 0).fillna(0)
             r = 5
             for _, row in df_open.iterrows():
-                ws5.write(r, 0, str(row.get('NIT', '')), fmt_text); ws5.write(r, 1, str(row.get('Descripción Nit', 'NO DEFINIDO')), fmt_text)
+                ws5.write(r, 0, str(row.get('NIT', '')), fmt_text)
+                ws5.write(r, 1, str(row.get('Descripción Nit', 'NO DEFINIDO')), fmt_text)
                 ws5.write_datetime(r, 2, row['Fecha'], fmt_date) if pd.notna(row['Fecha']) else ws5.write(r, 2, '-')
                 ws5.write_row(r, 3, [str(row['Asiento']), str(row['Referencia']), str(row['Fuente'])], fmt_text)
-                ws5.write_number(r, 6, row['Neto Dólar'], fmt_num); ws5.write_number(r, 7, row['Neto Colones'], fmt_num); ws5.write_number(r, 8, row['Tasa'], fmt_tasa)
+                ws5.write_number(r, 6, row['Neto Dólar'], fmt_num)
+                ws5.write_number(r, 7, row['Neto Colones'], fmt_num)
+                ws5.write_number(r, 8, row['Tasa'], fmt_tasa)
                 r += 1
-            ws5.write(r, 5, "TOTAL GENERAL:", fmt_total_lbl); ws5.write_number(r, 6, df_open['Neto Dólar'].sum(), fmt_num_bold); ws5.write_number(r, 7, df_open['Neto Colones'].sum(), fmt_num_bold)
+            ws5.write(r, 5, "TOTAL GENERAL:", fmt_total_lbl)
+            ws5.write_number(r, 6, df_open['Neto Dólar'].sum(), fmt_num_bold)
+            ws5.write_number(r, 7, df_open['Neto Colones'].sum(), fmt_num_bold)
 
-        # --- HOJA 6: CONCILIADOS (CONDICIONAL + SALDO CERO) ---
+        # --- HOJA 6: CONCILIADOS (ESTRUCTURA COMPLETA) ---
+        ws6 = workbook.add_worksheet('6. Conciliados')
+        cols_conc = ['Fecha', 'Asiento', 'Fuente', 'Tipo', 'Referencia', 'Débito Colones', 'Crédito Colones', 'Débito Dolar', 'Crédito Dolar', 'Grupo']
+        ws6.write_row(0, 0, cols_conc, fmt_header)
         df_c = df_procesado[df_procesado['Conciliado']]
+        r = 1
+        for _, row in df_c.iterrows():
+            ws6.write_datetime(r, 0, row['Fecha'], fmt_date) if pd.notna(row['Fecha']) else ws6.write(r, 0, '-')
+            ws6.write_row(r, 1, [str(row['Asiento']), str(row['Fuente']), str(row['Tipo']), str(row['Referencia'])], fmt_text)
+            ws6.write_number(r, 5, row['Débito Colones'], fmt_num); ws6.write_number(r, 6, row['Crédito Colones'], fmt_num)
+            ws6.write_number(r, 7, row['Débito Dolar'], fmt_num); ws6.write_number(r, 8, row['Crédito Dolar'], fmt_num)
+            ws6.write(r, 9, str(row['Estado_Cofersa']), fmt_text)
+            r += 1
+        
         if not df_c.empty:
-            ws6 = workbook.add_worksheet('6. Conciliados')
-            cols_conc = ['Fecha', 'Asiento', 'Fuente', 'Tipo', 'Referencia', 'Débito Colones', 'Crédito Colones', 'Débito Dolar', 'Crédito Dolar', 'Grupo']
-            ws6.write_row(0, 0, cols_conc, fmt_header)
-            r = 1
-            for _, row in df_c.iterrows():
-                ws6.write_datetime(r, 0, row['Fecha'], fmt_date) if pd.notna(row['Fecha']) else ws6.write(r, 0, '-')
-                ws6.write_row(r, 1, [str(row['Asiento']), str(row['Fuente']), str(row['Tipo']), str(row['Referencia'])], fmt_text)
-                ws6.write_number(r, 5, row['Débito Colones'], fmt_num); ws6.write_number(r, 6, row['Crédito Colones'], fmt_num)
-                ws6.write_number(r, 7, row['Débito Dolar'], fmt_num); ws6.write_number(r, 8, row['Crédito Dolar'], fmt_num); ws6.write(r, 9, str(row['Estado_Cofersa']), fmt_text)
-                r += 1
             ws6.write(r, 4, "TOTALES:", fmt_total_lbl)
-            ws6.write_number(r, 5, df_c['Débito Colones'].sum(), fmt_num_bold); ws6.write_number(r, 6, df_c['Crédito Colones'].sum(), fmt_num_bold)
+            ws6.write_number(r, 5, df_c['Débito Colones'].sum(), fmt_num_bold)
+            ws6.write_number(r, 6, df_c['Crédito Colones'].sum(), fmt_num_bold)
+            ws6.write_number(r, 7, df_c['Débito Dolar'].sum(), fmt_num_bold)
+            ws6.write_number(r, 8, df_c['Crédito Dolar'].sum(), fmt_num_bold)
             ws6.write(r+1, 4, "SALDO NETO:", fmt_total_lbl)
-            # El saldo neto ahora debe ser 0.00 debido a la lógica estricta de conciliación
-            ws6.write_number(r+1, 5, round(df_c['Débito Colones'].sum() - df_c['Crédito Colones'].sum(), 2), fmt_num_bold)
+            ws6.write_number(r+1, 5, df_c['Débito Colones'].sum() - df_c['Crédito Colones'].sum(), fmt_num_bold)
 
         for sheet in workbook.worksheets(): sheet.set_column('A:Z', 18)
 
