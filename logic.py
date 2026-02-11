@@ -4389,14 +4389,24 @@ def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
     if progress_bar:
         progress_bar.progress(1.0)
 
-    conteo_pares = len(df[df['Estado_Cofersa'].str.contains('PAR_', na=False)])
-    conteo_grupos = len(df[df['Estado_Cofersa'].str.contains('GRUPO_|AJUSTE_', na=False)])
-    conteo_pendientes = len(df[df['Estado_Cofersa'] == 'PENDIENTE'])
+    # 1. Calculamos el total de filas que quedaron marcadas como Conciliado = True
+    total_movimientos_cerrados = len(df[df['Conciliado'] == True])
 
-    log_messages.append(f"🏁 Proceso finalizado. Total movimientos cerrados: {total_final}")
+    # 2. Preparamos los contadores para la UI (opcional si vas a usar el retorno múltiple)
+    count_pares = len(df[df['Estado_Cofersa'].str.contains('PAR_', na=False)])
+    count_grupos = len(df[df['Estado_Cofersa'].str.contains('GRUPO_|AJUSTE_', na=False)])
+    count_pendientes = len(df[df['Estado_Cofersa'] == 'PENDIENTE'])
+
+    # 3. Corregimos el log (usando el nombre de variable correcto)
+    log_messages.append(f"🏁 Proceso finalizado. Total movimientos cerrados: {total_movimientos_cerrados}")
     
-    # IMPORTANTE: Retornar tanto el DF como los contadores
-    return df, conteo_pares, conteo_grupos, conteo_pendientes
+    if progress_bar:
+        progress_bar.progress(1.0)
+
+    # 4. Retornamos según lo que espera tu app.py
+    # Si tu app.py espera solo el DF, usa: return df
+    # Si aplicaste mi consejo anterior de retorno múltiple, usa:
+    return df, count_pares, count_grupos, count_pendientes
 
 # ==============================================================================
 # LÓGICA FONDOS EN TRANSITO (101010300)
