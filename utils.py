@@ -2617,31 +2617,37 @@ def generar_reporte_cofersa(df_procesado):
             ws5.write_number(r, 7, df_open['Neto Colones'].sum(), fmt_num_bold)
 
         # --- HOJA 6: CONCILIADOS (ESTRUCTURA COMPLETA) ---
-        cols_conc = ['Fecha', 'Asiento', 'Fuente', 'Tipo', 'Referencia', 'Débito Colones', 'Crédito Colones', 'Débito Dolar', 'Crédito Dolar', 'Grupo']
-        ws6.write_row(0, 0, cols_conc, fmt_header)
         df_c = df_procesado[df_procesado['Conciliado']]
         if not df_c.empty:
             ws6 = workbook.add_worksheet('6. Conciliados')
             ws6.hide_gridlines(2)
-        r = 1
-        for _, row in df_c.iterrows():
-            ws6.write_datetime(r, 0, row['Fecha'], fmt_date) if pd.notna(row['Fecha']) else ws6.write(r, 0, '-')
-            ws6.write_row(r, 1, [str(row['Asiento']), str(row['Fuente']), str(row['Tipo']), str(row['Referencia'])], fmt_text)
-            ws6.write_number(r, 5, row['Débito Colones'], fmt_num); ws6.write_number(r, 6, row['Crédito Colones'], fmt_num)
-            ws6.write_number(r, 7, row['Débito Dolar'], fmt_num); ws6.write_number(r, 8, row['Crédito Dolar'], fmt_num)
-            ws6.write(r, 9, str(row['Estado_Cofersa']), fmt_text)
-            r += 1
-        
-        if not df_c.empty:
+            cols_conc = ['Fecha', 'Asiento', 'Fuente', 'Tipo', 'Referencia', 'Débito Colones', 'Crédito Colones', 'Débito Dolar', 'Crédito Dolar', 'Grupo']
+            ws6.write_row(0, 0, cols_conc, fmt_header)
+            
+            r = 1
+            for _, row in df_c.iterrows():
+                if pd.notna(row['Fecha']): ws6.write_datetime(r, 0, row['Fecha'], fmt_date)
+                else: ws6.write(r, 0, '-')
+                ws6.write_row(r, 1, [str(row['Asiento']), str(row['Fuente']), str(row['Tipo']), str(row['Referencia'])], fmt_text)
+                ws6.write_number(r, 5, row['Débito Colones'], fmt_num)
+                ws6.write_number(r, 6, row['Crédito Colones'], fmt_num)
+                ws6.write_number(r, 7, row['Débito Dolar'], fmt_num)
+                ws6.write_number(r, 8, row['Crédito Dolar'], fmt_num)
+                ws6.write(r, 9, str(row['Estado_Cofersa']), fmt_text)
+                r += 1
+            
+            # TOTALES (Solo si hay datos)
             ws6.write(r, 4, "TOTALES:", fmt_total_lbl)
             ws6.write_number(r, 5, df_c['Débito Colones'].sum(), fmt_num_bold)
             ws6.write_number(r, 6, df_c['Crédito Colones'].sum(), fmt_num_bold)
             ws6.write_number(r, 7, df_c['Débito Dolar'].sum(), fmt_num_bold)
             ws6.write_number(r, 8, df_c['Crédito Dolar'].sum(), fmt_num_bold)
+            
             ws6.write(r+1, 4, "SALDO NETO:", fmt_total_lbl)
             ws6.write_number(r+1, 5, df_c['Débito Colones'].sum() - df_c['Crédito Colones'].sum(), fmt_num_bold)
-
-        for sheet in workbook.worksheets(): sheet.set_column('A:Z', 18)
+            
+            # Ancho de columna específico para esta hoja
+            ws6.set_column('A:J', 18)
 
     return output.getvalue()
     
