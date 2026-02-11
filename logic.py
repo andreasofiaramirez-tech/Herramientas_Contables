@@ -4470,6 +4470,54 @@ def run_conciliation_fondos_transito_cofersa(df, log_messages, progress_bar=None
     log_messages.append(f"✔️ Conciliación finalizada. Total: {total_conciliados} movimientos.")
     return df
 
+def run_conciliation_dev_proveedores_cofersa(df, log_messages, moneda_base='CRC'):
+    """
+    Lógica para Devoluciones a Proveedores COFERSA.
+    Cruce por NIT + Número de EMB (extraído de Referencia).
+    moneda_base: 'CRC' para Colones, 'USD' para Dólares.
+    """
+    log_messages.append(f"\n--- INICIANDO CONCILIACIÓN DEV. PROVEEDORES ({moneda_base}) ---")
+    
+    # 1. Parámetros según moneda
+    col_monto = 'Neto Local' if moneda_base == 'CRC' else 'Neto Dólar'
+    TOLERANCIA = 0.01
+
+    # 2. Extracción de la Llave de Embarque (Regex)
+    def extraer_emb(texto):
+        if pd.isna(texto): return 'SIN_EMB'
+        # Busca EM o M seguido de dígitos (ej: EM25010 o M3500)
+        match = re.search(r'([EM]\d+)', str(texto).upper())
+        return match.group(1) if match else 'SIN_EMB'
+
+    df['EMB_Key'] = df['Referencia'].apply(extraer_emb)
+    
+    # 3. Limpieza de NIT y Estados
+    df['NIT'] = df['NIT'].astype(str).str.strip().replace(['NAN', 'NONE', '0', '0.0'], 'SIN_NIT')
+    df['Conciliado'] = False
+    df['Estado_Cofersa'] = 'PENDIENTE'
+    
+    total_conciliados = 0
+
+    # 4. Cruce Maestro: Grupo por NIT + EMB_Key
+    # Ignoramos los que no tienen EMB o NIT para evitar cruces masivos erróneos
+    df_procesable = df[(df['EMB_Key'] != 'SIN_EMB') & (df['NIT'] != 'SIN_NIT')].copy()
+    
+    if not df_procesable.empty:
+        grupos = df_procesable.groupby(['NIT', 'EMB_Key'])
+        for (nit, emb), grupo in grupos:
+            if len(grupo) < 2: continue
+            
+            suma_grupo = round(grupo[col_monto].sum(), 2)
+            
+            if abs(suma_grupo) <= TOLERANCIA:
+                indices = grupo.index
+                df.loc[indices, 'Conciliado'] = True
+                df.loc[indices, 'Estado_Cofersa'] = f'DEV_PROV_{emb}'
+                total_conciliados += len(indices)
+
+    log_messages.append(f"✔️ Proceso finalizado. Se conciliaron {total_conciliados} movimientos por NIT/EMBARQUE.")
+    return df
+
 # ==============================================================================
 # LÓGICA VERIFICACIÓN DE DÉBITO FISCAL (BS)
 # ==============================================================================
