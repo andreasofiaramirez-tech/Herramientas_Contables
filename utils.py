@@ -2600,6 +2600,11 @@ def generar_reporte_cofersa(df_procesado):
                 ws.write_number(r, 6, grupo['Neto Local'].sum(), fmt_num_bold)
                 ws.write_number(r, 7, grupo['Neto Dólar'].sum(), fmt_num_bold)
                 r += 2
+                
+            # --- NUEVA MEJORA: TOTAL GENERAL DE LA HOJA ---
+            ws.write(r, 5, "TOTAL GENERAL PENDIENTE:", fmt_total_lbl)
+            ws.write_number(r, 6, df_h['Neto Local'].sum(), fmt_num_bold)
+            ws.write_number(r, 7, df_h['Neto Dólar'].sum(), fmt_num_bold)
 
             # AJUSTE DE ANCHOS LEGIBLES
             ws.set_column('A:A', 15) # Fecha
