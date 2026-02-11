@@ -2610,30 +2610,35 @@ def generar_reporte_cofersa(df_procesado):
 
         # --- HOJA 5: ESPECIFICACIÓN (CON ENCABEZADO DE EMPRESA) ---
         df_open = df_procesado[(~df_procesado['Conciliado']) & (df_procesado['Neto Colones'].abs() > 0.001)].copy()
-        if not df_open.empty:
+        
+        if not df_open.empty: # <--- TODO el bloque debe depender de esto
             ws5 = workbook.add_worksheet('Especificación')
             ws5.hide_gridlines(2)
-        cols_spec = ['NIT', 'Descripción Nit', 'Fecha', 'Asiento', 'Referencia', 'Fuente', 'Monto Dólar', 'Colones', 'Tasa']
-        
-        # Único lugar con encabezado identificador
-        ws5.merge_range(0, 0, 0, len(cols_spec)-1, "COFERSA", fmt_empresa)
-        ws5.merge_range(1, 0, 1, len(cols_spec)-1, "ESPECIFICACION DE LA CUENTA 115.07.1.002", fmt_subtitulo)
-        ws5.merge_range(2, 0, 2, len(cols_spec)-1, txt_fecha, fmt_subtitulo)
-        ws5.write_row(4, 0, cols_spec, fmt_header)
-        
-        df_open = df_procesado[~df_procesado['Conciliado']].copy()
-        if not df_open.empty:
+            cols_spec = ['NIT', 'Descripción Nit', 'Fecha', 'Asiento', 'Referencia', 'Fuente', 'Monto Dólar', 'Colones', 'Tasa']
+            
+            # Único lugar con encabezado identificador
+            ws5.merge_range(0, 0, 0, len(cols_spec)-1, "COFERSA", fmt_empresa)
+            ws5.merge_range(1, 0, 1, len(cols_spec)-1, "ESPECIFICACION DE LA CUENTA 115.07.1.002", fmt_subtitulo)
+            ws5.merge_range(2, 0, 2, len(cols_spec)-1, txt_fecha, fmt_subtitulo)
+            ws5.write_row(4, 0, cols_spec, fmt_header)
+            
+            # Cálculo de tasa y llenado de datos
             df_open['Tasa'] = (df_open['Neto Colones'].abs() / df_open['Neto Dólar'].abs()).replace([np.inf, -np.inf], 0).fillna(0)
             r = 5
             for _, row in df_open.iterrows():
                 ws5.write(r, 0, str(row.get('NIT', '')), fmt_text)
                 ws5.write(r, 1, str(row.get('Descripción Nit', 'NO DEFINIDO')), fmt_text)
-                ws5.write_datetime(r, 2, row['Fecha'], fmt_date) if pd.notna(row['Fecha']) else ws5.write(r, 2, '-')
+                if pd.notna(row['Fecha']):
+                    ws5.write_datetime(r, 2, row['Fecha'], fmt_date)
+                else:
+                    ws5.write(r, 2, '-')
                 ws5.write_row(r, 3, [str(row['Asiento']), str(row['Referencia']), str(row['Fuente'])], fmt_text)
                 ws5.write_number(r, 6, row['Neto Dólar'], fmt_num)
                 ws5.write_number(r, 7, row['Neto Colones'], fmt_num)
                 ws5.write_number(r, 8, row['Tasa'], fmt_tasa)
                 r += 1
+
+            # Totales y Formato
             ws5.write(r, 5, "TOTAL GENERAL:", fmt_total_lbl)
             ws5.write_number(r, 6, df_open['Neto Dólar'].sum(), fmt_num_bold)
             ws5.write_number(r, 7, df_open['Neto Colones'].sum(), fmt_num_bold)
