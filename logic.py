@@ -4318,7 +4318,10 @@ def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
     df['Conciliado'] = False
     df['Estado_Cofersa'] = 'PENDIENTE'
     TOLERANCIA_ESTRICTA = 0.01 
-
+    
+# Eliminar movimientos que no tienen impacto monetario (Neto 0 en ambas monedas)
+    df = df[(df['Neto Local'].abs() > 0.001) | (df['Neto Dólar'].abs() > 0.001)].copy()
+    
     # 1. Normalización de la llave TIPO
     df['Ref_Norm'] = (
         df['Tipo'].astype(str)
@@ -4329,6 +4332,10 @@ def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
     
     # 2. Sincronización de montos
     df['Neto Local'] = (df['Débito Colones'].fillna(0) - df['Crédito Colones'].fillna(0)).round(2)
+    df['Neto Dólar'] = (df['Débito Dolar'].fillna(0) - df['Crédito Dolar'].fillna(0)).round(2)
+    
+    # Verificación de seguridad para el log
+    log_messages.append("✅ Montos calculados automáticamente: [Neto = Débito - Crédito]")
     
     total_conciliados = 0
     indices_usados = set()
