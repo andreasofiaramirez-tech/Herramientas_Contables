@@ -2568,10 +2568,10 @@ def generar_reporte_cofersa(df_procesado):
                 ws2.write_number(r, 8, float(row['Neto Colones']), fmt_num)
                 r += 1
             ws2.write(r, 5, f"SALDO {tipo}:", fmt_total_lbl); ws2.write_number(r, 8, grupo['Neto Colones'].sum(), fmt_num_bold); r += 2
-            ws.set_column('A:A', 15) # Fecha
-            ws.set_column('B:E', 20) # Asiento, Fuente, Origen, Tipo
-            ws.set_column('F:F', 45) # Referencia (Larga para descripciones)
-            ws.set_column('G:I', 22) # Montos Colones (Extra ancho para millones)
+            ws2.set_column('A:A', 15) # Fecha
+            ws2.set_column('B:E', 20) # Asiento, Fuente, Origen, Tipo
+            ws2.set_column('F:F', 45) # Referencia (Larga para descripciones)
+            ws2.set_column('G:I', 22) # Montos Colones (Extra ancho para millones)
 
         # --- HOJA 3: EMB PENDIENTES (SOLO EM/M) ---
         df_h3 = df_procesado[(~df_procesado['Conciliado']) & (df_procesado['Ref_Norm'].str.contains(r'EM\d+|M\d+', na=False)) & (df_procesado['Neto Colones'].abs() > 0.01) & (df_procesado['Asiento'].notna())]
@@ -2586,10 +2586,10 @@ def generar_reporte_cofersa(df_procesado):
                 ws3.write_number(r, 6, row['Débito Colones'], fmt_num); ws3.write_number(r, 7, row['Crédito Colones'], fmt_num); ws3.write_number(r, 8, row['Neto Colones'], fmt_num)
                 r += 1
             ws3.write(r, 5, f"SALDO {tipo}:", fmt_total_lbl); ws3.write_number(r, 8, grupo['Neto Colones'].sum(), fmt_num_bold); r += 2
-            ws.set_column('A:A', 15) # Fecha
-            ws.set_column('B:E', 20) # Asiento, Fuente, Origen, Tipo
-            ws.set_column('F:F', 45) # Referencia (Larga para descripciones)
-            ws.set_column('G:I', 22) # Montos Colones (Extra ancho para millones)
+            ws3.set_column('A:A', 15) # Fecha
+            ws3.set_column('B:E', 20) # Asiento, Fuente, Origen, Tipo
+            ws3.set_column('F:F', 45) # Referencia (Larga para descripciones)
+            ws3.set_column('G:I', 22) # Montos Colones (Extra ancho para millones)
 
         # --- HOJA 4: OTROS PENDIENTES ---
         df_h4 = df_procesado[(~df_procesado['Conciliado']) & (df_procesado['Ref_Norm'] == 'SIN_TIPO') & (df_procesado['Neto Colones'].abs() > 0.01) & (df_procesado['Asiento'].notna())]
@@ -2602,10 +2602,10 @@ def generar_reporte_cofersa(df_procesado):
             ws4.write_row(r, 1, [str(row['Asiento']), str(row['Fuente']), str(row.get('Origen','')), str(row['Tipo']), str(row['Referencia'])], fmt_text)
             ws4.write_number(r, 6, row['Débito Colones'], fmt_num); ws4.write_number(r, 7, row['Crédito Colones'], fmt_num); ws4.write_number(r, 8, row['Neto Colones'], fmt_num)
             r += 1
-            ws.set_column('A:A', 15) # Fecha
-            ws.set_column('B:E', 20) # Asiento, Fuente, Origen, Tipo
-            ws.set_column('F:F', 45) # Referencia (Larga para descripciones)
-            ws.set_column('G:I', 22) # Montos Colones (Extra ancho para millones)
+            ws4.set_column('A:A', 15) # Fecha
+            ws4.set_column('B:E', 20) # Asiento, Fuente, Origen, Tipo
+            ws4.set_column('F:F', 45) # Referencia (Larga para descripciones)
+            ws4.set_column('G:I', 22) # Montos Colones (Extra ancho para millones)
 
         # --- HOJA 5: ESPECIFICACIÓN (CON ENCABEZADO DE EMPRESA) ---
         df_open = df_procesado[(~df_procesado['Conciliado']) & (df_procesado['Neto Colones'].abs() > 0.001)].copy()
