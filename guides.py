@@ -229,7 +229,55 @@ La herramienta ejecuta un algoritmo de **cuatro fases progresivas** para garanti
             
         4.  **Barrido Final:**
             *   Si la suma total de **todos** los movimientos restantes es exactamente **0.00 Bs**, la herramienta asume que son contrapartidas globales y cierra todo el remanente en un solo lote.
-        """
+        """,
+    "115.07.1.002 - Envios en Transito COFERSA": """
+### 🚛 Manual de Operaciones: Envíos en Tránsito COFERSA (CRC)
+
+Esta herramienta automatiza la conciliación de la cuenta de tránsitos, utilizando la columna **TIPO** como eje central de los cruces. La lógica está optimizada para manejar grandes volúmenes de datos en **Colones (CRC)**, asegurando un saldo neto de cero en las partidas cerradas.
+
+---
+
+#### 📂 1. Insumos y Columnas Requeridas
+
+Para procesar esta cuenta, debe cargar dos archivos Excel (.xlsx). El sistema identificará automáticamente las siguientes columnas (el radar de la herramienta ignora acentos y diferencia entre mayúsculas/minúsculas):
+
+*   **TIPO:** Es la columna más importante. Contiene los números de embarque (EM... o M...) o categorías de ajuste.
+*   **FECHA / ASIENTO / FUENTE:** Columnas de trazabilidad del registro.
+*   **REFERENCIA:** Descripción detallada del movimiento.
+*   **DÉBITO LOCAL / CRÉDITO LOCAL:** Montos en Colones (Base de la conciliación).
+*   **DÉBITO DÓLAR / CRÉDITO DÓLAR:** Montos informativos en USD.
+
+---
+
+#### 🧠 2. ¿Cómo funciona la Lógica de Conciliación? (V16)
+
+La herramienta ya no realiza cruces globales al azar; ahora es **estrictamente jerárquica** dentro de cada grupo de "Tipo":
+
+1.  **Limpieza de Datos:** El sistema ignora filas de totales o celdas vacías provenientes del reporte administrativo (Softland), trabajando solo con asientos contables reales.
+2.  **Fase A - Búsqueda de Pares Internos:** Antes de sumar el grupo completo, el sistema revisa cada "Tipo" buscando un Débito y un Crédito que sean **exactamente iguales**. Si los encuentra, los concilia de inmediato (Etiqueta: `PAR_INTERNO`).
+3.  **Fase B - Validación de Saldo Neto:** Con los movimientos restantes de cada "Tipo", el sistema realiza una sumatoria algebraica. Si el resultado es **0.00**, cierra todo el bloque (Etiqueta: `GRUPO_NETO`).
+4.  **Tolerancia Cero:** Para garantizar la integridad del cierre, la herramienta solo concilia grupos cuyo saldo sea exactamente cero, evitando que queden céntimos huérfanos en la hoja de conciliados.
+
+---
+
+#### 📊 3. Estructura del Reporte de Salida
+
+El archivo generado es dinámico: **solo mostrará las pestañas que contengan datos.**
+
+*   **Agrup. Tipo Abiertas:** Listado de movimientos que tienen un "Tipo" asignado pero que NO sumaron cero (ajustes, reclasificaciones, etc.).
+*   **EMB Pendientes:** Exclusivo para números de embarque (**EM** o **M**) que tienen saldo vivo. Incluye totalizadores por cada embarque.
+*   **Otros Pendientes:** Movimientos que no tienen nada escrito en la columna "Tipo" y permanecen abiertos.
+*   **Especificación:** Hoja principal de auditoría con encabezado oficial de **COFERSA**. Presenta el detalle de saldos abiertos por línea, incluyendo el cálculo de la tasa implícita.
+*   **Conciliados:** Histórico de lo cerrado en el proceso. Incluye un totalizador al final para verificar que el **Saldo Neto es 0.00**.
+
+---
+
+#### 💡 Tips para el Éxito en la Conciliación
+
+1.  **Anchos de Columna:** El reporte viene con anchos pre-ajustados para cifras de millones. Si ve `#######`, simplemente ensanche un poco la celda, aunque el sistema ya usa un ancho de 22 para montos.
+2.  **Filas Vacías:** No se preocupe si su reporte de Softland trae filas en blanco al final; la herramienta las detecta y las purga automáticamente.
+3.  **Hojas Faltantes:** Si el Excel descargado no tiene la hoja "Otros Pendientes", significa que **todos** sus movimientos tenían un Tipo asignado. ¡Es una buena señal de orden contable!
+""",
 }
 
 # ==============================================================================
