@@ -4310,21 +4310,16 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
 # ==============================================================================
 def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
     """
-    Conciliación para Envíos en Tránsito COFERSA (V15).
-    Lógica estricta basada en la columna TIPO con tolerancia cero.
+    Conciliación COFERSA (V16).
+    Busca pares exactos DENTRO de cada TIPO antes de evaluar el saldo total del grupo.
     """
-    log_messages.append("\n--- INICIANDO CONCILIACIÓN COFERSA (V15 - SALDO CERO ESTRICTO) ---")
+    log_messages.append("\n--- INICIANDO CONCILIACIÓN COFERSA (V16 - PARES INTERNOS POR TIPO) ---")
     
-    # 1. REINICIO Y LIMPIEZA DE ESTADOS
-    # Limpiamos cualquier rastro de procesos anteriores para evitar falsos positivos
     df['Conciliado'] = False
     df['Estado_Cofersa'] = 'PENDIENTE'
-    
-    # Tolerancia mínima técnica (0.01) para absorber errores de redondeo de Excel
     TOLERANCIA_ESTRICTA = 0.01 
 
-    # 2. NORMALIZACIÓN DE LA LLAVE MAESTRA (Columna TIPO)
-    # Convertimos a texto limpio y tratamos los vacíos como 'SIN_TIPO'
+    # 1. Normalización de la llave TIPO
     df['Ref_Norm'] = (
         df['Tipo'].astype(str)
         .str.strip()
@@ -4332,17 +4327,13 @@ def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
         .replace(['NAN', 'NONE', '', '0', '0.0'], 'SIN_TIPO')
     )
     
-    # 3. SINCRONIZACIÓN DE MONTOS
-    # Aseguramos que 'Neto Local' esté calculado sobre las columnas de Colones
-    df['Neto Local'] = (
-        df['Débito Colones'].fillna(0) - df['Crédito Colones'].fillna(0)
-    ).round(2)
+    # 2. Sincronización de montos
+    df['Neto Local'] = (df['Débito Colones'].fillna(0) - df['Crédito Colones'].fillna(0)).round(2)
     
     total_conciliados = 0
     indices_usados = set()
 
-    # --- FASE ÚNICA: CONCILIACIÓN POR AGRUPACIÓN DE TIPO ---
-    # Solo procesamos grupos que tengan un TIPO válido (no 'SIN_TIPO')
+    # --- FASE ÚNICA: ANÁLISIS DE GRUPOS POR TIPO ---
     df_procesable = df[df['Ref_Norm'] != 'SIN_TIPO'].copy()
     
     if not df_procesable.empty:
@@ -4350,28 +4341,47 @@ def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
             if len(grupo) < 2:
                 continue
             
-            # Calculamos la suma algebraica del grupo
-            suma_grupo = round(grupo['Neto Local'].sum(), 2)
+            # --- SUB-FASE A: BUSCAR PARES EXACTOS DENTRO DEL TIPO ---
+            # Esto resuelve el caso de Débito y Crédito iguales que se quedaban abiertos
+            debitos = grupo[grupo['Neto Local'] > 0].copy()
+            creditos = grupo[grupo['Neto Local'] < 0].copy()
             
-            # REGLA DE ORO: Solo se concilia si el saldo del grupo es CERO
-            if abs(suma_grupo) <= TOLERANCIA_ESTRICTA:
-                indices_del_grupo = grupo.index
-                df.loc[indices_del_grupo, 'Conciliado'] = True
-                df.loc[indices_del_grupo, 'Estado_Cofersa'] = f'CONCILIADO_{tipo_val}'
-                indices_usados.update(indices_del_grupo)
-                total_conciliados += len(indices_del_grupo)
-                log_messages.append(f"✔️ Grupo TIPO '{tipo_val}' conciliado exitosamente (Saldo 0.00).")
+            for idx_d, row_d in debitos.iterrows():
+                monto_buscar = abs(row_d['Neto Local'])
+                # Buscamos en los créditos uno que tenga el mismo monto y no haya sido usado
+                match_credito = creditos[
+                    (creditos['Neto Local'].abs() == monto_buscar) & 
+                    (~creditos.index.isin(indices_usados))
+                ]
+                
+                if not match_credito.empty:
+                    idx_c = match_credito.index[0]
+                    indices_pareja = [idx_d, idx_c]
+                    
+                    df.loc[indices_pareja, 'Conciliado'] = True
+                    df.loc[indices_pareja, 'Estado_Cofersa'] = f'PAR_INTERNO_{tipo_val}'
+                    indices_usados.update(indices_pareja)
+                    total_conciliados += 2
+                    # Eliminamos de la lista local de créditos para no re-usarlo
+                    creditos = creditos.drop(idx_c)
 
-    # --- FASE DE SEGURIDAD: OTROS PENDIENTES ---
-    # Lo que no entró en la Fase anterior queda marcado como PENDIENTE
-    # para ser listado en las Hojas 2, 3 o 4 según corresponda.
-    
+            # --- SUB-FASE B: VERIFICAR SI EL RESTO DEL GRUPO SUMA CERO ---
+            # Lo que no se concilió como par exacto, vemos si suma cero como bloque
+            remanente_grupo = grupo[~grupo.index.isin(indices_usados)]
+            
+            if len(remanente_grupo) >= 2:
+                suma_remanente = round(remanente_grupo['Neto Local'].sum(), 2)
+                if abs(suma_remanente) <= TOLERANCIA_ESTRICTA:
+                    indices_rem = remanente_grupo.index
+                    df.loc[indices_rem, 'Conciliado'] = True
+                    df.loc[indices_rem, 'Estado_Cofersa'] = f'GRUPO_NETO_{tipo_val}'
+                    indices_usados.update(indices_rem)
+                    total_conciliados += len(indices_rem)
+
     if progress_bar:
-        progress_bar.progress(1.0, text="Conciliación COFERSA finalizada.")
+        progress_bar.progress(1.0)
 
     log_messages.append(f"🏁 Proceso finalizado. Total movimientos cerrados: {total_conciliados}")
-    log_messages.append(f"⚠️ Movimientos que permanecen abiertos: {len(df) - total_conciliados}")
-    
     return df
 
 # ==============================================================================
