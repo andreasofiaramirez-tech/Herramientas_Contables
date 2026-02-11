@@ -2501,18 +2501,12 @@ def generar_reporte_cofersa(df_procesado):
     
     # --- LIMPIEZA Y PREPARACIÓN ---
     cols_moneda = ['Débito Colones', 'Crédito Colones', 'Neto Colones', 'Débito Dolar', 'Crédito Dolar', 'Neto Dólar']
-    
     for col in cols_moneda:
         if col in df_procesado.columns:
-            # Forzamos conversión a número y reemplazamos cualquier error o vacío por 0.0
             df_procesado[col] = pd.to_numeric(df_procesado[col], errors='coerce').fillna(0.0)
 
-    # ELIMINAR FILAS REALMENTE VACÍAS (Evita el problema del print anterior)
-    # Solo conservamos filas donde al menos un monto sea distinto de cero
-    df_procesado = df_procesado[
-        (df_procesado['Neto Colones'].abs() > 0.001) | 
-        (df_procesado['Neto Dólar'].abs() > 0.001)
-    ].copy()
+    # Filtro preventivo de filas vacías
+    df_procesado = df_procesado[df_procesado['Neto Colones'].abs() > 0.001) | (df_procesado['Neto Dólar'].abs() > 0.001)].copy()
     
     fecha_max = df_procesado['Fecha'].dropna().max()
     meses_es = {1: "ENERO", 2: "FEBRERO", 3: "MARZO", 4: "ABRIL", 5: "MAYO", 6: "JUNIO", 7: "JULIO", 8: "AGOSTO", 9: "SEPTIEMBRE", 10: "OCTUBRE", 11: "NOVIEMBRE", 12: "DICIEMBRE"}
@@ -2531,63 +2525,47 @@ def generar_reporte_cofersa(df_procesado):
         fmt_text = workbook.add_format({'border': 1})
         fmt_total_lbl = workbook.add_format({'bold': True, 'align': 'right', 'border': 1, 'bg_color': '#F2F2F2'})
         fmt_tasa = workbook.add_format({'num_format': '#,##0.0000', 'border': 1})
+        cols_pend = ['Fecha', 'Asiento', 'Fuente', 'Origen', 'Tipo', 'Referencia', 'Neto Colones', 'Neto Dólar']
 
-        cols_pend = ['Fecha', 'Asiento', 'Fuente', 'Origen', 'Tipo', 'Referencia', 'Débito Colones', 'Crédito Colones', 'Neto Colones']
+        # --- 3. HOJAS 1 A 4: PENDIENTES (ESTRUCTURA NETOS) ---
+        hojas_pendientes = [
+            ('1. Pares 1 a 1', df_procesado[df_procesado['Estado_Cofersa'] == 'PARES_1_A_1']),
+            ('2. Agrup. Tipo Abiertas', df_procesado[(~df_procesado['Conciliado']) & (df_procesado['Ref_Norm'] != 'SIN_TIPO') & (~df_procesado['Ref_Norm'].str.contains(r'EM\d+|M\d+', na=False))]),
+            ('3. EMB Pendientes', df_procesado[(~df_procesado['Conciliado']) & (df_procesado['Ref_Norm'].str.contains(r'EM\d+|M\d+', na=False))]),
+            ('4. Otros Pendientes', df_procesado[(~df_procesado['Conciliado']) & (df_procesado['Ref_Norm'] == 'SIN_TIPO')])
+        ]
 
-        # --- HOJA 2: AGRUPACIONES POR TIPO (NO EMBARQUES) ---
-        df_h2 = df_procesado[(~df_procesado['Conciliado']) & (df_procesado['Ref_Norm'] != 'SIN_TIPO') & (~df_procesado['Ref_Norm'].str.contains(r'EM\d+|M\d+', na=False)) & (df_procesado['Neto Colones'].abs() > 0.01) & (df_procesado['Asiento'].notna())]
-        if not df_h2.empty:
-            ws2 = workbook.add_worksheet('2. Agrup. Tipo Abiertas')
-            ws2.write_row(0, 0, cols_pend, fmt_header)
-            r = 1
-        for tipo, grupo in df_h2.groupby('Ref_Norm'):
-            for _, row in grupo.iterrows():
-                ws2.write_datetime(r, 0, row['Fecha'], fmt_date) if pd.notna(row['Fecha']) else ws2.write(r, 0, '-')
-                ws2.write_row(r, 1, [str(row['Asiento']), str(row['Fuente']), str(row.get('Origen','')), str(row['Tipo']), str(row['Referencia'])], fmt_text)
-                ws2.write_number(r, 6, float(row['Débito Colones']), fmt_num)
-                ws2.write_number(r, 7, float(row['Crédito Colones']), fmt_num)
-                ws2.write_number(r, 8, float(row['Neto Colones']), fmt_num)
-                r += 1
-            ws2.write(r, 5, f"SALDO {tipo}:", fmt_total_lbl); ws2.write_number(r, 8, grupo['Neto Colones'].sum(), fmt_num_bold); r += 2
+        for nombre_hoja, df_h in hojas_pendientes:
+            if df_h.empty: continue
             
-            ws2.set_column('A:A', 15) # Fecha
-            ws2.set_column('B:E', 20) # Asiento, Fuente, Origen, Tipo
-            ws2.set_column('F:F', 45) # Referencia
-            ws2.set_column('G:I', 22) # Montos
-
-        # --- HOJA 3: EMB PENDIENTES (SOLO EM/M) ---
-        df_h3 = df_procesado[(~df_procesado['Conciliado']) & (df_procesado['Ref_Norm'].str.contains(r'EM\d+|M\d+', na=False)) & (df_procesado['Neto Colones'].abs() > 0.01) & (df_procesado['Asiento'].notna())]
-        if not df_h3.empty:
-            ws3 = workbook.add_worksheet('3. EMB Pendientes')
-            ws3.write_row(0, 0, cols_pend, fmt_header)
+            ws = workbook.add_worksheet(nombre_hoja)
+            ws.hide_gridlines(2)
+            ws.write_row(0, 0, cols_pend, fmt_header)
+            
             r = 1
-        for tipo, grupo in df_h3.groupby('Ref_Norm'):
-            for _, row in grupo.iterrows():
-                ws3.write_datetime(r, 0, row['Fecha'], fmt_date) if pd.notna(row['Fecha']) else ws3.write(r, 0, '-')
-                ws3.write_row(r, 1, [str(row['Asiento']), str(row['Fuente']), str(row.get('Origen','')), str(row['Tipo']), str(row['Referencia'])], fmt_text)
-                ws3.write_number(r, 6, row['Débito Colones'], fmt_num); ws3.write_number(r, 7, row['Crédito Colones'], fmt_num); ws3.write_number(r, 8, row['Neto Colones'], fmt_num)
-                r += 1
-            ws3.write(r, 5, f"SALDO {tipo}:", fmt_total_lbl); ws3.write_number(r, 8, grupo['Neto Colones'].sum(), fmt_num_bold); r += 2
-            ws3.set_column('A:A', 15) # Fecha
-            ws3.set_column('B:E', 20) # Asiento, Fuente, Origen, Tipo
-            ws3.set_column('F:F', 45) # Referencia
-            ws3.set_column('G:I', 22) # Montos
+            # Agrupamos por la llave de tipo para totalizar visualmente
+            for tipo, grupo in df_h.groupby('Ref_Norm'):
+                for _, row in grupo.iterrows():
+                    if pd.notna(row['Fecha']): ws.write_datetime(r, 0, row['Fecha'], fmt_date)
+                    else: ws.write(r, 0, '-')
+                    
+                    ws.write_row(r, 1, [str(row['Asiento']), str(row['Fuente']), str(row.get('Origen','')), str(row['Tipo']), str(row['Referencia'])], fmt_text)
+                    ws.write_number(r, 6, float(row['Neto Local']), fmt_num)
+                    ws.write_number(r, 7, float(row['Neto Dólar']), fmt_num)
+                    r += 1
+                
+                # Fila de Totalizador del Grupo (Igual a la imagen)
+                ws.write(r, 5, f"SALDO {tipo}:", fmt_total_lbl)
+                ws.write_number(r, 6, grupo['Neto Local'].sum(), fmt_num_bold)
+                ws.write_number(r, 7, grupo['Neto Dólar'].sum(), fmt_num_bold)
+                r += 2
 
-        # --- HOJA 4: OTROS PENDIENTES ---
-        df_h4 = df_procesado[(~df_procesado['Conciliado']) & (df_procesado['Ref_Norm'] == 'SIN_TIPO') & (df_procesado['Neto Colones'].abs() > 0.01) & (df_procesado['Asiento'].notna())]
-        if not df_h4.empty:
-            ws4 = workbook.add_worksheet('4. Otros Pendientes')
-            ws4.write_row(0, 0, cols_pend, fmt_header)
-            r = 1
-        for idx, row in df_h4.iterrows():
-            ws4.write_datetime(r, 0, row['Fecha'], fmt_date) if pd.notna(row['Fecha']) else ws4.write(r, 0, '-')
-            ws4.write_row(r, 1, [str(row['Asiento']), str(row['Fuente']), str(row.get('Origen','')), str(row['Tipo']), str(row['Referencia'])], fmt_text)
-            ws4.write_number(r, 6, row['Débito Colones'], fmt_num); ws4.write_number(r, 7, row['Crédito Colones'], fmt_num); ws4.write_number(r, 8, row['Neto Colones'], fmt_num)
-            r += 1
-            ws4.set_column('A:A', 15) # Fecha
-            ws4.set_column('B:E', 20) # Asiento, Fuente, Origen, Tipo
-            ws4.set_column('F:F', 45) # Referencia
-            ws4.set_column('G:I', 22) # Montos
+            # AJUSTE DE ANCHOS LEGIBLES
+            ws.set_column('A:A', 15) # Fecha
+            ws.set_column('B:E', 20) # Asiento, Fuente, Origen, Tipo
+            ws.set_column('F:F', 45) # Referencia (Largo para descripciones)
+            ws.set_column('G:H', 22) # Netos (Ancho para millones)
+
 
         # --- HOJA 5: ESPECIFICACIÓN (CON ENCABEZADO DE EMPRESA) ---
         df_open = df_procesado[(~df_procesado['Conciliado']) & (df_procesado['Neto Colones'].abs() > 0.001)].copy()
@@ -2627,7 +2605,7 @@ def generar_reporte_cofersa(df_procesado):
             ws5.set_column('I:I', 15) # Tasa
 
         # --- HOJA 6: CONCILIADOS (ESTRUCTURA COMPLETA) ---
-        df_c = df_procesado[df_procesado['Conciliado']].copy()
+        df_c = df_procesado[df_procesado['Conciliado']]
         if not df_c.empty:
             ws6 = workbook.add_worksheet('6. Conciliados')
             ws6.hide_gridlines(2)
@@ -2646,7 +2624,7 @@ def generar_reporte_cofersa(df_procesado):
                 ws6.write(r, 9, str(row['Estado_Cofersa']), fmt_text)
                 r += 1
             
-            # TOTALES (Solo si hay datos)
+            # FILA DE TOTALES FINAL (Solicitud Punto 4)
             ws6.write(r, 4, "TOTALES:", fmt_total_lbl)
             ws6.write_number(r, 5, df_c['Débito Colones'].sum(), fmt_num_bold)
             ws6.write_number(r, 6, df_c['Crédito Colones'].sum(), fmt_num_bold)
@@ -2654,14 +2632,10 @@ def generar_reporte_cofersa(df_procesado):
             ws6.write_number(r, 8, df_c['Crédito Dolar'].sum(), fmt_num_bold)
             
             ws6.write(r+1, 4, "SALDO NETO (CERO):", fmt_total_lbl)
-            saldo_verificado = df_c['Neto Local'].sum()
-            ws6.write_number(r+1, 5, round(saldo_verificado, 2), fmt_num_bold)
-            
-            # Ancho de columna específico para esta hoja
-            ws6.set_column('A:A', 15) # Fecha
-            ws6.set_column('B:E', 20) # Asiento, Fuente, Tipo
-            ws6.set_column('F:F', 40) # Referencia
-            ws6.set_column('G:J', 22) # Montos Colones y USD
+            saldo_neto = round(df_c['Débito Colones'].sum() - df_c['Crédito Colones'].sum(), 2)
+            ws6.write_number(r+1, 5, saldo_neto, fmt_num_bold)
+
+            ws6.set_column('A:E', 18); ws6.set_column('F:F', 40); ws6.set_column('G:J', 20)
 
     return output.getvalue()
     
