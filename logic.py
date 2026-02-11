@@ -4309,35 +4309,36 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
 # LÓGICA ENVIOS EN TRANSITO COFERSA (101050200)
 # ==============================================================================
 def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
-    log_messages.append("\n--- INICIANDO CONCILIACIÓN COFERSA (V15 - SALDO CERO) ---")
+    log_messages.append("\n--- INICIANDO CONCILIACIÓN COFERSA (V14 - ORIENTADO A TIPO) ---")
     
-    # TOLERANCIA ESTRICTA: Para que el saldo en conciliados sea 0, el match debe ser exacto.
-    TOLERANCIA_ESTRICTA = 0.01 
+    TOLERANCIA_COFERSA = 00.01
 
-    # 1. Normalización
+    # 1. Normalización: La llave maestra es la columna TIPO
     df['Ref_Norm'] = df['Tipo'].astype(str).str.strip().str.upper().replace(['NAN', 'NONE', '', '0'], 'SIN_TIPO')
+    
+    # Asegurar montos numéricos y estado inicial
     df['Neto Local'] = pd.to_numeric(df['Neto Local'], errors='coerce').fillna(0).round(2)
     df['Conciliado'] = False
     df['Estado_Cofersa'] = 'PENDIENTE' 
     total_conciliados = 0
 
-    # --- FASE DE CRUCE: AGRUPACIÓN POR TIPO ---
+    # --- ÚNICA FASE DE CRUCE: AGRUPACIÓN POR COLUMNA "TIPO" ---
+    # Solo conciliamos si el grupo bajo el mismo 'Tipo' suma cero dentro de la tolerancia.
     df_pendientes = df.copy()
     
     for tipo_val, grupo in df_pendientes.groupby('Ref_Norm'):
         if tipo_val == 'SIN_TIPO': continue
         if len(grupo) < 2: continue
         
-        # Solo conciliamos si la suma es exactamente 0 (tolerancia 0.01)
         suma_grupo = grupo['Neto Local'].sum().round(2)
-        if abs(suma_grupo) <= TOLERANCIA_ESTRICTA:
+        if abs(suma_grupo) <= TOLERANCIA_COFERSA:
             indices_grupo = grupo.index
             df.loc[indices_grupo, 'Estado_Cofersa'] = f'CONCILIADO_TIPO_{tipo_val}'
             df.loc[indices_grupo, 'Conciliado'] = True
             total_conciliados += len(indices_grupo)
 
     if progress_bar: progress_bar.progress(1.0)
-    log_messages.append(f"✔️ Conciliación finalizada. Total: {total_conciliados} movimientos cerrados con saldo cero.")
+    log_messages.append(f"✔️ Conciliación finalizada. Total: {total_conciliados} movimientos.")
     return df
 
 # ==============================================================================
