@@ -1081,7 +1081,7 @@ def render_cofersa():
             progress = st.empty()
             log = []
             try:
-                # 1. Carga usando la función estándar (ya normaliza columnas)
+                # 1. Carga de datos
                 with st.spinner('Cargando datos...'):
                     df_full = cargar_datos_cofersa(uploaded_actual, uploaded_anterior, log)
                 
@@ -1089,42 +1089,35 @@ def render_cofersa():
                     # 2. Ejecutar Lógica Específica
                     progress.progress(0, text="Analizando pares y tipos...")
                     df_res = run_conciliation_envios_cofersa(df_full.copy(), log, progress_bar=progress)
-                    progress.progress(1.0, text="¡Listo!")
+                    
+                    # --- CORRECCIÓN CLAVE: Guardar en session_state ---
+                    st.session_state.df_cofersa_res = df_res 
+                    # --------------------------------------------------
 
                     # 3. Generar Reportes
-                    # Reporte de 3 hojas
                     excel_reporte = generar_reporte_cofersa(df_res)
                     
-                    # Archivo para el mes siguiente (Solo los pendientes)
-                    df_pendientes = df_res[df_res['Estado_Cofersa'] == 'PENDIENTE']
-                    excel_saldos = generar_excel_saldos_abiertos(df_pendientes)
+                    # Archivo para el mes siguiente (Solo los que NO están conciliados)
+                    df_pendientes_save = df_res[~df_res['Conciliado']]
+                    excel_saldos = generar_excel_saldos_abiertos(df_pendientes_save)
                     
-                    # 4. Mostrar Resultados
+                    # 4. Mostrar Resultados y Métricas
                     st.success("✅ Conciliación completada.")
                     
-                    # Filtros inteligentes para las métricas (usando coincidencia parcial)
-                    df_res = st.session_state.df_cofersa_res # Asegúrate de que los resultados estén aquí
-                    
-                    # Contamos pares internos (Fase A)
+                    # Calculamos las métricas usando el DataFrame recién generado
                     count_pares = len(df_res[df_res['Estado_Cofersa'].str.contains('PAR_INTERNO', na=False)])
-                    
-                    # Contamos cruces por grupo/neto (Fase B)
                     count_cruces = len(df_res[df_res['Estado_Cofersa'].str.contains('GRUPO_NETO|CONCILIADO_TIPO', na=False)])
-                    
-                    # Pendientes reales (Solo filas con asiento y sin conciliar)
-                    df_pendientes = df_res[~df_res['Conciliado']]
-                    count_pendientes = len(df_pendientes)
+                    count_pendientes = len(df_res[~df_res['Conciliado']])
 
-                    # --- VISUALIZACIÓN DE MÉTRICAS ---
+                    # Visualización de métricas
                     c1, c2, c3 = st.columns(3)
                     c1.metric("Pares Internos", count_pares)
                     c2.metric("Cruce por Grupo Neto", count_cruces)
                     c3.metric("Pendientes", count_pendientes)
 
-                    # --- BOTONES DE DESCARGA ---
+                    # Botones de descarga
                     col_d1, col_d2 = st.columns(2)
                     
-                    # Actualizamos el label del botón para que coincida con el reporte de 6 hojas
                     col_d1.download_button(
                         "⬇️ Descargar Reporte Completo (6 Hojas)",
                         excel_reporte,
@@ -1141,9 +1134,11 @@ def render_cofersa():
                         use_container_width=True
                     )
 
-                    with st.expander("Ver Log"): st.write(log)
+                    with st.expander("Ver Log"): 
+                        st.write(log)
 
             except Exception as e:
+                # Aquí usamos tu función de error amigable que ya tienes en app.py
                 mostrar_error_amigable(e, "la Conciliación de Cofersa")
 
 def render_cofersa_fondos():
