@@ -1218,12 +1218,6 @@ def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrate
         else:
             _generar_hoja_pendientes(workbook, formatos, df_saldos_abiertos, _estrategia, casa_seleccionada, fecha_max)
 
-        if _estrategia['id'] in ids_devoluciones_cofersa:
-        # Llamar a una nueva sub-función específica para el formato COFERSA-MAYOREO
-        _generar_hoja_pendientes_dev_cofersa(workbook, formatos, df_saldos_abiertos, _estrategia, casa_seleccionada, fecha_max)
-
-        else:
-            _generar_hoja_pendientes(workbook, formatos, df_saldos_abiertos, _estrategia, casa_seleccionada, fecha_max)
         
         # ============================================================
         # 2. SELECCIÓN DE HOJA DE CONCILIADOS
