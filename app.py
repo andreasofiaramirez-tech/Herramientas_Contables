@@ -1102,21 +1102,33 @@ def render_cofersa():
                     # 4. Mostrar Resultados
                     st.success("✅ Conciliación completada.")
                     
-                    # Métricas
-                    c1, c2, c3 = st.columns(3)
-                    c1.metric("Pares 1-a-1", len(df_res[df_res['Estado_Cofersa'] == 'PARES_1_A_1']))
-                    c2.metric("Cruce por Tipo", len(df_res[df_res['Estado_Cofersa'] == 'CRUCE_POR_TIPO']))
-                    c3.metric("Pendientes", len(df_pendientes))
+                    # Filtros inteligentes para las métricas (usando coincidencia parcial)
+                    df_res = st.session_state.df_cofersa_res # Asegúrate de que los resultados estén aquí
+                    
+                    # Contamos pares internos (Fase A)
+                    count_pares = len(df_res[df_res['Estado_Cofersa'].str.contains('PAR_INTERNO', na=False)])
+                    
+                    # Contamos cruces por grupo/neto (Fase B)
+                    count_cruces = len(df_res[df_res['Estado_Cofersa'].str.contains('GRUPO_NETO|CONCILIADO_TIPO', na=False)])
+                    
+                    # Pendientes reales (Solo filas con asiento y sin conciliar)
+                    df_pendientes = df_res[~df_res['Conciliado']]
+                    count_pendientes = len(df_pendientes)
 
-                    # Descargas
+                    # --- VISUALIZACIÓN DE MÉTRICAS ---
+                    c1, c2, c3 = st.columns(3)
+                    c1.metric("Pares Internos", count_pares)
+                    c2.metric("Cruce por Grupo Neto", count_cruces)
+                    c3.metric("Pendientes", count_pendientes)
+
+                    # --- BOTONES DE DESCARGA ---
                     col_d1, col_d2 = st.columns(2)
                     
-                    nombre_archivo = f"Conciliacion_Cofersa_{pd.Timestamp.now().strftime('%Y%m')}.xlsx"
-                    
+                    # Actualizamos el label del botón para que coincida con el reporte de 6 hojas
                     col_d1.download_button(
-                        "⬇️ Descargar Reporte (3 Hojas)",
+                        "⬇️ Descargar Reporte Completo (6 Hojas)",
                         excel_reporte,
-                        nombre_archivo,
+                        f"Conciliacion_Cofersa_{pd.Timestamp.now().strftime('%Y%m')}.xlsx",
                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         use_container_width=True
                     )
