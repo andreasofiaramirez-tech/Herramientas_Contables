@@ -2516,208 +2516,74 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
     return output.getvalue()
     
 def generar_reporte_cofersa(df_procesado):
-    """
-    Genera el reporte específico para Envios COFERSA con lógica basada en REFERENCIA.
-    Versión Blindada: Maneja la ausencia de columna 'Tipo' y estandariza nombres.
-    """
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         workbook = writer.book
         
-        # --- 0. NORMALIZACIÓN DE COLUMNAS Y DATOS ---
-        if 'Descripcion Nit' in df_procesado.columns:
-            df_procesado.rename(columns={'Descripcion Nit': 'Descripción Nit'}, inplace=True)
-        
-        if 'Descripción Nit' not in df_procesado.columns:
-            df_procesado['Descripción Nit'] = 'NO DEFINIDO'
-
-        # --- 1. DEFINICIÓN DE COLUMNAS DINÁMICAS ---
-        cols_base = ['Fecha', 'Asiento', 'Fuente', 'Origen']
-        if 'Tipo' in df_procesado.columns:
-            cols_base.append('Tipo')
-        
-        cols_output = cols_base + [
-            'Referencia', 'Débito Colones', 'Crédito Colones', 'Neto Colones',
-            'Débito Dolar', 'Crédito Dolar', 'Neto Dólar',
-            'Nit', 'Descripción Nit'
-        ]
-        
-        # Detectar índices para formato moneda (usualmente empiezan en Débito Bolivar)
-        try:
-            start_num_idx = cols_output.index('Débito Colones')
-            idx_nums = range(start_num_idx, start_num_idx + 6)
-        except ValueError:
-            idx_nums = range(6, 12)
-
-        # --- 2. ESTILOS ---
+        # --- FORMATOS ---
         header_fmt = workbook.add_format({'bold': True, 'fg_color': '#D9EAD3', 'border': 1, 'align': 'center'})
         money_fmt = workbook.add_format({'num_format': '#,##0.00', 'border': 1})
-        total_fmt = workbook.add_format({'bold': True, 'bg_color': '#F2F2F2', 'num_format': '#,##0.00', 'border': 1})
-        label_fmt = workbook.add_format({'bold': True, 'bg_color': '#F2F2F2', 'border': 1, 'align': 'right'})
-        diff_fmt = workbook.add_format({'bold': True, 'bg_color': '#FFC7CE', 'num_format': '#,##0.00', 'border': 1})
         text_fmt = workbook.add_format({'border': 1})
         date_fmt = workbook.add_format({'num_format': 'dd/mm/yyyy', 'border': 1, 'align': 'center'})
+        label_fmt = workbook.add_format({'bold': True, 'bg_color': '#F2F2F2', 'border': 1, 'align': 'right'})
 
-        # --- 3. FUNCIONES AUXILIARES DE ESCRITURA ---
-        def escribir_hoja_simple(nombre_hoja, df_data, titulo_total):
-            ws = workbook.add_worksheet(nombre_hoja)
-            ws.hide_gridlines(2)
-            ws.write_row(0, 0, cols_output, header_fmt)
-            r = 1
-            for _, data in df_data.iterrows():
-                for i, col in enumerate(cols_output):
-                    val = data.get(col, '')
-                    fmt = money_fmt if i in idx_nums else text_fmt
-                    if 'Fecha' in col and pd.notna(val): ws.write_datetime(r, i, val, date_fmt)
-                    elif i in idx_nums: 
-                        num_val = float(val) if (pd.notna(val) and str(val).strip() != "") else 0.0
-                        ws.write_number(r, i, num_val, fmt)
-                    else: ws.write(r, i, str(val) if pd.notna(val) else "", fmt)
-                r += 1
-            ws.write(r, cols_output.index('Referencia'), titulo_total, label_fmt)
-            for i in idx_nums: ws.write_number(r, i, df_data[cols_output[i]].sum(), total_fmt)
-            ws.set_column(0, len(cols_output), 15)
-
-        def escribir_hoja_agrupada(nombre_hoja, df_data, titulo_total, estilo_subtotal):
-            if df_data.empty: return
-            
-            # Aseguramos que exista la clave de agrupación
-            if 'Ref_Norm' not in df_data.columns:
-                df_data['Ref_Norm'] = df_data['Referencia'].astype(str).str.strip().str.upper()
-            
-            df_data = df_data.sort_values(by=['Ref_Norm', 'Fecha'])
-            ws = workbook.add_worksheet(nombre_hoja)
-            ws.hide_gridlines(2)
-            ws.write_row(0, 0, cols_output, header_fmt)
-            
-            row_idx = 1
-            gran_total_crc = 0
-            
-            # --- LOCALIZACIÓN DE ÍNDICES CRÍTICOS ---
-            # Buscamos 'Neto Colones'. Si por error no está, buscamos 'Neto Local'
-            try:
-                idx_neto_crc = cols_output.index('Neto Colones')
-            except ValueError:
-                idx_neto_crc = cols_output.index('Neto Local')
-                
-            idx_ref = cols_output.index('Referencia')
-            
-            for ref, grupo in df_data.groupby('Ref_Norm'):
-                subtotal_grupo = 0
-                for _, data in grupo.iterrows():
-                    # Sumamos el neto (manejando ambos posibles nombres de columna)
-                    monto_fila = data.get('Neto Colones', data.get('Neto Local', 0))
-                    subtotal_grupo += monto_fila
-                    
-                    for i, col in enumerate(cols_output):
-                        val = data.get(col, '')
-                        fmt = money_fmt if i in idx_nums else text_fmt
-                        
-                        if 'Fecha' in col and pd.notna(val): 
-                            ws.write_datetime(row_idx, i, val, date_fmt)
-                        elif i in idx_nums: 
-                            # Validación de string vacío para evitar el error de float('')
-                            num_val = float(val) if (pd.notna(val) and str(val).strip() != "") else 0.0
-                            ws.write_number(row_idx, i, num_val, fmt)
-                        else: 
-                            ws.write(row_idx, i, str(val) if pd.notna(val) else "", fmt)
-                    row_idx += 1
-                
-                # Escritura del SUB-TOTAL del grupo
-                ws.write(row_idx, idx_ref, f"SALDO {ref}:", label_fmt)
-                ws.write_number(row_idx, idx_neto_crc, subtotal_grupo, estilo_subtotal)
-                gran_total_crc += subtotal_grupo
-                row_idx += 2
-                
-            # Escritura del TOTAL GENERAL de la hoja
-            ws.write(row_idx, idx_ref, titulo_total, label_fmt)
-            ws.write_number(row_idx, idx_neto_crc, gran_total_crc, total_fmt)
-            ws.set_column(0, len(cols_output), 15)
-
-        # --- 4. GENERACIÓN DE HOJAS ---
+        # Columnas para hojas de pendientes
+        cols_pendientes = ['Fecha', 'Asiento', 'Fuente', 'Tipo', 'Referencia', 'Débito Colones', 'Crédito Colones', 'Neto Colones']
         
-        # Hoja 1: Pares
-        df_f1 = df_procesado[df_procesado['Estado_Cofersa'] == 'PARES_1_A_1'].copy()
-        escribir_hoja_simple('1. Pares 1 a 1', df_f1, "TOTAL PARES:")
+        # --- HOJA 1: PARES 1 A 1 ---
+        df_pares = df_procesado[df_procesado['Estado_Cofersa'] == 'PARES_1_A_1']
+        df_pares[cols_pendientes].to_excel(writer, sheet_name='1. Pares 1 a 1', index=False)
 
-        # Hoja 2: Cruce por Referencia
-        df_f2 = df_procesado[df_procesado['Estado_Cofersa'] == 'CRUCE_POR_REFERENCIA'].copy()
-        escribir_hoja_simple('2. Cruce por Referencia', df_f2, "TOTAL CRUCES REF:")
+        # --- HOJA 2: AGRUPACIONES POR TIPO (ABIERTAS) ---
+        # Filtramos lo NO conciliado que SÍ tiene un TIPO
+        df_tipo_abierto = df_procesado[(~df_procesado['Conciliado']) & (df_procesado['Ref_Norm'] != 'SIN_TIPO')]
+        df_tipo_abierto[cols_pendientes].to_excel(writer, sheet_name='2. Agrup. Tipo Abiertas', index=False)
 
-        # Hoja 3: Descuadres (Agrupado por Referencia)
-        df_f3 = df_procesado[df_procesado['Estado_Cofersa'].isin(['REF_DESCUADRE', 'RECUPERACION_GLOBAL'])].copy()
-        escribir_hoja_agrupada('3. Descuadres y Recuperados', df_f3, "TOTAL:", diff_fmt)
+        # --- HOJA 3: EMB PENDIENTES (Solo códigos EM/M abiertos) ---
+        mask_emb = df_procesado['Ref_Norm'].str.contains(r'EM\d+|M\d+', na=False)
+        df_emb_pend = df_procesado[(~df_procesado['Conciliado']) & mask_emb]
+        df_emb_pend[cols_pendientes].to_excel(writer, sheet_name='3. EMB Pendientes', index=False)
 
-        # --- Lógica de Embarques Pendientes ---
-        df_pendientes = df_procesado[df_procesado['Estado_Cofersa'] == 'PENDIENTE'].copy()
+        # --- HOJA 4: OTROS PENDIENTES (Sin Grupo / Sin Tipo) ---
+        df_otros = df_procesado[(~df_procesado['Conciliado']) & (df_procesado['Ref_Norm'] == 'SIN_TIPO')]
+        df_otros[cols_pendientes].to_excel(writer, sheet_name='4. Otros Pendientes', index=False)
+
+        # --- HOJA 5: ESPECIFICACIÓN (Resumen de Saldos) ---
+        ws5 = workbook.add_worksheet('5. Especificación')
+        df_open = df_procesado[~df_procesado['Conciliado']]
+        resumen = df_open.groupby('Ref_Norm').agg({'Neto Colones': 'sum', 'Fecha': 'max', 'NIT': 'first'}).reset_index()
+        ws5.write_row(0, 0, ['Tipo / Grupo', 'NIT', 'Fecha Máx', 'Saldo Neto Colones'], header_fmt)
+        for r_idx, row in resumen.iterrows():
+            ws5.write(r_idx+1, 0, row['Ref_Norm'], text_fmt)
+            ws5.write(r_idx+1, 1, row['NIT'], text_fmt)
+            ws5.write(r_idx+1, 2, row['Fecha'].strftime('%d/%m/%Y') if pd.notna(row['Fecha']) else '-', text_fmt)
+            ws5.write_number(r_idx+1, 3, row['Neto Colones'], money_fmt)
+
+        # --- HOJA 6: CONCILIADOS (Estructura Solicitada) ---
+        ws6 = workbook.add_worksheet('6. Conciliados')
+        cols_conciliados = [
+            'Fecha', 'Asiento', 'Fuente', 'Tipo', 'Referencia', 
+            'Débito Colones', 'Crédito Colones', 'Débito Dolar', 'Crédito Dolar', 'Grupo_Conciliado'
+        ]
+        ws6.write_row(0, 0, cols_conciliados, header_fmt)
+        df_conc = df_procesado[df_procesado['Conciliado']].sort_values(by=['Estado_Cofersa', 'Ref_Norm'])
         
-        if not df_pendientes.empty:
-            # Detección segura de "EM"
-            mask_ref = df_pendientes['Referencia'].astype(str).str.upper().str.contains('EM', na=False)
-            mask_tipo = df_pendientes['Tipo'].astype(str).str.upper().str.contains('EM', na=False) if 'Tipo' in df_pendientes.columns else mask_ref
-            mask_embarque = mask_ref | mask_tipo
-            
-            df_embarques = df_pendientes[mask_embarque].copy()
-            df_otros = df_pendientes[~mask_embarque].copy()
+        for r_idx, row in enumerate(df_conc.itertuples()):
+            r = r_idx + 1
+            ws6.write_datetime(r, 0, row.Fecha, date_fmt) if pd.notna(row.Fecha) else ws6.write(r, 0, '-')
+            ws6.write(r, 1, row.Asiento, text_fmt)
+            ws6.write(r, 2, row.Fuente, text_fmt)
+            ws6.write(r, 3, row.Tipo, text_fmt)
+            ws6.write(r, 4, row.Referencia, text_fmt)
+            ws6.write_number(r, 5, row._7, money_fmt)  # Débito Bolivar (Mapeado a Colones)
+            ws6.write_number(r, 6, row._8, money_fmt)  # Crédito Bolivar
+            ws6.write_number(r, 7, row._9, money_fmt)  # Débito Dolar
+            ws6.write_number(r, 8, row._10, money_fmt) # Crédito Dolar
+            ws6.write(r, 9, row.Estado_Cofersa, text_fmt)
 
-            def extraer_codigo_embarque(row):
-                r = str(row.get('Referencia', '')).strip().upper()
-                t = str(row.get('Tipo', '')) if 'Tipo' in row else ''
-                match = re.search(r'(E?M\d+)', r + t)
-                return match.group(1) if match else r
-
-            if not df_embarques.empty:
-                df_embarques['Ref_Norm'] = df_embarques.apply(extraer_codigo_embarque, axis=1)
-                escribir_hoja_agrupada('4. Embarques Pend.', df_embarques, "TOTAL EMBARQUES:", total_fmt)
-            
-            if not df_otros.empty:
-                escribir_hoja_simple('5. Otros Pendientes', df_otros, "TOTAL OTROS:")
-        
-        # --- Hoja 6: Especificación (Resumen Ejecutivo) ---
-        ws6 = workbook.add_worksheet('6. Especificación')
-        ws6.hide_gridlines(2)
-        ws6.merge_range('A1:F1', "RESUMEN DE SALDOS ABIERTOS (COFERSA)", workbook.add_format({'bold':True, 'font_size':14, 'align':'center'}))
-        headers_spec = ['Categoría', 'Referencia', 'NIT', 'Descripción Nit', 'Fecha (Max)', 'Saldo (Colones)']
-        ws6.write_row('A3', headers_spec, header_fmt)
-        
-        # Recolectar datos para el resumen
-        df_open = df_procesado[~df_procesado['Estado_Cofersa'].isin(['PARES_1_A_1', 'CRUCE_POR_REFERENCIA'])].copy()
-        if not df_open.empty:
-            if 'Ref_Norm' not in df_open.columns: 
-                df_open['Ref_Norm'] = df_open['Referencia'].astype(str).str.strip().str.upper()
-            
-            # --- CORRECCIÓN DE NOMBRES EN AGG ---
-            resumen = df_open.groupby('Ref_Norm').agg({
-                'Neto Colones': 'sum',      # Cambiado de 'Neto Local'
-                'Fecha': 'max', 
-                'NIT': 'first',             # Cambiado de 'Nit'
-                'Descripción Nit': 'first'
-            }).reset_index()
-            
-            r_idx = 3
-            total_gral = 0
-            for _, row in resumen.iterrows():
-                # --- CORRECCIÓN DE ACCESO A COLUMNAS ---
-                monto_colones = row['Neto Colones']
-                if abs(monto_colones) > 0.01:
-                    ws6.write(r_idx, 0, "PENDIENTE", text_fmt)
-                    ws6.write(r_idx, 1, row['Ref_Norm'], text_fmt)
-                    ws6.write(r_idx, 2, row['NIT'], text_fmt) # Usar 'NIT'
-                    ws6.write(r_idx, 3, row['Descripción Nit'], text_fmt)
-                    
-                    if pd.notna(row['Fecha']):
-                        ws6.write_datetime(r_idx, 4, row['Fecha'], date_fmt)
-                    else:
-                        ws6.write(r_idx, 4, "-", text_fmt)
-                        
-                    ws6.write_number(r_idx, 5, monto_colones, money_fmt)
-                    total_gral += monto_colones
-                    r_idx += 1
-            
-            ws6.write(r_idx, 4, "SALDO TOTAL:", label_fmt)
-            ws6.write_number(r_idx, 5, total_gral, total_fmt)
-        
-        ws6.set_column('A:A', 20); ws6.set_column('B:D', 30); ws6.set_column('E:F', 20)
+        # Ajuste de anchos para todas las hojas
+        for sheet in workbook.worksheets():
+            sheet.set_column('A:Z', 18)
 
     return output.getvalue()
 
