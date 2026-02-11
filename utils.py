@@ -2628,7 +2628,7 @@ def generar_reporte_cofersa(df_procesado):
             ws5.write_row(4, 0, cols_spec, fmt_header)
             
             # Cálculo de tasa y llenado de datos
-            df_open['Tasa'] = (df_open['Neto Colones'].abs() / df_open['Neto Dólar'].abs()).replace([np.inf, -np.inf], 0).fillna(0)
+            df_open['Tasa'] = (df_open['Neto Local'].abs() / df_open['Neto Dólar'].abs()).replace([np.inf, -np.inf], 0).fillna(0)
             r = 5
             for _, row in df_open.iterrows():
                 ws5.write(r, 0, str(row.get('NIT', '')), fmt_text)
@@ -2639,7 +2639,7 @@ def generar_reporte_cofersa(df_procesado):
                     ws5.write(r, 2, '-')
                 ws5.write_row(r, 3, [str(row['Asiento']), str(row['Referencia']), str(row['Fuente'])], fmt_text)
                 ws5.write_number(r, 6, row['Neto Dólar'], fmt_num)
-                ws5.write_number(r, 7, row['Neto Colones'], fmt_num)
+                ws5.write_number(r, 7, row['Neto Local'], fmt_num)
                 ws5.write_number(r, 8, row['Tasa'], fmt_tasa)
                 r += 1
 
