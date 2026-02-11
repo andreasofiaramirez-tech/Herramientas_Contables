@@ -1197,6 +1197,7 @@ def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrate
         # ============================================================
         cuentas_resumen = ['deudores_empleados_me', 'deudores_empleados_bs']
         cuentas_corridas = ['fondos_transito', 'fondos_depositar', 'haberes_clientes']
+        ids_devoluciones_cofersa = ['dev_prov_crc', 'dev_prov_usd_ext', 'dev_prov_usd_me']
 
         if _estrategia['id'] == 'proveedores_costos':
             # HOJA 1: RESUMEN (Nombre corregido aquí)
@@ -1216,6 +1217,10 @@ def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrate
             
         else:
             _generar_hoja_pendientes(workbook, formatos, df_saldos_abiertos, _estrategia, casa_seleccionada, fecha_max)
+
+        if _estrategia['id'] in ids_devoluciones_cofersa:
+        # Llamar a una nueva sub-función específica para el formato COFERSA-MAYOREO
+        _generar_hoja_pendientes_dev_cofersa(workbook, formatos, df_saldos_abiertos, _estrategia, casa_seleccionada, fecha_max)
         
         # ============================================================
         # 2. SELECCIÓN DE HOJA DE CONCILIADOS
@@ -1321,6 +1326,46 @@ def _generar_hoja_ajustes_menores(workbook, formatos, df_ajustes):
     ws.set_column('C:C', 40)
     ws.set_column('D:F', 18)
 
+def _generar_hoja_pendientes_dev_cofersa(workbook, formatos, df_saldos, estrategia, casa, fecha_maxima):
+    ws = workbook.add_worksheet(estrategia["nombre_hoja_excel"])
+    ws.hide_gridlines(2)
+    
+    # 1. Encabezado COFERSA
+    ws.merge_range('A1:H1', "COFERSA", formatos['encabezado_empresa'])
+    ws.merge_range('A2:H2', f"ESPECIFICACION DE LA CUENTA {estrategia['nombre_hoja_excel']}", formatos['encabezado_sub'])
+    ws.write_row(4, 0, estrategia["columnas_reporte"], formatos['header_tabla'])
+
+    if df_saldos.empty: return
+
+    # 2. Lógica de Agrupación por Proveedor (Mayoreo Style)
+    df = df_saldos.sort_values(by=['Descripción Nit', 'Fecha'])
+    curr_row = 5
+    
+    col_monto_principal = 'Neto Colones' if 'crc' in estrategia['id'] else 'Neto Dólar'
+    col_monto_secundario = 'Neto Dólar' if 'crc' in estrategia['id'] else 'Neto Colones'
+
+    for prov, grupo in df.groupby('Descripción Nit'):
+        ws.merge_range(curr_row, 0, curr_row, 7, f"Proveedor: {prov}", formatos['proveedor_header'])
+        curr_row += 1
+        
+        for _, row in grupo.iterrows():
+            ws.write(curr_row, 0, str(row.get('NIT', '')))
+            ws.write(curr_row, 1, str(prov))
+            ws.write_datetime(curr_row, 2, row['Fecha'], formatos['fecha'])
+            ws.write(curr_row, 3, str(row['Asiento']))
+            ws.write(curr_row, 4, str(row.get('Tipo', '')))
+            ws.write(curr_row, 5, str(row['Referencia']))
+            ws.write_number(curr_row, 6, row.get(col_monto_principal, 0), formatos['bs' if 'crc' in estrategia['id'] else 'usd'])
+            ws.write_number(curr_row, 7, row.get(col_monto_secundario, 0), formatos['usd' if 'crc' in estrategia['id'] else 'bs'])
+            curr_row += 1
+        
+        # Subtotal Proveedor
+        ws.write(curr_row, 5, f"Total {prov}:", formatos['subtotal_label'])
+        ws.write_number(curr_row, 6, grupo[col_monto_principal].sum(), formatos['total_bs' if 'crc' in estrategia['id'] else 'total_usd'])
+        curr_row += 2
+        
+    ws.set_column('A:B', 15); ws.set_column('F:F', 40); ws.set_column('G:H', 18)
+    
 # ==============================================================================
 # 4. REPORTE PARA LA HERRAMIENTA DE RETENCIONES
 # ==============================================================================
