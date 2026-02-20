@@ -2054,16 +2054,16 @@ def _traducir_resultados_para_reporte(row, asientos_en_cg_set, df_cg):
     (Versión Final con Doble Lógica Jerárquica) La validación de CG ahora respeta
     tanto los errores de subtipo como los errores de monto de la conciliación de GALAC.
     """
-    # El resultado de CP vs GALAC no cambia
+    
+    # 1. ESTADO CP vs GALAC
     estado_galac = row['Estado_Conciliacion']
     detalle_galac = row['Detalle']
     if estado_galac == 'Anulado': cp_vs_galac = 'Anulado'
     elif estado_galac == 'Conciliado': cp_vs_galac = 'Sí'
     else: cp_vs_galac = detalle_galac
     
-    # --- INICIO DE LA LÓGICA DE VALIDACIÓN DE CG ---
+    # 2. VALIDACIÓN CONTABILIDAD GENERAL (CG)
     asiento_cp = row.get('Asiento', None)
-    
     if not asiento_cp or df_cg.empty:
         return cp_vs_galac, 'No Aplica'
 
@@ -2072,60 +2072,64 @@ def _traducir_resultados_para_reporte(row, asientos_en_cg_set, df_cg):
 
     errores_cg = []
     transacciones_asiento = df_cg[df_cg['ASIENTO'] == asiento_cp]
+
+    # --- A. DEFINICIÓN DE CUENTA ESPERADA ---
+    mapa_cuentas = {
+        'IVA': '2.1.3.05.1.001', 
+        'ISLR': '2.1.3.02.1.002', 
+        'MUNICIPAL': '2.1.3.02.4.002'
+    }
+
+    subtipo_cp = str(row.get('Subtipo', '')).upper()
+    cuenta_objetivo = None
+    for key, value in mapa_cuentas.items():
+        if key in subtipo_cp:
+            cuenta_objetivo = value
+            break
     
-    # --- 1. VALIDACIÓN DE CUENTA CONTABLE (con comprobación jerárquica) ---
+    # --- B. VALIDACIÓN DE CUENTA Y MONTO ---
     if estado_galac == 'Error de Subtipo':
         errores_cg.append('Cuenta Contable no coincide (debido a Error de Subtipo en GALAC)')
-    else:
-        mapa_cuentas = {'IVA': '2.1.3.05.1.001', 'ISLR': '2.1.3.02.1.002', 'MUNICIPAL': '2.1.3.02.4.002'}
-        subtipo_cp = str(row.get('Subtipo', '')).upper()
-        cuenta_esperada = None
-        for key, value in mapa_cuentas.items():
-            if key in subtipo_cp:
-                cuenta_esperada = value
-                break
+    elif cuenta_objetivo:
+        # 1. ADN Numérico de la cuenta (Ej: '2.1.3.05.1.001' -> '213051001')
+        cuenta_objetivo_clean = re.sub(r'\D', '', cuenta_objetivo)
         
-        if cuenta_esperada and 'CUENTACONTABLE' in transacciones_asiento.columns:
-            cuentas_en_asiento = set(transacciones_asiento['CUENTACONTABLE'].str.strip())
-            if cuenta_esperada not in cuentas_en_asiento:
-                errores_cg.append('Cuenta Contable no coincide con Tipo de retencion')
-
-    # --- 2. VALIDACIÓN DE MONTO (con comprobación jerárquica) ---
-    monto_cp = row.get('Monto', 0)
-    
-    if 'Monto no coincide' in detalle_galac:
-        errores_cg.append('Monto no coincide (debido a discrepancia con GALAC)')
-    
-    # Solo si no hay error de monto en GALAC, procedemos a comparar con CG.
-    else:
-        aplicacion_text = str(row.get('Aplicacion', '')).upper()
-        es_nota_credito = 'NC' in aplicacion_text or 'NOTA CREDITO' in aplicacion_text
-        columna_monto_cg = 'CREDITO_NORM' if es_nota_credito else 'DEBITO_NORM'
+        # 2. ADN Numérico de las cuentas en el asiento
+        transacciones_asiento['CUENTA_LIMPIA'] = transacciones_asiento['CUENTACONTABLE'].astype(str).apply(lambda x: re.sub(r'\D', '', x))
         
-        if columna_monto_cg in transacciones_asiento.columns:
-            # --- MEJORA CRÍTICA: Filtrar por cuenta_esperada antes de sumar ---
-            if cuenta_esperada:
-                # Solo sumamos las líneas que corresponden a la cuenta de retención (IVA/ISLR/MUN)
-                lineas_cuenta_especifica = transacciones_asiento[
-                    transacciones_asiento['CUENTACONTABLE'].str.strip() == cuenta_esperada
-                ]
-                montos_cg = pd.to_numeric(lineas_cuenta_especifica[columna_monto_cg], errors='coerce').fillna(0)
-            else:
-                # Fallback por si no hay cuenta identificada
-                montos_cg = pd.to_numeric(transacciones_asiento[columna_monto_cg], errors='coerce').fillna(0)
-            
-            suma_monto_cg = montos_cg.sum()
-            if not np.isclose(monto_cp, suma_monto_cg):
-                errores_cg.append(f'Monto en Cuenta {cuenta_esperada} no coincide (CP: {monto_cp:.2f}, CG: {suma_monto_cg:.2f})')
+        # 3. Filtrar líneas que coinciden
+        lineas_cuenta = transacciones_asiento[transacciones_asiento['CUENTA_LIMPIA'] == cuenta_objetivo_clean]
+        
+        if lineas_cuenta.empty:
+            # Si no hay match, informamos qué cuenta se buscó pero no se halló
+            errores_cg.append(f'Cuenta {cuenta_objetivo} no hallada en este asiento del diario')
         else:
-            errores_cg.append(f'Columna de monto ({columna_monto_cg}) no encontrada en CG')
+            monto_cp = row.get('Monto', 0)
+            
+            # 4. Decidir columna (Normalmente Retención es CRÉDITO, salvo en Notas de Crédito)
+            aplicacion_text = str(row.get('Aplicacion', '')).upper()
+            es_nota_credito = any(x in aplicacion_text for x in ['NC', 'NOTA CREDITO'])
+            
+            # En Facturas (Normal), la retención va al CRÉDITO. En NC va al DÉBITO.
+            columna_monto_cg = 'DEBITO_NORM' if es_nota_credito else 'CREDITO_NORM'
+            
+            if columna_monto_cg in lineas_cuenta.columns:
+                # Convertimos a número de forma segura (limpiando posibles strings)
+                def clean_float(val):
+                    if pd.isna(val): return 0.0
+                    if isinstance(val, (int, float)): return float(val)
+                    return float(str(val).replace('.', '').replace(',', '.'))
 
-    # --- 3. GENERAR RESULTADO FINAL ---
-    if not errores_cg:
-        resultado_final_cg = 'Conciliado en CG'
-    else:
-        resultado_final_cg = ' | '.join(errores_cg)
-        
+                suma_cg = lineas_cuenta[columna_monto_cg].apply(clean_float).sum()
+                
+                # Comparamos con tolerancia de 0.01 centavos
+                if not np.isclose(float(monto_cp), float(suma_cg), atol=0.01):
+                    errores_cg.append(f'Monto en Cuenta {cuenta_objetivo} no coincide (CP: {monto_cp:,.2f}, CG: {suma_cg:,.2f})')
+            else:
+                errores_cg.append(f'Columna de monto ({columna_monto_cg}) no hallada en CG')
+
+    # 3. RESULTADO FINAL
+    resultado_final_cg = 'Conciliado en CG' if not errores_cg else ' | '.join(errores_cg)
     return cp_vs_galac, resultado_final_cg
 
 def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun, log_messages):
