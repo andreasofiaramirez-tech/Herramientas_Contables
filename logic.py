@@ -2116,10 +2116,35 @@ def _traducir_resultados_para_reporte(row, asientos_en_cg_set, df_cg):
             if columna_monto_cg in lineas_cuenta.columns:
                 # Convertimos a número de forma segura (limpiando posibles strings)
                 def clean_float(val):
-                    if pd.isna(val): return 0.0
-                    if isinstance(val, (int, float)): return float(val)
-                    return float(str(val).replace('.', '').replace(',', '.'))
+                    if pd.isna(val) or val == '-': 
+                        return 0.0
+                    
+                    # Si ya es un número (int o float), lo devolvemos tal cual
+                    if isinstance(val, (int, float, np.number)):
+                        return float(val)
+                    
+                    # Si es un texto, aplicamos la lógica de conversión de formato latino
+                    val_str = str(val).strip()
+                    if not val_str:
+                        return 0.0
+                        
+                    # Caso: "1.234,56" -> Eliminamos punto de mil, cambiamos coma por punto decimal
+                    if ',' in val_str and '.' in val_str:
+                        if val_str.rfind(',') > val_str.rfind('.'):
+                            val_str = val_str.replace('.', '').replace(',', '.')
+                        else:
+                            # Caso: "1,234.56" (Formato US)
+                            val_str = val_str.replace(',', '')
+                    elif ',' in val_str:
+                        # Caso: "355,44"
+                        val_str = val_str.replace(',', '.')
+                        
+                    try:
+                        return float(val_str)
+                    except:
+                        return 0.0
 
+                # Aplicamos la limpieza y sumamos
                 suma_cg = lineas_cuenta[columna_monto_cg].apply(clean_float).sum()
                 
                 # Comparamos con tolerancia de 0.01 centavos
