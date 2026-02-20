@@ -2955,7 +2955,8 @@ def generar_reporte_errores_comisiones(df_final, nombre_empresa):
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         df_final.to_excel(writer, sheet_name='Auditoria', index=False, startrow=2)
         workbook = writer.book
-        ws = writer.sheets['Auditoria']
+        ws1 = writer.sheets['Resumen Auditoria']
+        ws1.hide_gridlines(2)
         
         # --- FORMATOS ---
         header_fmt = workbook.add_format({'bold': True, 'align': 'center', 'border': 1, 'bg_color': '#FFFFFF'})
@@ -2978,27 +2979,29 @@ def generar_reporte_errores_comisiones(df_final, nombre_empresa):
         # --- ESCRIBIR DATOS CON ALERTAS ROJAS ---
         for r_idx, row in df_final.iterrows():
             row_ex = r_idx + 3
-            fmt = money_red if "❌" in str(row['Estatus']) else money_fmt
+            is_err = "❌" in str(row['Estatus'])
+            fmt_t = text_red if is_err else text_fmt
+            fmt_n = money_red if is_err else money_fmt
             
-            ws.write(row_ex, 0, row['Banco'], fmt)
-            ws.write(row_ex, 1, row['Moneda'], fmt)
-            ws.write_number(row_ex, 2, row['CB_Mov'], fmt)
-            ws.write_number(row_ex, 3, row['CG_Mov'], fmt)
-            ws.write_number(row_ex, 4, row['CB_Deb'], fmt)
-            ws.write_number(row_ex, 5, row['CG_Deb'], fmt)
-            ws.write_number(row_ex, 6, row['CB_Cre'], fmt)
-            ws.write_number(row_ex, 7, row['CG_Cre'], fmt)
-            ws.write(row_ex, 8, row['Observación'], fmt)
-            ws.write(row_ex, 9, row['Estatus'], fmt)
+            ws1.write(row_ex, 0, row['Banco'], fmt)
+            ws1.write(row_ex, 1, row['Moneda'], fmt)
+            ws1.write_number(row_ex, 2, row['CB_Mov'], fmt)
+            ws1.write_number(row_ex, 3, row['CG_Mov'], fmt)
+            ws1.write_number(row_ex, 4, row['CB_Deb'], fmt)
+            ws1.write_number(row_ex, 5, row['CG_Deb'], fmt)
+            ws1.write_number(row_ex, 6, row['CB_Cre'], fmt)
+            ws1.write_number(row_ex, 7, row['CG_Cre'], fmt)
+            ws1.write(row_ex, 8, row['Observación'], fmt)
+            ws1.write(row_ex, 9, row['Estatus'], fmt)
 
         # --- FILA DE TOTALES ---
         last_row = len(df_final) + 3
-        ws.write(last_row, 1, "Totales", workbook.add_format({'bold': True, 'align': 'right'}))
+        ws1.write(last_row, 1, "Totales", workbook.add_format({'bold': True, 'align': 'right'}))
         for col in [2, 3, 4, 5, 6, 7]:
             col_letter = chr(65 + col)
-            ws.write_formula(last_row, col, f"=SUM({col_letter}4:{col_letter}{last_row})", total_fmt)
+            ws1.write_formula(last_row, col, f"=SUM({col_letter}4:{col_letter}{last_row})", total_fmt)
 
-        ws.set_column('A:A', 35); ws.set_column('B:B', 10); ws.set_column('C:I', 15)
+        ws1.set_column('A:A', 35); ws1.set_column('B:B', 10); ws1.set_column('C:I', 15)
 
         # HOJA 2: DETALLE DIARIO (NUEVA PESTAÑA)
         if not df_diario_errores.empty:
