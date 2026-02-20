@@ -4757,7 +4757,7 @@ def run_process_comisiones(df_resumen, df_diario, log_messages):
         moneda_label = "USD" if es_usd else "VES"
 
         ini, fin = str(row[c_ini]), str(row[c_fin])
-        subset_cg = df_cg_fil[df_cg_fil[cols["c_asiento"]].astype(str).between(ini, fin)]
+        subset_cg = df_cg_fil[df_cg_fil[["c_asiento"]].astype(str).between(ini, fin)]
 
         # Montos CB (Tesorería)
         d_cb = row[c_deb_cb]
