@@ -2944,3 +2944,19 @@ def generar_reporte_debito_fiscal(df_incidencias_raw, df_soft_raw, df_imp_raw):
         ws3.set_column('A:I', 18); ws3.set_column('C:C', 35); ws3.set_column('J:Z', 15)
 
     return output.getvalue()
+
+# ============================================================
+# AUDITORIA DE COMISIONES (CREACION DE EDUARDO)
+# ============================================================
+
+def generar_reporte_errores_comisiones(df_final):
+    """Genera el Excel con los errores detectados en comisiones"""
+    df_errores = df_final[df_final['Estado Conciliación'].str.contains("❌")].copy()
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df_errores.to_excel(writer, sheet_name='Errores', index=False)
+        # Ajustar anchos
+        worksheet = writer.sheets['Errores']
+        worksheet.set_column('A:C', 30)
+        worksheet.set_column('D:D', 15)
+    return output.getvalue()
