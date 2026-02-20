@@ -4756,7 +4756,7 @@ def run_process_comisiones(df_resumen, df_diario, log_messages):
         es_usd = any(x in banco_str for x in ["USD", "$", "ME", "EXTRANJERA", "CUSTODIA"])
         moneda_label = "USD" if es_usd else "VES"
 
-        ini, fin = str(row[cols["c_ini"]]), str(row[cols["c_fin"]])
+        ini, fin = str(row[c_ini]), str(row[c_fin])
         subset_cg = df_cg_fil[df_cg_fil[cols["c_asiento"]].astype(str).between(ini, fin)]
 
         # Montos CB (Tesorería)
@@ -4775,7 +4775,7 @@ def run_process_comisiones(df_resumen, df_diario, log_messages):
         obs = []
         if abs(d_cb - d_cg) > 0.01: obs.append(f"Descuadre Deb {moneda_label}")
         if abs(c_cb - c_cg) > 0.01: obs.append(f"Descuadre Cre {moneda_label}")
-        if len(subset_cg) != row.get(cols["c_mov_cb"], 0): obs.append("Diferencia en conteo de Mov.")
+        if len(subset_cg) != row.get(c_mov_cb, 0): obs.append("Diferencia en conteo de Mov.")
             
         estatus = "❌ ERROR" if obs else "✅ OK"
         
