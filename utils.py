@@ -2423,22 +2423,6 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
                 except: continue
 
         # 4. ESCRIBIR CUADRO RESUMEN EN I, J, K (Ubicación Final)
-        ws1.write(1, 8, "1", header_clean)    # Col I
-        ws1.write(1, 9, "ACTIVO", header_clean) # Col J
-        ws1.write_number(1, 10, total_ajuste_1_activo, box_val) # Col K
-        
-        ws1.write(2, 8, "2", header_clean) 
-        ws1.write(2, 9, "PASIVO", header_clean) 
-        # Mostramos valor absoluto para pasivo si así se prefiere, o neto.
-        ws1.write_number(2, 10, total_ajuste_2_pasivo, box_val)
-        
-        ws1.write(4, 9, "DIF", workbook.add_format({'bold': True, 'align': 'right'}))
-        ws1.write_formula(4, 10, '=K2-K3', box_val)
-
-        # Ajustes de diseño
-        ws1.set_column('A:A', 15); ws1.set_column('B:B', 45); ws1.set_column('D:G', 18)
-        ws1.set_column('I:K', 14)
-
         # Fila 6: Etiquetas de moneda
         ws1.write(5, 3, "Moneda Local", header_clean) # Col D
         ws1.write(5, 4, "Moneda Dólar", header_clean) # Col E
@@ -2449,21 +2433,30 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
             'Balance Final', 'AJUSTE', 'SALDO AJUSTADO', 'N°', 'ACT O PA', '', 'TASA'
         ]
         ws1.write_row(6, 0, headers_r7, header_clean)
-
-        # 5. ESCRITURA DE DATOS
-        current_row = 7 # Empezamos en la fila 8 (índice 7)
+        
+        current_row = 7 
+        
+        # Localizamos donde empiezan los datos en el balance original
+        start_idx = 0
+        for i, row in df_balance_raw.iterrows():
+            if any('CUENTA' in str(v).upper() for v in row.values):
+                start_idx = i + 1
+                break
+        
+        # Bucle principal de escritura de cuentas
         for i in range(start_idx, len(df_balance_raw)):
             row = df_balance_raw.iloc[i]
             try:
-                cuenta = str(row[0]).strip()
-                if not (cuenta.startswith('1.') or cuenta.startswith('2.')): continue
-                if cuenta.endswith('.000') or cuenta.endswith('.00'): continue 
+                cuenta_str = str(row[0]).strip()
+                # Filtros de seguridad
+                if not (cuenta_str.startswith('1.') or cuenta_str.startswith('2.')): continue
+                if cuenta_str.endswith('.000') or cuenta_str.endswith('.00'): continue 
                 
-                # Determinación automática según el print
-                saldo_norm = "Deudor" if cuenta.startswith('1.') else "Acreedor"
-                act_o_pa = "1" if cuenta.startswith('1.') else "2"
+                # Lógica de clasificación
+                saldo_norm = "Deudor" if cuenta_str.startswith('1.') else "Acreedor"
+                act_o_pa = "1" if cuenta_str.startswith('1.') else "2"
                 
-                # Captura de montos originales
+                # Captura de montos
                 def get_val(x):
                     try:
                         if isinstance(x, (int, float)): return float(x)
@@ -2473,30 +2466,26 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
                 saldo_bs = get_val(row[6])
                 saldo_usd = get_val(row[11])
                 
-                ajuste = mapa_ajustes.get(cuenta, 0.0)
+                ajuste = mapa_ajustes.get(cuenta_str, 0.0)
                 saldo_ajustado = saldo_usd + ajuste
                 tasa = abs(saldo_bs / saldo_usd) if abs(saldo_usd) > 0.01 else 0.0
 
-                # Escritura según estructura del print
-                ws1.write(current_row, 0, cuenta, fmt_text)          # A: Cuenta
-                ws1.write(current_row, 1, str(row[1]).strip(), fmt_text) # B: Descripción
-                ws1.write(current_row, 2, saldo_norm, fmt_text)      # C: Saldo Norm
-                ws1.write_number(current_row, 3, saldo_bs, fmt_money) # D: Balance Final (Local)
-                ws1.write_number(current_row, 4, saldo_usd, fmt_money)# E: Balance Final (Dólar)
-                
-                # F, G: Ajuste y Saldo Ajustado
-                ws1.write_number(current_row, 5, ajuste, fmt_money_bold if abs(ajuste) > 0.001 else fmt_text)
-                ws1.write_number(current_row, 6, saldo_ajustado, fmt_money_bold)
-                
-                # H, I: N° y ACT O PA
-                ws1.write(current_row, 7, "", fmt_text) # N° (Para llenar manual o ID)
-                ws1.write(current_row, 8, act_o_pa, fmt_text)
-                
-                # K: TASA
-                ws1.write_number(current_row, 10, tasa, fmt_rate)
+                # Escritura de la fila de datos
+                ws1.write(current_row, 0, cuenta_str, fmt_text)           # A
+                ws1.write(current_row, 1, str(row[1]).strip(), fmt_text)  # B
+                ws1.write(current_row, 2, saldo_norm, fmt_text)           # C
+                ws1.write_number(current_row, 3, saldo_bs, fmt_money)     # D
+                ws1.write_number(current_row, 4, saldo_usd, fmt_money)    # E
+                ws1.write_number(current_row, 5, ajuste, fmt_money_bold if abs(ajuste) > 0.001 else fmt_text) # F
+                ws1.write_number(current_row, 6, saldo_ajustado, fmt_money_bold) # G
+                ws1.write(current_row, 7, "", fmt_text)                   # H (N°)
+                ws1.write(current_row, 8, act_o_pa, fmt_text)             # I (ACT O PA)
+                ws1.write(current_row, 9, "", fmt_text)                   # J
+                ws1.write_number(current_row, 10, tasa, fmt_rate)         # K (TASA)
                 
                 current_row += 1
-            except: continue
+            except:
+                continue
         
         ws1.set_column('A:A', 15); ws1.set_column('B:B', 45); ws1.set_column('D:G', 18)
         ws1.set_column('I:K', 12) # Columnas del Cuadro Resumen
