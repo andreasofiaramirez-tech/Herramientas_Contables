@@ -18,7 +18,8 @@ from guides import (
     GUIA_GENERADOR,
     GUIA_PENSIONES,
     GUIA_AJUSTES_USD,
-    GUIA_DEBITO_FISCAL
+    GUIA_DEBITO_FISCAL,
+    GUIA_COMISIONES
 )
 
 # --- BLOQUE 2: IMPORTAR LÓGICA  ---
@@ -46,7 +47,8 @@ from logic import (
     run_conciliation_fondos_transito_cofersa,
     run_conciliation_dev_proveedores_cofersa,
     preparar_datos_softland_debito,
-    run_conciliation_debito_fiscal
+    run_conciliation_debito_fiscal,
+    run_process_comisiones
 )
 
 # --- BLOQUE 3: IMPORTAR UTILS ---
@@ -65,7 +67,8 @@ from utils import (
     generar_reporte_cofersa,
     cargar_datos_cofersa,
     generar_reporte_debito_fiscal,
-    generar_hoja_pendientes_dev_cofersa
+    generar_hoja_pendientes_dev_cofersa,
+    generar_reporte_errores_comisiones
 )
 
 def mostrar_error_amigable(e, contexto=""):
@@ -392,6 +395,7 @@ def render_inicio():
         st.button("📄 Especificaciones", on_click=set_page, args=['especificaciones'], use_container_width=True)
         st.button("📦 Análisis Paquete CC", on_click=set_page, args=['paquete_cc'], use_container_width=True)
         st.button("⚖️ Cuadre CB - CG", on_click=set_page, args=['cuadre'], use_container_width=True)
+        st.button("🏦 Auditoría Comisiones", on_click=set_page, args=['comisiones'], use_container_width=True)
         st.button("📉 Ajustes al Balance USD", on_click=set_page, args=['ajustes_usd'], use_container_width=True)
 
     with c2:
@@ -1323,6 +1327,57 @@ def render_debito_fiscal():
             except Exception as e:
                 st.error(f"Error detectado: {str(e)}")
                 st.exception(e)
+
+def render_comisiones():
+    st.title("🏦 Auditoría de Conciliación de Comisiones", anchor=False)
+    
+    if st.button("⬅️ Volver al Inicio"):
+        set_page('inicio')
+        st.rerun()
+
+    with st.expander("📖 Guía de Uso"):
+        st.markdown(GUIA_COMISIONES)
+
+    empresa = st.selectbox("Seleccione la empresa:", ["Febeca", "Beval", "Sillaca", "Prisma"])
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        f1 = st.file_uploader(f"1. Resumen de Comisiones ({empresa})", type="xlsx")
+    with col2:
+        f2 = st.file_uploader(f"2. Diario Contable ({empresa})", type="xlsx")
+
+    if f1 and f2:
+        if st.button(f"🚀 Procesar Auditoría {empresa}", type="primary", use_container_width=True):
+            log_messages = []
+            try:
+                with st.spinner("Analizando consistencia de montos..."):
+                    df_res = run_process_comisiones(pd.read_excel(f1), pd.read_excel(f2), log_messages)
+                
+                if df_res is not None:
+                    hay_errores = df_res['Estado Conciliación'].str.contains("❌").any()
+                    
+                    if not hay_errores:
+                        st.success(f"✅ ¡Excelente! Todos los montos coinciden en {empresa}.")
+                    else:
+                        st.warning(f"⚠️ Se detectaron diferencias en {empresa}.")
+
+                    st.subheader("📋 Resumen de Validación")
+                    st.dataframe(df_res, use_container_width=True, hide_index=True)
+
+                    if hay_errores:
+                        excel_errores = generar_reporte_errores_comisiones(df_res)
+                        st.download_button(
+                            label="📥 Descargar Reporte de Diferencias (Excel)",
+                            data=excel_errores,
+                            file_name=f"Diferencias_Comisiones_{empresa}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            use_container_width=True
+                        )
+                
+                with st.expander("Ver Log técnico"):
+                    for m in log_messages: st.text(m)
+            except Exception as e:
+                mostrar_error_amigable(e, "la Auditoría de Comisiones")
                 
 # ==============================================================================
 # FLUJO PRINCIPAL DE LA APLICACIÓN (ROUTER)
@@ -1340,6 +1395,7 @@ def main():
         'cofersa': render_cofersa,     
         'cofersa_fondos': render_cofersa_fondos,
         'debito_fiscal': render_debito_fiscal,
+        'comisiones': render_comisiones,
     }
     
     current_page = st.session_state.get('page', 'inicio')
