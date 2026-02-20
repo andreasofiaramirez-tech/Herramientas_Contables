@@ -553,3 +553,21 @@ Esta herramienta realiza una auditoría integral entre la contabilidad (**Softla
 *   **Tablas BI (Derecha):** Cuadros de mando ejecutivos que comparan Cantidades y Montos de Softland vs Imprenta.
 *   **Validación de Totales:** Los subtotales del listado de incidencias coinciden exactamente con los montos de "Diferencia" de los cuadros de mando.
 """
+
+GUIA_COMISIONES = """
+### 🏦 Manual: Auditoría de Conciliación de Comisiones
+Esta herramienta cruza el reporte de **Resumen de Comisiones** contra el **Diario Contable** para verificar que los montos debitados coincidan con lo asentado.
+
+**1. Archivos Requeridos:**
+*   **Resumen de Comisiones:** Excel que contiene los rangos de asientos (CB Desde/Hasta) y el Total Débito.
+*   **Diario Contable:** Excel con el movimiento detallado de las cuentas bancarias.
+
+**2. Lógica de Auditoría:**
+*   El sistema identifica automáticamente las columnas de asientos y montos.
+*   Filtra automáticamente cuentas excluidas (gastos operativos, impuestos).
+*   Compara el monto del resumen contra la sumatoria del rango de asientos en el diario.
+
+**3. Resultados:**
+*   Muestra un tablero con el estatus (Conciliado/No Conciliado).
+*   Permite descargar un archivo Excel con el detalle exclusivo de las diferencias encontradas.
+"""
