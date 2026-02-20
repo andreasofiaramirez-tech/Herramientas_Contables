@@ -1354,15 +1354,21 @@ def render_comisiones():
                     df_res = run_process_comisiones(pd.read_excel(f1), pd.read_excel(f2), log_messages)
                 
                 if df_res is not None:
-                    hay_errores = df_res['Estado Conciliación'].str.contains("❌").any()
-                    
-                    if not hay_errores:
-                        st.success(f"✅ ¡Excelente! Todos los montos coinciden en {empresa}.")
-                    else:
-                        st.warning(f"⚠️ Se detectaron diferencias en {empresa}.")
+                    # Usamos colores para identificar el Estatus rápidamente
+                    def color_estatus(val):
+                        color = 'red' if '❌' in val else 'green'
+                        return f'color: {color}; font-weight: bold'
 
-                    st.subheader("📋 Resumen de Validación")
-                    st.dataframe(df_res, use_container_width=True, hide_index=True)
+                    st.subheader("📋 Resultados de la Auditoría Integral")
+                    
+                    # Mostramos solo las columnas de gestión, ocultando los cálculos técnicos
+                    columnas_visibles = ['Rango Asientos', 'Estatus', 'Detalle de Auditoría']
+                    
+                    st.dataframe(
+                        df_res[columnas_visibles].style.applymap(color_estatus, subset=['Estatus']),
+                        use_container_width=True,
+                        hide_index=True
+                    )
 
                     if hay_errores:
                         excel_errores = generar_reporte_errores_comisiones(df_res)
