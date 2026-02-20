@@ -2970,9 +2970,9 @@ def generar_reporte_errores_comisiones(df_final, df_diario_errores, nombre_empre
         total_fmt = workbook.add_format({'bold': True, 'num_format': '#,##0.00', 'top': 1, 'bottom': 6, 'bg_color': '#F2F2F2'})
 
         # Re-encabezar Hoja 1
-        ws1.merge_range('D2:E2', 'Movimientos', header_fmt)
-        ws1.merge_range('F2:G2', 'Total Débitos', header_fmt)
-        ws1.merge_range('H2:I2', 'Total Créditos', header_fmt)
+        ws1.merge_range('C2:D2', 'Movimientos', header_fmt)     
+        ws1.merge_range('E2:F2', 'Total Débitos', header_fmt)   
+        ws1.merge_range('G2:H2', 'Total Créditos', header_fmt)  
         
         headers = ['Banco', 'Moneda', 'CB', 'CG', 'CB', 'CG', 'CB', 'CG', 'Observación', 'Desde', 'Hasta', 'Estatus']
         for i, h in enumerate(headers):
