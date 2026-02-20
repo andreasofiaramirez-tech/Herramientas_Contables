@@ -2359,6 +2359,7 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
         # --- ESTILOS ---
         fmt_header_raw = workbook.add_format({'bold': False, 'font_size': 10})
         header_clean = workbook.add_format({'bold': True, 'border': 1, 'align': 'center', 'valign': 'vcenter', 'bg_color': '#FFFFFF'})
+        main_title = workbook.add_format({'bold': True, 'font_size': 14, 'align': 'center', 'valign': 'vcenter'})
         fmt_text = workbook.add_format({'border': 1, 'valign': 'vcenter'})
         fmt_money = workbook.add_format({'num_format': '#,##0.00', 'border': 1})
         fmt_money_bold = workbook.add_format({'num_format': '#,##0.00', 'border': 1, 'bold': True, 'bg_color': '#F2F2F2'})
