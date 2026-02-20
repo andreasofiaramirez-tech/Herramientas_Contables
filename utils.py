@@ -2950,24 +2950,26 @@ def generar_reporte_debito_fiscal(df_incidencias_raw, df_soft_raw, df_imp_raw):
 # ============================================================
 
 def generar_reporte_errores_comisiones(df_final, df_diario_errores, nombre_empresa):
-    """Genera el reporte profesional con la estructura solicitada en la imagen"""
+    """Genera el reporte profesional con Totales y Detalle de Asientos Erróneos"""
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        df_final.to_excel(writer, sheet_name='Auditoria', index=False, startrow=2)
+        # --- HOJA 1: RESUMEN DE AUDITORÍA ---
+        df_final.to_excel(writer, sheet_name='Resumen Auditoria', index=False, startrow=2)
+        
         workbook = writer.book
         ws1 = writer.sheets['Resumen Auditoria']
         ws1.hide_gridlines(2)
-        
-        # --- FORMATOS ---
+
+        # FORMATOS
         header_fmt = workbook.add_format({'bold': True, 'align': 'center', 'border': 1, 'bg_color': '#FFFFFF'})
         sub_header_fmt = workbook.add_format({'bold': True, 'align': 'center', 'border': 1, 'bg_color': '#D9EAD3'})
         money_fmt = workbook.add_format({'num_format': '#,##0.00', 'border': 1})
         money_red = workbook.add_format({'num_format': '#,##0.00', 'border': 1, 'font_color': 'red'})
         text_fmt = workbook.add_format({'border': 1})
         text_red = workbook.add_format({'border': 1, 'font_color': 'red'})
-        total_fmt = workbook.add_format({'bold': True, 'num_format': '#,##0.00', 'top': 1, 'bottom': 6})
+        total_fmt = workbook.add_format({'bold': True, 'num_format': '#,##0.00', 'top': 1, 'bottom': 6, 'bg_color': '#F2F2F2'})
 
-        # Re-encabezar Hoja 1 (Añadimos las columnas de asientos)
+        # Re-encabezar Hoja 1
         ws1.merge_range('D2:E2', 'Movimientos', header_fmt)
         ws1.merge_range('F2:G2', 'Total Débitos', header_fmt)
         ws1.merge_range('H2:I2', 'Total Créditos', header_fmt)
@@ -2976,38 +2978,42 @@ def generar_reporte_errores_comisiones(df_final, df_diario_errores, nombre_empre
         for i, h in enumerate(headers):
             ws1.write(2, i, h, sub_header_fmt)
 
-        # --- ESCRIBIR DATOS CON ALERTAS ROJAS ---
+        # Escribir datos
         for r_idx, row in df_final.iterrows():
             row_ex = r_idx + 3
             is_err = "❌" in str(row['Estatus'])
             fmt_t = text_red if is_err else text_fmt
             fmt_n = money_red if is_err else money_fmt
             
-            ws1.write(row_ex, 0, row['Banco'], fmt)
-            ws1.write(row_ex, 1, row['Moneda'], fmt)
-            ws1.write_number(row_ex, 2, row['CB_Mov'], fmt)
-            ws1.write_number(row_ex, 3, row['CG_Mov'], fmt)
-            ws1.write_number(row_ex, 4, row['CB_Deb'], fmt)
-            ws1.write_number(row_ex, 5, row['CG_Deb'], fmt)
-            ws1.write_number(row_ex, 6, row['CB_Cre'], fmt)
-            ws1.write_number(row_ex, 7, row['CG_Cre'], fmt)
-            ws1.write(row_ex, 8, row['Observación'], fmt)
-            ws1.write(row_ex, 9, row['Estatus'], fmt)
+            ws1.write(row_ex, 0, row['Banco'], fmt_t)
+            ws1.write(row_ex, 1, row['Moneda'], fmt_t)
+            ws1.write_number(row_ex, 2, row['CB_Mov'], fmt_t)
+            ws1.write_number(row_ex, 3, row['CG_Mov'], fmt_t)
+            ws1.write_number(row_ex, 4, row['CB_Deb'], fmt_n)
+            ws1.write_number(row_ex, 5, row['CG_Deb'], fmt_n)
+            ws1.write_number(row_ex, 6, row['CB_Cre'], fmt_n)
+            ws1.write_number(row_ex, 7, row['CG_Cre'], fmt_n)
+            ws1.write(row_ex, 8, row['Observación'], fmt_t)
+            ws1.write(row_ex, 9, row['Desde'], fmt_t)
+            ws1.write(row_ex, 10, row['Hasta'], fmt_t)
+            ws1.write(row_ex, 11, row['Estatus'], fmt_t)
 
-        # --- FILA DE TOTALES ---
+        # --- FILA DE TOTALES (RESTABLECIDA) ---
         last_row = len(df_final) + 3
-        ws1.write(last_row, 1, "Totales", workbook.add_format({'bold': True, 'align': 'right'}))
+        ws1.write(last_row, 1, "Totales", workbook.add_format({'bold': True, 'align': 'right', 'border': 1}))
+        # Sumamos las columnas C, D, E, F, G, H (índices 2 al 7)
         for col in [2, 3, 4, 5, 6, 7]:
             col_letter = chr(65 + col)
+            # Ejemplo: =SUM(C4:C15)
             ws1.write_formula(last_row, col, f"=SUM({col_letter}4:{col_letter}{last_row})", total_fmt)
 
-        ws1.set_column('A:A', 35); ws1.set_column('B:B', 10); ws1.set_column('C:I', 15)
+        ws1.set_column('A:A', 35); ws1.set_column('I:I', 35); ws1.set_column('B:K', 12)
 
-        # HOJA 2: DETALLE DIARIO (NUEVA PESTAÑA)
-        if not df_diario_errores.empty:
+        # --- HOJA 2: DETALLE DE ASIENTOS CON ERROR ---
+        if df_diario_errores is not None and not df_diario_errores.empty:
             df_diario_errores.to_excel(writer, sheet_name='Asientos con Diferencia', index=False)
             ws2 = writer.sheets['Asientos con Diferencia']
             ws2.set_tab_color('red')
             ws2.set_column('A:Z', 18)
-        
+
     return output.getvalue()
