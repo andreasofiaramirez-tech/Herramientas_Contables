@@ -1387,9 +1387,9 @@ def render_comisiones():
                         st.divider()
                         excel_errores = generar_reporte_errores_comisiones(df_res)
                         st.download_button(
-                            label=f"📥 Descargar Reporte de Diferencias ({empresa})",
+                            label=f"📥 Descargar Reporte de Auditoría ({empresa})",
                             data=excel_errores,
-                            file_name=f"Diferencias_Comisiones_{empresa}.xlsx",
+                            file_name=f"Auditoria_Comisiones_{empresa}.xlsx",
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                             use_container_width=True
                         )
