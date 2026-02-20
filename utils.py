@@ -2994,8 +2994,8 @@ def generar_reporte_errores_comisiones(df_final, df_diario_errores, nombre_empre
             ws1.write_number(row_ex, 6, row['CB_Cre'], fmt_n)
             ws1.write_number(row_ex, 7, row['CG_Cre'], fmt_n)
             ws1.write(row_ex, 8, row['Observación'], fmt_t)
-            ws1.write(row_ex, 9, row['Desde'], fmt_t)
-            ws1.write(row_ex, 10, row['Hasta'], fmt_t)
+            ws1.write(row_ex, 9, row['Asiento Desde'], fmt_t)
+            ws1.write(row_ex, 10, row['Asiento Hasta'], fmt_t)
             ws1.write(row_ex, 11, row['Estatus'], fmt_t)
 
         # --- FILA DE TOTALES (RESTABLECIDA) ---
