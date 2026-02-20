@@ -2949,19 +2949,58 @@ def generar_reporte_debito_fiscal(df_incidencias_raw, df_soft_raw, df_imp_raw):
 # AUDITORIA DE COMISIONES (CREACION DE EDUARDO)
 # ============================================================
 
-def generar_reporte_errores_comisiones(df_final):
-    """Genera el Excel detallado con los descuadres detectados"""
-    df_errores = df_final[df_final['Estatus'].str.contains("❌")].copy()
+def generar_reporte_errores_comisiones(df_final, nombre_empresa):
+    """Genera el reporte profesional con la estructura solicitada en la imagen"""
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        df_errores.to_excel(writer, sheet_name='Descuadres', index=False)
-        workbook  = writer.book
-        worksheet = writer.sheets['Descuadres']
+        df_final.to_excel(writer, sheet_name='Auditoria', index=False, startrow=2)
+        workbook = writer.book
+        ws = writer.sheets['Auditoria']
         
-        # Formato para destacar errores
-        fmt_error = workbook.add_format({'font_color': '#9C0006', 'bg_color': '#FFC7CE'})
-        worksheet.conditional_format('B2:B1000', {'type': 'text', 'criteria': 'containing', 'value': '❌', 'format': fmt_error})
+        # --- FORMATOS ---
+        header_fmt = workbook.add_format({'bold': True, 'align': 'center', 'border': 1, 'bg_color': '#FFFFFF'})
+        sub_header_fmt = workbook.add_format({'bold': True, 'align': 'center', 'border': 1, 'bg_color': '#D9EAD3'})
+        money_fmt = workbook.add_format({'num_format': '#,##0.00', 'border': 1})
+        money_red = workbook.add_format({'num_format': '#,##0.00', 'border': 1, 'font_color': 'red'})
+        text_fmt = workbook.add_format({'border': 1})
+        text_red = workbook.add_format({'border': 1, 'font_color': 'red'})
+        total_fmt = workbook.add_format({'bold': True, 'num_format': '#,##0.00', 'top': 1, 'bottom': 6})
+
+        # --- REESTRUCTURAR ENCABEZADOS (IGUAL AL MODELO) ---
+        ws.merge_range('C2:D2', 'Movimientos', header_fmt)
+        ws.merge_range('E2:F2', 'Total Débitos', header_fmt)
+        ws.merge_range('G2:H2', 'Total Créditos', header_fmt)
         
-        worksheet.set_column('A:C', 35)
-        worksheet.set_column('D:G', 15)
+        headers = ['Cuenta Bancaria', 'Banco', 'CB', 'CG', 'CB', 'CG', 'CB', 'CG', 'Observación', 'CB Desde', 'CB Hasta']
+        for i, h in enumerate(headers):
+            ws.write(2, i, h, sub_header_fmt)
+
+        # --- ESCRIBIR DATOS CON ALERTAS ROJAS ---
+        for r_idx, row in df_final.iterrows():
+            row_excel = r_idx + 3
+            is_err = "❌" in str(row['Estatus'])
+            fmt_t = text_red if is_err else text_fmt
+            fmt_n = money_red if is_err else money_fmt
+            
+            ws.write(row_excel, 0, row['Cuenta Bancaria'], fmt_t)
+            ws.write(row_excel, 1, row['Banco'], fmt_t)
+            ws.write_number(row_excel, 2, row['CB_Mov'], fmt_t)
+            ws.write_number(row_excel, 3, row['CG_Mov'], fmt_t)
+            ws.write_number(row_excel, 4, row['CB_Deb'], fmt_n)
+            ws.write_number(row_excel, 5, row['CG_Deb'], fmt_n)
+            ws.write_number(row_excel, 6, row['CB_Cre'], fmt_n)
+            ws.write_number(row_excel, 7, row['CG_Cre'], fmt_n)
+            ws.write(row_excel, 8, row['Observación'], fmt_t)
+            ws.write(row_excel, 9, row['CB Desde'], fmt_t)
+            ws.write(row_excel, 10, row['CB Hasta'], fmt_t)
+
+        # --- FILA DE TOTALES ---
+        last_row = len(df_final) + 3
+        ws.write(last_row, 1, "Totales", workbook.add_format({'bold': True, 'align': 'right'}))
+        for col in [2, 3, 4, 5, 6, 7]:
+            col_letter = chr(65 + col)
+            ws.write_formula(last_row, col, f"=SUM({col_letter}4:{col_letter}{last_row})", total_fmt)
+
+        ws.set_column('A:B', 20); ws.set_column('C:H', 12); ws.set_column('I:I', 40); ws.set_column('J:K', 15)
+        
     return output.getvalue()
