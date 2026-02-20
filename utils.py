@@ -2949,7 +2949,7 @@ def generar_reporte_debito_fiscal(df_incidencias_raw, df_soft_raw, df_imp_raw):
 # AUDITORIA DE COMISIONES (CREACION DE EDUARDO)
 # ============================================================
 
-def generar_reporte_errores_comisiones(df_final, nombre_empresa):
+def generar_reporte_errores_comisiones(df_final, df_diario_errores, nombre_empresa):
     """Genera el reporte profesional con la estructura solicitada en la imagen"""
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
