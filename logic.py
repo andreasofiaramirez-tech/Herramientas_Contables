@@ -2093,8 +2093,6 @@ def _traducir_resultados_para_reporte(row, asientos_en_cg_set, df_cg):
     # --- 2. VALIDACIÓN DE MONTO (con comprobación jerárquica) ---
     monto_cp = row.get('Monto', 0)
     
-    # ¡NUEVA COMPROBACIÓN PRIORITARIA PARA MONTO!
-    # Si el detalle de GALAC ya indica un error de monto, heredamos ese error.
     if 'Monto no coincide' in detalle_galac:
         errores_cg.append('Monto no coincide (debido a discrepancia con GALAC)')
     
@@ -2105,10 +2103,20 @@ def _traducir_resultados_para_reporte(row, asientos_en_cg_set, df_cg):
         columna_monto_cg = 'CREDITO_NORM' if es_nota_credito else 'DEBITO_NORM'
         
         if columna_monto_cg in transacciones_asiento.columns:
-            montos_cg = pd.to_numeric(transacciones_asiento[columna_monto_cg], errors='coerce').fillna(0)
+            # --- MEJORA CRÍTICA: Filtrar por cuenta_esperada antes de sumar ---
+            if cuenta_esperada:
+                # Solo sumamos las líneas que corresponden a la cuenta de retención (IVA/ISLR/MUN)
+                lineas_cuenta_especifica = transacciones_asiento[
+                    transacciones_asiento['CUENTACONTABLE'].str.strip() == cuenta_esperada
+                ]
+                montos_cg = pd.to_numeric(lineas_cuenta_especifica[columna_monto_cg], errors='coerce').fillna(0)
+            else:
+                # Fallback por si no hay cuenta identificada
+                montos_cg = pd.to_numeric(transacciones_asiento[columna_monto_cg], errors='coerce').fillna(0)
+            
             suma_monto_cg = montos_cg.sum()
             if not np.isclose(monto_cp, suma_monto_cg):
-                errores_cg.append(f'Monto no coincide (CP: {monto_cp:.2f}, CG: {suma_monto_cg:.2f})')
+                errores_cg.append(f'Monto en Cuenta {cuenta_esperada} no coincide (CP: {monto_cp:.2f}, CG: {suma_monto_cg:.2f})')
         else:
             errores_cg.append(f'Columna de monto ({columna_monto_cg}) no encontrada en CG')
 
