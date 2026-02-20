@@ -4738,22 +4738,25 @@ def run_process_comisiones(df_resumen, df_diario, log_messages):
         if not cols[ref] and "deb" in ref: cols[ref] = buscar_columna_comisiones(df_diario, ["DEBITO", "LOCAL"]) or buscar_columna_comisiones(df_diario, ["DEBITO", "BOLIVAR"])
         if not cols[ref] and "cre" in ref: cols[ref] = buscar_columna_comisiones(df_diario, ["CREDITO", "LOCAL"]) or buscar_columna_comisiones(df_diario, ["CREDITO", "BOLIVAR"])
 
-    # --- 2. DIAGNÓSTICO DE ERROR (SOLUCIÓN AL PROBLEMA) ---
-    columnas_criticas = {
-        "CB Desde": cols["c_ini"],
-        "CB Hasta": cols["c_fin"],
-        "Débito Tesorería": cols["c_deb_cb"],
-        "Crédito Tesorería": cols["c_cre_cb"],
-        "Asiento Diario": cols["c_asiento"],
-        "Débito Diario": cols["c_deb_cg"],
-        "Crédito Diario": cols["c_cre_cg"]
-    }
+    # --- 2. DIAGNÓSTICO DE ERROR MEJORADO ---
+    faltantes_resumen = []
+    if not cols["c_ini"]: faltantes_resumen.append("CB Desde")
+    if not cols["c_fin"]: faltantes_resumen.append("CB Hasta")
+    if not cols["c_deb_cb"]: faltantes_resumen.append("Total Débito")
+    if not cols["c_cre_cb"]: faltantes_resumen.append("Total Crédito")
 
-    faltantes = [nombre for nombre, valor in columnas_criticas.items() if valor is None]
+    faltantes_diario = []
+    if not cols["c_asiento"]: faltantes_diario.append("Asiento")
+    if not cols["c_deb_cg"]: faltantes_diario.append("Débito VES")
+    if not cols["c_cre_cg"]: faltantes_diario.append("Crédito VES")
 
-    if faltantes:
-        log_messages.append(f"❌ ERROR: No se encontraron las siguientes columnas: {', '.join(faltantes)}")
-        log_messages.append("💡 Tip: Verifique que los encabezados del Excel no tengan celdas combinadas en la primera fila.")
+    if faltantes_resumen or faltantes_diario:
+        if faltantes_resumen:
+            log_messages.append(f"❌ ERROR en archivo RESUMEN TESORERÍA: Faltan columnas {', '.join(faltantes_resumen)}")
+        if faltantes_diario:
+            log_messages.append(f"❌ ERROR en archivo DIARIO CONTABLE: Faltan columnas {', '.join(faltantes_diario)}")
+        
+        log_messages.append("💡 Tip: Abra el Excel y asegúrese de que los títulos estén en la FILA 1 y no tengan celdas combinadas.")
         return None
 
     # --- 3. PREPARACIÓN (Si todo se detectó bien) ---
