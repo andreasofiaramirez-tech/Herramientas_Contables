@@ -4682,3 +4682,72 @@ def run_conciliation_debito_fiscal(df_soft_total, df_imprenta_logica, tolerancia
 
     merged[['Estado', '_Tipo_Final', '_Nombre_Final']] = merged.apply(clasificar, axis=1, result_type='expand')
     return merged
+
+# ==============================================================================
+# MODULO: AUDITORIA DE COMISIONES (CREACION DE EDUARDO)
+# ==============================================================================
+def buscar_columna_comisiones(df, palabras):
+    """Función de búsqueda flexible de Eduardo"""
+    for col in df.columns:
+        col_norm = str(col).upper().strip()
+        if all(p.upper() in col_norm for p in palabras):
+            return col
+    return None
+
+def run_process_comisiones(df_resumen, df_diario, log_messages):
+    """Lógica principal de Auditoría de Comisiones"""
+    # Limpiar nombres de columnas
+    df_resumen.columns = [str(c).strip() for c in df_resumen.columns]
+    df_diario.columns = [str(c).strip() for c in df_diario.columns]
+
+    # Mapeo de columnas
+    c_ini = buscar_columna_comisiones(df_resumen, ["CB", "DESDE"])
+    c_fin = buscar_columna_comisiones(df_resumen, ["CB", "HASTA"])
+    c_monto_res = buscar_columna_comisiones(df_resumen, ["TOTAL", "DÉBITO"]) or buscar_columna_comisiones(df_resumen, ["TOTAL", "DEBITO"])
+    
+    c_asiento = buscar_columna_comisiones(df_diario, ["ASIENTO"])
+    c_cuenta = buscar_columna_comisiones(df_diario, ["CUENTA", "CONTABLE"])
+    c_deb_ves = buscar_columna_comisiones(df_diario, ["DÉBITO", "VES"]) or buscar_columna_comisiones(df_diario, ["DEBITO", "VES"])
+
+    if not all([c_ini, c_fin, c_monto_res, c_asiento, c_deb_ves]):
+        log_messages.append("❌ ERROR DE COLUMNAS: No se encontraron los nombres esperados en los archivos.")
+        return None
+
+    # Procesamiento
+    CUENTAS_OMITIR = ['1.1.4.01.1.010', '6.1.1.15.1.005', '7.1.3.04.3.001', '7.1.3.50.1.001', '7.1.3.50.1.002']
+    df_dia = df_diario[~df_diario[c_cuenta].astype(str).isin(CUENTAS_OMITIR)].copy()
+    
+    df_resumen[c_monto_res] = pd.to_numeric(df_resumen[c_monto_res], errors='coerce').fillna(0)
+    df_dia[c_deb_ves] = pd.to_numeric(df_dia[c_deb_ves], errors='coerce').fillna(0)
+
+    lista_resumen = []
+    log_messages.append("Iniciando cruce de datos por rango de asientos...")
+
+    for _, row in df_resumen.iterrows():
+        ini, fin = str(row[c_ini]), str(row[c_fin])
+        mask = df_dia[c_asiento].astype(str).between(ini, fin)
+        subset = df_dia[mask]
+
+        monto_res = row[c_monto_res]
+        monto_dia = subset[c_deb_ves].sum()
+        dif = round(monto_res - monto_dia, 2)
+
+        if subset.empty:
+            estado = "❌ No conciliado"
+            motivo = f"Estado Conciliación: El asiento no existe en el Diario Contable."
+        elif abs(dif) > 0.01:
+            estado = "❌ No conciliado"
+            motivo = f"Estado Conciliación: Diferencia de montos (Resumen: {monto_res:,.2f} vs Diario: {monto_dia:,.2f})"
+        else:
+            estado = "✅ Conciliado"
+            motivo = "Estado Conciliación: Todo coincide perfectamente."
+
+        lista_resumen.append({
+            'Numero Asiento': f"{ini} - {fin}",
+            'Estado Conciliación': estado,
+            'Motivo / Detalle': motivo,
+            'Diferencia': dif
+        })
+
+    log_messages.append("Proceso de comparación finalizado.")
+    return pd.DataFrame(lista_resumen)
