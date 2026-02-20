@@ -4695,89 +4695,72 @@ def buscar_columna_comisiones(df, palabras):
     return None
 
 def run_process_comisiones(df_resumen, df_diario, log_messages):
-    """Lógica mejorada: Auditoría Integral (D/C) en VES y USD"""
+    """Lógica V17: Auditoría de Volumetría y Montos (Solo VES)"""
     df_resumen.columns = [str(c).strip() for c in df_resumen.columns]
     df_diario.columns = [str(c).strip() for c in df_diario.columns]
 
     # --- 1. MAPEOS DINÁMICOS ---
-    # Columnas del Resumen
+    c_banco_id = buscar_columna_comisiones(df_resumen, ["CUENTA", "BANCARIA"]) or "Cuenta Bancaria"
+    c_banco_nom = buscar_columna_comisiones(df_resumen, ["BANCO"]) or "Banco"
+    c_mov_cb = buscar_columna_comisiones(df_resumen, ["MOVIMIENTOS"]) or "Movimientos"
     c_ini = buscar_columna_comisiones(df_resumen, ["CB", "DESDE"])
     c_fin = buscar_columna_comisiones(df_resumen, ["CB", "HASTA"])
-    c_deb_res_ves = buscar_columna_comisiones(df_resumen, ["TOTAL", "DÉBITO"]) or buscar_columna_comisiones(df_resumen, ["TOTAL", "DEBITO"])
-    c_cre_res_ves = buscar_columna_comisiones(df_resumen, ["TOTAL", "CRÉDITO"]) or buscar_columna_comisiones(df_resumen, ["TOTAL", "CREDITO"])
-    # Para USD en el resumen (buscamos palabras clave)
-    c_deb_res_usd = buscar_columna_comisiones(df_resumen, ["DÉBITO", "DOLAR"]) or buscar_columna_comisiones(df_resumen, ["DEBITO", "USD"])
-    c_cre_res_usd = buscar_columna_comisiones(df_resumen, ["CRÉDITO", "DOLAR"]) or buscar_columna_comisiones(df_resumen, ["CREDITO", "USD"])
+    c_deb_cb = buscar_columna_comisiones(df_resumen, ["TOTAL", "DÉBITO"]) or buscar_columna_comisiones(df_resumen, ["TOTAL", "DEBITO"])
+    c_cre_cb = buscar_columna_comisiones(df_resumen, ["TOTAL", "CRÉDITO"]) or buscar_columna_comisiones(df_resumen, ["TOTAL", "CREDITO"])
 
-    # Columnas del Diario
     c_asiento = buscar_columna_comisiones(df_diario, ["ASIENTO"])
     c_cuenta = buscar_columna_comisiones(df_diario, ["CUENTA", "CONTABLE"])
-    c_deb_ves_dia = buscar_columna_comisiones(df_diario, ["DÉBITO", "VES"]) or buscar_columna_comisiones(df_diario, ["DEBITO", "VES"])
-    c_cre_ves_dia = buscar_columna_comisiones(df_diario, ["CRÉDITO", "VES"]) or buscar_columna_comisiones(df_diario, ["CREDITO", "VES"])
-    c_deb_usd_dia = buscar_columna_comisiones(df_diario, ["DÉBITO", "DOLAR"]) or buscar_columna_comisiones(df_diario, ["DEBITO", "DOLAR"])
-    c_cre_usd_dia = buscar_columna_comisiones(df_diario, ["CRÉDITO", "DOLAR"]) or buscar_columna_comisiones(df_diario, ["CREDITO", "DOLAR"])
+    c_deb_cg = buscar_columna_comisiones(df_diario, ["DEBITO", "VES"]) or buscar_columna_comisiones(df_diario, ["DEBITO", "BOLIVAR"])
+    c_cre_cg = buscar_columna_comisiones(df_diario, ["CREDITO", "VES"]) or buscar_columna_comisiones(df_diario, ["CREDITO", "BOLIVAR"])
 
-    if not all([c_ini, c_fin, c_deb_res_ves, c_asiento, c_deb_ves_dia]):
-        log_messages.append("❌ ERROR: Faltan columnas básicas para iniciar la auditoría.")
+    if not all([c_ini, c_fin, c_deb_cb, c_asiento, c_deb_cg]):
+        log_messages.append("❌ ERROR: No se detectaron las columnas necesarias en los archivos.")
         return None
 
-    # --- 2. PREPARACIÓN DE DATOS ---
+    # --- 2. PREPARACIÓN ---
     CUENTAS_OMITIR = ['1.1.4.01.1.010', '6.1.1.15.1.005', '7.1.3.04.3.001', '7.1.3.50.1.001', '7.1.3.50.1.002']
-    df_dia = df_diario[~df_diario[c_cuenta].astype(str).isin(CUENTAS_OMITIR)].copy()
+    df_cg_fil = df_diario[~df_diario[c_cuenta].astype(str).isin(CUENTAS_OMITIR)].copy()
     
-    # Limpieza numérica masiva
-    for df, cols in [(df_resumen, [c_deb_res_ves, c_cre_res_ves, c_deb_res_usd, c_cre_res_usd]),
-                     (df_dia, [c_deb_ves_dia, c_cre_ves_dia, c_deb_usd_dia, c_cre_usd_dia])]:
-        for c in cols:
-            if c: df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0)
+    for c in [c_deb_cb, c_cre_cb]: df_resumen[c] = pd.to_numeric(df_resumen[c], errors='coerce').fillna(0)
+    for c in [c_deb_cg, c_cre_cg]: df_cg_fil[c] = pd.to_numeric(df_cg_fil[c], errors='coerce').fillna(0)
 
     # --- 3. PROCESAMIENTO ---
-    lista_resultados = []
-    log_messages.append("Iniciando auditoría integral VES/USD...")
+    resultados = []
+    log_messages.append("Iniciando cruce de volumetría y saldos...")
 
     for _, row in df_resumen.iterrows():
         ini, fin = str(row[c_ini]), str(row[c_fin])
-        subset = df_dia[df_dia[c_asiento].astype(str).between(ini, fin)]
+        subset_cg = df_cg_fil[df_cg_fil[c_asiento].astype(str).between(ini, fin)]
 
-        # Montos Resumen
-        r_dv = row[c_deb_res_ves]
-        r_cv = row.get(c_cre_res_ves, 0)
-        r_du = row.get(c_deb_res_usd, 0)
-        r_cu = row.get(c_cre_res_usd, 0)
+        # Datos CB (Tesoreria)
+        m_cb = row.get(c_mov_cb, 0)
+        d_cb = row[c_deb_cb]
+        c_cb = row[c_cre_cb]
 
-        # Montos Diario
-        d_dv = subset[c_deb_ves_dia].sum()
-        d_cv = subset[c_cre_ves_dia].sum() if c_cre_ves_dia else 0
-        d_du = subset[c_deb_usd_dia].sum() if c_deb_usd_dia else 0
-        d_cu = subset[c_cre_usd_dia].sum() if c_cre_usd_dia else 0
+        # Datos CG (Contabilidad)
+        m_cg = len(subset_cg)
+        d_cg = subset_cg[c_deb_cg].sum()
+        c_cg = subset_cg[c_cre_cg].sum()
 
-        # Validaciones (Tolerancia 0.01)
-        err_ves = abs(r_dv - d_dv) > 0.01 or abs(r_cv - d_cv) > 0.01
-        err_usd = abs(r_du - d_du) > 0.01 or abs(r_cu - d_cu) > 0.01
+        # Determinar Observación
+        obs = []
+        if m_cb != m_cg: obs.append(f"Diferencia Movimientos ({m_cb} vs {m_cg})")
+        if abs(d_cb - d_cg) > 0.01: obs.append(f"Descuadre Deb: {round(d_cb - d_cg, 2)}")
+        if abs(c_cb - c_cg) > 0.01: obs.append(f"Descuadre Cre: {round(c_cb - c_cg, 2)}")
 
-        if subset.empty:
-            estado = "❌ ERROR"
-            motivo = "Asiento no encontrado en Diario."
-        elif err_ves and err_usd:
-            estado = "❌ ERROR"
-            motivo = "Diferencia en ambas monedas (VES y USD)."
-        elif err_ves:
-            estado = "❌ ERROR"
-            motivo = f"Descuadre en VES (Dif. Deb: {round(r_dv-d_dv,2)} | Dif. Cre: {round(r_cv-d_cv,2)})"
-        elif err_usd:
-            estado = "❌ ERROR"
-            motivo = f"Descuadre en USD (Dif. Deb: {round(r_du-d_du,2)} | Dif. Cre: {round(r_cu-d_cu,2)})"
-        else:
-            estado = "✅ OK"
-            motivo = "Cuadratura perfecta en VES y USD."
+        estatus = "❌ ERROR" if obs else "✅ OK"
+        msg_obs = " | ".join(obs) if obs else ""
 
-        lista_resultados.append({
-            'Rango Asientos': f"{ini} - {fin}",
-            'Estatus': estado,
-            'Detalle de Auditoría': motivo,
-            'Deb_Res_VES': r_dv, 'Deb_Dia_VES': d_dv,
-            'Deb_Res_USD': r_du, 'Deb_Dia_USD': d_du
+        resultados.append({
+            'Cuenta Bancaria': row.get(c_banco_id, ''),
+            'Banco': row.get(c_banco_nom, ''),
+            'CB_Mov': m_cb, 'CG_Mov': m_cg,
+            'CB_Deb': d_cb, 'CG_Deb': d_cg,
+            'CB_Cre': c_cb, 'CG_Cre': c_cg,
+            'Observación': msg_obs,
+            'CB Desde': ini, 'CB Hasta': fin,
+            'Estatus': estatus
         })
 
-    log_messages.append("Auditoría integral finalizada.")
-    return pd.DataFrame(lista_resultados)
+    log_messages.append("Auditoría finalizada.")
+    return pd.DataFrame(resultados)
