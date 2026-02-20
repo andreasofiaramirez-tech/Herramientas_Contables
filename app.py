@@ -1354,14 +1354,25 @@ def render_comisiones():
                     df_res = run_process_comisiones(pd.read_excel(f1), pd.read_excel(f2), log_messages)
                 
                 if df_res is not None:
-                    # Usamos colores para identificar el Estatus rápidamente
+                    # --- 1. DEFINICIÓN DE LA VARIABLE (SOLUCIÓN AL ERROR) ---
+                    # Verificamos si existe al menos una 'X' roja en la columna Estatus
+                    hay_errores = df_res['Estatus'].str.contains("❌").any()
+                    
+                    # --- 2. ALERTAS VISUALES ---
+                    if not hay_errores:
+                        st.success(f"✅ ¡Excelente! Cuadratura perfecta en VES y USD para {empresa}.")
+                    else:
+                        st.warning(f"⚠️ Se detectaron diferencias en la auditoría de {empresa}.")
+
+                    # --- 3. MOSTRAR RESULTADOS EN PANTALLA ---
+                    st.subheader("📋 Resultados de la Auditoría Integral")
+                    
+                    # Función para dar color a la tabla
                     def color_estatus(val):
                         color = 'red' if '❌' in val else 'green'
                         return f'color: {color}; font-weight: bold'
 
-                    st.subheader("📋 Resultados de la Auditoría Integral")
-                    
-                    # Mostramos solo las columnas de gestión, ocultando los cálculos técnicos
+                    # Columnas que el usuario debe ver
                     columnas_visibles = ['Rango Asientos', 'Estatus', 'Detalle de Auditoría']
                     
                     st.dataframe(
@@ -1370,10 +1381,13 @@ def render_comisiones():
                         hide_index=True
                     )
 
+                    # --- 4. BOTÓN DE DESCARGA ---
+                    # Ahora la variable 'hay_errores' ya existe y no dará error
                     if hay_errores:
+                        st.divider()
                         excel_errores = generar_reporte_errores_comisiones(df_res)
                         st.download_button(
-                            label="📥 Descargar Reporte de Diferencias (Excel)",
+                            label=f"📥 Descargar Reporte de Diferencias ({empresa})",
                             data=excel_errores,
                             file_name=f"Diferencias_Comisiones_{empresa}.xlsx",
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
