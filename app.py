@@ -1351,7 +1351,7 @@ def render_comisiones():
             log_messages = []
             try:
                 with st.spinner("Analizando consistencia de montos..."):
-                    df_res = run_process_comisiones(pd.read_excel(f1), pd.read_excel(f2), log_messages)
+                    df_res, df_err_asientos = run_process_comisiones(pd.read_excel(f1), pd.read_excel(f2), log_messages)
                 
                 if df_res is not None:
                     # --- 1. DEFINICIÓN DE LA VARIABLE (SOLUCIÓN AL ERROR) ---
@@ -1390,10 +1390,10 @@ def render_comisiones():
                     # Ahora la variable 'hay_errores' ya existe y no dará error
                     if hay_errores:
                         st.divider()
-                        excel_errores = generar_reporte_errores_comisiones(df_res, empresa)
+                        excel_bin = generar_reporte_errores_comisiones(df_res, df_err_asientos, empresa)
                         st.download_button(
-                            label=f"📥 Descargar Reporte de Auditoría ({empresa})",
-                            data=excel_errores,
+                            label="📥 Descargar Reporte Completo (2 Pestañas)",
+                            data=excel_bin,
                             file_name=f"Auditoria_Comisiones_{empresa}.xlsx",
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                             use_container_width=True
