@@ -2950,13 +2950,18 @@ def generar_reporte_debito_fiscal(df_incidencias_raw, df_soft_raw, df_imp_raw):
 # ============================================================
 
 def generar_reporte_errores_comisiones(df_final):
-    """Genera el Excel con los errores detectados en comisiones"""
-    df_errores = df_final[df_final['Estado Conciliación'].str.contains("❌")].copy()
+    """Genera el Excel detallado con los descuadres detectados"""
+    df_errores = df_final[df_final['Estatus'].str.contains("❌")].copy()
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        df_errores.to_excel(writer, sheet_name='Errores', index=False)
-        # Ajustar anchos
-        worksheet = writer.sheets['Errores']
-        worksheet.set_column('A:C', 30)
-        worksheet.set_column('D:D', 15)
+        df_errores.to_excel(writer, sheet_name='Descuadres', index=False)
+        workbook  = writer.book
+        worksheet = writer.sheets['Descuadres']
+        
+        # Formato para destacar errores
+        fmt_error = workbook.add_format({'font_color': '#9C0006', 'bg_color': '#FFC7CE'})
+        worksheet.conditional_format('B2:B1000', {'type': 'text', 'criteria': 'containing', 'value': '❌', 'format': fmt_error})
+        
+        worksheet.set_column('A:C', 35)
+        worksheet.set_column('D:G', 15)
     return output.getvalue()
