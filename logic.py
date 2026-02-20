@@ -4748,16 +4748,16 @@ def run_process_comisiones(df_resumen, df_diario, log_messages):
 
     # --- 3. PROCESAMIENTO CON DETECCIÓN DE MONEDA ---
     resultados = []
-    log_messages.append("Iniciando cruce multimoneda (Detección Automática)...")
+    lista_asientos_error = []
+    log_messages.append("Iniciando auditoría multimoneda y captura de asientos con error...")
 
     for _, row in df_resumen.iterrows():
         banco_str = str(row.get(c_banco_nom, '')).upper()
-        # DETERMINAR MONEDA: Si el nombre del banco contiene USD, $, o ME, usamos columnas de Dólar
         es_usd = any(x in banco_str for x in ["USD", "$", "ME", "EXTRANJERA", "CUSTODIA"])
         moneda_label = "USD" if es_usd else "VES"
 
-        ini, fin = str(row[c_ini]), str(row[c_fin])
-        subset_cg = df_cg_fil[df_cg_fil[c_asiento].astype(str).between(ini, fin)]
+        ini, fin = str(row[cols["c_ini"]]), str(row[cols["c_fin"]])
+        subset_cg = df_cg_fil[df_cg_fil[cols["c_asiento"]].astype(str).between(ini, fin)]
 
         # Montos CB (Tesorería)
         d_cb = row[c_deb_cb]
@@ -4773,9 +4773,19 @@ def run_process_comisiones(df_resumen, df_diario, log_messages):
 
         # Validación
         obs = []
-        if abs(d_cb - d_cg) > 0.01: obs.append(f"Descuadre Deb {moneda_label}: {round(d_cb - d_cg, 2)}")
-        if abs(c_cb - c_cg) > 0.01: obs.append(f"Descuadre Cre {moneda_label}: {round(c_cb - c_cg, 2)}")
-
+        if abs(d_cb - d_cg) > 0.01: obs.append(f"Descuadre Deb {moneda_label}")
+        if abs(c_cb - c_cg) > 0.01: obs.append(f"Descuadre Cre {moneda_label}")
+        if len(subset_cg) != row.get(cols["c_mov_cb"], 0): obs.append("Diferencia en conteo de Mov.")
+            
+        estatus = "❌ ERROR" if obs else "✅ OK"
+        
+        # SI HAY ERROR, GUARDAMOS EL DETALLE DEL DIARIO
+        if estatus == "❌ ERROR":
+            temp_err = subset_cg.copy()
+            temp_err['Motivo Error'] = " | ".join(obs)
+            temp_err['Banco Relacionado'] = row.get(c_banco_nom, '')
+            lista_asientos_error.append(temp_err)
+            
         resultados.append({
             'Banco': row.get(c_banco_nom, ''),
             'Moneda': moneda_label,
@@ -4783,7 +4793,12 @@ def run_process_comisiones(df_resumen, df_diario, log_messages):
             'CB_Deb': d_cb, 'CG_Deb': d_cg,
             'CB_Cre': c_cb, 'CG_Cre': c_cg,
             'Observación': " | ".join(obs) if obs else "",
-            'Estatus': "❌ ERROR" if obs else "✅ OK"
+            'Asiento Desde': ini, # <--- COLUMNA SOLICITADA
+            'Asiento Hasta': fin, # <--- COLUMNA SOLICITADA
+            'Estatus': estatus
         })
 
-    return pd.DataFrame(resultados)
+    # Consolidamos todos los asientos que dieron error en un solo DataFrame
+    df_detalle_errores = pd.concat(lista_asientos_error, ignore_index=True) if lista_asientos_error else pd.DataFrame()
+
+    return pd.DataFrame(resultados), df_detalle_errores 
