@@ -2966,14 +2966,14 @@ def generar_reporte_errores_comisiones(df_final, nombre_empresa):
         text_red = workbook.add_format({'border': 1, 'font_color': 'red'})
         total_fmt = workbook.add_format({'bold': True, 'num_format': '#,##0.00', 'top': 1, 'bottom': 6})
 
-        # --- REESTRUCTURAR ENCABEZADOS (IGUAL AL MODELO) ---
-        ws.merge_range('D2:E2', 'Movimientos', header_fmt)
-        ws.merge_range('F2:G2', 'Total Débitos', header_fmt)
-        ws.merge_range('H2:I2', 'Total Créditos', header_fmt)
+        # Re-encabezar Hoja 1 (Añadimos las columnas de asientos)
+        ws1.merge_range('D2:E2', 'Movimientos', header_fmt)
+        ws1.merge_range('F2:G2', 'Total Débitos', header_fmt)
+        ws1.merge_range('H2:I2', 'Total Créditos', header_fmt)
         
-        headers = ['Banco', 'Moneda', 'CB', 'CG', 'CB', 'CG', 'CB', 'CG', 'Observación', 'Estatus']
+        headers = ['Banco', 'Moneda', 'CB', 'CG', 'CB', 'CG', 'CB', 'CG', 'Observación', 'Desde', 'Hasta', 'Estatus']
         for i, h in enumerate(headers):
-            ws.write(2, i, h, sub_header_fmt)
+            ws1.write(2, i, h, sub_header_fmt)
 
         # --- ESCRIBIR DATOS CON ALERTAS ROJAS ---
         for r_idx, row in df_final.iterrows():
@@ -2999,5 +2999,12 @@ def generar_reporte_errores_comisiones(df_final, nombre_empresa):
             ws.write_formula(last_row, col, f"=SUM({col_letter}4:{col_letter}{last_row})", total_fmt)
 
         ws.set_column('A:A', 35); ws.set_column('B:B', 10); ws.set_column('C:I', 15)
+
+        # HOJA 2: DETALLE DIARIO (NUEVA PESTAÑA)
+        if not df_diario_errores.empty:
+            df_diario_errores.to_excel(writer, sheet_name='Asientos con Diferencia', index=False)
+            ws2 = writer.sheets['Asientos con Diferencia']
+            ws2.set_tab_color('red')
+            ws2.set_column('A:Z', 18)
         
     return output.getvalue()
