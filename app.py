@@ -1390,7 +1390,7 @@ def render_comisiones():
                     # Ahora la variable 'hay_errores' ya existe y no dará error
                     if hay_errores:
                         st.divider()
-                        excel_errores = generar_reporte_errores_comisiones(df_res)
+                        excel_errores = generar_reporte_errores_comisiones(df_res, empresa)
                         st.download_button(
                             label=f"📥 Descargar Reporte de Auditoría ({empresa})",
                             data=excel_errores,
