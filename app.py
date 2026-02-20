@@ -1365,21 +1365,26 @@ def render_comisiones():
                         st.warning(f"⚠️ Se detectaron diferencias en la auditoría de {empresa}.")
 
                     # --- 3. MOSTRAR RESULTADOS EN PANTALLA ---
-                    st.subheader("📋 Resultados de la Auditoría Integral")
+                    st.subheader("📋 Resumen de Auditoría de Cuadratura")
                     
                     # Función para dar color a la tabla
                     def color_estatus(val):
-                        color = 'red' if '❌' in val else 'green'
+                        color = 'red' if '❌' in str(val) else 'green'
                         return f'color: {color}; font-weight: bold'
 
-                    # Columnas que el usuario debe ver
-                    columnas_visibles = ['Rango Asientos', 'Estatus', 'Detalle de Auditoría']
+                    # NUEVOS NOMBRES: Sincronizados con el modelo profesional de logic.py
+                    columnas_visibles = ['Banco', 'Estatus', 'Observación']
                     
-                    st.dataframe(
-                        df_res[columnas_visibles].style.applymap(color_estatus, subset=['Estatus']),
-                        use_container_width=True,
-                        hide_index=True
-                    )
+                    try:
+                        st.dataframe(
+                            df_res[columnas_visibles].style.applymap(color_estatus, subset=['Estatus']),
+                            use_container_width=True,
+                            hide_index=True
+                        )
+                    except Exception as e:
+                        # Fallback por si hay algún otro desajuste de nombres
+                        st.write("Detalle de resultados:")
+                        st.dataframe(df_res, use_container_width=True)
 
                     # --- 4. BOTÓN DE DESCARGA ---
                     # Ahora la variable 'hay_errores' ya existe y no dará error
