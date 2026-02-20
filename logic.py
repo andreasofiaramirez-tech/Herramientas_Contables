@@ -4686,11 +4686,26 @@ def run_conciliation_debito_fiscal(df_soft_total, df_imprenta_logica, tolerancia
 # ==============================================================================
 # MODULO: AUDITORIA DE COMISIONES (CREACION DE EDUARDO)
 # ==============================================================================
+
+def normalizar_texto_busqueda(texto):
+    """Limpia tildes, acentos y convierte a mayúsculas para comparaciones ciegas"""
+    if not texto: return ""
+    # Elimina acentos (ej: Débito -> DEBITO)
+    texto_norm = ''.join(c for c in unicodedata.normalize('NFD', str(texto))
+                        if unicodedata.category(c) != 'Mn')
+    return texto_norm.upper().strip()
+
 def buscar_columna_comisiones(df, palabras):
-    """Función de búsqueda flexible de Eduardo"""
+    """Busca columnas ignorando acentos y mayúsculas"""
+    # Normalizamos las palabras que buscamos
+    palabras_objetivo = [normalizar_texto_busqueda(p) for p in palabras]
+    
     for col in df.columns:
-        col_norm = str(col).upper().strip()
-        if all(p.upper() in col_norm for p in palabras):
+        # Normalizamos el nombre de la columna del Excel
+        col_excel_norm = normalizar_texto_busqueda(col)
+        
+        # Verificamos si todas las palabras clave están en la columna
+        if all(p in col_excel_norm for p in palabras_objetivo):
             return col
     return None
 
