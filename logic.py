@@ -4695,72 +4695,106 @@ def buscar_columna_comisiones(df, palabras):
     return None
 
 def run_process_comisiones(df_resumen, df_diario, log_messages):
-    """Lógica V17: Auditoría de Volumetría y Montos (Solo VES)"""
+    """Lógica V18: Auditoría con Radar Flexible y Diagnóstico de Columnas"""
+    
+    # Limpieza inicial de nombres
     df_resumen.columns = [str(c).strip() for c in df_resumen.columns]
     df_diario.columns = [str(c).strip() for c in df_diario.columns]
 
-    # --- 1. MAPEOS DINÁMICOS ---
-    c_banco_id = buscar_columna_comisiones(df_resumen, ["CUENTA", "BANCARIA"]) or "Cuenta Bancaria"
-    c_banco_nom = buscar_columna_comisiones(df_resumen, ["BANCO"]) or "Banco"
-    c_mov_cb = buscar_columna_comisiones(df_resumen, ["MOVIMIENTOS"]) or "Movimientos"
-    c_ini = buscar_columna_comisiones(df_resumen, ["CB", "DESDE"])
-    c_fin = buscar_columna_comisiones(df_resumen, ["CB", "HASTA"])
-    c_deb_cb = buscar_columna_comisiones(df_resumen, ["TOTAL", "DÉBITO"]) or buscar_columna_comisiones(df_resumen, ["TOTAL", "DEBITO"])
-    c_cre_cb = buscar_columna_comisiones(df_resumen, ["TOTAL", "CRÉDITO"]) or buscar_columna_comisiones(df_resumen, ["TOTAL", "CREDITO"])
+    # --- 1. RADAR FLEXIBLE DE COLUMNAS ---
+    # Diccionario de búsqueda: "Nombre Interno": [Palabras clave que debe contener]
+    mapeo_resumen = {
+        "c_banco_id": ["CUENTA", "BANCARIA"],
+        "c_banco_nom": ["BANCO"],
+        "c_mov_cb": ["MOVIMIENTOS"],
+        "c_ini": ["CB", "DESDE"],
+        "c_fin": ["CB", "HASTA"],
+        "c_deb_cb": ["TOTAL", "DÉBITO"], # Prioriza nombres largos del reporte
+        "c_cre_cb": ["TOTAL", "CRÉDITO"]
+    }
 
-    c_asiento = buscar_columna_comisiones(df_diario, ["ASIENTO"])
-    c_cuenta = buscar_columna_comisiones(df_diario, ["CUENTA", "CONTABLE"])
-    c_deb_cg = buscar_columna_comisiones(df_diario, ["DEBITO", "VES"]) or buscar_columna_comisiones(df_diario, ["DEBITO", "BOLIVAR"])
-    c_cre_cg = buscar_columna_comisiones(df_diario, ["CREDITO", "VES"]) or buscar_columna_comisiones(df_diario, ["CREDITO", "BOLIVAR"])
+    mapeo_diario = {
+        "c_asiento": ["ASIENTO"],
+        "c_cuenta": ["CUENTA", "CONTABLE"],
+        "c_deb_cg": ["DEBITO", "VES"],
+        "c_cre_cg": ["CREDITO", "VES"]
+    }
 
-    if not all([c_ini, c_fin, c_deb_cb, c_asiento, c_deb_cg]):
-        log_messages.append("❌ ERROR: No se detectaron las columnas necesarias en los archivos.")
+    # Resultados del mapeo
+    cols = {}
+
+    # Buscar en Resumen (CB)
+    for ref, palabras in mapeo_resumen.items():
+        # Intento 1: Buscar por palabras clave
+        cols[ref] = buscar_columna_comisiones(df_resumen, palabras)
+        # Intento 2: Si es débito/crédito y falló el largo, buscar el corto
+        if not cols[ref] and "deb" in ref: cols[ref] = buscar_columna_comisiones(df_resumen, ["DEBITO"])
+        if not cols[ref] and "cre" in ref: cols[ref] = buscar_columna_comisiones(df_resumen, ["CREDITO"])
+
+    # Buscar en Diario (CG)
+    for ref, palabras in mapeo_diario.items():
+        cols[ref] = buscar_columna_comisiones(df_diario, palabras)
+        # Sinónimos para el Diario de Softland
+        if not cols[ref] and "deb" in ref: cols[ref] = buscar_columna_comisiones(df_diario, ["DEBITO", "LOCAL"]) or buscar_columna_comisiones(df_diario, ["DEBITO", "BOLIVAR"])
+        if not cols[ref] and "cre" in ref: cols[ref] = buscar_columna_comisiones(df_diario, ["CREDITO", "LOCAL"]) or buscar_columna_comisiones(df_diario, ["CREDITO", "BOLIVAR"])
+
+    # --- 2. DIAGNÓSTICO DE ERROR (SOLUCIÓN AL PROBLEMA) ---
+    columnas_criticas = {
+        "CB Desde": cols["c_ini"],
+        "CB Hasta": cols["c_fin"],
+        "Débito Tesorería": cols["c_deb_cb"],
+        "Crédito Tesorería": cols["c_cre_cb"],
+        "Asiento Diario": cols["c_asiento"],
+        "Débito Diario": cols["c_deb_cg"],
+        "Crédito Diario": cols["c_cre_cg"]
+    }
+
+    faltantes = [nombre for nombre, valor in columnas_criticas.items() if valor is None]
+
+    if faltantes:
+        log_messages.append(f"❌ ERROR: No se encontraron las siguientes columnas: {', '.join(faltantes)}")
+        log_messages.append("💡 Tip: Verifique que los encabezados del Excel no tengan celdas combinadas en la primera fila.")
         return None
 
-    # --- 2. PREPARACIÓN ---
+    # --- 3. PREPARACIÓN (Si todo se detectó bien) ---
     CUENTAS_OMITIR = ['1.1.4.01.1.010', '6.1.1.15.1.005', '7.1.3.04.3.001', '7.1.3.50.1.001', '7.1.3.50.1.002']
-    df_cg_fil = df_diario[~df_diario[c_cuenta].astype(str).isin(CUENTAS_OMITIR)].copy()
+    df_cg_fil = df_diario[~df_diario[cols["c_cuenta"]].astype(str).isin(CUENTAS_OMITIR)].copy()
     
-    for c in [c_deb_cb, c_cre_cb]: df_resumen[c] = pd.to_numeric(df_resumen[c], errors='coerce').fillna(0)
-    for c in [c_deb_cg, c_cre_cg]: df_cg_fil[c] = pd.to_numeric(df_cg_fil[c], errors='coerce').fillna(0)
+    # Asegurar conversión numérica
+    for c in [cols["c_deb_cb"], cols["c_cre_cb"]]: df_resumen[c] = pd.to_numeric(df_resumen[c], errors='coerce').fillna(0)
+    for c in [cols["c_deb_cg"], cols["c_cre_cg"]]: df_cg_fil[c] = pd.to_numeric(df_cg_fil[c], errors='coerce').fillna(0)
 
-    # --- 3. PROCESAMIENTO ---
+    # --- 4. PROCESAMIENTO ---
     resultados = []
-    log_messages.append("Iniciando cruce de volumetría y saldos...")
+    log_messages.append("✅ Columnas detectadas. Iniciando cruce...")
 
     for _, row in df_resumen.iterrows():
-        ini, fin = str(row[c_ini]), str(row[c_fin])
-        subset_cg = df_cg_fil[df_cg_fil[c_asiento].astype(str).between(ini, fin)]
+        ini, fin = str(row[cols["c_ini"]]), str(row[cols["c_fin"]])
+        subset_cg = df_cg_fil[df_cg_fil[cols["c_asiento"]].astype(str).between(ini, fin)]
 
-        # Datos CB (Tesoreria)
-        m_cb = row.get(c_mov_cb, 0)
-        d_cb = row[c_deb_cb]
-        c_cb = row[c_cre_cb]
+        # Lógica de cálculo (Misma de la V17)
+        m_cb = row.get(cols["c_mov_cb"], 0)
+        d_cb = row[cols["c_deb_cb"]]
+        c_cb = row[cols["c_cre_cb"]]
 
-        # Datos CG (Contabilidad)
         m_cg = len(subset_cg)
-        d_cg = subset_cg[c_deb_cg].sum()
-        c_cg = subset_cg[c_cre_cg].sum()
+        d_cg = subset_cg[cols["c_deb_cg"]].sum()
+        c_cg = subset_cg[cols["c_cre_cg"]].sum()
 
-        # Determinar Observación
         obs = []
-        if m_cb != m_cg: obs.append(f"Diferencia Movimientos ({m_cb} vs {m_cg})")
+        if m_cb != m_cg: obs.append(f"Dif. Movimientos ({int(m_cb)} vs {m_cg})")
         if abs(d_cb - d_cg) > 0.01: obs.append(f"Descuadre Deb: {round(d_cb - d_cg, 2)}")
         if abs(c_cb - c_cg) > 0.01: obs.append(f"Descuadre Cre: {round(c_cb - c_cg, 2)}")
 
-        estatus = "❌ ERROR" if obs else "✅ OK"
-        msg_obs = " | ".join(obs) if obs else ""
-
         resultados.append({
-            'Cuenta Bancaria': row.get(c_banco_id, ''),
-            'Banco': row.get(c_banco_nom, ''),
+            'Cuenta Bancaria': row.get(cols["c_banco_id"], ''),
+            'Banco': row.get(cols["c_banco_nom"], ''),
             'CB_Mov': m_cb, 'CG_Mov': m_cg,
             'CB_Deb': d_cb, 'CG_Deb': d_cg,
             'CB_Cre': c_cb, 'CG_Cre': c_cg,
-            'Observación': msg_obs,
+            'Observación': " | ".join(obs) if obs else "",
             'CB Desde': ini, 'CB Hasta': fin,
-            'Estatus': estatus
+            'Estatus': "❌ ERROR" if obs else "✅ OK"
         })
 
-    log_messages.append("Auditoría finalizada.")
     return pd.DataFrame(resultados)
