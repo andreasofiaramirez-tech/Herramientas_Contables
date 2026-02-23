@@ -1016,14 +1016,22 @@ def _generar_hoja_pendientes_corrida(workbook, formatos, df_saldos, estrategia, 
         
     # SALDO TOTAL AL FINAL
     current_row += 1
-    # Ubicar etiqueta antes de los montos
+    # Buscamos los índices de las columnas de dinero para poner el total
+    dummy_df = pd.DataFrame(columns=cols)
+    usd_idx = get_col_idx(dummy_df, ['Monto Dólar', 'Monto USD'])
+    # Agregamos 'Monto Colones' a la búsqueda de índice de moneda local
+    bs_idx = get_col_idx(dummy_df, ['Bs.', 'Monto Bolivar', 'Monto Bs', 'Monto Colones'])
+    
     indices_montos = [i for i in [usd_idx, bs_idx] if i != -1]
     lbl_idx = max(0, min(indices_montos) - 1) if indices_montos else 0
     
     ws.write(current_row, lbl_idx, "SALDO TOTAL", formatos['total_label'])
     
-    if usd_idx != -1: ws.write_number(current_row, usd_idx, df['Monto Dólar'].sum(), formatos['total_usd'])
-    if bs_idx != -1: ws.write_number(current_row, bs_idx, df['Bs.'].sum(), formatos['total_bs'])
+    if usd_idx != -1: 
+        ws.write_number(current_row, usd_idx, df['Monto_USD'].sum(), formatos['total_usd'])
+    if bs_idx != -1: 
+        # Sumamos el campo interno Monto_BS que contiene los Colones
+        ws.write_number(current_row, bs_idx, df['Monto_BS'].sum(), formatos['total_bs'])
 
     # Ajuste anchos
     ws.set_column(0, 0, 15)  # Fecha
