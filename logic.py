@@ -4521,28 +4521,39 @@ def run_conciliation_fondos_fondos_cofersa(df, log_messages, progress_bar=None):
                         total_conciliados += 2
                         break
 
-    # --- FASE 2: CRUCE POR ID DE DEPÓSITO (DÉBITO REF VS CRÉDITO FUENTE/REF) ---
+    # --- FASE 2: CRUCE POR ID DE DEPÓSITO (COLUMNAS FLEXIBLES + LIMPIEZA DE COMA) ---
+    # Esta versión busca el ID en cualquiera de las dos columnas (Fuente o Referencia)
+    log_messages.append("--- Fase 2: Cruce por ID de documento (Filtro Inteligente) ---")
+    
     df_res = df[~df['Conciliado']]
     debs = df_res[df_res['Monto_CRC'] > 0]
     creds = df_res[df_res['Monto_CRC'] < 0]
 
     for idx_d, row_d in debs.iterrows():
-        id_dep = row_d['Ref_Num']
-        if not id_dep: continue
+        # Recolectamos todos los IDs posibles del Débito (de Ref y de Fuente)
+        ids_debito = [row_d['Ref_Num'], row_d['Fuente_Num']]
+        ids_debito = [i for i in ids_debito if i != ""] # Quitamos vacíos
+
+        if not ids_debito: continue
         
-        # Buscar en créditos que tengan el mismo ID y cuadren en ambas monedas
-        match = creds[
-            ((creds['Fuente_Num'] == id_dep) | (creds['Ref_Num'] == id_dep)) & 
-            (abs(creds['Monto_CRC'] + row_d['Monto_CRC']) <= 0.01) & 
-            (abs(creds['Monto_USD'] + row_d['Monto_USD']) <= 0.01)
-        ]
-        
-        if not match.empty:
-            idx_c = match.index[0]
-            df.loc[[idx_d, idx_c], 'Conciliado'] = True
-            df.loc[[idx_d, idx_c], 'Grupo_Conciliado'] = f"DEPOSITO_{id_dep}"
-            total_conciliados += 2
-            creds = creds.drop(idx_c)
+        # Buscamos en los créditos
+        for id_buscar in ids_debito:
+            # Buscamos coincidencias en cualquiera de las dos columnas del crédito
+            # El Regex de normalización ya eliminó la coma, así que el match será limpio
+            match = creds[
+                ((creds['Fuente_Num'] == id_buscar) | (creds['Ref_Num'] == id_buscar)) & 
+                (abs(creds['Monto_CRC'] + row_d['Monto_CRC']) <= 0.01) & 
+                (abs(creds['Monto_USD'] + row_d['Monto_USD']) <= 0.01)
+            ]
+            
+            if not match.empty:
+                idx_c = match.index[0]
+                df.loc[[idx_d, idx_c], 'Conciliado'] = True
+                df.loc[[idx_d, idx_c], 'Grupo_Conciliado'] = f"DEPOSITO_{id_buscar}"
+                indices_usados.update([idx_d, idx_c])
+                total_conciliados += 2
+                creds = creds.drop(idx_c)
+                break # Saltamos al siguiente débito
 
     # --- FASE 3: CRUCE CC VS CB (ÚLTIMOS 4 DÍGITOS REF vs FUENTE) ---
     log_messages.append("--- Fase 3: Cruce Asientos CC vs CB (Sufijos de 4 dígitos) ---")
