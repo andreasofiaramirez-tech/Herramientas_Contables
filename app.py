@@ -44,7 +44,7 @@ from logic import (
     procesar_ajustes_balance_usd,
     run_conciliation_envios_cofersa,
     run_conciliation_proveedores_costos,
-    run_conciliation_fondos_transito_cofersa,
+    run_conciliation_fondos_fondos_cofersa,
     run_conciliation_dev_proveedores_cofersa,
     preparar_datos_softland_debito,
     run_conciliation_debito_fiscal,
