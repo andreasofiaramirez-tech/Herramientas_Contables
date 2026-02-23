@@ -1208,18 +1208,22 @@ def render_cofersa_fondos():
                     df_full = cargar_datos_fondos_cofersa(uploaded_actual, uploaded_anterior, log)
                 
                 if df_full is not None:
-                    # 2. Definir la estrategia (ESTO SOLUCIONA EL ERROR)
-                    # La herramienta necesita saber qué configuración usar para los encabezados
-                    estrategia = ESTRATEGIAS["101.01.03.00 - Fondos en Transito COFERSA"]
-                    
-                    # 3. Ejecutar la nueva lógica bimoneda
                     df_res = run_conciliation_fondos_fondos_cofersa(df_full.copy(), log)
                     
-                    # 4. Separar los resultados para el reporte
+                    # 1. SEPARAR DATOS
                     df_saldos = df_res[~df_res['Conciliado']]
                     df_conciliados = df_res[df_res['Conciliado']]
                     
-                    # 5. Generar el reporte (Ahora todas las variables existen)
+                    # 2. MOSTRAR MÉTRICAS EN PANTALLA (NUEVO)
+                    st.success("✅ Conciliación procesada exitosamente.")
+                    
+                    col_m1, col_m2 = st.columns(2)
+                    with col_m1:
+                        st.metric("Movimientos Conciliados", len(df_conciliados))
+                    with col_m2:
+                        st.metric("Movimientos Abiertos", len(df_saldos))
+                    
+                    # 3. GENERAR EXCEL
                     excel_reporte = generar_reporte_excel(
                         df_res, df_saldos, df_conciliados, estrategia, "COFERSA", "101.01.03.00"
                     )
