@@ -1094,14 +1094,14 @@ def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrate
         ids_devoluciones_cofersa = ['dev_prov_crc', 'dev_prov_usd_ext', 'dev_prov_usd_me']
 
         if _estrategia['id'] == 'proveedores_costos':
-            # HOJA 1: RESUMEN (Nombre corregido aquí)
             _generar_hoja_pendientes_proveedores(workbook, formatos, df_saldos_abiertos, _estrategia, casa_seleccionada, fecha_max)
-            
-            # NUEVA HOJA: DETALLE ANALÍTICO
             _generar_hoja_detalle_especificacion_proveedores(workbook, formatos, df_saldos_abiertos)
             
         elif _estrategia['id'] in cuentas_resumen:
             _generar_hoja_pendientes_resumida(workbook, formatos, df_saldos_abiertos, _estrategia, casa_seleccionada, fecha_max)
+
+        elif _estrategia['id'] == "fondos_transito_cofersa":
+            _generar_hoja_pendientes_fondos_cofersa(workbook, formatos, df_saldos_abiertos, _estrategia, casa_seleccionada, 
             
         elif _estrategia['id'] in cuentas_corridas:
             _generar_hoja_pendientes_corrida(workbook, formatos, df_saldos_abiertos, _estrategia, casa_seleccionada, fecha_max)
