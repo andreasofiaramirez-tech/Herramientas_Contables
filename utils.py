@@ -1133,7 +1133,6 @@ def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrate
                     'cobros_viajeros', 
                     'otras_cuentas_por_pagar', 
                     'deudores_empleados_me',
-                    'deudores_empleados_bs',
                     'haberes_clientes',
                     'cdc_factoring',
                     'proveedores_costos'
@@ -1143,6 +1142,8 @@ def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrate
                     _generar_hoja_conciliados_agrupada(workbook, formatos, datos_h2, _estrategia)
                 else:
                     _generar_hoja_conciliados_estandar(workbook, formatos, datos_h2, _estrategia)
+                else:_estrategia['id'] == "fondos_transito_cofersa":
+                    _generar_hoja_conciliados_fondos_cofersa(workbook, formatos, datos_h2)
 
         # ============================================================
         # 3. HOJA DE AJUSTES (Para Costos)
