@@ -1139,7 +1139,7 @@ def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrate
                 ]
                 
                 if _estrategia['id'] == "fondos_transito_cofersa":
-                _generar_hoja_conciliados_fondos_cofersa(workbook, formatos, datos_h2)
+                    _generar_hoja_conciliados_fondos_cofersa(workbook, formatos, datos_h2)
         
                 elif _estrategia['id'] in cuentas_agrupadas_conc:
                     _generar_hoja_conciliados_agrupada(workbook, formatos, datos_h2, _estrategia)
