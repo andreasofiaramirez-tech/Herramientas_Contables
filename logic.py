@@ -4470,12 +4470,18 @@ def normalizar_fondos_transito_cofersa(df):
     df['Ref_Num'] = df['Referencia'].apply(extraer_id)
     df['Fuente_Num'] = df['Fuente'].apply(extraer_id)
     return df
+    
 def run_conciliation_fondos_fondos_cofersa(df, log_messages, progress_bar=None):
     """
     Motor de conciliación bimoneda estricto para Fondos COFERSA.
     CRC + USD deben sumar cero para cerrar el movimiento.
     """
     log_messages.append("\n--- INICIANDO CONCILIACIÓN FONDOS COFERSA (BIMONEDA) ---")
+
+    if 'Monto_CRC' not in df.columns:
+        df['Monto_CRC'] = 0.0
+    if 'Monto_USD' not in df.columns:
+        df['Monto_USD'] = 0.0
     
     # 1. Normalización interna
     def extraer_id(texto):
