@@ -325,12 +325,12 @@ ESTRATEGIAS = {
     },
     "101.01.03.00 - Fondos en Transito COFERSA": {
         "id": "fondos_transito_cofersa",
-        "funcion_principal": run_conciliation_fondos_transito_cofersa,
-        "label_actual": "Movimientos del Mes (Fondos en Tránsito)",
-        "label_anterior": "Saldos Anteriores (Fondos en Tránsito)",
+        "funcion_principal": run_conciliation_fondos_fondos_cofersa, # Nueva función
+        "label_actual": "Movimientos del Mes (Fondos)",
+        "label_anterior": "Saldos Anteriores (Fondos)",
         "columnas_reporte": ['Fecha', 'Asiento', 'Referencia', 'Monto Colones'],
         "nombre_hoja_excel": "101.01.03.00",
-        "columnas_requeridas": ['Fecha', 'Asiento', 'Referencia', 'Fuente', 'Débito Bolivar', 'Crédito Bolivar']
+        "columnas_requeridas": ['Fecha', 'Asiento', 'Referencia', 'Fuente', 'Débito Local', 'Crédito Local']
     },
     "201081300 - Dev. a Prov. Pais (Colones)": {
         "id": "dev_prov_crc",
