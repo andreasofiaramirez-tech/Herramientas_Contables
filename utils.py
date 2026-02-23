@@ -3023,3 +3023,44 @@ def _generar_hoja_pendientes_fondos_cofersa(workbook, formatos, df_saldos, estra
     ws.write_number(row_idx, 3, df_saldos['Monto_CRC'].sum(), formatos['total_colones'])
     
     ws.set_column('A:B', 15); ws.set_column('C:C', 55); ws.set_column('D:D', 20)
+
+def _generar_hoja_conciliados_fondos_cofersa(workbook, formatos, df_conciliados):
+    """
+    Función EXCLUSIVA para la hoja de conciliados de Fondos COFERSA.
+    Usa 'Monto_CRC' y 'Monto_USD' para evitar conflictos con otras cuentas.
+    """
+    ws = workbook.add_worksheet("Conciliacion")
+    ws.hide_gridlines(2)
+    
+    # Estructura de columnas solicitada
+    columnas = ['Fecha', 'Asiento', 'Referencia', 'Fuente', 'Monto Dólar', 'Monto Colones', 'Grupo de Conciliación']
+    
+    ws.merge_range(0, 0, 0, len(columnas)-1, 'Detalle de Movimientos Conciliados (Bimoneda)', formatos['encabezado_sub'])
+    ws.write_row(1, 0, columnas, formatos['header_tabla'])
+    
+    df = df_conciliados.copy()
+    # Sincronización de nombres visuales con datos técnicos del nuevo cargador
+    df['Monto Colones'] = df['Monto_CRC']
+    df['Monto Dólar'] = df['Monto_USD']
+    df['Grupo de Conciliación'] = df['Grupo_Conciliado']
+
+    current_row = 2
+    for _, row in df.sort_values(by=['Grupo de Conciliación', 'Fecha']).iterrows():
+        ws.write_datetime(current_row, 0, row['Fecha'], formatos['fecha']) if pd.notna(row['Fecha']) else ws.write(current_row, 0, '-')
+        ws.write(current_row, 1, str(row['Asiento']), formatos['text'])
+        ws.write(current_row, 2, str(row['Referencia']), formatos['text'])
+        ws.write(current_row, 3, str(row['Fuente']), formatos['text'])
+        ws.write_number(current_row, 4, float(row['Monto Dólar']), formatos['usd'])
+        ws.write_number(current_row, 5, float(row['Monto Colones']), formatos['colones'])
+        ws.write(current_row, 6, str(row['Grupo de Conciliación']), formatos['text'])
+        current_row += 1
+    
+    # Totales Finales
+    ws.write(current_row, 3, "TOTALES", formatos['total_label'])
+    ws.write_number(current_row, 4, df['Monto Dólar'].sum(), formatos['total_usd'])
+    ws.write_number(current_row, 5, df['Monto Colones'].sum(), formatos['total_colones'])
+    
+    ws.set_column('A:B', 15)
+    ws.set_column('C:D', 40)
+    ws.set_column('E:F', 18)
+    ws.set_column('G:G', 30)
