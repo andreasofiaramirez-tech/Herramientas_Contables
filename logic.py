@@ -4546,7 +4546,7 @@ def run_conciliation_fondos_fondos_cofersa(df, log_messages, progress_bar=None):
                 for i, idx_c in enumerate(mapa_creditos[key]):
                     if idx_c in indices_usados: continue
                     # Validación de tolerancia USD
-                    if abs(row_d['Monto_USD'] + df.at[idx_c, 'Monto_USD']) <= 1.00:
+                    if abs(row_d['Monto_USD'] + df.at[idx_c, 'Monto_USD']) <= 0.00:
                         etiqueta = f"DEPOSITO_{doc_id}"
                         df.loc[[idx_d, idx_c], ['Conciliado', 'Grupo_Conciliado', 'Estado_Cofersa']] = [True, etiqueta, etiqueta]
                         indices_usados.update([idx_d, idx_c])
