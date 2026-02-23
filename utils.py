@@ -194,8 +194,11 @@ def cargar_datos_cofersa(uploaded_actual, uploaded_anterior, log_messages):
             rename_map = {}
             for col in df.columns:
                 norm_col = normalizar_texto(col)
-                if 'DEBITO' in norm_col and 'LOCAL' in norm_col: rename_map[col] = 'Débito Colones'
-                elif 'CREDITO' in norm_col and 'LOCAL' in norm_col: rename_map[col] = 'Crédito Colones'
+                # El radar ahora detecta tanto "Débito" como "Débitos"
+                if ('DEBITO' in norm_col or 'DEBITOS' in norm_col) and 'LOCAL' in norm_col: 
+                    rename_map[col] = 'Débito Colones'
+                elif ('CREDITO' in norm_col or 'CREDITOS' in norm_col) and 'LOCAL' in norm_col: 
+                    rename_map[col] = 'Crédito Colones'
                 elif 'DEBITO' in norm_col and 'DOLAR' in norm_col: rename_map[col] = 'Débito Dolar'
                 elif 'CREDITO' in norm_col and 'DOLAR' in norm_col: rename_map[col] = 'Crédito Dolar'
                 elif 'ASIENTO' in norm_col: rename_map[col] = 'Asiento'
