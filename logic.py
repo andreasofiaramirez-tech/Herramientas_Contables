@@ -4470,67 +4470,75 @@ def normalizar_fondos_transito_cofersa(df):
     df['Ref_Num'] = df['Referencia'].apply(extraer_id)
     df['Fuente_Num'] = df['Fuente'].apply(extraer_id)
     return df
-
-def run_conciliation_fondos_transito_cofersa(df, log_messages, progress_bar=None):
+def run_conciliation_fondos_fondos_cofersa(df, log_messages, progress_bar=None):
     """
-    Lógica: 
-    1. Pares 1-1 por monto exacto y misma Referencia.
-    2. Cruce de Referencia (Débito) contra Fuente (Crédito) usando ID de depósito.
+    Motor de conciliación bimoneda estricto para Fondos COFERSA.
+    CRC + USD deben sumar cero para cerrar el movimiento.
     """
-    log_messages.append("\n--- INICIANDO FONDOS EN TRÁNSITO COFERSA (101.01.03.00) ---")
+    log_messages.append("\n--- INICIANDO CONCILIACIÓN FONDOS COFERSA (BIMONEDA) ---")
     
-    # Aplicamos la normalización (que ahora ya incluye Ref_Norm)
-    df = normalizar_fondos_transito_cofersa(df)
+    # 1. Normalización interna
+    def extraer_id(texto):
+        if pd.isna(texto): return ""
+        nums = re.findall(r'\d{4,}', str(texto))
+        return nums[0] if nums else ""
+
+    df['Ref_Norm'] = df['Referencia'].astype(str).str.strip().str.upper()
+    df['Ref_Num'] = df['Referencia'].apply(extraer_id)
+    df['Fuente_Num'] = df['Fuente'].apply(extraer_id)
+    
     total_conciliados = 0
     indices_usados = set()
 
-    # --- FASE 1: PARES 1-1 POR MONTO EXACTO (COLONES + USD) Y MISMA REFERENCIA ---
+    # --- FASE 1: PARES 1-1 (MISMO TEXTO + MISMO MONTO CRC + MISMO MONTO USD) ---
     df_pendientes = df[~df['Conciliado']]
-    grupos_monto = df_pendientes.groupby(df_pendientes['Monto_BS'].abs())
+    grupos_monto = df_pendientes.groupby(df_pendientes['Monto_CRC'].abs())
     
     for monto_abs, grupo in grupos_monto:
         if len(grupo) < 2: continue
-        debitos = grupo[grupo['Monto_BS'] > 0].index.tolist()
-        creditos = grupo[grupo['Monto_BS'] < 0].index.tolist()
+        debitos = grupo[grupo['Monto_CRC'] > 0].index.tolist()
+        creditos = grupo[grupo['Monto_CRC'] < 0].index.tolist()
+        
         for idx_d in debitos:
             if idx_d in indices_usados: continue
             for idx_c in creditos:
                 if idx_c in indices_usados: continue
-                # VALIDACIÓN DOBLE MONEDA Y TEXTO
+                
+                # Validación Triple: Referencia + CRC + USD
                 if df.loc[idx_d, 'Ref_Norm'] == df.loc[idx_c, 'Ref_Norm']:
-                    match_crc = np.isclose(df.loc[idx_d, 'Monto_BS'] + df.loc[idx_c, 'Monto_BS'], 0, atol=0.01)
-                    match_usd = np.isclose(df.loc[idx_d, 'Monto_USD'] + df.loc[idx_c, 'Monto_USD'], 0, atol=0.01)
-                    
-                    if match_crc and match_usd:
+                    if abs(df.loc[idx_d, 'Monto_CRC'] + df.loc[idx_c, 'Monto_CRC']) <= 0.01 and \
+                       abs(df.loc[idx_d, 'Monto_USD'] + df.loc[idx_c, 'Monto_USD']) <= 0.01:
+                        
                         df.loc[[idx_d, idx_c], 'Conciliado'] = True
-                        df.loc[[idx_d, idx_c], 'Grupo_Conciliado'] = "PAR_CRC_USD_REF"
+                        df.loc[[idx_d, idx_c], 'Grupo_Conciliado'] = "PAR_TEXTO_BIMONEDA"
                         indices_usados.update([idx_d, idx_c])
                         total_conciliados += 2
                         break
 
-    # --- FASE 2: CRUCE REFERENCIA VS FUENTE (CON DOBLE VALIDACIÓN) ---
-    df_restante = df[~df['Conciliado']]
-    debitos_res = df_restante[df_restante['Monto_BS'] > 0]
-    creditos_res = df_restante[df_restante['Monto_BS'] < 0]
+    # --- FASE 2: CRUCE POR ID DE DEPÓSITO (DÉBITO REF VS CRÉDITO FUENTE/REF) ---
+    df_res = df[~df['Conciliado']]
+    debs = df_res[df_res['Monto_CRC'] > 0]
+    creds = df_res[df_res['Monto_CRC'] < 0]
 
-    for idx_d, row_d in debitos_res.iterrows():
-        id_deposito = row_d['Ref_Num']
-        if not id_deposito: continue
-        match = creditos_res[(creditos_res['Fuente_Num'] == id_deposito) | (creditos_res['Ref_Num'] == id_deposito)]
+    for idx_d, row_d in debs.iterrows():
+        id_dep = row_d['Ref_Num']
+        if not id_dep: continue
         
-        for idx_c, row_c in match.iterrows():
-            # VALIDACIÓN DOBLE MONEDA
-            match_crc = np.isclose(row_d['Monto_BS'] + row_c['Monto_BS'], 0, atol=0.01)
-            match_usd = np.isclose(row_d['Monto_USD'] + row_c['Monto_USD'], 0, atol=0.01)
-            
-            if match_crc and match_usd:
-                df.loc[[idx_d, idx_c], 'Conciliado'] = True
-                df.loc[[idx_d, idx_c], 'Grupo_Conciliado'] = f"DEPOSITO_{id_deposito}"
-                total_conciliados += 2
-                creditos_res = creditos_res.drop(idx_c)
-                break
+        # Buscar en créditos que tengan el mismo ID y cuadren en ambas monedas
+        match = creds[
+            ((creds['Fuente_Num'] == id_dep) | (creds['Ref_Num'] == id_dep)) & 
+            (abs(creds['Monto_CRC'] + row_d['Monto_CRC']) <= 0.01) & 
+            (abs(creds['Monto_USD'] + row_d['Monto_USD']) <= 0.01)
+        ]
+        
+        if not match.empty:
+            idx_c = match.index[0]
+            df.loc[[idx_d, idx_c], 'Conciliado'] = True
+            df.loc[[idx_d, idx_c], 'Grupo_Conciliado'] = f"DEPOSITO_{id_dep}"
+            total_conciliados += 2
+            creds = creds.drop(idx_c)
 
-    log_messages.append(f"✔️ Conciliación finalizada. Total: {total_conciliados} movimientos.")
+    log_messages.append(f"🏁 Finalizado: {total_conciliados} movimientos conciliados.")
     return df
 
 def run_conciliation_dev_proveedores_cofersa(df, log_messages, moneda_base='CRC'):
