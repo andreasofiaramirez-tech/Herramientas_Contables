@@ -4473,127 +4473,123 @@ def normalizar_fondos_transito_cofersa(df):
     
 def run_conciliation_fondos_fondos_cofersa(df, log_messages, progress_bar=None):
     """
-    Motor de conciliación bimoneda estricto para Fondos COFERSA.
-    CRC + USD deben sumar cero para cerrar el movimiento.
+    Motor de conciliación de alta velocidad para Fondos COFERSA (V17 - Optimizada).
+    Usa Hash Maps para reducir la complejidad de O(N^2) a O(N).
     """
-    log_messages.append("\n--- INICIANDO CONCILIACIÓN FONDOS COFERSA (BIMONEDA) ---")
-
-    df = df.loc[:, ~df.columns.duplicated()].copy()
-
-    if 'Monto_CRC' not in df.columns:
-        df['Monto_CRC'] = 0.0
-    if 'Monto_USD' not in df.columns:
-        df['Monto_USD'] = 0.0
+    log_messages.append("\n--- INICIANDO CONCILIACIÓN FONDOS COFERSA (ALTA VELOCIDAD) ---")
     
-    # 1. Normalización interna
-    def extraer_id(texto):
-        if pd.isna(texto): return ""
-        nums = re.findall(r'\d{4,}', str(texto))
-        return nums[0] if nums else ""
-
-    df['Ref_Norm'] = df['Referencia'].astype(str).str.strip().str.upper()
-    df['Ref_Num'] = df['Referencia'].apply(extraer_id)
-    df['Fuente_Num'] = df['Fuente'].apply(extraer_id)
+    # 1. SEGURIDAD Y PREPARACIÓN
+    df = df.loc[:, ~df.columns.duplicated()].copy()
+    df['Conciliado'] = False
+    df['Estado_Cofersa'] = 'PENDIENTE'
+    
+    # Asegurar tipos de datos numéricos para cálculos rápidos
+    df['Monto_CRC'] = pd.to_numeric(df['Monto_CRC'], errors='coerce').fillna(0).round(2)
+    df['Monto_USD'] = pd.to_numeric(df['Monto_USD'], errors='coerce').fillna(0).round(2)
     
     total_conciliados = 0
     indices_usados = set()
 
-    # --- FASE 1: PARES 1-1 (MISMO TEXTO + MISMO MONTO CRC + MISMO MONTO USD) ---
-    df_pendientes = df[~df['Conciliado']]
-    grupos_monto = df_pendientes.groupby(df_pendientes['Monto_CRC'].abs())
+    # --- FASE 1: PARES EXACTOS (TEXTO + CRC + USD) ---
+    # Usamos Groupby para encontrar coincidencias instantáneas
+    log_messages.append("⚡ Fase 1: Emparejamiento por texto y montos...")
     
-    for monto_abs, grupo in grupos_monto:
-        if len(grupo) < 2: continue
-        debitos = grupo[grupo['Monto_CRC'] > 0].index.tolist()
-        creditos = grupo[grupo['Monto_CRC'] < 0].index.tolist()
-        
-        for idx_d in debitos:
-            if idx_d in indices_usados: continue
-            for idx_c in creditos:
-                if idx_c in indices_usados: continue
-                
-                # Validación Triple: Referencia + CRC + USD
-                if df.loc[idx_d, 'Ref_Norm'] == df.loc[idx_c, 'Ref_Norm']:
-                    if abs(df.loc[idx_d, 'Monto_CRC'] + df.loc[idx_c, 'Monto_CRC']) <= 0.01 and \
-                       abs(df.loc[idx_d, 'Monto_USD'] + df.loc[idx_c, 'Monto_USD']) <= 0.01:
-                        
-                        df.loc[[idx_d, idx_c], 'Conciliado'] = True
-                        df.loc[[idx_d, idx_c], 'Grupo_Conciliado'] = "PAR_TEXTO_BIMONEDA"
-                        indices_usados.update([idx_d, idx_c])
-                        total_conciliados += 2
-                        break
-
-    # --- FASE 2: CRUCE POR ID DE DEPÓSITO (COLUMNAS FLEXIBLES + LIMPIEZA DE COMA) ---
-    # Esta versión busca el ID en cualquiera de las dos columnas (Fuente o Referencia)
-    log_messages.append("--- Fase 2: Cruce por ID de documento (Filtro Inteligente) ---")
+    # Creamos una llave única de cruce
+    df['_Key1'] = df['Ref_Norm'] + "_" + df['Monto_CRC'].abs().astype(str) + "_" + df['Monto_USD'].abs().astype(str)
     
-    df_res = df[~df['Conciliado']]
-    debs = df_res[df_res['Monto_CRC'] > 0]
-    creds = df_res[df_res['Monto_CRC'] < 0]
-
-    for idx_d, row_d in debs.iterrows():
-        # Recolectamos todos los IDs posibles del Débito (de Ref y de Fuente)
-        ids_debito = [row_d['Ref_Num'], row_d['Fuente_Num']]
-        ids_debito = [i for i in ids_debito if i != ""] # Quitamos vacíos
-
-        if not ids_debito: continue
+    for key, grupo in df[~df['Conciliado']].groupby('_Key1'):
+        debs = grupo[grupo['Monto_CRC'] > 0].index.tolist()
+        creds = grupo[grupo['Monto_CRC'] < 0].index.tolist()
         
-        # Buscamos en los créditos
-        for id_buscar in ids_debito:
-            # Buscamos coincidencias en cualquiera de las dos columnas del crédito
-            # El Regex de normalización ya eliminó la coma, así que el match será limpio
-            match = creds[
-                ((creds['Fuente_Num'] == id_buscar) | (creds['Ref_Num'] == id_buscar)) & 
-                (abs(creds['Monto_CRC'] + row_d['Monto_CRC']) <= 0.01) & 
-                (abs(creds['Monto_USD'] + row_d['Monto_USD']) <= 0.01)
-            ]
-            
-            if not match.empty:
-                idx_c = match.index[0]
-                df.loc[[idx_d, idx_c], 'Conciliado'] = True
-                df.loc[[idx_d, idx_c], 'Grupo_Conciliado'] = f"DEPOSITO_{id_buscar}"
+        while debs and creds:
+            idx_d, idx_c = debs.pop(0), creds.pop(0)
+            # Doble validación de suma cero por seguridad
+            if abs(df.at[idx_d, 'Monto_CRC'] + df.at[idx_c, 'Monto_CRC']) <= 0.01:
+                df.loc[[idx_d, idx_c], ['Conciliado', 'Estado_Cofersa']] = [True, "PAR_TEXTO_BIMONEDA"]
                 indices_usados.update([idx_d, idx_c])
                 total_conciliados += 2
-                creds = creds.drop(idx_c)
-                break # Saltamos al siguiente débito
 
-    # --- FASE 3: CRUCE CC VS CB (ÚLTIMOS 4 DÍGITOS REF vs FUENTE) ---
-    log_messages.append("--- Fase 3: Cruce Asientos CC vs CB (Sufijos de 4 dígitos) ---")
+    # --- FASE 2: CRUCE POR ID DE DOCUMENTO (Optimizado con Diccionario) ---
+    log_messages.append("⚡ Fase 2: Cruce inteligente por número de depósito...")
     
-    df_res_p3 = df[~df['Conciliado']]
-    # Filtramos por tipo de asiento
-    asientos_cc = df_res_p3[df_res_p3['Asiento'].astype(str).str.startswith('CC')]
-    asientos_cb = df_res_p3[df_res_p3['Asiento'].astype(str).str.startswith('CB')]
+    df_pend = df[~df['Conciliado']].copy()
+    creds = df_pend[df_pend['Monto_CRC'] < 0]
+    
+    # Creamos un "Mapa de Créditos" para búsquedas instantáneas
+    # La llave es (ID_Documento, Valor_Absoluto_CRC)
+    mapa_creditos = {}
+    for idx, row in creds.iterrows():
+        m_crc = abs(row['Monto_CRC'])
+        # Registramos el ID de Ref y de Fuente
+        for doc_id in [row['Ref_Num'], row['Fuente_Num']]:
+            if doc_id:
+                map_key = (doc_id, m_crc)
+                if map_key not in mapa_creditos: mapa_creditos[map_key] = []
+                mapa_creditos[map_key].append(idx)
 
-    for idx_cc, row_cc in asientos_cc.iterrows():
-        # Extraemos solo los números de la Referencia de CC y tomamos los últimos 4
-        ref_digits = "".join(filter(str.isdigit, str(row_cc['Referencia'])))
-        if len(ref_digits) < 4: continue
-        key_cc = ref_digits[-4:]
+    debs = df_pend[df_pend['Monto_CRC'] > 0]
+    for idx_d, row_d in debs.iterrows():
+        m_crc = abs(row_d['Monto_CRC'])
+        m_usd = abs(row_d['Monto_USD'])
         
-        # Buscamos en los asientos CB disponibles
-        for idx_cb, row_cb in asientos_cb.iterrows():
-            if idx_cb in indices_usados: continue
+        # Buscamos en nuestros IDs posibles
+        for doc_id in [row_d['Ref_Num'], row_d['Fuente_Num']]:
+            if not doc_id: continue
+            map_key = (doc_id, m_crc)
             
-            # Extraemos solo los números de la Fuente de CB y tomamos los últimos 4
-            fnt_digits = "".join(filter(str.isdigit, str(row_cb['Fuente'])))
-            if len(fnt_digits) < 4: continue
-            key_cb = fnt_digits[-4:]
+            if map_key in mapa_creditos and mapa_creditos[map_key]:
+                # Candidatos encontrados por ID y CRC
+                for i, idx_c in enumerate(mapa_creditos[map_key]):
+                    if idx_c in indices_usados: continue
+                    
+                    # Validamos la tolerancia de 1.00 USD
+                    if abs(row_d['Monto_USD'] + df.at[idx_c, 'Monto_USD']) <= 1.00:
+                        df.loc[[idx_d, idx_c], ['Conciliado', 'Estado_Cofersa']] = [True, f"DEPOSITO_{doc_id}"]
+                        indices_usados.update([idx_d, idx_c])
+                        total_conciliados += 2
+                        mapa_creditos[map_key].pop(i) # Quitamos del mapa para no re-usar
+                        break
+                if idx_d in indices_usados: break
 
-            # Si los sufijos coinciden, validamos montos en ambas monedas
-            if key_cc == key_cb:
-                match_crc = abs(row_cc['Monto_CRC'] + row_cb['Monto_CRC']) <= 0.01
-                match_usd = abs(row_cc['Monto_USD'] + row_cb['Monto_USD']) <= 0.01
-                
-                if match_crc and match_usd:
-                    df.loc[[idx_cc, idx_cb], 'Conciliado'] = True
-                    df.loc[[idx_cc, idx_cb], 'Grupo_Conciliado'] = f"CRUCE_CC_CB_{key_cc}"
-                    indices_usados.update([idx_cc, idx_cb])
-                    total_conciliados += 2
-                    # Eliminamos el CB usado de la lista temporal para no repetir cruces
-                    asientos_cb = asientos_cb.drop(idx_cb)
-                    break
+    # --- FASE 3: CRUCE CC VS CB (Sufijos de 4 dígitos) ---
+    log_messages.append("⚡ Fase 3: Cruce por terminación de 4 dígitos...")
+    
+    df_p3 = df[~df['Conciliado']].copy()
+    # Pre-calculamos los sufijos para no hacerlo dentro del bucle
+    def get_suffix(val):
+        nums = "".join(filter(str.isdigit, str(val)))
+        return nums[-4:] if len(nums) >= 4 else None
 
+    # Mapa de búsqueda para Asientos CB
+    mapa_cb = {}
+    asientos_cb = df_p3[df_p3['Asiento'].astype(str).str.startswith('CB')]
+    for idx, row in asientos_cb.iterrows():
+        sufijo = get_suffix(row['Fuente'])
+        if sufijo:
+            m_crc = abs(row['Monto_CRC'])
+            key = (sufijo, m_crc)
+            if key not in mapa_cb: mapa_cb[key] = []
+            mapa_cb[key].append(idx)
+
+    asientos_cc = df_p3[df_p3['Asiento'].astype(str).str.startswith('CC')]
+    for idx_cc, row_cc in asientos_cc.iterrows():
+        sufijo_cc = get_suffix(row_cc['Referencia'])
+        if sufijo_cc:
+            key_cc = (sufijo_cc, abs(row_cc['Monto_CRC']))
+            if key_cc in mapa_cb and mapa_cb[key_cc]:
+                for i, idx_cb in enumerate(mapa_cb[key_cc]):
+                    if idx_cb in indices_usados: continue
+                    
+                    if abs(row_cc['Monto_USD'] + df.at[idx_cb, 'Monto_USD']) <= 1.00:
+                        df.loc[[idx_cc, idx_cb], ['Conciliado', 'Estado_Cofersa']] = [True, f"CRUCE_CC_CB_{sufijo_cc}"]
+                        indices_usados.update([idx_cc, idx_cb])
+                        total_conciliados += 2
+                        mapa_cb[key_cc].pop(i)
+                        break
+
+    # Limpieza de columnas temporales y logs
+    if '_Key1' in df.columns: df.drop(columns=['_Key1'], inplace=True)
+    if progress_bar: progress_bar.progress(1.0)
     log_messages.append(f"🏁 Finalizado: {total_conciliados} movimientos conciliados.")
     return df
 
