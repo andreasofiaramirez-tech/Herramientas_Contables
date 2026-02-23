@@ -1203,34 +1203,36 @@ def render_cofersa_fondos():
         if st.button("▶️ Iniciar Conciliación de Fondos", type="primary"):
             log = []
             try:
-                # 1. Cargar los datos usando el nuevo cargador exclusivo
+                # 1. Carga de datos
                 with st.spinner('Cargando y normalizando datos de Cofersa...'):
                     df_full = cargar_datos_fondos_cofersa(uploaded_actual, uploaded_anterior, log)
                 
                 if df_full is not None:
+                    # 2. DEFINICIÓN DE ESTRATEGIA (ESTO SOLUCIONA EL ERROR)
+                    # Extraemos la configuración necesaria para que el reporte sepa qué columnas usar
+                    estrategia = ESTRATEGIAS["101.01.03.00 - Fondos en Transito COFERSA"]
+                    
+                    # 3. Ejecutar la lógica de alta velocidad
                     df_res = run_conciliation_fondos_fondos_cofersa(df_full.copy(), log)
                     
-                    # 1. SEPARAR DATOS
+                    # 4. Separar resultados para el reporte
                     df_saldos = df_res[~df_res['Conciliado']]
                     df_conciliados = df_res[df_res['Conciliado']]
                     
-                    # 2. MOSTRAR MÉTRICAS EN PANTALLA (NUEVO)
+                    # 5. Métricas en pantalla
                     st.success("✅ Conciliación procesada exitosamente.")
-                    
                     col_m1, col_m2 = st.columns(2)
                     with col_m1:
                         st.metric("Movimientos Conciliados", len(df_conciliados))
                     with col_m2:
                         st.metric("Movimientos Abiertos", len(df_saldos))
-                    
-                    # 3. GENERAR EXCEL
+
+                    # 6. Generar el reporte (Ahora 'estrategia' ya existe)
                     excel_reporte = generar_reporte_excel(
                         df_res, df_saldos, df_conciliados, estrategia, "COFERSA", "101.01.03.00"
                     )
                     
-                    st.success("✅ Conciliación completada con éxito.")
-                    
-                    # Botones de descarga
+                    # 7. Botones de descarga
                     col_d1, col_d2 = st.columns(2)
                     col_d1.download_button(
                         "⬇️ Descargar Reporte Final",
@@ -1240,7 +1242,6 @@ def render_cofersa_fondos():
                         use_container_width=True
                     )
                     
-                    # Generar archivo de saldos para el mes que viene
                     excel_saldos = generar_excel_saldos_abiertos(df_saldos)
                     col_d2.download_button(
                         "⬇️ Descargar Saldos Próximo Mes",
