@@ -1101,7 +1101,7 @@ def generar_reporte_excel(_df_full, df_saldos_abiertos, df_conciliados, _estrate
             _generar_hoja_pendientes_resumida(workbook, formatos, df_saldos_abiertos, _estrategia, casa_seleccionada, fecha_max)
 
         elif _estrategia['id'] == "fondos_transito_cofersa":
-            _generar_hoja_pendientes_fondos_cofersa(workbook, formatos, df_saldos_abiertos, _estrategia, casa_seleccionada), 
+            _generar_hoja_pendientes_fondos_cofersa(workbook, formatos, df_saldos_abiertos, _estrategia, casa_seleccionada, fecha_max)
             
         elif _estrategia['id'] in cuentas_corridas:
             _generar_hoja_pendientes_corrida(workbook, formatos, df_saldos_abiertos, _estrategia, casa_seleccionada, fecha_max)
