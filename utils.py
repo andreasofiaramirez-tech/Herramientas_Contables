@@ -300,20 +300,17 @@ def _crear_formatos(workbook):
         'encabezado_empresa': workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'font_size': 14}),
         'encabezado_sub': workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'font_size': 11}),
         'header_tabla': workbook.add_format({'bold': True, 'text_wrap': True, 'valign': 'top', 'fg_color': '#D9EAD3', 'border': 1, 'align': 'center'}),
-        'bs': workbook.add_format({'num_format': '#,##0.00'}),
-        'colones': workbook.add_format({'num_format': '₡#,##0.00'}),    
-        'usd': workbook.add_format({'num_format': '$#,##0.00'}),
+        'colones': workbook.add_format({'num_format': '#,##0.00'}),    
+        'usd': workbook.add_format({'num_format': '#,##0.00'}),
         'tasa': workbook.add_format({'num_format': '#,##0.0000'}),
         'fecha': workbook.add_format({'num_format': 'dd/mm/yyyy'}),
         'text': workbook.add_format({'align': 'left'}), 
         'total_label': workbook.add_format({'bold': True, 'align': 'right', 'top': 2}),
-        'total_usd': workbook.add_format({'bold': True, 'num_format': '$#,##0.00', 'top': 2, 'bottom': 1}),
-        'total_bs': workbook.add_format({'bold': True, 'num_format': '#,##0.00', 'top': 2, 'bottom': 1}),
-        'total_colones': workbook.add_format({'bold': True, 'num_format': '₡#,##0.00', 'top': 2}),
+        'total_usd': workbook.add_format({'bold': True, 'num_format': '#,##0.00', 'top': 2, 'bottom': 1}),
+        'total_colones': workbook.add_format({'bold': True, 'num_format': '#,##0.00', 'top': 2}),
         'proveedor_header': workbook.add_format({'bold': True, 'fg_color': '#F2F2F2', 'border': 1}),
         'subtotal_label': workbook.add_format({'bold': True, 'align': 'right', 'top': 1}),
-        'subtotal_usd': workbook.add_format({'bold': True, 'num_format': '$#,##0.00', 'top': 1}),
-        'subtotal_bs': workbook.add_format({'bold': True, 'num_format': '#,##0.00', 'top': 1})
+        'subtotal_usd': workbook.add_format({'bold': True, 'num_format': '#,##0.00', 'top': 1})
     }
 
 def _generar_hoja_pendientes(workbook, formatos, df_saldos, estrategia, casa, fecha_maxima):
@@ -445,11 +442,10 @@ def _generar_hoja_pendientes(workbook, formatos, df_saldos, estrategia, casa, fe
     if bs_idx != -1: ws.write_number(current_row, bs_idx, df['Bs.'].sum(), formatos['total_bs'])
 
 
-    ws.set_column(0, 0, 18) # NIT
-    ws.set_column(1, 1, 55) # Descripción
-    ws.set_column(2, 2, 18) # Fecha (Fecha Origen)
-    ws.set_column(3, 3, 20) # Fuente (Num Documento)
-    ws.set_column(4, 10, 20) # Resto
+    ws.set_column(0, 0, 15) # Fecha
+    ws.set_column(1, 1, 15) # Asiento
+    ws.set_column(2, 2, 50) # Referencia (Largo según imagen)
+    ws.set_column(3, 3, 20) # Monto Colones
 
 def _generar_hoja_conciliados_estandar(workbook, formatos, df_conciliados, estrategia):
     """Para cuentas: Tránsito, Depositar, Viajes, Devoluciones, Deudores."""
