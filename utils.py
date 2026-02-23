@@ -931,7 +931,6 @@ def _generar_hoja_pendientes_cdc(workbook, formatos, df_saldos, estrategia, casa
 def _generar_hoja_pendientes_corrida(workbook, formatos, df_saldos, estrategia, casa, fecha_maxima):
     """
     Genera hoja de pendientes como LISTADO CORRIDO (Cronológico).
-    CORREGIDO: Formato de fecha, limpieza de filas basura y alias de columnas.
     """
     nombre_hoja = estrategia.get("nombre_hoja_excel", "Pendientes")
     ws = workbook.add_worksheet(nombre_hoja)
@@ -1007,7 +1006,7 @@ def _generar_hoja_pendientes_corrida(workbook, formatos, df_saldos, estrategia, 
                     
             elif col_name in ['Monto Dólar', 'Monto USD']: 
                 ws.write_number(current_row, c_idx, val or 0, formatos['usd'])
-            elif col_name in ['Bs.', 'Monto Bolivar', 'Monto Bs']: 
+            elif col_name in ['Bs.', 'Monto Bolivar', 'Monto Bs', 'Monto Colones']:
                 ws.write_number(current_row, c_idx, val or 0, formatos['bs'])
             elif col_name == 'Tasa': 
                 ws.write_number(current_row, c_idx, val or 0, formatos['tasa'])
