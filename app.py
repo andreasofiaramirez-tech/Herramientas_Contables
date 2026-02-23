@@ -1199,17 +1199,15 @@ def render_cofersa_fondos():
         uploaded_anterior = st.file_uploader("Saldos Anteriores (Excel)", type="xlsx", key="coff_anterior")
 
     if uploaded_actual and uploaded_anterior:
-        if st.button("▶️ Iniciar Conciliación de Fondos", type="primary", use_container_width=True):
+        if st.button("▶️ Iniciar Conciliación de Fondos", type="primary"):
             log = []
             try:
-                # IMPORTANTE: Usamos el cargador de Cofersa para evitar montos en 0
-                with st.spinner('Cargando y normalizando datos de Cofersa...'):
-                    df_full = cargar_datos_cofersa(uploaded_actual, uploaded_anterior, log)
+                # CAMBIO: Usar el nuevo cargador específico
+                df_full = cargar_datos_fondos_cofersa(uploaded_actual, uploaded_anterior, log)
                 
                 if df_full is not None:
-                    # Ejecutamos la lógica específica definida en logic.py
-                    estrategia = ESTRATEGIAS["101.01.03.00 - Fondos en Transito COFERSA"]
-                    df_res = run_conciliation_fondos_transito_cofersa(df_full.copy(), log)
+                    # Llamar a la nueva lógica
+                    df_res = run_conciliation_fondos_fondos_cofersa(df_full.copy(), log)
                     
                     # Generamos el reporte usando la función estándar de reportes
                     df_saldos = df_res[~df_res['Conciliado']]
