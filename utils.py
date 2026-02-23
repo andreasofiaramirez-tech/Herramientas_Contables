@@ -987,28 +987,20 @@ def _generar_hoja_pendientes_corrida(workbook, formatos, df_saldos, estrategia, 
             elif col_name == 'Numero de Documento': 
                 val = row.get('Fuente')
             elif col_name == 'Monto Colones': 
-                # Mapeo crítico: Vincular el nombre visual con el dato real
+                # CRUCIAL: 'Monto Colones' es el nombre visual, 'Monto_BS' es el dato real
                 val = row.get('Monto_BS')
             else: 
                 val = row.get(col_name)
-            # ----------------------
-            
-            # Escritura con formato
+
+            # --- ESCRITURA CON FORMATO NUMÉRICO ---
             if col_name in ['Fecha', 'Fecha Origen Acreencia']:
-                # Asegurar que es fecha válida para Excel
-                val_dt = pd.to_datetime(val, errors='coerce')
-                if pd.notna(val_dt):
-                    ws.write_datetime(current_row, c_idx, val_dt, formatos['fecha'])
-                else:
-                    ws.write(current_row, c_idx, str(val) if val else "", formatos['text'])
-                    
+                ws.write_datetime(current_row, c_idx, pd.to_datetime(val), formatos['fecha']) if pd.notna(val) else ws.write(current_row, c_idx, '-')
             elif col_name in ['Monto Dólar', 'Monto USD']: 
                 ws.write_number(current_row, c_idx, val or 0, formatos['usd'])
-            elif col_name in ['Bs.', 'Monto Bolivar', 'Monto Bs', 'Monto Colones']:
+            # Aseguramos que 'Monto Colones' también reciba formato de número
+            elif col_name in ['Bs.', 'Monto Bolivar', 'Monto Bs', 'Monto Colones']: 
                 ws.write_number(current_row, c_idx, val or 0, formatos['bs'])
-            elif col_name == 'Tasa': 
-                ws.write_number(current_row, c_idx, val or 0, formatos['tasa'])
-            else: 
+            else:
                 ws.write(current_row, c_idx, val if pd.notna(val) else '')
         current_row += 1
         
