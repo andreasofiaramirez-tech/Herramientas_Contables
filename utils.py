@@ -2976,9 +2976,15 @@ def cargar_datos_fondos_cofersa(uploaded_actual, uploaded_anterior, log_messages
 
         # Limpieza de montos y cálculo del Neto (Monto_CRC)
         for c in ['Debito_CRC', 'Credito_CRC', 'Debito_USD', 'Credito_USD']:
-            df[c] = df[c].apply(limpiar_monto)
+            if c in df.columns:
+                # 1. Limpiamos caracteres extraños (comas, espacios, etc.)
+                df[c] = df[c].apply(limpiar_monto)
+                # 2. FORZAMOS a que Pandas lo vea como un número (esto quita el TypeError)
+                df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0.0)
+            else:
+                df[c] = 0.0
         
-        # ESTA LÍNEA CREA LA COLUMNA QUE DABA ERROR
+        # Ahora el cálculo del Neto funcionará sin errores porque los datos son números reales
         df['Monto_CRC'] = (df['Debito_CRC'] - df['Credito_CRC']).round(2)
         df['Monto_USD'] = (df['Debito_USD'] - df['Credito_USD']).round(2)
         return df
