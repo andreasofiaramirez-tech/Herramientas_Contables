@@ -4484,32 +4484,31 @@ def run_conciliation_fondos_transito_cofersa(df, log_messages, progress_bar=None
     total_conciliados = 0
     indices_usados = set()
 
-    # --- FASE 1: PARES 1-1 POR MONTO EXACTO (MISMA REFERENCIA TEXTUAL) ---
+    # --- FASE 1: PARES 1-1 POR MONTO EXACTO (COLONES + USD) Y MISMA REFERENCIA ---
     df_pendientes = df[~df['Conciliado']]
-    # Agrupamos por el valor absoluto del monto para encontrar parejas
     grupos_monto = df_pendientes.groupby(df_pendientes['Monto_BS'].abs())
     
     for monto_abs, grupo in grupos_monto:
         if len(grupo) < 2: continue
-        
         debitos = grupo[grupo['Monto_BS'] > 0].index.tolist()
         creditos = grupo[grupo['Monto_BS'] < 0].index.tolist()
-        
         for idx_d in debitos:
             if idx_d in indices_usados: continue
             for idx_c in creditos:
                 if idx_c in indices_usados: continue
-                
-                # Comparamos la Referencia Normalizada (Texto)
+                # VALIDACIÓN DOBLE MONEDA Y TEXTO
                 if df.loc[idx_d, 'Ref_Norm'] == df.loc[idx_c, 'Ref_Norm']:
-                    df.loc[[idx_d, idx_c], 'Conciliado'] = True
-                    df.loc[[idx_d, idx_c], 'Grupo_Conciliado'] = "PAR_MONTO_REF"
-                    indices_usados.update([idx_d, idx_c])
-                    total_conciliados += 2
-                    break
+                    match_crc = np.isclose(df.loc[idx_d, 'Monto_BS'] + df.loc[idx_c, 'Monto_BS'], 0, atol=0.01)
+                    match_usd = np.isclose(df.loc[idx_d, 'Monto_USD'] + df.loc[idx_c, 'Monto_USD'], 0, atol=0.01)
+                    
+                    if match_crc and match_usd:
+                        df.loc[[idx_d, idx_c], 'Conciliado'] = True
+                        df.loc[[idx_d, idx_c], 'Grupo_Conciliado'] = "PAR_CRC_USD_REF"
+                        indices_usados.update([idx_d, idx_c])
+                        total_conciliados += 2
+                        break
 
-    # --- FASE 2: CRUCE REFERENCIA VS FUENTE (NÚMERO DE DEPÓSITO) ---
-    # Solo procesamos lo que no se concilió en la Fase 1
+    # --- FASE 2: CRUCE REFERENCIA VS FUENTE (CON DOBLE VALIDACIÓN) ---
     df_restante = df[~df['Conciliado']]
     debitos_res = df_restante[df_restante['Monto_BS'] > 0]
     creditos_res = df_restante[df_restante['Monto_BS'] < 0]
@@ -4517,23 +4516,19 @@ def run_conciliation_fondos_transito_cofersa(df, log_messages, progress_bar=None
     for idx_d, row_d in debitos_res.iterrows():
         id_deposito = row_d['Ref_Num']
         if not id_deposito: continue
+        match = creditos_res[(creditos_res['Fuente_Num'] == id_deposito) | (creditos_res['Ref_Num'] == id_deposito)]
         
-        # Buscamos en los créditos alguien que tenga el mismo número en Fuente o Referencia
-        match = creditos_res[
-            (creditos_res['Fuente_Num'] == id_deposito) | 
-            (creditos_res['Ref_Num'] == id_deposito)
-        ]
-        
-        # Validamos que el monto sea el mismo
-        match_monto = match[np.isclose(match['Monto_BS'] + row_d['Monto_BS'], 0, atol=0.01)]
-        
-        if not match_monto.empty:
-            idx_c = match_monto.index[0]
-            df.loc[[idx_d, idx_c], 'Conciliado'] = True
-            df.loc[[idx_d, idx_c], 'Grupo_Conciliado'] = f"DEPOSITO_{id_deposito}"
-            total_conciliados += 2
-            # Eliminamos de la lista local para no duplicar el cruce
-            creditos_res = creditos_res.drop(idx_c)
+        for idx_c, row_c in match.iterrows():
+            # VALIDACIÓN DOBLE MONEDA
+            match_crc = np.isclose(row_d['Monto_BS'] + row_c['Monto_BS'], 0, atol=0.01)
+            match_usd = np.isclose(row_d['Monto_USD'] + row_c['Monto_USD'], 0, atol=0.01)
+            
+            if match_crc and match_usd:
+                df.loc[[idx_d, idx_c], 'Conciliado'] = True
+                df.loc[[idx_d, idx_c], 'Grupo_Conciliado'] = f"DEPOSITO_{id_deposito}"
+                total_conciliados += 2
+                creditos_res = creditos_res.drop(idx_c)
+                break
 
     log_messages.append(f"✔️ Conciliación finalizada. Total: {total_conciliados} movimientos.")
     return df
