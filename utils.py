@@ -964,7 +964,6 @@ def _generar_hoja_pendientes_corrida(workbook, formatos, df_saldos, estrategia, 
             mask_basura |= df['Descripcion NIT'].astype(str).str.upper().str.contains('TOTAL', na=False)
             
         df = df[~mask_basura]
-    # ------------------------------------------------------------------
 
     df['Monto Dólar'] = pd.to_numeric(df.get('Monto_USD'), errors='coerce').fillna(0)
     df['Bs.'] = pd.to_numeric(df.get('Monto_BS'), errors='coerce').fillna(0)
@@ -978,21 +977,23 @@ def _generar_hoja_pendientes_corrida(workbook, formatos, df_saldos, estrategia, 
         df = df.sort_values(by=['Fecha', 'Asiento'], ascending=[True, True])
 
     current_row = 5
-    
-    # Buscamos índices para el total
-    # Creamos un DF dummy con las columnas para buscar índices
+        
     dummy_df = pd.DataFrame(columns=cols)
     usd_idx = get_col_idx(dummy_df, ['Monto Dólar', 'Monto USD'])
     bs_idx = get_col_idx(dummy_df, ['Bs.', 'Monto Bolivar', 'Monto Bs'])
     
     for _, row in df.iterrows():
         for c_idx, col_name in enumerate(cols):
-            
-            # --- MAPEO DE ALIAS ---
             val = None
-            if col_name == 'Fecha Origen Acreencia': val = row.get('Fecha')
-            elif col_name == 'Numero de Documento': val = row.get('Fuente')
-            else: val = row.get(col_name)
+            if col_name == 'Fecha Origen Acreencia': 
+                val = row.get('Fecha')
+            elif col_name == 'Numero de Documento': 
+                val = row.get('Fuente')
+            elif col_name == 'Monto Colones': 
+                # Mapeo crítico: Vincular el nombre visual con el dato real
+                val = row.get('Monto_BS')
+            else: 
+                val = row.get(col_name)
             # ----------------------
             
             # Escritura con formato
@@ -1026,10 +1027,10 @@ def _generar_hoja_pendientes_corrida(workbook, formatos, df_saldos, estrategia, 
     if bs_idx != -1: ws.write_number(current_row, bs_idx, df['Bs.'].sum(), formatos['total_bs'])
 
     # Ajuste anchos
-    ws.set_column(0, 0, 18)
-    ws.set_column(1, 1, 55)
-    ws.set_column(2, 2, 15)
-    ws.set_column(3, 10, 20)
+    ws.set_column(0, 0, 15)  # Fecha
+    ws.set_column(1, 1, 18)  # Asiento
+    ws.set_column(2, 2, 60)  # Referencia (Ancho grande para descripciones de COFERSA)
+    ws.set_column(3, 3, 20)  # Monto Colones
 
 def _generar_hoja_pendientes_proveedores(workbook, formatos, df_saldos, estrategia, casa, fecha_maxima):
     """
