@@ -1203,7 +1203,7 @@ def render_cofersa_fondos():
             log = []
             try:
                 # CAMBIO: Usar el nuevo cargador específico
-                df_full = cargar_datos_fondos_cofersa(uploaded_actual, uploaded_anterior, log)
+                df_full = cargar_datos_cofersa(uploaded_actual, uploaded_anterior, log)
                 
                 if df_full is not None:
                     # Llamar a la nueva lógica
