@@ -2948,23 +2948,37 @@ def cargar_datos_fondos_cofersa(uploaded_actual, uploaded_anterior, log_messages
         df = pd.read_excel(buffer, engine='openpyxl')
         rename_map = {}
         for col in df.columns:
-            c = str(col).upper()
-            if 'DEBITO' in c and 'LOCAL' in c: rename_map[col] = 'Debito_CRC'
-            elif 'CREDITO' in c and 'LOCAL' in c: rename_map[col] = 'Credito_CRC'
-            elif 'DEBITO' in c and 'DOLAR' in c: rename_map[col] = 'Debito_USD'
-            elif 'CREDITO' in c and 'DOLAR' in c: rename_map[col] = 'Credito_USD'
-            elif 'ASIENTO' in c: rename_map[col] = 'Asiento'
-            elif 'FECHA' in c: rename_map[col] = 'Fecha'
-            elif 'REFERENCIA' in c: rename_map[col] = 'Referencia'
-            elif 'FUENTE' in c: rename_map[col] = 'Fuente'
-            elif 'NIT' in c: rename_map[col] = 'NIT'
+            # NORMALIZACIÓN: Quitamos acentos y pasamos a mayúsculas (DÉBITOS -> DEBITOS)
+            c_norm = ''.join(c for c in unicodedata.normalize('NFD', str(col))
+                            if unicodedata.category(c) != 'Mn').upper()
+
+            # Radar flexible para plurales y acentos
+            if 'DEBITO' in c_norm and 'LOCAL' in c_norm: 
+                rename_map[col] = 'Debito_CRC'
+            elif 'CREDITO' in c_norm and 'LOCAL' in c_norm: 
+                rename_map[col] = 'Credito_CRC'
+            elif 'DEBITO' in c_norm and 'DOLAR' in c_norm: 
+                rename_map[col] = 'Debito_USD'
+            elif 'CREDITO' in c_norm and 'DOLAR' in c_norm: 
+                rename_map[col] = 'Credito_USD'
+            elif 'ASIENTO' in c_norm: rename_map[col] = 'Asiento'
+            elif 'FECHA' in c_norm: rename_map[col] = 'Fecha'
+            elif 'REFERENCIA' in c_norm: rename_map[col] = 'Referencia'
+            elif 'FUENTE' in c_norm: rename_map[col] = 'Fuente'
+            elif 'NIT' in c_norm: rename_map[col] = 'NIT'
         
         df.rename(columns=rename_map, inplace=True)
-        # Limpieza de montos
-        for c in ['Debito_CRC', 'Credito_CRC', 'Debito_USD', 'Credito_USD']:
-            df[c] = df[c].apply(limpiar_monto).fillna(0.0)
         
-        # Cálculo de NETOS reales
+        # Verificación de seguridad: si no existen las columnas, las creamos en 0
+        for c_req in ['Debito_CRC', 'Credito_CRC', 'Debito_USD', 'Credito_USD']:
+            if c_req not in df.columns:
+                df[c_req] = 0.0
+
+        # Limpieza de montos y cálculo del Neto (Monto_CRC)
+        for c in ['Debito_CRC', 'Credito_CRC', 'Debito_USD', 'Credito_USD']:
+            df[c] = df[c].apply(limpiar_monto)
+        
+        # ESTA LÍNEA CREA LA COLUMNA QUE DABA ERROR
         df['Monto_CRC'] = (df['Debito_CRC'] - df['Credito_CRC']).round(2)
         df['Monto_USD'] = (df['Debito_USD'] - df['Credito_USD']).round(2)
         return df
