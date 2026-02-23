@@ -4481,6 +4481,7 @@ def run_conciliation_fondos_fondos_cofersa(df, log_messages, progress_bar=None):
     # 1. SEGURIDAD: Eliminar duplicados de columnas y reiniciar estados
     df = df.loc[:, ~df.columns.duplicated()].copy()
     df['Conciliado'] = False
+    df['Grupo_Conciliado'] = ""
     df['Estado_Cofersa'] = 'PENDIENTE'
     
     # 2. NORMALIZACIÓN (SOLUCIÓN AL KEYERROR)
@@ -4514,7 +4515,7 @@ def run_conciliation_fondos_fondos_cofersa(df, log_messages, progress_bar=None):
         while debs and creds:
             idx_d, idx_c = debs.pop(0), creds.pop(0)
             if abs(df.at[idx_d, 'Monto_CRC'] + df.at[idx_c, 'Monto_CRC']) <= 0.01:
-                df.loc[[idx_d, idx_c], ['Conciliado', 'Estado_Cofersa']] = [True, "PAR_TEXTO_BIMONEDA"]
+                df.loc[[idx_d, idx_c], ['Conciliado', 'Grupo_Conciliado', 'Estado_Cofersa']] = [True, "PAR_TEXTO_BIMONEDA", "PAR_TEXTO_BIMONEDA"]
                 indices_usados.update([idx_d, idx_c])
                 total_conciliados += 2
 
@@ -4546,7 +4547,8 @@ def run_conciliation_fondos_fondos_cofersa(df, log_messages, progress_bar=None):
                     if idx_c in indices_usados: continue
                     # Validación de tolerancia USD
                     if abs(row_d['Monto_USD'] + df.at[idx_c, 'Monto_USD']) <= 1.00:
-                        df.loc[[idx_d, idx_c], ['Conciliado', 'Estado_Cofersa']] = [True, f"DEPOSITO_{doc_id}"]
+                        etiqueta = f"DEPOSITO_{doc_id}"
+                        df.loc[[idx_d, idx_c], ['Conciliado', 'Grupo_Conciliado', 'Estado_Cofersa']] = [True, etiqueta, etiqueta]
                         indices_usados.update([idx_d, idx_c])
                         total_conciliados += 2
                         mapa_creditos[key].pop(i)
@@ -4580,7 +4582,8 @@ def run_conciliation_fondos_fondos_cofersa(df, log_messages, progress_bar=None):
                 for i, idx_cb in enumerate(mapa_cb[key_cc]):
                     if idx_cb in indices_usados: continue
                     if abs(row_cc['Monto_USD'] + df.at[idx_cb, 'Monto_USD']) <= 1.00:
-                        df.loc[[idx_cc, idx_cb], ['Conciliado', 'Estado_Cofersa']] = [True, f"CRUCE_CC_CB_{sufijo_cc}"]
+                        etiqueta = f"CRUCE_CC_CB_{sufijo_cc}"
+                        df.loc[[idx_cc, idx_cb], ['Conciliado', 'Grupo_Conciliado', 'Estado_Cofersa']] = [True, etiqueta, etiqueta]
                         indices_usados.update([idx_cc, idx_cb])
                         total_conciliados += 2
                         mapa_cb[key_cc].pop(i)
