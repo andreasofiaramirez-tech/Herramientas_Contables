@@ -4544,6 +4544,43 @@ def run_conciliation_fondos_fondos_cofersa(df, log_messages, progress_bar=None):
             total_conciliados += 2
             creds = creds.drop(idx_c)
 
+    # --- FASE 3: CRUCE CC VS CB (ÚLTIMOS 4 DÍGITOS REF vs FUENTE) ---
+    log_messages.append("--- Fase 3: Cruce Asientos CC vs CB (Sufijos de 4 dígitos) ---")
+    
+    df_res_p3 = df[~df['Conciliado']]
+    # Filtramos por tipo de asiento
+    asientos_cc = df_res_p3[df_res_p3['Asiento'].str.startswith('CC', na=False)]
+    asientos_cb = df_res_p3[df_res_p3['Asiento'].str.startswith('CB', na=False)]
+
+    for idx_cc, row_cc in asientos_cc.iterrows():
+        # Extraemos solo los números de la Referencia de CC y tomamos los últimos 4
+        ref_digits = "".join(filter(str.isdigit, str(row_cc['Referencia'])))
+        if len(ref_digits) < 4: continue
+        key_cc = ref_digits[-4:]
+        
+        # Buscamos en los asientos CB disponibles
+        for idx_cb, row_cb in asientos_cb.iterrows():
+            if idx_cb in indices_usados: continue
+            
+            # Extraemos solo los números de la Fuente de CB y tomamos los últimos 4
+            fnt_digits = "".join(filter(str.isdigit, str(row_cb['Fuente'])))
+            if len(fnt_digits) < 4: continue
+            key_cb = fnt_digits[-4:]
+
+            # Si los sufijos coinciden, validamos montos en ambas monedas
+            if key_cc == key_cb:
+                match_crc = abs(row_cc['Monto_CRC'] + row_cb['Monto_CRC']) <= 0.01
+                match_usd = abs(row_cc['Monto_USD'] + row_cb['Monto_USD']) <= 0.01
+                
+                if match_crc and match_usd:
+                    df.loc[[idx_cc, idx_cb], 'Conciliado'] = True
+                    df.loc[[idx_cc, idx_cb], 'Grupo_Conciliado'] = f"CRUCE_CC_CB_{key_cc}"
+                    indices_usados.update([idx_cc, idx_cb])
+                    total_conciliados += 2
+                    # Eliminamos el CB usado de la lista temporal para no repetir cruces
+                    asientos_cb = asientos_cb.drop(idx_cb)
+                    break
+
     log_messages.append(f"🏁 Finalizado: {total_conciliados} movimientos conciliados.")
     return df
 
