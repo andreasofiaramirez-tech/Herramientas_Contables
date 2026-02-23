@@ -3026,3 +3026,83 @@ def generar_reporte_errores_comisiones(df_final, df_diario_errores, nombre_empre
             ws2.set_column('A:Z', 18)
 
     return output.getvalue()
+
+# ==============================================================================
+# 1. FUNCIONES COFERSA
+# ==============================================================================
+
+@st.cache_data
+def cargar_datos_fondos_cofersa(uploaded_actual, uploaded_anterior, log_messages):
+    """
+    Cargador exclusivo para Fondos en Tránsito COFERSA.
+    Mapea 'Local' a 'Colones' y elimina referencias a VES.
+    """
+    def limpiar_monto(val):
+        if pd.isna(val) or str(val).strip() in ['', '-', 'nan']: return 0.0
+        if isinstance(val, (int, float)): return float(val)
+        t = str(val).strip().replace(' ', '')
+        if ',' in t and '.' in t:
+            if t.rfind(',') > t.rfind('.'): t = t.replace('.', '').replace(',', '.')
+            else: t = t.replace(',', '')
+        elif ',' in t: t = t.replace(',', '.')
+        return pd.to_numeric(re.sub(r'[^\d.-]', '', t), errors='coerce') or 0.0
+
+    def procesar(buffer):
+        df = pd.read_excel(buffer, engine='openpyxl')
+        rename_map = {}
+        for col in df.columns:
+            c = str(col).upper()
+            if 'DEBITO' in c and 'LOCAL' in c: rename_map[col] = 'Debito_CRC'
+            elif 'CREDITO' in c and 'LOCAL' in c: rename_map[col] = 'Credito_CRC'
+            elif 'DEBITO' in c and 'DOLAR' in c: rename_map[col] = 'Debito_USD'
+            elif 'CREDITO' in c and 'DOLAR' in c: rename_map[col] = 'Credito_USD'
+            elif 'ASIENTO' in c: rename_map[col] = 'Asiento'
+            elif 'FECHA' in c: rename_map[col] = 'Fecha'
+            elif 'REFERENCIA' in c: rename_map[col] = 'Referencia'
+            elif 'FUENTE' in c: rename_map[col] = 'Fuente'
+            elif 'NIT' in c: rename_map[col] = 'NIT'
+        
+        df.rename(columns=rename_map, inplace=True)
+        # Limpieza de montos
+        for c in ['Debito_CRC', 'Credito_CRC', 'Debito_USD', 'Credito_USD']:
+            df[c] = df[c].apply(limpiar_monto).fillna(0.0)
+        
+        # Cálculo de NETOS reales
+        df['Monto_CRC'] = (df['Debito_CRC'] - df['Credito_CRC']).round(2)
+        df['Monto_USD'] = (df['Debito_USD'] - df['Credito_USD']).round(2)
+        return df
+
+    df_act = procesar(uploaded_actual)
+    df_ant = procesar(uploaded_anterior)
+    df_full = pd.concat([df_ant, df_act], ignore_index=True)
+    df_full['Fecha'] = pd.to_datetime(df_full['Fecha'], errors='coerce')
+    df_full['Conciliado'] = False
+    
+    log_messages.append("✅ Datos de Fondos COFERSA cargados (CRC/USD).")
+    return df_full
+
+def _generar_hoja_pendientes_fondos_cofersa(workbook, formatos, df_saldos, estrategia, casa, fecha_maxima):
+    """Genera la hoja de saldos abiertos con la columna Monto Colones poblada correctamente."""
+    ws = workbook.add_worksheet(estrategia.get("nombre_hoja_excel", "Pendientes"))
+    ws.hide_gridlines(2)
+    
+    # Encabezados de empresa
+    ws.merge_range('A1:D1', "COFERSA", formatos['encabezado_empresa'])
+    ws.merge_range('A2:D2', f"ESPECIFICACION DE LA CUENTA {estrategia['nombre_hoja_excel']}", formatos['encabezado_sub'])
+    
+    headers = ['Fecha', 'Asiento', 'Referencia', 'Monto Colones']
+    ws.write_row(4, 0, headers, formatos['header_tabla'])
+
+    row_idx = 5
+    for _, row in df_saldos.sort_values('Fecha').iterrows():
+        ws.write_datetime(row_idx, 0, row['Fecha'], formatos['fecha']) if pd.notna(row['Fecha']) else ws.write(row_idx, 0, '-')
+        ws.write(row_idx, 1, str(row['Asiento']), formatos['text'])
+        ws.write(row_idx, 2, str(row['Referencia']), formatos['text'])
+        ws.write_number(row_idx, 3, float(row['Monto_CRC']), formatos['colones'])
+        row_idx += 1
+
+    # Total
+    ws.write(row_idx, 2, "SALDO TOTAL", formatos['total_label'])
+    ws.write_number(row_idx, 3, df_saldos['Monto_CRC'].sum(), formatos['total_colones'])
+    
+    ws.set_column('A:B', 15); ws.set_column('C:C', 55); ws.set_column('D:D', 20)
