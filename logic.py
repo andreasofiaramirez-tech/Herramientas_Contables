@@ -4478,6 +4478,8 @@ def run_conciliation_fondos_fondos_cofersa(df, log_messages, progress_bar=None):
     """
     log_messages.append("\n--- INICIANDO CONCILIACIÓN FONDOS COFERSA (BIMONEDA) ---")
 
+    df = df.loc[:, ~df.columns.duplicated()].copy()
+
     if 'Monto_CRC' not in df.columns:
         df['Monto_CRC'] = 0.0
     if 'Monto_USD' not in df.columns:
@@ -4560,8 +4562,8 @@ def run_conciliation_fondos_fondos_cofersa(df, log_messages, progress_bar=None):
     
     df_res_p3 = df[~df['Conciliado']]
     # Filtramos por tipo de asiento
-    asientos_cc = df_res_p3[df_res_p3['Asiento'].str.startswith('CC', na=False)]
-    asientos_cb = df_res_p3[df_res_p3['Asiento'].str.startswith('CB', na=False)]
+    asientos_cc = df_res_p3[df_res_p3['Asiento'].astype(str).str.startswith('CC')]
+    asientos_cb = df_res_p3[df_res_p3['Asiento'].astype(str).str.startswith('CB')]
 
     for idx_cc, row_cc in asientos_cc.iterrows():
         # Extraemos solo los números de la Referencia de CC y tomamos los últimos 4
