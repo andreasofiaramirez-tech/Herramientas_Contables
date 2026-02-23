@@ -4589,53 +4589,56 @@ def run_conciliation_fondos_fondos_cofersa(df, log_messages, progress_bar=None):
                         mapa_cb[key_cc].pop(i)
                         break
 
-    # --- FASE 4: CRUCE ESPECIAL PAGO-CLICK (ÚLTIMOS 5 DÍGITOS) ---
+    # --- FASE 4: CRUCE ESPECIAL PAGO-CLICK (V19 - BÚSQUEDA INTEGRAL) ---
     log_messages.append("--- Fase 4: Cruce Especial PAGO-CLICK (Identificador de 5 dígitos) ---")
     
     df_p4 = df[~df['Conciliado']].copy()
     
-    # Función auxiliar para extraer estrictamente los últimos 5 dígitos numéricos
-    def get_last_5(val):
-        nums = "".join(filter(str.isdigit, str(val)))
+    # Función interna para extraer los últimos 5 dígitos de cualquier cadena
+    def extraer_ultimos_5(texto):
+        if pd.isna(texto): return None
+        # Extraemos todos los números y los unimos
+        nums = "".join(re.findall(r'\d+', str(texto)))
         return nums[-5:] if len(nums) >= 5 else None
 
-    # Creamos un mapa de búsqueda basado en la REFERENCIA
-    # Llave: (Sufijo_5_Referencia, Monto_Absoluto_CRC)
-    mapa_referencias_click = {}
-    for idx, row in df_p4.iterrows():
-        sufijo_ref = get_last_5(row['Referencia'])
-        if sufijo_ref:
-            m_crc = abs(row['Monto_CRC'])
-            key = (sufijo_ref, m_crc)
-            if key not in mapa_referencias_click: mapa_referencias_click[key] = []
-            mapa_referencias_click[key].append(idx)
+    # Solo trabajamos con filas que mencionen CLICK
+    mask_click = df_p4['Referencia'].str.contains('CLICK', case=False, na=False)
+    df_click = df_p4[mask_click].copy()
 
-    # Ahora recorremos el DataFrame buscando el sufijo en la FUENTE
-    for idx_fnt, row_fnt in df_p4.iterrows():
-        if idx_fnt in indices_usados: continue
-        
-        sufijo_fnt = get_last_5(row_fnt['Fuente'])
-        if sufijo_fnt:
-            m_crc_fnt = abs(row_fnt['Monto_CRC'])
-            key_buscar = (sufijo_fnt, m_crc_fnt)
+    if not df_click.empty:
+        for idx_a, row_a in df_click.iterrows():
+            if idx_a in indices_usados: continue
             
-            # Si el sufijo de mi FUENTE existe en la REFERENCIA de otro movimiento...
-            if key_buscar in mapa_referencias_click and mapa_referencias_click[key_buscar]:
-                for i, idx_ref in enumerate(mapa_referencias_click[key_buscar]):
-                    if idx_ref == idx_fnt or idx_ref in indices_usados: continue
-                    
-                    # Validamos que los montos sean opuestos y cumplan tolerancia USD (1.00)
-                    if abs(row_fnt['Monto_CRC'] + df.at[idx_ref, 'Monto_CRC']) <= 0.01:
-                        if abs(row_fnt['Monto_USD'] + df.at[idx_ref, 'Monto_USD']) <= 1.00:
+            # Sacamos los candidatos de la Fila A (de su Ref y de su Fuente)
+            id_ref_a = extraer_ultimos_5(row_a['Referencia'])
+            id_fnt_a = extraer_ultimos_5(row_a['Fuente'])
+            
+            # Buscamos en el resto de los pendientes (no solo los que dicen CLICK)
+            # para encontrar la contrapartida (como el asiento CB de la imagen)
+            df_posibles_b = df[~df['Conciliado']]
+            
+            for idx_b, row_b in df_posibles_b.iterrows():
+                if idx_b == idx_a or idx_b in indices_usados: continue
+                
+                id_ref_b = extraer_ultimos_5(row_b['Referencia'])
+                id_fnt_b = extraer_ultimos_5(row_b['Fuente'])
+                
+                # --- LA LLAVE MAESTRA (Cruce cruzado de Ref vs Fuente) ---
+                # Caso 1: Ref de A coincide con Fuente de B
+                # Caso 2: Fuente de A coincide con Ref de B
+                match_id = (id_ref_a and id_fnt_b and id_ref_a == id_fnt_b) or \
+                           (id_fnt_a and id_ref_b and id_fnt_a == id_ref_b)
+                
+                if match_id:
+                    # Validación de montos (CRC exacto, USD con margen de 1.00)
+                    if abs(row_a['Monto_CRC'] + row_b['Monto_CRC']) <= 0.01:
+                        if abs(row_a['Monto_USD'] + row_b['Monto_USD']) <= 1.00:
                             
-                            etiqueta = f"CLICK_{sufijo_fnt}"
-                            df.loc[[idx_fnt, idx_ref], ['Conciliado', 'Grupo_Conciliado', 'Estado_Cofersa']] = [True, etiqueta, etiqueta]
-                            indices_usados.update([idx_fnt, idx_ref])
+                            etiqueta = f"CLICK_{id_ref_a or id_fnt_a}"
+                            df.loc[[idx_a, idx_b], ['Conciliado', 'Grupo_Conciliado', 'Estado_Cofersa']] = [True, etiqueta, etiqueta]
+                            indices_usados.update([idx_a, idx_b])
                             total_conciliados += 2
-                            
-                            # Quitamos del mapa para que no se use dos veces
-                            mapa_referencias_click[key_buscar].pop(i)
-                            break
+                            break # Ya encontramos pareja para la Fila A
 
     # Limpiar columnas auxiliares
     if '_Key1' in df.columns: df.drop(columns=['_Key1'], inplace=True)
