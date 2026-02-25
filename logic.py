@@ -1373,7 +1373,6 @@ def run_conciliation_devoluciones_proveedores(df, log_messages):
 # --- (J) Módulo: Proveedores d/Mcia -Costos Causados ---
 def run_conciliation_proveedores_costos(df, log_messages, progress_bar=None):
     """
-    Conciliación 212.07.1012 - VERSIÓN DEFINITIVA V7.
     Incluye: Herencia NIT, Vínculo Factura, Rescate de Huérfanos y Cruce entre Embarques.
     """
     log_messages.append("\n--- INICIANDO CONCILIACIÓN PROVEEDORES COSTOS (212.07.1012) ---")
@@ -2017,21 +2016,15 @@ def run_conciliation_dev_proveedores_cofersa(df, log_messages, moneda_base='CRC'
     log_messages.append(f"✔️ Proceso finalizado. Se conciliaron {total_conciliados} movimientos por NIT/EMBARQUE.")
     return df
 
-
-
-
-
-
-
-
-
-
 # ==============================================================================
-# LÓGICAS PARA LA HERRAMIENTA DE RELACIONES DE RETENCIONES
+# 5. PROCESOS FISCALES Y NÓMINA
 # ==============================================================================
 
-# --- NUEVAS FUNCIONES DE NORMALIZACIÓN (Paso 4) ---
+# ------------------------------------------------------------------------------
+# 5.1. RELACIÓN DE RETENCIONES (IVA / ISLR / MUN)
+# ------------------------------------------------------------------------------
 
+# --- Función: Normalización de RIF ---
 def _normalizar_rif(valor):
     """Normaliza RIF, eliminando espacios y caracteres no alfanuméricos."""
     if pd.isna(valor): return ''
@@ -2042,10 +2035,8 @@ def _normalizar_rif(valor):
     return val_str
 
 def _normalizar_numerico(valor):
-    """
-    (Versión Definitiva) Normaliza un valor numérico como texto,
-    eliminando cualquier caracter no-numérico Y los ceros a la izquierda.
-    """
+    """ Normaliza un valor numérico como texto, eliminando cualquier caracter 
+    no-numérico Y los ceros a la izquierda."""
     if pd.isna(valor):
         return ''
     
@@ -2063,7 +2054,7 @@ def _normalizar_numerico(valor):
 
 def _extraer_factura_cp(aplicacion):
     """
-    (Versión Final y Robusta) Extrae el número de factura buscando el
+    Extrae el número de factura buscando el
     último "bloque" de texto alfanumérico en la cadena de aplicación.
     """
     if pd.isna(aplicacion):
@@ -2082,19 +2073,15 @@ def _extraer_factura_cp(aplicacion):
         
     return ''
 
-# --- NUEVAS FUNCIONES DE CARGA Y PREPARACIÓN ---
-
+# --- Función: Carga y Preparación ---
 def preparar_df_cp(file_cp):
     """
     Carga y prepara el archivo CP.
-    CORREGIDO: Mapea 'Proveedor' como RIF y 'Nombre' como Nombre_Proveedor.
     """
     # 1. Leemos el archivo asumiendo encabezado en fila 5 (índice 4)
     df = pd.read_excel(file_cp, header=4, dtype=str)
-    
     # 2. Limpieza de nombres de columnas
     df.columns = [str(col).strip() for col in df.columns]
-    
     # 3. Mapeo específico según tu aclaratoria
     rename_map = {}
     
@@ -2102,15 +2089,12 @@ def preparar_df_cp(file_cp):
         c_upper = col.upper()
         
         # --- LÓGICA DE IDENTIFICACIÓN ---
-        
         # Si la columna se llama explícitamente PROVEEDOR, el usuario indicó que ese es el RIF.
         if c_upper == 'PROVEEDOR':
             rename_map[col] = 'RIF'
-            
         # Si la columna se llama RIF o NIT, obviamente es el RIF.
         elif c_upper in ['RIF', 'NIT', 'R.I.F.']:
             rename_map[col] = 'RIF'
-            
         # Si la columna es NOMBRE o BENEFICIARIO, la guardamos aparte, NO como RIF.
         elif c_upper in ['NOMBRE', 'BENEFICIARIO', 'NOMBRE PROVEEDOR']:
             rename_map[col] = 'Nombre_Proveedor'
@@ -2180,7 +2164,7 @@ def preparar_df_iva(file_iva):
 
 def preparar_df_municipal(file_path):
     """
-    (Versión Final y Robusta) Carga y prepara el archivo de Retenciones Municipales,
+    Carga y prepara el archivo de Retenciones Municipales,
     buscando dinámicamente las columnas clave, incluyendo el Nombre del Proveedor.
     """
     df = pd.read_excel(file_path, header=8, dtype=str)
@@ -2194,7 +2178,6 @@ def preparar_df_municipal(file_path):
         if col_normalized == 'númerorif':
             column_map[col] = 'RIF'
         
-        # --- ¡AQUÍ SE AÑADE LA LÓGICA DEL PROVEEDOR! ---
         elif col_normalized == 'razonsocialdelsujetoretenido':
             column_map[col] = 'Nombre_Proveedor'
             
@@ -2212,7 +2195,7 @@ def preparar_df_municipal(file_path):
     if 'Factura' not in df.columns: df['Factura'] = ''
     if 'Monto' not in df.columns: df['Monto'] = 0
     
-    # --- Normalización de Datos (sin cambios) ---
+    # --- Normalización de Datos ---
     df['RIF_norm'] = df['RIF'].apply(_normalizar_rif)
     df['Factura_norm'] = df['Factura'].apply(_normalizar_numerico)
     df['Monto'] = pd.to_numeric(df['Monto'], errors='coerce').fillna(0)
@@ -2224,7 +2207,7 @@ def preparar_df_municipal(file_path):
 
 def preparar_df_islr(file_path):
     """
-    (Versión Definitiva y Corregida) Carga y prepara el archivo de ISLR, combinando
+    Carga y prepara el archivo de ISLR, combinando
     la búsqueda robusta de columnas por nombre y la extracción posicional para la factura.
     """
     df = pd.read_excel(file_path, header=8, dtype=str)
@@ -2267,13 +2250,10 @@ def preparar_df_islr(file_path):
     df['Monto'] = pd.to_numeric(df['Monto'], errors='coerce').fillna(0)
 
     return df
-    
-# --- NUEVAS FUNCIONES DE LÓGICA DE CONCILIACIÓN ---
 
 def _conciliar_iva(cp_row, df_iva):
     """
-    (Versión con manejo de Notas de Crédito) Lógica de conciliación que compara
-    el valor absoluto de los montos si detecta una Nota de Crédito.
+    Lógica de conciliación que compara el valor absoluto de los montos si detecta una Nota de Crédito.
     """
     rif_cp = cp_row['RIF_norm']
     comprobante_cp_norm = cp_row['Comprobante_norm']
@@ -2316,8 +2296,7 @@ def _conciliar_iva(cp_row, df_iva):
         msg = f"Numero de factura no coincide. CP: {cp_row['Factura_norm']}, GALAC: {match_row['Factura_norm']}"
         errores.append(msg)
     
-    # --- INICIO DE LA NUEVA LÓGICA PARA NOTAS DE CRÉDITO ---
-    
+    # --- INICIO DE LA LÓGICA PARA NOTAS DE CRÉDITO ---
     # Convertimos el texto de "Aplicacion" a mayúsculas para una comparación robusta.
     aplicacion_text = str(cp_row.get('Aplicacion', '')).upper()
     
@@ -2335,15 +2314,11 @@ def _conciliar_iva(cp_row, df_iva):
         if not np.isclose(cp_row['Monto'], match_row['Monto']):
             msg = f"Monto no coincide. CP: {cp_row['Monto']:.2f}, GALAC: {match_row['Monto']:.2f}"
             errores.append(msg)
-            
-    # --- FIN DE LA NUEVA LÓGICA ---
-        
     return ('Conciliado', 'OK') if not errores else ('Parcialmente Conciliado', ' | '.join(errores))
 
 def _conciliar_islr(cp_row, df_islr):
     """
-    (Versión Definitiva con Suma Inteligente y Mensajes Corregidos) Maneja
-    comprobantes con múltiples facturas Y múltiples retenciones para una misma factura.
+    Maneja comprobantes con múltiples facturas Y múltiples retenciones para una misma factura.
     """
     rif_cp = cp_row['RIF_norm']
     comprobante_cp_norm = cp_row['Comprobante_norm']
@@ -2364,9 +2339,6 @@ def _conciliar_islr(cp_row, df_islr):
     specific_invoice_matches = comprobante_group[comprobante_group['Factura_norm'] == factura_cp_norm]
     
     if specific_invoice_matches.empty:
-        # --- LÍNEA CORREGIDA ---
-        # Se cambió cp_row['Factura'] por cp_row['Factura_norm'] para que coincida
-        # con el nombre de columna que sí existe en el DataFrame de CP.
         all_invoices_in_group = comprobante_group['Factura'].unique().tolist()
         msg = (f"Factura de CP ({cp_row['Factura_norm']}) no encontrada para el Comprobante {cp_row['Comprobante']}. "
                f"Este comprobante en GALAC contiene estas facturas: {all_invoices_in_group}")
@@ -2391,7 +2363,7 @@ def _conciliar_islr(cp_row, df_islr):
     
 def _conciliar_municipal(cp_row, df_municipal):
     """
-    (Versión Robusta y Multi-paso) Aplica la lógica de conciliación Municipal.
+    Aplica la lógica de conciliación Municipal.
     - Usa np.isclose para una comparación segura de montos.
     - Busca la factura exacta dentro de un grupo de posibles candidatos.
     """
@@ -2420,7 +2392,7 @@ def _conciliar_municipal(cp_row, df_municipal):
         
 def _traducir_resultados_para_reporte(row, asientos_en_cg_set, df_cg):
     """
-    (Versión Final con Doble Lógica Jerárquica) La validación de CG ahora respeta
+    La validación de CG ahora respeta
     tanto los errores de subtipo como los errores de monto de la conciliación de GALAC.
     """
     
@@ -2529,7 +2501,6 @@ def _traducir_resultados_para_reporte(row, asientos_en_cg_set, df_cg):
 def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun, log_messages):
     """
     Función principal que orquesta todo el proceso de conciliación de retenciones.
-    (Versión final y completa, con todas las correcciones).
     """
     try:
         log_messages.append("--- INICIANDO PROCESO DE CONCILIACIÓN DE RETENCIONES ---")
@@ -2576,8 +2547,6 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         
         log_messages.append("Iniciando conciliación por tipo de impuesto...")
         
-        # --- ¡LÍNEA CORREGIDA! ---
-        # Aquí se inicializa la lista para guardar los resultados.
         resultados = []
         
         # --- 4. BUCLE PRINCIPAL DE CONCILIACIÓN ---
@@ -2636,9 +2605,361 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
         log_messages.append(traceback.format_exc())
         return None
 
+# ------------------------------------------------------------------------------
+# 5.2. CÁLCULO LEY PROTECCIÓN PENSIONES
+# ------------------------------------------------------------------------------
+
+def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empresa, log_messages, num_asiento):
+    """
+    Motor de cálculo para el impuesto del 9%.
+    """
+    log_messages.append(f"--- INICIANDO CÁLCULO DE PENSIONES (9%) - {nombre_empresa} ---")
+    
+    # 0. HERRAMIENTAS INTERNAS
+    def limpiar_monto_inteligente(valor):
+        if pd.isna(valor) or str(valor).strip() == '': return 0.0
+        if isinstance(valor, (int, float)): return float(valor)
+        t = str(valor).strip().replace('Bs', '').replace(' ', '').replace('\xa0', '')
+        if ',' in t and '.' in t:
+            if t.rfind(',') > t.rfind('.'): t = t.replace('.', '').replace(',', '.')
+            else: t = t.replace(',', '')
+        elif ',' in t: t = t.replace(',', '.')
+        elif '.' in t: 
+             if len(t.split('.')[-1]) == 3: t = t.replace('.', '')
+        try: return float(t)
+        except: return 0.0
+
+    mapa_nombres = { "FEBECA, C.A": "FEBECA", "MAYOR BEVAL, C.A": "BEVAL", "PRISMA, C.A": "PRISMA", "FEBECA, C.A (QUINCALLA)": "QUINCALLA" }
+    keyword_empresa = mapa_nombres.get(nombre_empresa, nombre_empresa).upper()
+    
+    mes_detectado = None
+    anio_detectado = None
+    nombres_meses = {1: 'ENERO', 2: 'FEBRERO', 3: 'MARZO', 4: 'ABRIL', 5: 'MAYO', 6: 'JUNIO', 7: 'JULIO', 8: 'AGOSTO', 9: 'SEPTIEMBRE', 10: 'OCTUBRE', 11: 'NOVIEMBRE', 12: 'DICIEMBRE'}
+
+    # --- 1. PROCESAR MAYOR CONTABLE ---
+    try:
+        df_mayor = pd.read_excel(file_mayor)
+        df_mayor.columns = [str(c).strip().upper() for c in df_mayor.columns]
+        
+        col_cta = next((c for c in df_mayor.columns if 'CUENTA' in c), None)
+        col_cc = next((c for c in df_mayor.columns if 'CENTRO' in c and 'COSTO' in c), None)
+        col_deb = next((c for c in df_mayor.columns if 'DÉBITO' in c or 'DEBITO' in c), None)
+        col_cre = next((c for c in df_mayor.columns if 'CRÉDITO' in c or 'CREDITO' in c), None)
+        col_fecha = next((c for c in df_mayor.columns if 'FECHA' in c), None)
+        
+        if not (col_cta and col_cc and col_deb and col_cre):
+            log_messages.append("❌ Error: Faltan columnas críticas en el Mayor.")
+            return None, None, None, None
+            
+        if col_fecha:
+            try:
+                fechas = pd.to_datetime(df_mayor[col_fecha], errors='coerce').dropna()
+                if not fechas.empty:
+                    mes_num = fechas.dt.month.mode()[0]
+                    year_num = fechas.dt.year.mode()[0]
+                    mes_detectado = nombres_meses[mes_num]
+                    anio_detectado = str(year_num)
+                    log_messages.append(f"📅 Periodo detectado en Mayor: {mes_detectado} {anio_detectado}")
+            except: pass
+
+        cuentas_base = ['7.1.1.01.1.001', '7.1.1.09.1.003']
+        df_filtrado = df_mayor[df_mayor[col_cta].astype(str).str.strip().isin(cuentas_base)].copy()
+        
+        df_filtrado['Monto_Deb'] = df_filtrado[col_deb].apply(limpiar_monto_inteligente)
+        df_filtrado['Monto_Cre'] = df_filtrado[col_cre].apply(limpiar_monto_inteligente)
+        df_filtrado['Base_Neta'] = df_filtrado['Monto_Deb'] - df_filtrado['Monto_Cre']
+        df_filtrado['CC_Agrupado'] = df_filtrado[col_cc].astype(str).str.slice(0, 10)
+        
+        df_agrupado = df_filtrado.groupby(['CC_Agrupado', col_cta]).agg({'Base_Neta': 'sum'}).reset_index()
+        df_agrupado.rename(columns={'CC_Agrupado': 'Centro de Costo (Padre)', col_cta: 'Cuenta Contable'}, inplace=True)
+        df_agrupado['Impuesto (9%)'] = df_agrupado['Base_Neta'] * 0.09
+        
+        base_salarios_cont = df_agrupado[df_agrupado['Cuenta Contable'].astype(str).str.contains('7.1.1.01', na=False)]['Base_Neta'].sum()
+        base_tickets_cont = df_agrupado[df_agrupado['Cuenta Contable'].astype(str).str.contains('7.1.1.09', na=False)]['Base_Neta'].sum()
+        total_base_contable = base_salarios_cont + base_tickets_cont
+
+    except Exception as e:
+        log_messages.append(f"❌ Error procesando Mayor: {str(e)}")
+        return None, None, None, None
+
+    # --- 2. PROCESAR NÓMINA (SUMA GLOBAL PRISMA) ---
+    val_salarios_nom = 0.0
+    val_tickets_nom = 0.0
+    val_impuesto_nom = 0.0
+    
+    try:
+        if file_nomina:
+            xls_nomina = pd.ExcelFile(file_nomina)
+            hojas = xls_nomina.sheet_names
+            hoja_objetivo = None
+            
+            # Buscar Hoja por Mes + Año
+            if mes_detectado and anio_detectado:
+                anio_corto = anio_detectado[-2:]
+                for h in hojas:
+                    h_upper = h.upper()
+                    if mes_detectado in h_upper and (anio_detectado in h_upper or anio_corto in h_upper):
+                        hoja_objetivo = h; break
+            
+            if not hoja_objetivo and mes_detectado:
+                for h in hojas:
+                    if mes_detectado in h.upper():
+                        hoja_objetivo = h; log_messages.append(f"⚠️ Aviso: Se usó hoja '{h}' por mes (sin validar año)."); break
+            
+            if not hoja_objetivo: 
+                hoja_objetivo = hojas[0]
+                log_messages.append(f"⚠️ Usando primera hoja: '{hoja_objetivo}'")
+            
+            # Leer encabezado
+            df_raw = pd.read_excel(xls_nomina, sheet_name=hoja_objetivo, header=None, nrows=20)
+            header_idx = 0
+            for i, row in df_raw.iterrows():
+                s = [str(x).upper().replace('\n', ' ').strip() for x in row.values]
+                if any("EMPRESA" in x for x in s) and (any("SALARIO" in x for x in s) or any("TOTAL" in x for x in s)):
+                    header_idx = i; break
+            
+            df_nom = pd.read_excel(xls_nomina, sheet_name=hoja_objetivo, header=header_idx)
+            df_nom.columns = [str(c).strip().upper().replace('\n', ' ') for c in df_nom.columns]
+            
+            col_emp = next((c for c in df_nom.columns if 'EMPRESA' in c), None)
+            col_sal = next((c for c in df_nom.columns if 'SALARIO' in c), None)
+            col_tkt = next((c for c in df_nom.columns if 'TICKET' in c or 'ALIMENTACION' in c), None)
+            col_imp = next((c for c in df_nom.columns if 'APARTADO' in c), None)
+            
+            if col_emp:
+                # Filtrar filas que contengan la palabra clave (ej: PRISMA)
+                mask = df_nom[col_emp].astype(str).str.upper().str.contains(keyword_empresa, na=False)
+                filas_encontradas = df_nom[mask]
+                
+                if not filas_encontradas.empty:
+                    log_messages.append(f"🔎 Filas encontradas para '{keyword_empresa}': {len(filas_encontradas)}")
+                    
+                    # Sumar todas las filas encontradas (Prisma 01 + Prisma 99)
+                    for idx, row in filas_encontradas.iterrows():
+                        v_sal = cleaning_sal = limpiar_monto_inteligente(row[col_sal]) if col_sal else 0
+                        v_tkt = cleaning_tkt = limpiar_monto_inteligente(row[col_tkt]) if col_tkt else 0
+                        
+                        val_salarios_nom += v_sal
+                        val_tickets_nom += v_tkt
+                        if col_imp: val_impuesto_nom += limpiar_monto_inteligente(row[col_imp])
+
+                        # Log para verificar que sumó ambas
+                        log_messages.append(f"   + Sumando: {row[col_emp]} (Salario: {v_sal:,.2f})")
+                    
+                    log_messages.append(f"📊 Total Nómina Global: {val_salarios_nom:,.2f}")
+                else:
+                    log_messages.append(f"⚠️ No se encontró '{keyword_empresa}' en Nómina.")
+            else:
+                log_messages.append("❌ Columna EMPRESA no encontrada.")
+
+    except Exception as e:
+        log_messages.append(f"⚠️ Error leyendo Nómina: {str(e)}")
+
+    # --- 3. GENERAR ASIENTO ---
+    # 1. Agrupamos y redondeamos el Débito en BS
+    asiento_data = df_agrupado.groupby('Centro de Costo (Padre)')['Impuesto (9%)'].sum().reset_index()
+    asiento_data['Débito VES'] = asiento_data['Impuesto (9%)'].round(2)
+    asiento_data.rename(columns={'Centro de Costo (Padre)': 'Centro Costo'}, inplace=True)
+
+    # 2. Convertimos a USD línea por línea
+    asiento_data['Débito USD'] = (asiento_data['Débito VES'] / tasa_cambio).round(4)
+
+    # 3. CUADRE MATEMÁTICO: Forzamos que la suma de USD sea exacta a la Tasa del Total
+    total_ves_general = asiento_data['Débito VES'].sum()
+    total_usd_objetivo = round(total_ves_general / tasa_cambio, 2)
+    diferencia_centavos = round(total_usd_objetivo - asiento_data['Débito USD'].sum(), 2)
+
+    if diferencia_centavos != 0 and not asiento_data.empty:
+        # Aplicamos el centavo de ajuste a la fila con el monto más alto para que sea imperceptible
+        idx_max = asiento_data['Débito USD'].idxmax()
+        asiento_data.loc[idx_max, 'Débito USD'] += diferencia_centavos
+
+    # 4. Completamos el resto de las columnas del asiento
+    asiento_data['Cuenta Contable'] = '7.1.1.07.1.001'
+    asiento_data['Descripción'] = 'Contribucion ley de Pensiones'
+    asiento_data['Crédito VES'] = 0.0
+    asiento_data['Crédito USD'] = 0.0
+    asiento_data['Tasa'] = tasa_cambio
+    asiento_data['Asiento'] = num_asiento
+    asiento_data['Nit'] = "ND" 
+    asiento_data['Fuente'] = "PENSIONES"
+    asiento_data['Referencia'] = f"APORTE PENSIONES {mes_detectado[:3]}.{anio_detectado[-2:]}"
+
+    # 5. Calcular Totales para la línea del Pasivo (Crédito)
+    total_impuesto_ves = asiento_data['Débito VES'].sum().round(2)
+    total_impuesto_usd = asiento_data['Débito USD'].sum().round(4) # Ahora coincide con el total de débitos
+    
+    linea_pasivo = pd.DataFrame([{
+        'Asiento': num_asiento,
+        'Nit': "ND",
+        'Centro Costo': '00.00.000.00', 
+        'Cuenta Contable': '2.1.3.02.3.005', 
+        'Descripción': 'Contribuciones Sociales por Pagar', 
+        'Fuente': "PENSIONES",
+        'Referencia': f"APORTE PENSIONES {mes_detectado[:3]}.{anio_detectado[-2:]}",
+        'Débito VES': 0.0, 
+        'Crédito VES': total_impuesto_ves,
+        'Débito USD': 0.0,
+        'Crédito USD': total_impuesto_usd,
+        'Tasa': tasa_cambio
+    }])
+    
+    df_asiento = pd.concat([asiento_data, linea_pasivo], ignore_index=True)
+
+    # --- 4. RESUMEN Y VALIDACIÓN ---
+    dif_salarios = round(base_salarios_cont - val_salarios_nom, 2)
+    dif_tickets = round(base_tickets_cont - val_tickets_nom, 2)
+    dif_impuesto = round(total_impuesto_ves - val_impuesto_nom, 2)
+    
+    total_base_nomina = val_salarios_nom + val_tickets_nom
+    
+    estado_val = "OK" if (abs(dif_salarios) < 1.00 and abs(dif_tickets) < 1.00) else "DESCUADRE"
+
+    resumen_validacion = {
+        'salario_cont': base_salarios_cont, 'salario_nom': val_salarios_nom, 'dif_salario': dif_salarios,
+        'ticket_cont': base_tickets_cont, 'ticket_nom': val_tickets_nom, 'dif_ticket': dif_tickets,
+        'total_base_cont': total_base_contable, 'total_base_nom': total_base_nomina,
+        'dif_base_total': round(total_base_contable - total_base_nomina, 2),
+        'imp_calc': total_impuesto_ves, 'imp_nom': val_impuesto_nom, 'dif_imp': dif_impuesto,
+        'estado': estado_val
+    }
+    return df_agrupado, df_filtrado, df_asiento, resumen_validacion
+
+
+# ------------------------------------------------------------------------------
+# 5.3. VERIFICACIÓN DE DÉBITO FISCAL (BS)
+# ------------------------------------------------------------------------------
+
+def normalizar_doc_fiscal(texto):
+    """Extrae el número de documento limpiando letras y ceros a la izquierda."""
+    if pd.isna(texto) or str(texto).strip() == "": return ""
+    nums = re.findall(r'\d+', str(texto))
+    if nums:
+        # Retorna el último bloque numérico como entero para quitar ceros (ej: 000501 -> 501)
+        return str(int(nums[-1]))
+    return ""
+
+def preparar_datos_softland_debito(df_diario, df_mayor, tag_casa):
+    """Mantiene columnas originales y agrega metadatos. NIT normalizado solo a números."""
+    df_soft = pd.concat([df_diario, df_mayor], ignore_index=True)
+    
+    def normalizar_header(t):
+        import unicodedata
+        return ''.join(c for c in unicodedata.normalize('NFD', str(t))
+                      if unicodedata.category(c) != 'Mn').upper().strip()
+
+    col_deb, col_cre, col_rif, col_ref, col_fue, col_nom = None, None, None, None, None, None
+    for c in df_soft.columns:
+        c_norm = normalizar_header(c)
+        if any(k in c_norm for k in ['DEBITO BOLIVAR', 'DEBITO LOCAL', 'DEBITO VES']): col_deb = c
+        elif any(k in c_norm for k in ['CREDITO BOLIVAR', 'CREDITO LOCAL', 'CREDITO VES']): col_cre = c
+        elif any(k in c_norm for k in ['NIT', 'RIF']): col_rif = c
+        elif 'REFERENCIA' in c_norm: col_ref = c
+        elif 'FUENTE' in c_norm: col_fue = c
+        elif any(k in c_norm for k in ['NOMBRE', 'RAZON SOCIAL', 'DESCRIPCION NIT', 'CLIENTE']): col_nom = c
+
+    def extraer_doc_softland(row):
+        doc_fuente = normalizar_doc_fiscal(row.get(col_fue, ""))
+        if doc_fuente != "": return doc_fuente
+        return normalizar_doc_fiscal(row.get(col_ref, ""))
+
+    def detectar_tipo_softland(row):
+        texto = (str(row.get(col_fue, "")) + " " + str(row.get(col_ref, ""))).upper()
+        if "N/C" in texto or "NC" in texto: return "N/C"
+        if "N/D" in texto or "ND" in texto: return "N/D"
+        return "FACTURA"
+
+    df_soft['CASA'] = tag_casa 
+    df_soft['_Doc_Norm'] = df_soft.apply(extraer_doc_softland, axis=1)
+    df_soft['_Tipo'] = df_soft.apply(detectar_tipo_softland, axis=1)
+    df_soft['_NIT_Norm'] = df_soft[col_rif].astype(str).str.replace(r'[^0-9]', '', regex=True) if col_rif else "0"
+    df_soft['_Nombre_Soft'] = df_soft[col_nom].fillna("SIN NOMBRE") if col_nom else "NOMBRE NO DETECTADO"
+    val_deb = pd.to_numeric(df_soft[col_deb], errors='coerce').fillna(0) if col_deb else 0
+    val_cre = pd.to_numeric(df_soft[col_cre], errors='coerce').fillna(0) if col_cre else 0
+    df_soft['_Monto_Bs_Soft'] = abs(val_deb - val_cre)
+    return df_soft
+
+def run_conciliation_debito_fiscal(df_soft_total, df_imprenta_logica, tolerancia_bs, log_messages):
+    """Cruce N-a-N con NIT numérico, filtro exentos y exclusión de FEBECA/Totales."""
+    log_messages.append("\n--- INICIANDO AUDITORÍA DE DÉBITO FISCAL ---")
+    
+    df_imp = df_imprenta_logica.copy()
+    def find_col(keywords, df):
+        for c in df.columns:
+            if any(k in str(c).upper() for k in keywords): return c
+        return None
+
+    col_rif = find_col(['RIF'], df_imp)
+    col_fact = find_col(['N DE FACTURA'], df_imp)
+    col_nd = find_col(['NOTA DE DEBITO'], df_imp)
+    col_nc = find_col(['NOTA DE CREDITO'], df_imp)
+    col_iva = find_col(['IMPUESTO IVA G'], df_imp)
+    col_nom_imp = find_col(['NOMBRE O RAZON SOCIAL', 'NOMBRE', 'RAZON SOCIAL'], df_imp)
+
+    # Filtro Anti-Totales/Resúmenes
+    if col_rif:
+        df_imp = df_imp[df_imp[col_rif].notna()]
+        mask_totales = df_imp.astype(str).apply(lambda x: x.str.contains('TOTALES', case=False, na=False)).any(axis=1)
+        df_imp = df_imp[~mask_totales]
+
+    def identificar_tipo_y_doc_imp(row):
+        if pd.notna(row.get(col_nc)) and str(row.get(col_nc)).strip() != "":
+            return normalizar_doc_fiscal(row.get(col_nc)), "N/C"
+        if pd.notna(row.get(col_nd)) and str(row.get(col_nd)).strip() != "":
+            return normalizar_doc_fiscal(row.get(col_nd)), "N/D"
+        val_f = str(row.get(col_fact, "")).strip()
+        if val_f == "" or val_f == "nan": return "", "RESUMEN"
+        return normalizar_doc_fiscal(val_f), "FACTURA"
+
+    df_imp[['_Doc_Norm', '_Tipo']] = df_imp.apply(identificar_tipo_y_doc_imp, axis=1, result_type='expand')
+    df_imp = df_imp[df_imp['_Doc_Norm'] != ""]
+    df_imp['_NIT_Norm'] = df_imp[col_rif].astype(str).str.replace(r'[^0-9]', '', regex=True) if col_rif else "0"
+    df_imp['_Monto_Imprenta'] = pd.to_numeric(df_imp[col_iva], errors='coerce').fillna(0).abs()
+    df_imp['_Nombre_Imp'] = df_imp[col_nom_imp].fillna("SIN NOMBRE") if col_nom_imp else "NOMBRE NO DETECTADO"
+    df_imp = df_imp[~df_imp['_Nombre_Imp'].str.upper().str.contains("FEBECA", na=False)]
+
+    soft_grouped = df_soft_total.groupby(['_NIT_Norm', '_Doc_Norm', 'CASA', '_Tipo'], as_index=False).agg({
+        '_Monto_Bs_Soft': 'sum',
+        '_Nombre_Soft': 'first'
+    })
+    soft_grouped = soft_grouped[~soft_grouped['_Nombre_Soft'].str.upper().str.contains("FEBECA", na=False)]
+
+    # Cruce por NIT numérico + Documento numérico
+    merged = pd.merge(
+        soft_grouped, 
+        df_imp[['_NIT_Norm', '_Doc_Norm', '_Monto_Imprenta', '_Tipo', '_Nombre_Imp']], 
+        on=['_NIT_Norm', '_Doc_Norm'], 
+        how='outer', 
+        indicator=True,
+        suffixes=('_soft', '_imp')
+    )
+
+    def clasificar(row):
+        tipo_final = row['_Tipo_imp'] if pd.notna(row['_Tipo_imp']) else row['_Tipo_soft']
+        nombre_final = row['_Nombre_Imp'] if pd.notna(row['_Nombre_Imp']) else row['_Nombre_Soft']
+        m_s = float(row['_Monto_Bs_Soft']) if pd.notna(row['_Monto_Bs_Soft']) else 0.0
+        m_i = float(row['_Monto_Imprenta']) if pd.notna(row['_Monto_Imprenta']) else 0.0
+        
+        if m_i <= 0.001 and m_s <= 0.001: return "OK", tipo_final, nombre_final
+        if row['_merge'] == 'left_only': return "NO APARECE EN LIBRO DE VENTAS", tipo_final, nombre_final
+        if row['_merge'] == 'right_only': return "NO APARECE EN CONTABILIDAD", tipo_final, nombre_final
+        
+        dif = abs(m_s - m_i)
+        if dif > tolerancia_bs: return f"DIFERENCIA DE MONTO (Bs. {dif:,.2f})", tipo_final, nombre_final
+        return "OK", tipo_final, nombre_final
+
+    merged[['Estado', '_Tipo_Final', '_Nombre_Final']] = merged.apply(clasificar, axis=1, result_type='expand')
+    return merged
+
+
+
 # ==============================================================================
-# LÓGICA PARA LA HERRAMIENTA DE ANÁLISIS DE PAQUETE CC (VERSIÓN ACTUALIZADA)
+# 6. ANALISIS Y CONCILIACIONES
 # ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 6.1. ANÁLISIS DE PAQUETE CC
+# ------------------------------------------------------------------------------
 
 def normalize_account(acc):
     """Función auxiliar que limpia un número de cuenta, eliminando todo lo que no sea un dígito."""
@@ -2654,11 +2975,9 @@ CUENTAS_CONOCIDAS = {normalize_account(acc) for acc in [
     '1.1.1.02.1.016', '1.1.1.02.1.112', '1.1.1.02.1.124', '1.1.1.02.1.132',
     '1.1.1.02.6.002', '1.1.1.02.6.003', '1.1.1.02.6.005', '1.1.1.02.6.010',
     '1.1.1.03.6.012', '1.1.1.03.6.024', '1.1.1.03.6.026', '1.1.1.03.6.031',
-    # --- BANCOS ADICIONALES ---
     '1.1.1.02.1.002', '1.1.1.02.1.005', '1.1.1.02.6.001', '1.1.1.02.1.003',
     '4.1.1.21.4.001', '2.1.3.04.1.001', '4.1.1.22.4.001', '1.1.1.03.6.002', 
     '1.1.1.06.6.003', '1.1.1.02.1.018', '1.1.1.02.6.013', '1.1.1.03.6.028',
-    # --- CUENTAS GRUPOS NUEVOS ---
     '1.9.1.01.3.008', # Inv. Oficinas
     '1.9.1.01.3.009', # Inv. Oficinas
     '7.1.3.01.1.001', # Deudores Incobrables
@@ -2818,17 +3137,9 @@ def _get_base_classification(cuentas_del_asiento, referencia_completa, fuente_co
     if not ctas_inversion.isdisjoint(cuentas_del_asiento):
         return "Grupo 14: Inv. entre Oficinas"
 
-    if normalize_account('7.1.3.01.1.001') in cuentas_del_asiento:
-        return "Grupo 15: Deudores Incobrables"
-
-    if normalize_account('1.1.4.01.7.044') in cuentas_del_asiento:
-        return "Grupo 16: Cuentas por Cobrar - Varios en ME"
-
-    # --- NUEVO GRUPO 17 ---
-    if normalize_account('2.1.2.05.1.005') in cuentas_del_asiento:
-        return "Grupo 17: Asientos por Clasificar"
-    # ----------------------
-
+    if normalize_account('7.1.3.01.1.001') in cuentas_del_asiento: return "Grupo 15: Deudores Incobrables"
+    if normalize_account('1.1.4.01.7.044') in cuentas_del_asiento: return "Grupo 16: Cuentas por Cobrar - Varios en ME"
+    if normalize_account('2.1.2.05.1.005') in cuentas_del_asiento: return "Grupo 17: Asientos por Clasificar"
     if normalize_account('7.1.3.06.1.998') in cuentas_del_asiento: return "Grupo 12: Perdida p/Venta o Retiro Activo ND"
     if normalize_account('7.1.3.45.1.997') in cuentas_del_asiento: return "Grupo 1: Acarreos y Fletes Recuperados"
     if normalize_account('2.1.2.05.1.108') in cuentas_del_asiento: return "Grupo 5: Haberes de Clientes"
@@ -2855,7 +3166,6 @@ def _clasificar_asiento_paquete_cc(cuentas_del_asiento, referencia_completa, fue
             
     # CAPA 2: Estándar
     return _get_base_classification(cuentas_del_asiento, referencia_completa, fuente_completa, referencia_limpia_palabras, monto_suma, monto_max_abs, is_reverso_check=False)
-
 
 def _validar_asiento(asiento_group):
     """
@@ -3040,7 +3350,7 @@ def run_analysis_paquete_cc(df_diario, log_messages):
     ids_por_texto = df_meta[df_meta.apply(es_potencial_reverso, axis=1)].index.tolist()
     ids_candidatos_reverso = set(list(ids_por_grupo) + ids_por_texto)
     
-    # --- FILTRO DE INMUNIDAD (La corrección clave) ---
+    # --- FILTRO DE INMUNIDAD  ---
     ids_reversos_final = set()
     for aid in ids_candidatos_reverso:
         grupo_actual = mapa_grupos.get(aid, "")
@@ -3053,7 +3363,6 @@ def run_analysis_paquete_cc(df_diario, log_messages):
         else:
             # Para otros grupos, aceptamos la detección normal
             ids_reversos_final.add(aid)
-    # -------------------------------------------------
 
     # Mapa de montos global
     df_todos = df.groupby(['Asiento'])['Monto_USD'].sum().round(2).reset_index()
@@ -3166,10 +3475,9 @@ def run_analysis_paquete_cc(df_diario, log_messages):
     log_messages.append("--- ANÁLISIS FINALIZADO CON ÉXITO ---")
     return df_final
 
-# ==============================================================================
-# LÓGICA PARA CUADRE CB - CG (TESORERÍA VS CONTABILIDAD) - VERSIÓN FINAL BLINDADA
-# ==============================================================================
-import pdfplumber
+# ------------------------------------------------------------------------------
+# 6.2. CUADRE CB - CG (TESORERÍA VS CONTABILIDAD)
+# ------------------------------------------------------------------------------
 
 # 1. DICCIONARIO MAESTRO DE NOMBRES
 NOMBRES_CUENTAS_OFICIALES = {
@@ -3374,6 +3682,7 @@ MAPEO_CB_CG_SILLACA = {
     "0210EU": {"cta": "1.1.1.01.6.002", "moneda": "EUR"},
     "0137CP": {"cta": "1.1.1.02.6.214", "moneda": "COP"},
 }
+
 def limpiar_monto_pdf(texto):
     """
     Convierte texto a float. Maneja formatos US/VE, paréntesis y guiones (-).
@@ -3383,9 +3692,8 @@ def limpiar_monto_pdf(texto):
     
     # CASO: Guion solo (Cero contable)
     if t == '-': return 0.0
-    
-    # Limpieza general
-    t = t.replace(' ', '').replace('$', '').replace('Bs', '')
+        
+    t = t.replace(' ', '').replace('$', '').replace('Bs', '') # Limpieza general
     
     # Manejo de negativos (1.00) -> -1.00
     signo = 1
@@ -3435,7 +3743,6 @@ def es_texto_numerico(texto):
         # Los montos no suelen tener más de 2 puntos, las cuentas sí.
         if t.count('.') > 2: return False
         return True
-        
     return False
 
 def extraer_saldos_cb(archivo, log_messages):
@@ -3855,523 +4162,10 @@ def run_cuadre_cb_cg(file_cb, file_cg, nombre_empresa, log_messages):
 
     return pd.DataFrame(resultados), pd.DataFrame(huerfanos)
 
-# ==============================================================================
-# LÓGICA PARA GESTIÓN DE IMPRENTA (VALIDACIÓN Y GENERACIÓN) - BLOQUE MAESTRO
-# ==============================================================================
-import re # Asegúrate de que esto esté importado al inicio del archivo también
 
-# --- PARTE A: VALIDACIÓN (Lectura de TXT) ---
-
-def parse_sales_txt(file_obj, log_messages):
-    """Lee el TXT del Libro de Ventas y extrae facturas."""
-    invoices_found = set()
-    try:
-        content = file_obj.getvalue().decode('latin-1') 
-        lines = content.splitlines()
-        regex_pattern = r"(?:FAC|N/C|N/D)\s*([0-9]+)"
-        
-        for line in lines:
-            matches = re.findall(regex_pattern, line)
-            for match in matches:
-                clean_num = str(int(match)) 
-                invoices_found.add(clean_num)
-                
-        log_messages.append(f"✅ Libro de Ventas procesado. {len(invoices_found)} documentos encontrados.")
-        return invoices_found, lines
-    except Exception as e:
-        log_messages.append(f"❌ Error leyendo TXT Ventas: {str(e)}")
-        return set(), []
-
-def run_cross_check_imprenta(file_sales, file_retentions, log_messages):
-    """Cruza Retenciones (TXT) vs Libro de Ventas (TXT)."""
-    log_messages.append("\n--- INICIANDO CRUCE IMPRENTA (TXT) ---")
-    
-    valid_invoices, _ = parse_sales_txt(file_sales, log_messages)
-    if not valid_invoices: return pd.DataFrame(), None
-
-    resultados = []
-    processed_invoices = set() 
-    txt_original = ""
-    
-    try:
-        content_ret = file_retentions.getvalue().decode('latin-1')
-        txt_original = content_ret
-        lines_ret = content_ret.splitlines()
-        regex_ret = r"(FAC|N/C)\s*([0-9]+)"
-        
-        for line_idx, line in enumerate(lines_ret):
-            match = re.search(regex_ret, line)
-            if match:
-                tipo = match.group(1)
-                factura_raw = match.group(2)
-                factura_clean = str(int(factura_raw))
-                
-                status = "OK"
-                if factura_clean not in valid_invoices:
-                    status = "ERROR: Factura no declarada en Libro de Ventas"
-                if factura_clean in processed_invoices:
-                    status = "ERROR: Factura duplicada en archivo de Retenciones"
-                
-                processed_invoices.add(factura_clean)
-                
-                resultados.append({
-                    'Línea TXT': line_idx + 1, 'Contenido Original': line.strip(),
-                    'Tipo': tipo, 'Factura Detectada': factura_raw, 'Estado': status
-                })
-    except Exception as e:
-        log_messages.append(f"❌ Error procesando Retenciones: {str(e)}")
-        return pd.DataFrame(), None
-
-    df_res = pd.DataFrame(resultados)
-    if not df_res.empty:
-        errores = df_res[df_res['Estado'] != 'OK']
-        if not errores.empty: log_messages.append(f"⚠️ Se encontraron {len(errores)} incidencias.")
-        else: log_messages.append("✅ Validación exitosa.")
-    return df_res, txt_original
-
-
-# --- PARTE B: GENERACIÓN (Excel Softland -> TXT) ---
-
-def limpiar_string_factura(txt):
-    """Limpia letras y ceros a la izquierda para match perfecto entre sistemas."""
-    if not txt or pd.isna(txt): return ""
-    # Quitar cualquier letra o caracter no numérico y luego ceros iniciales
-    num = re.sub(r'\D', '', str(txt))
-    return str(int(num)) if num else ""
-    
-def indexar_libro_ventas(file_libro, log_messages):
-    """Radar Mejorado: Busca la base imponible del IVA para evitar los 0.00."""
-    db_ventas = {}
-    periodo_final = "000000"
-    
-    try:
-        file_libro.seek(0)
-        df_raw = pd.read_excel(file_libro, header=None)
-        
-        # 1. DETECCIÓN DE PERIODO
-        for i, row in df_raw.head(15).iterrows():
-            fila_txt = " ".join([str(x).upper() for x in row.values if pd.notna(x)])
-            if "DEL" in fila_txt and "AL" in fila_txt:
-                match_fecha = re.findall(r'(\d{2}/\d{2}/\d{4})', fila_txt)
-                if match_fecha:
-                    periodo_final = pd.to_datetime(match_fecha[0], dayfirst=True).strftime('%Y%m')
-                    break
-
-        # 2. LOCALIZAR TABLA
-        header_idx = None
-        for i, row in df_raw.head(20).iterrows():
-            fila_vals = [str(x).upper() for x in row.values]
-            if any("FACTURA" in s for s in fila_vals) and any("RIF" in s for s in fila_vals):
-                header_idx = i
-                break
-        
-        if header_idx is None: return {}, "000000"
-
-        df = pd.read_excel(file_libro, header=header_idx)
-        df.columns = [str(c).strip().upper() for c in df.columns]
-        
-        # --- RADAR DE COLUMNAS MEJORADO ---
-        col_fac = next((c for c in df.columns if 'N DE FACTURA' in c or 'Nº FACTURA' in c), None)
-        
-        # Priorizamos 'IMPUESTO IVA G' que es donde Galac guarda el IVA de la factura
-        col_iva = next((c for c in df.columns if 'IMPUESTO IVA G' in c), None)
-        # Si no existe, buscamos alternativas
-        if not col_iva:
-            col_iva = next((c for c in df.columns if 'IVA RETENIDO' in c or 'TOTAL IVA' in c), None)
-            
-        col_fecha = next((c for c in df.columns if 'FECHA FACTURA' in c), None)
-        col_nom = next((c for c in df.columns if 'NOMBRE' in c or 'RAZON' in c), None)
-        col_comp_existente = next((c for c in df.columns if 'NUMERO COMPROBANTE RETENCION' in c or 'Nº COMPROBANTE' in c), None)
-
-        def safe_float(valor):
-            if pd.isna(valor) or str(valor).strip() == "": return 0.0
-            if isinstance(valor, (int, float)): return float(valor)
-            t = str(valor).strip()
-            if ',' in t and '.' in t:
-                if t.rfind(',') > t.rfind('.'): t = t.replace('.', '').replace(',', '.')
-                else: t = t.replace(',', '')
-            elif ',' in t: t = t.replace(',', '.')
-            try: return float(t)
-            except: return 0.0
-
-        # 3. LLENADO DE MEMORIA
-        for _, row in df.iterrows():
-            f_raw = row.get(col_fac)
-            if pd.isna(f_raw): continue
-            
-            f_key = re.sub(r'\D', '', str(f_raw))
-            if f_key:
-                f_key = str(int(f_key))
-                
-                c_reg = row.get(col_comp_existente)
-                comp_val = str(c_reg).strip() if pd.notna(c_reg) and re.sub(r'\D', '', str(c_reg)) != "" else None
-
-                db_ventas[f_key] = {
-                    'fecha': pd.to_datetime(row.get(col_fecha), dayfirst=True, errors='coerce'),
-                    'iva': safe_float(row.get(col_iva)), # <-- Aquí cargamos la base detectada
-                    'nombre': str(row.get(col_nom, "ND")).strip(),
-                    'comp_ya_registrado': comp_val
-                }
-        
-        return db_ventas, periodo_final
-
-    except Exception as e:
-        log_messages.append(f"❌ Error Indexando Galac: {str(e)}")
-        return {}, "000000"
-
-def generar_txt_retenciones_galac(file_softland, file_libro, log_messages):
-    """
-    Versión Blindada V5: Si una factura del grupo existe en el libro, 
-    se usa la base real y se marca error en las faltantes, incluso si es periodo anterior.
-    """
-    db_ventas, periodo_libro = indexar_libro_ventas(file_libro, log_messages)
-    
-    try:
-        df_soft = pd.read_excel(file_softland, dtype={'Nit': str, 'NIT': str, 'Referencia': str})
-        df_soft.columns = [str(c).strip().upper() for c in df_soft.columns]
-        col_ref = next((c for c in df_soft.columns if 'REFERENCIA' in c), None)
-        col_fecha = next((c for c in df_soft.columns if 'FECHA' in c), None)
-        col_monto = next((c for c in df_soft.columns if 'DÉBITO' in c or 'DEBITO' in c or 'LOCAL' in c), None)
-        col_rif_s = next((c for c in df_soft.columns if any(k in c for k in ['RIF', 'NIT', 'I.D', 'CEDULA'])), None)
-        col_nom_s = next((c for c in df_soft.columns if any(k in c for k in ['NOMBRE', 'CLIENTE', 'TERCERO', 'DESCRIPCION NIT'])), None)
-    except: return [], None
-
-    def safe_numeric_parsing(val):
-        if pd.isna(val) or str(val).strip() == "": return 0.0
-        if isinstance(val, (int, float)): return float(val)
-        t = str(val).strip().replace('Bs', '').replace('$', '')
-        if ',' in t and '.' in t:
-            if t.rfind(',') > t.rfind('.'): t = t.replace('.', '').replace(',', '.')
-            else: t = t.replace(',', '')
-        elif ',' in t: t = t.replace(',', '.')
-        try: return float(t)
-        except: return 0.0
-
-    filas_txt = []
-    audit = []
-
-    for idx, row in df_soft.iterrows():
-        ref = str(row.get(col_ref, "")).strip()
-        if "/" not in ref: continue
-        
-        m_soft_total = safe_numeric_parsing(row.get(col_monto))
-        if m_soft_total <= 0: continue
-        
-        rif_s = str(row.get(col_rif_s, "ND")).strip()
-        comprobante = re.sub(r'\D', '', ref.split('/')[0])
-        p_voucher = comprobante[:6]
-        es_anterior = (p_voucher < periodo_libro) if periodo_libro != "000000" else False
-        
-        f_nums = [str(int(re.sub(r'\D', '', f))) for f in ref.split('/')[1:] if re.sub(r'\D', '', f)]
-        
-        facturas_data = []
-        existe_alguna_en_libro = False
-        todas_existen_en_libro = True
-        total_iva_galac = 0.0
-        
-        for fn in f_nums:
-            info = db_ventas.get(fn)
-            if info:
-                existe_alguna_en_libro = True
-                total_iva_galac += info['iva']
-            else:
-                todas_existen_en_libro = False
-            facturas_data.append({'nro': fn, 'info': info})
-
-        # --- CÁLCULO DE ASIGNACIÓN ---
-        for f_item in facturas_data:
-            f_n = f_item['nro']
-            info_g = f_item['info']
-            f_txt = f_n.zfill(10)
-            f_c = pd.to_datetime(row[col_fecha]).strftime('%d/%m/%Y')
-            
-            monto_final = 0.0
-            iva_base_g = 0.0
-            pct_aplicado = 0.0
-            estatus = ""
-            f_f = f_c 
-            nombre_f = info_g['nombre'] if info_g and info_g['nombre'] != "ND" else str(row.get(col_nom_s, "ND"))
-
-            # 1. ¿YA ESTÁ REGISTRADA?
-            if info_g and info_g.get('comp_ya_registrado'):
-                estatus = "RETENCION REGISTRADA"
-                iva_base_g = info_g['iva']
-                f_f = info_g['fecha'].strftime('%d/%m/%Y')
-
-            # 2. ¿EXISTE EN EL LIBRO? (Cálculo real de 75/100)
-            elif info_g:
-                iva_base_g = info_g['iva']
-                f_f = info_g['fecha'].strftime('%d/%m/%Y')
-                
-                # Intentar cuadre matemático 75/100 si todas están, sino prorrateo
-                if todas_existen_en_libro:
-                    factor = m_soft_total / total_iva_galac if total_iva_galac > 0 else 0
-                    # Si el factor es muy cercano a 0.75 o 1.0, lo redondeamos para que el reporte sea limpio
-                    if abs(factor - 0.75) < 0.01: factor = 0.75
-                    elif abs(factor - 1.0) < 0.01: factor = 1.0
-                    
-                    monto_final = round(iva_base_g * factor, 2)
-                    pct_aplicado = factor
-                    estatus = "GENERADO OK"
-                else:
-                    # Si algunas existen y otras no, no podemos prorratear con seguridad
-                    estatus = "⚠️ NO ENCONTRADA EN LIBRO"
-
-            # 3. NO EXISTE EN EL LIBRO
-            else:
-                # Si es anterior Y ninguna del grupo existe, hacemos el prorrateo de rescate
-                if es_anterior and not existe_alguna_en_libro:
-                    monto_final = round(m_soft_total / len(f_nums), 2)
-                    estatus = "OK - PERIODO ANTERIOR"
-                else:
-                    # Si el periodo es actual O si algunas del grupo sí existen en el libro,
-                    # la que falta se marca como error y monto 0.
-                    monto_final = 0.0
-                    estatus = "⚠️ NO ENCONTRADA EN LIBRO"
-
-            # Generar TXT
-            if monto_final > 0 and estatus != "RETENCION REGISTRADA":
-                filas_txt.append(f"FAC\t{f_txt}\t0\t{comprobante}\t{monto_final:.2f}\t{f_c}\t{f_f}")
-            
-            audit.append({
-                'Estatus': estatus,
-                'Rif Origen Softland': rif_s,
-                'Nombre proveedor Origen Softland': nombre_f,
-                'Comprobante': comprobante,
-                'Factura': f_txt,
-                'IVA Origen Softland': m_soft_total,
-                'IVA GALAC (Base)': iva_base_g,
-                '% Retención': pct_aplicado,
-                'Monto Retenido GALAC': monto_final,
-                'Referencia Original': ref
-            })
-
-    return filas_txt, pd.DataFrame(audit)
-
-# ==============================================================================
-# LÓGICA CÁLCULO LEY PROTECCIÓN PENSIONES
-# ==============================================================================
-
-def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empresa, log_messages, num_asiento):
-    """
-    Motor de cálculo para el impuesto del 9%.
-    """
-    log_messages.append(f"--- INICIANDO CÁLCULO DE PENSIONES (9%) - {nombre_empresa} ---")
-    
-    # 0. HERRAMIENTAS INTERNAS
-    def limpiar_monto_inteligente(valor):
-        if pd.isna(valor) or str(valor).strip() == '': return 0.0
-        if isinstance(valor, (int, float)): return float(valor)
-        t = str(valor).strip().replace('Bs', '').replace(' ', '').replace('\xa0', '')
-        if ',' in t and '.' in t:
-            if t.rfind(',') > t.rfind('.'): t = t.replace('.', '').replace(',', '.')
-            else: t = t.replace(',', '')
-        elif ',' in t: t = t.replace(',', '.')
-        elif '.' in t: 
-             if len(t.split('.')[-1]) == 3: t = t.replace('.', '')
-        try: return float(t)
-        except: return 0.0
-
-    mapa_nombres = { "FEBECA, C.A": "FEBECA", "MAYOR BEVAL, C.A": "BEVAL", "PRISMA, C.A": "PRISMA", "FEBECA, C.A (QUINCALLA)": "QUINCALLA" }
-    keyword_empresa = mapa_nombres.get(nombre_empresa, nombre_empresa).upper()
-    
-    mes_detectado = None
-    anio_detectado = None
-    nombres_meses = {1: 'ENERO', 2: 'FEBRERO', 3: 'MARZO', 4: 'ABRIL', 5: 'MAYO', 6: 'JUNIO', 7: 'JULIO', 8: 'AGOSTO', 9: 'SEPTIEMBRE', 10: 'OCTUBRE', 11: 'NOVIEMBRE', 12: 'DICIEMBRE'}
-
-    # --- 1. PROCESAR MAYOR CONTABLE ---
-    try:
-        df_mayor = pd.read_excel(file_mayor)
-        df_mayor.columns = [str(c).strip().upper() for c in df_mayor.columns]
-        
-        col_cta = next((c for c in df_mayor.columns if 'CUENTA' in c), None)
-        col_cc = next((c for c in df_mayor.columns if 'CENTRO' in c and 'COSTO' in c), None)
-        col_deb = next((c for c in df_mayor.columns if 'DÉBITO' in c or 'DEBITO' in c), None)
-        col_cre = next((c for c in df_mayor.columns if 'CRÉDITO' in c or 'CREDITO' in c), None)
-        col_fecha = next((c for c in df_mayor.columns if 'FECHA' in c), None)
-        
-        if not (col_cta and col_cc and col_deb and col_cre):
-            log_messages.append("❌ Error: Faltan columnas críticas en el Mayor.")
-            return None, None, None, None
-            
-        if col_fecha:
-            try:
-                fechas = pd.to_datetime(df_mayor[col_fecha], errors='coerce').dropna()
-                if not fechas.empty:
-                    mes_num = fechas.dt.month.mode()[0]
-                    year_num = fechas.dt.year.mode()[0]
-                    mes_detectado = nombres_meses[mes_num]
-                    anio_detectado = str(year_num)
-                    log_messages.append(f"📅 Periodo detectado en Mayor: {mes_detectado} {anio_detectado}")
-            except: pass
-
-        cuentas_base = ['7.1.1.01.1.001', '7.1.1.09.1.003']
-        df_filtrado = df_mayor[df_mayor[col_cta].astype(str).str.strip().isin(cuentas_base)].copy()
-        
-        df_filtrado['Monto_Deb'] = df_filtrado[col_deb].apply(limpiar_monto_inteligente)
-        df_filtrado['Monto_Cre'] = df_filtrado[col_cre].apply(limpiar_monto_inteligente)
-        df_filtrado['Base_Neta'] = df_filtrado['Monto_Deb'] - df_filtrado['Monto_Cre']
-        df_filtrado['CC_Agrupado'] = df_filtrado[col_cc].astype(str).str.slice(0, 10)
-        
-        df_agrupado = df_filtrado.groupby(['CC_Agrupado', col_cta]).agg({'Base_Neta': 'sum'}).reset_index()
-        df_agrupado.rename(columns={'CC_Agrupado': 'Centro de Costo (Padre)', col_cta: 'Cuenta Contable'}, inplace=True)
-        df_agrupado['Impuesto (9%)'] = df_agrupado['Base_Neta'] * 0.09
-        
-        base_salarios_cont = df_agrupado[df_agrupado['Cuenta Contable'].astype(str).str.contains('7.1.1.01', na=False)]['Base_Neta'].sum()
-        base_tickets_cont = df_agrupado[df_agrupado['Cuenta Contable'].astype(str).str.contains('7.1.1.09', na=False)]['Base_Neta'].sum()
-        total_base_contable = base_salarios_cont + base_tickets_cont
-
-    except Exception as e:
-        log_messages.append(f"❌ Error procesando Mayor: {str(e)}")
-        return None, None, None, None
-
-    # --- 2. PROCESAR NÓMINA (SUMA GLOBAL PRISMA) ---
-    val_salarios_nom = 0.0
-    val_tickets_nom = 0.0
-    val_impuesto_nom = 0.0
-    
-    try:
-        if file_nomina:
-            xls_nomina = pd.ExcelFile(file_nomina)
-            hojas = xls_nomina.sheet_names
-            hoja_objetivo = None
-            
-            # Buscar Hoja por Mes + Año
-            if mes_detectado and anio_detectado:
-                anio_corto = anio_detectado[-2:]
-                for h in hojas:
-                    h_upper = h.upper()
-                    if mes_detectado in h_upper and (anio_detectado in h_upper or anio_corto in h_upper):
-                        hoja_objetivo = h; break
-            
-            if not hoja_objetivo and mes_detectado:
-                for h in hojas:
-                    if mes_detectado in h.upper():
-                        hoja_objetivo = h; log_messages.append(f"⚠️ Aviso: Se usó hoja '{h}' por mes (sin validar año)."); break
-            
-            if not hoja_objetivo: 
-                hoja_objetivo = hojas[0]
-                log_messages.append(f"⚠️ Usando primera hoja: '{hoja_objetivo}'")
-            
-            # Leer encabezado
-            df_raw = pd.read_excel(xls_nomina, sheet_name=hoja_objetivo, header=None, nrows=20)
-            header_idx = 0
-            for i, row in df_raw.iterrows():
-                s = [str(x).upper().replace('\n', ' ').strip() for x in row.values]
-                if any("EMPRESA" in x for x in s) and (any("SALARIO" in x for x in s) or any("TOTAL" in x for x in s)):
-                    header_idx = i; break
-            
-            df_nom = pd.read_excel(xls_nomina, sheet_name=hoja_objetivo, header=header_idx)
-            df_nom.columns = [str(c).strip().upper().replace('\n', ' ') for c in df_nom.columns]
-            
-            col_emp = next((c for c in df_nom.columns if 'EMPRESA' in c), None)
-            col_sal = next((c for c in df_nom.columns if 'SALARIO' in c), None)
-            col_tkt = next((c for c in df_nom.columns if 'TICKET' in c or 'ALIMENTACION' in c), None)
-            col_imp = next((c for c in df_nom.columns if 'APARTADO' in c), None)
-            
-            if col_emp:
-                # Filtrar filas que contengan la palabra clave (ej: PRISMA)
-                mask = df_nom[col_emp].astype(str).str.upper().str.contains(keyword_empresa, na=False)
-                filas_encontradas = df_nom[mask]
-                
-                if not filas_encontradas.empty:
-                    log_messages.append(f"🔎 Filas encontradas para '{keyword_empresa}': {len(filas_encontradas)}")
-                    
-                    # Sumar todas las filas encontradas (Prisma 01 + Prisma 99)
-                    for idx, row in filas_encontradas.iterrows():
-                        v_sal = cleaning_sal = limpiar_monto_inteligente(row[col_sal]) if col_sal else 0
-                        v_tkt = cleaning_tkt = limpiar_monto_inteligente(row[col_tkt]) if col_tkt else 0
-                        
-                        val_salarios_nom += v_sal
-                        val_tickets_nom += v_tkt
-                        if col_imp: val_impuesto_nom += limpiar_monto_inteligente(row[col_imp])
-
-                        # Log para verificar que sumó ambas
-                        log_messages.append(f"   + Sumando: {row[col_emp]} (Salario: {v_sal:,.2f})")
-                    
-                    log_messages.append(f"📊 Total Nómina Global: {val_salarios_nom:,.2f}")
-                else:
-                    log_messages.append(f"⚠️ No se encontró '{keyword_empresa}' en Nómina.")
-            else:
-                log_messages.append("❌ Columna EMPRESA no encontrada.")
-
-    except Exception as e:
-        log_messages.append(f"⚠️ Error leyendo Nómina: {str(e)}")
-
-    # --- 3. GENERAR ASIENTO ---
-    # 1. Agrupamos y redondeamos el Débito en BS
-    asiento_data = df_agrupado.groupby('Centro de Costo (Padre)')['Impuesto (9%)'].sum().reset_index()
-    asiento_data['Débito VES'] = asiento_data['Impuesto (9%)'].round(2)
-    asiento_data.rename(columns={'Centro de Costo (Padre)': 'Centro Costo'}, inplace=True)
-
-    # 2. Convertimos a USD línea por línea
-    asiento_data['Débito USD'] = (asiento_data['Débito VES'] / tasa_cambio).round(4)
-
-    # 3. CUADRE MATEMÁTICO: Forzamos que la suma de USD sea exacta a la Tasa del Total
-    total_ves_general = asiento_data['Débito VES'].sum()
-    total_usd_objetivo = round(total_ves_general / tasa_cambio, 2)
-    diferencia_centavos = round(total_usd_objetivo - asiento_data['Débito USD'].sum(), 2)
-
-    if diferencia_centavos != 0 and not asiento_data.empty:
-        # Aplicamos el centavo de ajuste a la fila con el monto más alto para que sea imperceptible
-        idx_max = asiento_data['Débito USD'].idxmax()
-        asiento_data.loc[idx_max, 'Débito USD'] += diferencia_centavos
-
-    # 4. Completamos el resto de las columnas del asiento
-    asiento_data['Cuenta Contable'] = '7.1.1.07.1.001'
-    asiento_data['Descripción'] = 'Contribucion ley de Pensiones'
-    asiento_data['Crédito VES'] = 0.0
-    asiento_data['Crédito USD'] = 0.0
-    asiento_data['Tasa'] = tasa_cambio
-    asiento_data['Asiento'] = num_asiento
-    asiento_data['Nit'] = "ND" 
-    asiento_data['Fuente'] = "PENSIONES"
-    asiento_data['Referencia'] = f"APORTE PENSIONES {mes_detectado[:3]}.{anio_detectado[-2:]}"
-
-    # 5. Calcular Totales para la línea del Pasivo (Crédito)
-    total_impuesto_ves = asiento_data['Débito VES'].sum().round(2)
-    total_impuesto_usd = asiento_data['Débito USD'].sum().round(4) # Ahora coincide con el total de débitos
-    
-    linea_pasivo = pd.DataFrame([{
-        'Asiento': num_asiento,
-        'Nit': "ND",
-        'Centro Costo': '00.00.000.00', 
-        'Cuenta Contable': '2.1.3.02.3.005', 
-        'Descripción': 'Contribuciones Sociales por Pagar', 
-        'Fuente': "PENSIONES",
-        'Referencia': f"APORTE PENSIONES {mes_detectado[:3]}.{anio_detectado[-2:]}",
-        'Débito VES': 0.0, 
-        'Crédito VES': total_impuesto_ves,
-        'Débito USD': 0.0,
-        'Crédito USD': total_impuesto_usd,
-        'Tasa': tasa_cambio
-    }])
-    
-    df_asiento = pd.concat([asiento_data, linea_pasivo], ignore_index=True)
-
-    # --- 4. RESUMEN Y VALIDACIÓN ---
-    dif_salarios = round(base_salarios_cont - val_salarios_nom, 2)
-    dif_tickets = round(base_tickets_cont - val_tickets_nom, 2)
-    dif_impuesto = round(total_impuesto_ves - val_impuesto_nom, 2)
-    
-    total_base_nomina = val_salarios_nom + val_tickets_nom
-    
-    estado_val = "OK" if (abs(dif_salarios) < 1.00 and abs(dif_tickets) < 1.00) else "DESCUADRE"
-
-    resumen_validacion = {
-        'salario_cont': base_salarios_cont, 'salario_nom': val_salarios_nom, 'dif_salario': dif_salarios,
-        'ticket_cont': base_tickets_cont, 'ticket_nom': val_tickets_nom, 'dif_ticket': dif_tickets,
-        'total_base_cont': total_base_contable, 'total_base_nom': total_base_nomina,
-        'dif_base_total': round(total_base_contable - total_base_nomina, 2),
-        'imp_calc': total_impuesto_ves, 'imp_nom': val_impuesto_nom, 'dif_imp': dif_impuesto,
-        'estado': estado_val
-    }
-
-    return df_agrupado, df_filtrado, df_asiento, resumen_validacion
-
-# ==============================================================================
-# LÓGICA AJUSTES AL BALANCE EN USD
-# ==============================================================================
+# ------------------------------------------------------------------------------
+# 6.3. AJUSTES AL BALANCE EN USD
+# ------------------------------------------------------------------------------
 
 # MAPEO DE RECLASIFICACIÓN (Saldos Contrarios)
 # Estructura: 'Cuenta_Origen': 'Contrapartida'
@@ -4714,146 +4508,12 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
 
 
 
-# ==============================================================================
-# LÓGICA VERIFICACIÓN DE DÉBITO FISCAL (BS)
-# ==============================================================================
 
-def normalizar_doc_fiscal(texto):
-    """Extrae el número de documento limpiando letras y ceros a la izquierda."""
-    if pd.isna(texto) or str(texto).strip() == "": return ""
-    nums = re.findall(r'\d+', str(texto))
-    if nums:
-        # Retorna el último bloque numérico como entero para quitar ceros (ej: 000501 -> 501)
-        return str(int(nums[-1]))
-    return ""
-
-def preparar_datos_softland_debito(df_diario, df_mayor, tag_casa):
-    """Mantiene columnas originales y agrega metadatos. NIT normalizado solo a números."""
-    df_soft = pd.concat([df_diario, df_mayor], ignore_index=True)
-    
-    def normalizar_header(t):
-        import unicodedata
-        return ''.join(c for c in unicodedata.normalize('NFD', str(t))
-                      if unicodedata.category(c) != 'Mn').upper().strip()
-
-    col_deb, col_cre, col_rif, col_ref, col_fue, col_nom = None, None, None, None, None, None
-    for c in df_soft.columns:
-        c_norm = normalizar_header(c)
-        if any(k in c_norm for k in ['DEBITO BOLIVAR', 'DEBITO LOCAL', 'DEBITO VES']): col_deb = c
-        elif any(k in c_norm for k in ['CREDITO BOLIVAR', 'CREDITO LOCAL', 'CREDITO VES']): col_cre = c
-        elif any(k in c_norm for k in ['NIT', 'RIF']): col_rif = c
-        elif 'REFERENCIA' in c_norm: col_ref = c
-        elif 'FUENTE' in c_norm: col_fue = c
-        elif any(k in c_norm for k in ['NOMBRE', 'RAZON SOCIAL', 'DESCRIPCION NIT', 'CLIENTE']): col_nom = c
-
-    def extraer_doc_softland(row):
-        doc_fuente = normalizar_doc_fiscal(row.get(col_fue, ""))
-        if doc_fuente != "": return doc_fuente
-        return normalizar_doc_fiscal(row.get(col_ref, ""))
-
-    def detectar_tipo_softland(row):
-        texto = (str(row.get(col_fue, "")) + " " + str(row.get(col_ref, ""))).upper()
-        if "N/C" in texto or "NC" in texto: return "N/C"
-        if "N/D" in texto or "ND" in texto: return "N/D"
-        return "FACTURA"
-
-    df_soft['CASA'] = tag_casa 
-    df_soft['_Doc_Norm'] = df_soft.apply(extraer_doc_softland, axis=1)
-    df_soft['_Tipo'] = df_soft.apply(detectar_tipo_softland, axis=1)
-    
-    # --- CAMBIO CLAVE: NIT SOLO NÚMEROS ---
-    df_soft['_NIT_Norm'] = df_soft[col_rif].astype(str).str.replace(r'[^0-9]', '', regex=True) if col_rif else "0"
-    
-    df_soft['_Nombre_Soft'] = df_soft[col_nom].fillna("SIN NOMBRE") if col_nom else "NOMBRE NO DETECTADO"
-    val_deb = pd.to_numeric(df_soft[col_deb], errors='coerce').fillna(0) if col_deb else 0
-    val_cre = pd.to_numeric(df_soft[col_cre], errors='coerce').fillna(0) if col_cre else 0
-    df_soft['_Monto_Bs_Soft'] = abs(val_deb - val_cre)
-    
-    return df_soft
-
-def run_conciliation_debito_fiscal(df_soft_total, df_imprenta_logica, tolerancia_bs, log_messages):
-    """Cruce N-a-N con NIT numérico, filtro exentos y exclusión de FEBECA/Totales."""
-    log_messages.append("\n--- INICIANDO AUDITORÍA DE DÉBITO FISCAL ---")
-    
-    df_imp = df_imprenta_logica.copy()
-    def find_col(keywords, df):
-        for c in df.columns:
-            if any(k in str(c).upper() for k in keywords): return c
-        return None
-
-    col_rif = find_col(['RIF'], df_imp)
-    col_fact = find_col(['N DE FACTURA'], df_imp)
-    col_nd = find_col(['NOTA DE DEBITO'], df_imp)
-    col_nc = find_col(['NOTA DE CREDITO'], df_imp)
-    col_iva = find_col(['IMPUESTO IVA G'], df_imp)
-    col_nom_imp = find_col(['NOMBRE O RAZON SOCIAL', 'NOMBRE', 'RAZON SOCIAL'], df_imp)
-
-    # Filtro Anti-Totales/Resúmenes
-    if col_rif:
-        df_imp = df_imp[df_imp[col_rif].notna()]
-        mask_totales = df_imp.astype(str).apply(lambda x: x.str.contains('TOTALES', case=False, na=False)).any(axis=1)
-        df_imp = df_imp[~mask_totales]
-
-    def identificar_tipo_y_doc_imp(row):
-        if pd.notna(row.get(col_nc)) and str(row.get(col_nc)).strip() != "":
-            return normalizar_doc_fiscal(row.get(col_nc)), "N/C"
-        if pd.notna(row.get(col_nd)) and str(row.get(col_nd)).strip() != "":
-            return normalizar_doc_fiscal(row.get(col_nd)), "N/D"
-        val_f = str(row.get(col_fact, "")).strip()
-        if val_f == "" or val_f == "nan": return "", "RESUMEN"
-        return normalizar_doc_fiscal(val_f), "FACTURA"
-
-    df_imp[['_Doc_Norm', '_Tipo']] = df_imp.apply(identificar_tipo_y_doc_imp, axis=1, result_type='expand')
-    df_imp = df_imp[df_imp['_Doc_Norm'] != ""]
-    
-    # --- CAMBIO CLAVE: NIT SOLO NÚMEROS ---
-    df_imp['_NIT_Norm'] = df_imp[col_rif].astype(str).str.replace(r'[^0-9]', '', regex=True) if col_rif else "0"
-    
-    df_imp['_Monto_Imprenta'] = pd.to_numeric(df_imp[col_iva], errors='coerce').fillna(0).abs()
-    df_imp['_Nombre_Imp'] = df_imp[col_nom_imp].fillna("SIN NOMBRE") if col_nom_imp else "NOMBRE NO DETECTADO"
-
-    # Exclusión FEBECA (Terceros)
-    df_imp = df_imp[~df_imp['_Nombre_Imp'].str.upper().str.contains("FEBECA", na=False)]
-
-    soft_grouped = df_soft_total.groupby(['_NIT_Norm', '_Doc_Norm', 'CASA', '_Tipo'], as_index=False).agg({
-        '_Monto_Bs_Soft': 'sum',
-        '_Nombre_Soft': 'first'
-    })
-    soft_grouped = soft_grouped[~soft_grouped['_Nombre_Soft'].str.upper().str.contains("FEBECA", na=False)]
-
-    # Cruce por NIT numérico + Documento numérico
-    merged = pd.merge(
-        soft_grouped, 
-        df_imp[['_NIT_Norm', '_Doc_Norm', '_Monto_Imprenta', '_Tipo', '_Nombre_Imp']], 
-        on=['_NIT_Norm', '_Doc_Norm'], 
-        how='outer', 
-        indicator=True,
-        suffixes=('_soft', '_imp')
-    )
-
-    def clasificar(row):
-        tipo_final = row['_Tipo_imp'] if pd.notna(row['_Tipo_imp']) else row['_Tipo_soft']
-        nombre_final = row['_Nombre_Imp'] if pd.notna(row['_Nombre_Imp']) else row['_Nombre_Soft']
-        m_s = float(row['_Monto_Bs_Soft']) if pd.notna(row['_Monto_Bs_Soft']) else 0.0
-        m_i = float(row['_Monto_Imprenta']) if pd.notna(row['_Monto_Imprenta']) else 0.0
-        
-        if m_i <= 0.001 and m_s <= 0.001: return "OK", tipo_final, nombre_final
-        if row['_merge'] == 'left_only': return "NO APARECE EN LIBRO DE VENTAS", tipo_final, nombre_final
-        if row['_merge'] == 'right_only': return "NO APARECE EN CONTABILIDAD", tipo_final, nombre_final
-        
-        dif = abs(m_s - m_i)
-        if dif > tolerancia_bs: return f"DIFERENCIA DE MONTO (Bs. {dif:,.2f})", tipo_final, nombre_final
-        return "OK", tipo_final, nombre_final
-
-    merged[['Estado', '_Tipo_Final', '_Nombre_Final']] = merged.apply(clasificar, axis=1, result_type='expand')
-    return merged
-
-# ==============================================================================
-# MODULO: AUDITORIA DE COMISIONES (CREACION DE EDUARDO)
-# ==============================================================================
+# ------------------------------------------------------------------------------
+# 6.4. AUDITORIA DE COMISIONES (CREACION DE EDUARDO)
+# ------------------------------------------------------------------------------
 
 def run_process_comisiones(df_resumen, df_diario, log_messages):
-    """Lógica V19: Auditoría Inteligente por Moneda del Banco (VES/USD)"""
     df_resumen.columns = [str(c).strip() for c in df_resumen.columns]
     df_diario.columns = [str(c).strip() for c in df_diario.columns]
 
@@ -4936,8 +4596,8 @@ def run_process_comisiones(df_resumen, df_diario, log_messages):
             'CB_Deb': d_cb, 'CG_Deb': d_cg,
             'CB_Cre': c_cb, 'CG_Cre': c_cg,
             'Observación': " | ".join(obs) if obs else "",
-            'Asiento Desde': ini, # <--- COLUMNA SOLICITADA
-            'Asiento Hasta': fin, # <--- COLUMNA SOLICITADA
+            'Asiento Desde': ini, 
+            'Asiento Hasta': fin, 
             'Estatus': estatus
         })
 
