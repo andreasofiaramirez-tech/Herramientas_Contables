@@ -19,6 +19,15 @@ import bisect
 TOLERANCIA_MAX_BS = 2.00
 TOLERANCIA_MAX_USD = 0.50
 
+# --- Funciones de utilidad Común ---
+def normalizar_texto_busqueda(texto):
+    """Limpia tildes, acentos y convierte a mayúsculas para comparaciones ciegas"""
+    if not texto: return ""
+    # Elimina acentos (ej: Débito -> DEBITO)
+    texto_norm = ''.join(c for c in unicodedata.normalize('NFD', str(texto))
+                        if unicodedata.category(c) != 'Mn')
+    return texto_norm.upper().strip()
+
 # ==============================================================================
 # LÓGICAS DE CONCILIACIÓN DETALLADAS
 # ==============================================================================
@@ -4835,14 +4844,6 @@ def run_conciliation_debito_fiscal(df_soft_total, df_imprenta_logica, tolerancia
 # ==============================================================================
 # MODULO: AUDITORIA DE COMISIONES (CREACION DE EDUARDO)
 # ==============================================================================
-
-def normalizar_texto_busqueda(texto):
-    """Limpia tildes, acentos y convierte a mayúsculas para comparaciones ciegas"""
-    if not texto: return ""
-    # Elimina acentos (ej: Débito -> DEBITO)
-    texto_norm = ''.join(c for c in unicodedata.normalize('NFD', str(texto))
-                        if unicodedata.category(c) != 'Mn')
-    return texto_norm.upper().strip()
 
 def buscar_columna_comisiones(df, palabras):
     """Busca columnas ignorando acentos y mayúsculas"""
