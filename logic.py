@@ -1,5 +1,5 @@
 # ==============================================================================
-# CONFIGURACIÓN GENERAL Y HELPERS GLOBALES
+# 1. CONFIGURACIÓN GLOBAL Y CONSTANTES DE TOLERANCIA
 # ==============================================================================
 
 # --- Imports ---
@@ -15,11 +15,22 @@ from difflib import SequenceMatcher  # Necesario para la detección de errores d
 from utils import generar_reporte_retenciones
 import bisect
 
-# --- Constantes de Tolerancia ---
-TOLERANCIA_MAX_BS = 2.00
-TOLERANCIA_MAX_USD = 0.50
+# --- Tolerancias Generales (Mayoreo) ---
+TOLERANCIA_MAX_BS = 2.00      # Margen permitido en Bolívares
+TOLERANCIA_MAX_USD = 0.50     # Margen permitido en Dólares
+TOLERANCIA_CERO = 0.00        # Para cruces que deben ser exactos
 
-# --- Funciones de utilidad Común ---
+# --- Tolerancias Estrictas (Cierres Contables) ---
+TOLERANCIA_ESTRICTA_USD = 0.00 # Usado en Cobros Viajeros
+TOLERANCIA_ESTRICTA_BS = 0.00  # Usado en Asientos por Clasificar
+
+# --- Tolerancias Específicas COFERSA ---
+TOLERANCIA_COFERSA = 0.00     # Saldo 0 estricto para Envíos y Fondos
+
+# ==============================================================================
+# 2. HELPERS UNIVERSALES (RADAR DE COLUMNAS Y LIMPIEZA)
+# ==============================================================================
+
 def normalizar_texto(texto):
     """Limpia tildes, acentos y convierte a mayúsculas para comparaciones ciegas"""
     if not texto: return ""
@@ -39,12 +50,11 @@ def buscar_columna(df, palabras):
             return col
     return None
 
-
 # ==============================================================================
-# LÓGICAS DE CONCILIACIÓN DETALLADAS
+# 3. MÓDULOS DE CONCILIACIÓN - GRUPO MAYOREO
 # ==============================================================================
 
-# --- (A) Módulo: Fondos en Tránsito (BS) ---
+# --- (A) Módulo: Fondos en Tránsito (BS) (111.04.1001)---
 def normalizar_referencia_fondos_en_transito(df):
     """Clasifica movimientos según palabras clave en la referencia para Fondos en Tránsito."""
     df_copy = df.copy()
@@ -255,7 +265,40 @@ def conciliar_pares_globales_remanentes(df, log_messages):
     if total_conciliados > 0: log_messages.append(f"✔️ Fase Global 1-a-1: {total_conciliados} movimientos conciliados.")
     return total_conciliados
 
-# --- (B) Módulo: Fondos por Depositar (USD) ---
+def run_conciliation_fondos_en_transito (df, log_messages):
+    df = normalizar_referencia_fondos_en_transito(df)
+    log_messages.append("\n--- INICIANDO LÓGICA DE FONDOS EN TRÁNSITO ---")
+    conciliar_diferencia_cambio(df, log_messages)
+    conciliar_ajuste_automatico(df, log_messages)
+    conciliar_pares_exactos_cero(df, 'GRUPO_SILLACA', 'FASE SILLACA 1/7 (Cruce CERO)', log_messages)
+    conciliar_pares_exactos_por_referencia(df, 'GRUPO_SILLACA', 'FASE SILLACA 2/7 (Pares por Referencia)', log_messages)
+    cruzar_pares_simples(df, 'REINTEGRO_SILLACA', 'FASE SILLACA 3/7 (Pares por Monto)', log_messages)
+    cruzar_grupos_por_criterio(df, 'REINTEGRO_SILLACA', 'Asiento', 'SILLACA_ASIENTO', 'FASE SILLACA 4/7 (Grupos por Asiento)', log_messages)
+    cruzar_grupos_por_criterio(df, 'REINTEGRO_SILLACA', 'Referencia_Normalizada_Literal', 'SILLACA_REF', 'FASE SILLACA 5/7 (Grupos por Ref. Literal)', log_messages)
+    cruzar_grupos_por_criterio(df, 'REINTEGRO_SILLACA', 'Fecha', 'SILLACA_FECHA', 'FASE SILLACA 6/7 (Grupos por Fecha)', log_messages)
+    conciliar_lote_por_grupo(df, 'GRUPO_SILLACA', 'FASE SILLACA 7/7 (CRUCE POR LOTE)', log_messages)
+    conciliar_pares_exactos_cero(df, 'GRUPO_NOTA', 'FASE NOTAS 1/6 (Cruce CERO)', log_messages)
+    conciliar_pares_exactos_por_referencia(df, 'GRUPO_NOTA', 'FASE NOTAS 2/6 (Pares por Referencia)', log_messages)
+    cruzar_pares_simples(df, 'NOTA_GENERAL', 'FASE NOTAS 3/6 (Pares por Monto)', log_messages)
+    cruzar_grupos_por_criterio(df, 'NOTA_GENERAL', 'Referencia_Normalizada_Literal', 'NOTA_REF', 'FASE NOTAS 4/6 (Grupos por Ref. Literal)', log_messages)
+    cruzar_grupos_por_criterio(df, 'NOTA_GENERAL', 'Fecha', 'NOTA_FECHA', 'FASE NOTAS 5/6 (Grupos por Fecha)', log_messages)
+    conciliar_lote_por_grupo(df, 'GRUPO_NOTA', 'FASE NOTAS 6/6 (CRUCE POR LOTE)', log_messages)
+    conciliar_pares_exactos_cero(df, 'GRUPO_BANCO', 'FASE BANCO 1/5 (Cruce CERO)', log_messages)
+    conciliar_pares_exactos_por_referencia(df, 'GRUPO_BANCO', 'FASE BANCO 2/5 (Pares por Referencia)', log_messages)
+    cruzar_pares_simples(df, 'BANCO_A_BANCO', 'FASE BANCO 3/5 (Pares por Monto)', log_messages)
+    cruzar_grupos_por_criterio(df, 'BANCO_A_BANCO', 'Referencia_Normalizada_Literal', 'BANCO_REF', 'FASE BANCO 4/5 (Grupos por Ref. Literal)', log_messages)
+    cruzar_grupos_por_criterio(df, 'BANCO_A_BANCO', 'Fecha', 'BANCO_FECHA', 'FASE BANCO 5/5 (Grupos por Fecha)', log_messages)
+    conciliar_pares_exactos_cero(df, 'GRUPO_REMESA', 'FASE REMESA 1/3 (Cruce CERO)', log_messages)
+    cruzar_pares_simples(df, 'REMESA_GENERAL', 'FASE REMESA 2/3 (Pares por Monto)', log_messages)
+    cruzar_grupos_por_criterio(df, 'REMESA_GENERAL', 'Referencia_Normalizada_Literal', 'REMESA_REF', 'FASE REMESA 3/3 (Grupos por Ref. Literal)', log_messages)
+    conciliar_grupos_globales_por_referencia(df, log_messages)
+    conciliar_pares_globales_remanentes(df, log_messages)
+    conciliar_grupos_complejos_usd(df, log_messages)
+    conciliar_pares_globales_remanentes(df, log_messages)
+    log_messages.append("\n--- PROCESO DE CONCILIACIÓN FINALIZADO ---")
+    return df
+
+# --- (B) Módulo: Fondos por Depositar (ME) (111.04.6001)---
 def normalizar_referencia_fondos_usd(df):
     df_copy = df.copy()
     def clasificar_usd(ref_str):
@@ -445,7 +488,6 @@ def conciliar_grupos_complejos_usd(df, log_messages, progress_bar=None):
     pendientes = df.loc[~df['Conciliado']]
     num_pendientes = len(pendientes)
     
-    # --- AJUSTE DINÁMICO DE POTENCIA ---
     # Mientras menos datos, más combinaciones podemos probar sin colgar el sistema.
     if num_pendientes < 50:
         MAX_COMBINACIONES = 6 # ¡Potencia máxima! (Busca hasta 6 facturas contra 1 pago)
@@ -610,230 +652,34 @@ def conciliar_gran_total_final_usd(df, log_messages):
         return len(df_pendientes.index)
     return 0
 
-# --- (C) Módulo: Devoluciones a Proveedores ---
-def normalizar_datos_proveedores(df, log_messages):
-    df_copy = df.copy()
+def run_conciliation_fondos_por_depositar(df, log_messages, progress_bar=None):
+    log_messages.append("\n--- INICIANDO LÓGICA DE FONDOS POR DEPOSITAR (USD) ---")
+    df = normalizar_referencia_fondos_usd(df)
     
-    nit_col_name = None
-    for col in df_copy.columns:
-        if str(col).strip().upper() in ['NIT', 'RIF']:
-            nit_col_name = col
-            break
-            
-    if nit_col_name:
-        log_messages.append(f"✔️ Se encontró la columna de identificador fiscal ('{nit_col_name}') y se usará como clave principal.")
-        df_copy['Clave_Proveedor'] = df_copy[nit_col_name].astype(str).str.upper().str.replace(r'[^A-Z0-9]', '', regex=True)
-    else:
-        log_messages.append("⚠️ ADVERTENCIA: No se encontró la columna 'NIT' o 'RIF'. Se recurrirá a usar 'Nombre del Proveedor', lo cual es menos preciso.")
-        df_copy['Clave_Proveedor'] = df_copy['Nombre del Proveedor'].astype(str).str.strip().str.upper()
+    conciliar_automaticos_usd(df, log_messages)
+    if progress_bar: progress_bar.progress(0.1, text="Fase 1/6: Conciliaciones automáticas completada.")
+    
+    conciliar_grupos_por_referencia_usd(df, log_messages)
+    if progress_bar: progress_bar.progress(0.2, text="Fase 2/6: Grupos por referencia específica completada.")
+    
+    conciliar_pares_banco_a_banco_usd(df, log_messages)
+    if progress_bar: progress_bar.progress(0.35, text="Fase 3/6: Pares 'Banco a Banco' completada.")
+    
+    conciliar_pares_globales_exactos_usd(df, log_messages)
+    if progress_bar: progress_bar.progress(0.5, text="Fase 4/6: Pares globales exactos completada.")
+    
+    conciliar_pares_globales_remanentes_usd(df, log_messages)
+    if progress_bar: progress_bar.progress(0.65, text="Fase 5/6: Búsqueda de pares con tolerancia completada.")
 
-    def extraer_clave_comp(row):
-        if row['Monto_USD'] > 0:
-            return str(row['Fuente']).strip().upper()
-        elif row['Monto_USD'] < 0:
-            match = re.search(r'(COMP-\d+)', str(row['Referencia']).upper())
-            if match:
-                return match.group(1)
-        return np.nan
-        
-    df_copy['Clave_Comp'] = df_copy.apply(extraer_clave_comp, axis=1)
-    return df_copy
-
-def run_conciliation_devoluciones_proveedores(df, log_messages):
-    log_messages.append("\n--- INICIANDO LÓGICA DE DEVOLUCIONES A PROVEEDORES (USD) ---")
+    conciliar_grupos_complejos_usd(df, log_messages, progress_bar)
+    if progress_bar: progress_bar.progress(0.9, text="Fase 6/6: Búsqueda de grupos complejos completada.")
     
-    df = normalizar_datos_proveedores(df, log_messages) 
+    conciliar_gran_total_final_usd(df, log_messages)
     
-    total_conciliados = 0
-    df_procesable = df.loc[(~df['Conciliado']) & (df['Clave_Proveedor'].notna()) & (df['Clave_Comp'].notna())]
-    
-    grupos = df_procesable.groupby(['Clave_Proveedor', 'Clave_Comp'])
-    
-    log_messages.append(f"ℹ️ Se encontraron {len(grupos)} grupos de Proveedor/COMP para analizar.")
-    for (proveedor_clave, comp), grupo in grupos:
-        if abs(round(grupo['Monto_USD'].sum(), 2)) <= TOLERANCIA_MAX_USD:
-            indices = grupo.index
-            df.loc[indices, ['Conciliado', 'Grupo_Conciliado']] = [True, f"PROV_{proveedor_clave}_{comp}"]
-            total_conciliados += len(indices)
-
-    if total_conciliados > 0:
-        log_messages.append(f"✔️ Conciliación por Proveedor/COMP: {total_conciliados} movimientos conciliados.")
-    else:
-        log_messages.append("ℹ️ No se encontraron conciliaciones automáticas por Proveedor/COMP.")
-        
     log_messages.append("\n--- PROCESO DE CONCILIACIÓN FINALIZADO ---")
     return df
 
-# --- (D) Módulo: Cuentas de Viajes ---
-def normalizar_referencia_viajes(df, log_messages):
-    log_messages.append("✔️ Fase de Normalización: Clasificando movimientos por tipo (Impuestos/Viáticos).")
-    
-    def clasificar_tipo(referencia_str):
-        if pd.isna(referencia_str):
-            return 'OTRO'
-        ref = str(referencia_str).upper().strip()
-        if 'TIMBRES' in ref or 'FISCAL' in ref:
-            return 'IMPUESTOS'
-        if 'VIAJE' in ref or 'VIATICOS' in ref:
-            return 'VIATICOS'
-        return 'OTRO'
-
-    df['Tipo'] = df['Referencia'].apply(clasificar_tipo)
-    
-    nit_col_name = next((col for col in df.columns if str(col).strip().upper() in ['NIT', 'RIF']), None)
-    if nit_col_name:
-        df['NIT_Normalizado'] = df[nit_col_name].astype(str).str.upper().str.replace(r'[^A-Z0-9]', '', regex=True)
-    else:
-        log_messages.append("⚠️ ADVERTENCIA: No se encontró la columna 'NIT' o 'RIF'. La conciliación puede no ser precisa.")
-        df['NIT_Normalizado'] = 'SIN_NIT'
-        
-    return df
-
-def conciliar_pares_exactos_por_nit_viajes(df, log_messages):
-    log_messages.append("\n--- FASE 1: Búsqueda de Pares Exactos por NIT ---")
-    total_conciliados = 0
-    
-    df_pendientes = df.loc[~df['Conciliado']].copy()
-    df_pendientes['Monto_Abs'] = df_pendientes['Monto_BS'].abs()
-    
-    grupos = df_pendientes.groupby(['NIT_Normalizado', 'Monto_Abs'])
-    
-    for (nit, monto), grupo in grupos:
-        if len(grupo) < 2 or nit == 'SIN_NIT':
-            continue
-            
-        debitos = grupo[grupo['Monto_BS'] > 0].index.to_list()
-        creditos = grupo[grupo['Monto_BS'] < 0].index.to_list()
-        
-        pares_a_conciliar = min(len(debitos), len(creditos))
-        
-        if pares_a_conciliar > 0:
-            for i in range(pares_a_conciliar):
-                idx_d, idx_c = debitos[i], creditos[i]
-                
-                if abs(df.loc[idx_d, 'Monto_BS'] + df.loc[idx_c, 'Monto_BS']) <= 0.01:
-                    asiento_d, asiento_c = df.loc[idx_d, 'Asiento'], df.loc[idx_c, 'Asiento']
-                    df.loc[[idx_d, idx_c], 'Conciliado'] = True
-                    df.loc[idx_d, 'Grupo_Conciliado'] = f'PAR_NIT_{nit}_{asiento_c}'
-                    df.loc[idx_c, 'Grupo_Conciliado'] = f'PAR_NIT_{nit}_{asiento_d}'
-                    total_conciliados += 2
-
-    if total_conciliados > 0:
-        log_messages.append(f"✔️ Fase 1: {total_conciliados} movimientos conciliados como pares exactos por NIT.")
-    return total_conciliados
-
-def conciliar_grupos_por_nit_viajes(df, log_messages):
-    log_messages.append("\n--- FASE 2: Búsqueda de Grupos por NIT ---")
-    total_conciliados_fase = 0
-    
-    df_pendientes = df.loc[~df['Conciliado']]
-    grupos_por_nit = df_pendientes.groupby('NIT_Normalizado')
-    
-    for nit, grupo in grupos_por_nit:
-        if nit == 'SIN_NIT' or len(grupo) < 2:
-            continue
-            
-        if abs(grupo['Monto_BS'].sum()) <= TOLERANCIA_MAX_BS:
-            indices = grupo.index
-            df.loc[indices, ['Conciliado', 'Grupo_Conciliado']] = [True, f'GRUPO_TOTAL_NIT_{nit}']
-            total_conciliados_fase += len(indices)
-            log_messages.append(f"✔️ Conciliado grupo completo para NIT {nit} ({len(indices)} movimientos).")
-            continue
-
-        LIMITE_COMBINACION = 10
-        movimientos_grupo = grupo.index.to_list()
-        
-        if len(movimientos_grupo) > LIMITE_COMBINACION:
-            log_messages.append(f"ℹ️ Se omitió la búsqueda de sub-grupos para NIT {nit} por exceso de movimientos (> {LIMITE_COMBINACION}).")
-            continue
-
-        indices_usados_en_grupo = set()
-        for i in range(2, len(movimientos_grupo) + 1):
-            for combo_indices in combinations(movimientos_grupo, i):
-                if not indices_usados_en_grupo.isdisjoint(combo_indices):
-                    continue
-                
-                suma_combo = df.loc[list(combo_indices), 'Monto_BS'].sum()
-                if abs(suma_combo) <= TOLERANCIA_MAX_BS:
-                    grupo_id = f"GRUPO_PARCIAL_NIT_{nit}_{total_conciliados_fase}"
-                    df.loc[list(combo_indices), ['Conciliado', 'Grupo_Conciliado']] = [True, grupo_id]
-                    indices_usados_en_grupo.update(combo_indices)
-                    total_conciliados_fase += len(combo_indices)
-
-    if total_conciliados_fase > 0:
-        log_messages.append(f"✔️ Fase 2: {total_conciliados_fase} movimientos conciliados en grupos por NIT.")
-    return total_conciliados_fase
-
-# --- (E) Módulo: Deudores Empleados - Otros (ME) ---
-def normalizar_datos_deudores_empleados(df, log_messages):
-    """Normaliza el NIT del empleado para usarlo como clave de agrupación."""
-    df_copy = df.copy()
-    
-    # Busca la columna NIT/RIF dinámicamente
-    nit_col_name = next((col for col in df_copy.columns if str(col).strip().upper() in ['NIT', 'RIF']), None)
-            
-    if nit_col_name:
-        log_messages.append(f"✔️ Normalización: Usando columna '{nit_col_name}' como identificador del empleado.")
-        # Limpia el NIT: quita caracteres no alfanuméricos y convierte a mayúsculas
-        df_copy['Clave_Empleado'] = df_copy[nit_col_name].astype(str).str.upper().str.replace(r'[^A-Z0-9]', '', regex=True)
-    else:
-        log_messages.append("⚠️ ADVERTENCIA: No se encontró columna 'NIT' o 'RIF'. La conciliación puede ser imprecisa.")
-        df_copy['Clave_Empleado'] = 'SIN_NIT'
-        
-    return df_copy
-
-def conciliar_grupos_por_empleado(df, log_messages):
-    """Concilia movimientos por empleado si la suma total en USD es cero."""
-    log_messages.append("\n--- FASE 1: Conciliación de saldos totales por empleado (USD) ---")
-    
-    total_conciliados = 0
-    df_pendientes = df.loc[~df['Conciliado']]
-    grupos_por_empleado = df_pendientes.groupby('Clave_Empleado')
-    
-    log_messages.append(f"ℹ️ Se analizarán los saldos de {len(grupos_por_empleado)} empleados.")
-    
-    # --- BÚSQUEDA INTELIGENTE DE LA COLUMNA DE NOMBRE ---
-    col_nombre = None
-    # Lista de posibles nombres que puede tener la columna en el Excel
-    candidatos = ['Descripcion NIT', 'Descripción Nit', 'Nombre del Proveedor', 'Nombre', 'Cliente']
-    
-    for col in candidatos:
-        if col in df.columns:
-            col_nombre = col
-            break # Encontramos una válida, dejamos de buscar
-    # ----------------------------------------------------
-
-    for clave_empleado, grupo in grupos_por_empleado:
-        if clave_empleado == 'SIN_NIT' or pd.isna(clave_empleado) or not clave_empleado:
-            continue
-            
-        suma_usd = grupo['Monto_USD'].sum()
-        
-        if abs(suma_usd) <= TOLERANCIA_MAX_USD:
-            indices_a_conciliar = grupo.index
-            
-            df.loc[indices_a_conciliar, 'Conciliado'] = True
-            df.loc[indices_a_conciliar, 'Grupo_Conciliado'] = f"SALDO_CERO_EMP_{clave_empleado}"
-            
-            num_movs = len(indices_a_conciliar)
-            total_conciliados += num_movs
-            
-            # Extracción segura del nombre
-            if col_nombre and not grupo.empty:
-                nombre_empleado = grupo[col_nombre].iloc[0]
-            else:
-                nombre_empleado = clave_empleado # Si no hay columna de nombre, usamos el NIT
-                
-            log_messages.append(f"✔️ Empleado '{nombre_empleado}' ({clave_empleado}) conciliado. Suma: ${suma_usd:.2f} ({num_movs} movimientos).")
-
-    if total_conciliados > 0:
-        log_messages.append(f"✔️ Fase 1: {total_conciliados} movimientos conciliados por saldo cero por empleado.")
-    else:
-        log_messages.append("ℹ️ Fase 1: No se encontraron empleados con saldo cero para conciliar automáticamente.")
-        
-    return total_conciliados
-
-# --- (F) Módulo: Fondos por Depositar – Cobros Viajeros – ME ---
+# --- (C) Módulo: Fondos por Depositar – Cobros Viajeros – ME (111.04.6001) ---
 
 def normalizar_datos_cobros_viajeros(df, log_messages):
     """
@@ -873,11 +719,6 @@ def run_conciliation_cobros_viajeros(df, log_messages, progress_bar=None):
     """
     log_messages.append("\n--- INICIANDO LÓGICA DE COBROS VIAJEROS (V12 - TOLERANCIA CERO) ---")
     
-    # --- DEFINICIÓN DE TOLERANCIA LOCAL ---
-    # Cambio solicitado: Tolerancia CERO. No se permiten diferencias.
-    TOLERANCIA_ESTRICTA_USD = 0.00
-    # --------------------------------------
-
     df = normalizar_datos_cobros_viajeros(df, log_messages)
     if progress_bar: progress_bar.progress(0.1, text="Fase de Normalización completada.")
 
@@ -984,8 +825,208 @@ def run_conciliation_cobros_viajeros(df, log_messages, progress_bar=None):
     log_messages.append(f"✔️ Proceso finalizado. Conciliados: {total_conciliados}")
     return df
 
-# --- (G) Módulo: Otras Cuentas por Pagar (VES) ---
+# --- (D) Módulo: Deudores Empleados - Otros (ME) (114.02.6006) ---
+def normalizar_datos_deudores_empleados(df, log_messages):
+    """Normaliza el NIT del empleado para usarlo como clave de agrupación."""
+    df_copy = df.copy()
+    
+    # Busca la columna NIT/RIF dinámicamente
+    nit_col_name = next((col for col in df_copy.columns if str(col).strip().upper() in ['NIT', 'RIF']), None)
+            
+    if nit_col_name:
+        log_messages.append(f"✔️ Normalización: Usando columna '{nit_col_name}' como identificador del empleado.")
+        # Limpia el NIT: quita caracteres no alfanuméricos y convierte a mayúsculas
+        df_copy['Clave_Empleado'] = df_copy[nit_col_name].astype(str).str.upper().str.replace(r'[^A-Z0-9]', '', regex=True)
+    else:
+        log_messages.append("⚠️ ADVERTENCIA: No se encontró columna 'NIT' o 'RIF'. La conciliación puede ser imprecisa.")
+        df_copy['Clave_Empleado'] = 'SIN_NIT'
+        
+    return df_copy
 
+def conciliar_grupos_por_empleado(df, log_messages):
+    """Concilia movimientos por empleado si la suma total en USD es cero."""
+    log_messages.append("\n--- FASE 1: Conciliación de saldos totales por empleado (USD) ---")
+    
+    total_conciliados = 0
+    df_pendientes = df.loc[~df['Conciliado']]
+    grupos_por_empleado = df_pendientes.groupby('Clave_Empleado')
+    
+    log_messages.append(f"ℹ️ Se analizarán los saldos de {len(grupos_por_empleado)} empleados.")
+    
+    # --- BÚSQUEDA INTELIGENTE DE LA COLUMNA DE NOMBRE ---
+    col_nombre = None
+    # Lista de posibles nombres que puede tener la columna en el Excel
+    candidatos = ['Descripcion NIT', 'Descripción Nit', 'Nombre del Proveedor', 'Nombre', 'Cliente']
+    
+    for col in candidatos:
+        if col in df.columns:
+            col_nombre = col
+            break # Encontramos una válida, dejamos de buscar
+
+    for clave_empleado, grupo in grupos_por_empleado:
+        if clave_empleado == 'SIN_NIT' or pd.isna(clave_empleado) or not clave_empleado:
+            continue
+            
+        suma_usd = grupo['Monto_USD'].sum()
+        
+        if abs(suma_usd) <= TOLERANCIA_MAX_USD:
+            indices_a_conciliar = grupo.index
+            
+            df.loc[indices_a_conciliar, 'Conciliado'] = True
+            df.loc[indices_a_conciliar, 'Grupo_Conciliado'] = f"SALDO_CERO_EMP_{clave_empleado}"
+            
+            num_movs = len(indices_a_conciliar)
+            total_conciliados += num_movs
+            
+            # Extracción segura del nombre
+            if col_nombre and not grupo.empty:
+                nombre_empleado = grupo[col_nombre].iloc[0]
+            else:
+                nombre_empleado = clave_empleado # Si no hay columna de nombre, usamos el NIT
+                
+            log_messages.append(f"✔️ Empleado '{nombre_empleado}' ({clave_empleado}) conciliado. Suma: ${suma_usd:.2f} ({num_movs} movimientos).")
+
+    if total_conciliados > 0:
+        log_messages.append(f"✔️ Fase 1: {total_conciliados} movimientos conciliados por saldo cero por empleado.")
+    else:
+        log_messages.append("ℹ️ Fase 1: No se encontraron empleados con saldo cero para conciliar automáticamente.")
+        
+    return total_conciliados
+
+def run_conciliation_deudores_empleados_me(df, log_messages, progress_bar=None):
+    """
+    Orquesta el proceso de conciliación para la cuenta Deudores Empleados en ME.
+    La lógica principal es conciliar por empleado si su saldo total en USD es cero.
+    """
+    log_messages.append("\n--- INICIANDO LÓGICA DE DEUDORES EMPLEADOS (ME) ---")
+    
+    # Paso 1: Normalizar los datos para obtener una clave de empleado fiable
+    df = normalizar_datos_deudores_empleados(df, log_messages)
+    if progress_bar: progress_bar.progress(0.3, text="Fase de Normalización completada.")
+    
+    # Paso 2: Ejecutar la lógica de conciliación principal
+    conciliar_grupos_por_empleado(df, log_messages)
+    if progress_bar: progress_bar.progress(0.8, text="Fase de Conciliación por Empleado completada.")
+    
+    log_messages.append("\n--- PROCESO DE CONCILIACIÓN FINALIZADO ---")
+    return df
+
+# --- (E) Módulo: Cuentas de Viajes (114.03.1002) ---
+def normalizar_referencia_viajes(df, log_messages):
+    log_messages.append("✔️ Fase de Normalización: Clasificando movimientos por tipo (Impuestos/Viáticos).")
+    
+    def clasificar_tipo(referencia_str):
+        if pd.isna(referencia_str):
+            return 'OTRO'
+        ref = str(referencia_str).upper().strip()
+        if 'TIMBRES' in ref or 'FISCAL' in ref:
+            return 'IMPUESTOS'
+        if 'VIAJE' in ref or 'VIATICOS' in ref:
+            return 'VIATICOS'
+        return 'OTRO'
+
+    df['Tipo'] = df['Referencia'].apply(clasificar_tipo)
+    
+    nit_col_name = next((col for col in df.columns if str(col).strip().upper() in ['NIT', 'RIF']), None)
+    if nit_col_name:
+        df['NIT_Normalizado'] = df[nit_col_name].astype(str).str.upper().str.replace(r'[^A-Z0-9]', '', regex=True)
+    else:
+        log_messages.append("⚠️ ADVERTENCIA: No se encontró la columna 'NIT' o 'RIF'. La conciliación puede no ser precisa.")
+        df['NIT_Normalizado'] = 'SIN_NIT'
+        
+    return df
+
+def conciliar_pares_exactos_por_nit_viajes(df, log_messages):
+    log_messages.append("\n--- FASE 1: Búsqueda de Pares Exactos por NIT ---")
+    total_conciliados = 0
+    
+    df_pendientes = df.loc[~df['Conciliado']].copy()
+    df_pendientes['Monto_Abs'] = df_pendientes['Monto_BS'].abs()
+    
+    grupos = df_pendientes.groupby(['NIT_Normalizado', 'Monto_Abs'])
+    
+    for (nit, monto), grupo in grupos:
+        if len(grupo) < 2 or nit == 'SIN_NIT':
+            continue
+            
+        debitos = grupo[grupo['Monto_BS'] > 0].index.to_list()
+        creditos = grupo[grupo['Monto_BS'] < 0].index.to_list()
+        
+        pares_a_conciliar = min(len(debitos), len(creditos))
+        
+        if pares_a_conciliar > 0:
+            for i in range(pares_a_conciliar):
+                idx_d, idx_c = debitos[i], creditos[i]
+                
+                if abs(df.loc[idx_d, 'Monto_BS'] + df.loc[idx_c, 'Monto_BS']) <= 0.01:
+                    asiento_d, asiento_c = df.loc[idx_d, 'Asiento'], df.loc[idx_c, 'Asiento']
+                    df.loc[[idx_d, idx_c], 'Conciliado'] = True
+                    df.loc[idx_d, 'Grupo_Conciliado'] = f'PAR_NIT_{nit}_{asiento_c}'
+                    df.loc[idx_c, 'Grupo_Conciliado'] = f'PAR_NIT_{nit}_{asiento_d}'
+                    total_conciliados += 2
+
+    if total_conciliados > 0:
+        log_messages.append(f"✔️ Fase 1: {total_conciliados} movimientos conciliados como pares exactos por NIT.")
+    return total_conciliados
+
+def conciliar_grupos_por_nit_viajes(df, log_messages):
+    log_messages.append("\n--- FASE 2: Búsqueda de Grupos por NIT ---")
+    total_conciliados_fase = 0
+    
+    df_pendientes = df.loc[~df['Conciliado']]
+    grupos_por_nit = df_pendientes.groupby('NIT_Normalizado')
+    
+    for nit, grupo in grupos_por_nit:
+        if nit == 'SIN_NIT' or len(grupo) < 2:
+            continue
+            
+        if abs(grupo['Monto_BS'].sum()) <= TOLERANCIA_MAX_BS:
+            indices = grupo.index
+            df.loc[indices, ['Conciliado', 'Grupo_Conciliado']] = [True, f'GRUPO_TOTAL_NIT_{nit}']
+            total_conciliados_fase += len(indices)
+            log_messages.append(f"✔️ Conciliado grupo completo para NIT {nit} ({len(indices)} movimientos).")
+            continue
+
+        LIMITE_COMBINACION = 10
+        movimientos_grupo = grupo.index.to_list()
+        
+        if len(movimientos_grupo) > LIMITE_COMBINACION:
+            log_messages.append(f"ℹ️ Se omitió la búsqueda de sub-grupos para NIT {nit} por exceso de movimientos (> {LIMITE_COMBINACION}).")
+            continue
+
+        indices_usados_en_grupo = set()
+        for i in range(2, len(movimientos_grupo) + 1):
+            for combo_indices in combinations(movimientos_grupo, i):
+                if not indices_usados_en_grupo.isdisjoint(combo_indices):
+                    continue
+                
+                suma_combo = df.loc[list(combo_indices), 'Monto_BS'].sum()
+                if abs(suma_combo) <= TOLERANCIA_MAX_BS:
+                    grupo_id = f"GRUPO_PARCIAL_NIT_{nit}_{total_conciliados_fase}"
+                    df.loc[list(combo_indices), ['Conciliado', 'Grupo_Conciliado']] = [True, grupo_id]
+                    indices_usados_en_grupo.update(combo_indices)
+                    total_conciliados_fase += len(combo_indices)
+
+    if total_conciliados_fase > 0:
+        log_messages.append(f"✔️ Fase 2: {total_conciliados_fase} movimientos conciliados en grupos por NIT.")
+    return total_conciliados_fase
+
+def run_conciliation_viajes(df, log_messages, progress_bar=None):
+    log_messages.append("\n--- INICIANDO LÓGICA DE CUENTAS DE VIAJES (BS) ---")
+    
+    df = normalizar_referencia_viajes(df, log_messages)
+    if progress_bar: progress_bar.progress(0.2, text="Fase de Normalización completada.")
+    
+    conciliar_pares_exactos_por_nit_viajes(df, log_messages)
+    if progress_bar: progress_bar.progress(0.5, text="Fase 1/2: Búsqueda de pares exactos completada.")
+    
+    conciliar_grupos_por_nit_viajes(df, log_messages)
+    if progress_bar: progress_bar.progress(0.9, text="Fase 2/2: Búsqueda de grupos complejos completada.")
+    
+    log_messages.append("\n--- PROCESO DE CONCILIACIÓN FINALIZADO ---")
+    return df
+
+# --- (F) Módulo: Otras Cuentas por Pagar (VES) (212.05.1019) ---
 def normalizar_datos_otras_cxp(df, log_messages):
     """
     Prepara el DataFrame extrayendo el número de envío de la Referencia.
@@ -1042,7 +1083,6 @@ def run_conciliation_otras_cxp(df, log_messages, progress_bar=None):
         count_dif = len(indices_dif)
         total_conciliados += count_dif
         log_messages.append(f"✔️ Fase Auto: {count_dif} movimientos conciliados por ser 'Diferencia en Cambio'.")
-    # ---------------------------------------------------------------
     
     # Filtrar solo las filas pendientes donde se pudo extraer un número de envío válido
     df_procesable = df[(~df['Conciliado']) & (df['Numero_Envio'] != '')]
@@ -1080,8 +1120,8 @@ def run_conciliation_otras_cxp(df, log_messages, progress_bar=None):
         
     log_messages.append("\n--- PROCESO DE CONCILIACIÓN FINALIZADO ---")
     return df
-
-# --- (H) Módulo: Haberes de Clientes (VES) ---
+    
+# --- (G) Módulo: Haberes de Clientes (VES) (212.05.1108)---
 
 def run_conciliation_haberes_clientes(df, log_messages, progress_bar=None):
     """
@@ -1118,7 +1158,6 @@ def run_conciliation_haberes_clientes(df, log_messages, progress_bar=None):
     # --- FASE 2: CONCILIACIÓN POR MONTO EXACTO (RECUPERACIÓN) ---
     # Buscamos pares (Débito vs Crédito) que tengan exactamente el mismo monto absoluto
     # Esto cruza filas con NIT vs filas SIN NIT (o NIT errado).
-    
     df_pendientes = df[~df['Conciliado']].copy()
     df_pendientes['Monto_Abs'] = df_pendientes['Monto_BS'].abs()
     
@@ -1156,142 +1195,7 @@ def run_conciliation_haberes_clientes(df, log_messages, progress_bar=None):
     log_messages.append("\n--- PROCESO DE CONCILIACIÓN FINALIZADO ---")
     return df
 
-# --- (I) Módulo: CDC - Factoring (USD) ---
-
-def normalizar_datos_cdc_factoring(df, log_messages):
-    """
-    Extrae el código del contrato.
-    Nivel 1: Patrones FQ u O/C.
-    Nivel 2: Barrido después de palabra 'FACTORING'.
-    Nivel 3: Detección directa (si la referencia es solo el número).
-    """
-    df_copy = df.copy()
-    
-    # 1. Normalizar NIT
-    nit_col_name = next((col for col in df_copy.columns if str(col).strip().upper() in ['NIT', 'RIF']), None)
-    if nit_col_name:
-        df_copy['NIT_Normalizado'] = df_copy[nit_col_name].astype(str).str.upper().str.replace(r'[^A-Z0-9]', '', regex=True)
-    else:
-        df_copy['NIT_Normalizado'] = 'SIN_NIT'
-
-    def limpiar_y_extraer(texto_crudo):
-        if not isinstance(texto_crudo, str): return None
-        texto = texto_crudo.upper().strip()
-        if not texto: return None
-        
-        # --- NIVEL 1: Patrones de Alta Precisión (FQ y O/C) ---
-        match_fq = re.search(r"(FQ-[A-Z0-9-]+)", texto)
-        if match_fq: return match_fq.group(1)
-        
-        match_oc = re.search(r"O/C\s*[-]?\s*([A-Z0-9]+)", texto)
-        if match_oc: return match_oc.group(1)
-
-        # --- NIVEL 2: Barrido Inteligente después de 'FACTORING' ---
-        if "FACTORING" in texto:
-            try:
-                parte_derecha = texto.split("FACTORING", 1)[1]
-                parte_derecha = parte_derecha.replace('$', ' ').replace(':', ' ').replace(',', ' ')
-                palabras = parte_derecha.split()
-                ignorar = ['DE', 'DEL', 'AL', 'NRO', 'NUM', 'NUMERO', 'REF', 'NO', 'PAGO', 'ABONO', 'CANCELACION', 'FAC', 'FACT']
-                
-                for palabra in palabras:
-                    p_clean = palabra.replace('.', '').strip()
-                    if p_clean in ignorar: continue
-                    if any(char.isdigit() for char in p_clean):
-                        if len(p_clean) >= 3: return p_clean
-            except IndexError:
-                pass
-
-        # --- NIVEL 3: Referencia Directa (Caso Febeca) ---
-        # Si la referencia NO tiene espacios y contiene números (ej: "6016301")
-        # Verificamos que sea un bloque sólido alfanumérico
-        if ' ' not in texto:
-            # Debe tener al menos un número
-            if any(char.isdigit() for char in texto):
-                # Longitud mínima 4 para evitar capturar "1", "2023" (años), etc.
-                if len(texto) >= 4:
-                    return texto
-
-        return None
-
-    def extraer_contrato_row(row):
-        # Buscamos primero en Referencia, luego en Fuente
-        contrato_ref = limpiar_y_extraer(row.get('Referencia', ''))
-        if contrato_ref: return contrato_ref
-        
-        contrato_fuente = limpiar_y_extraer(row.get('Fuente', ''))
-        if contrato_fuente: return contrato_fuente
-        
-        return 'SIN_CONTRATO'
-
-    df_copy['Contrato'] = df_copy.apply(extraer_contrato_row, axis=1)
-    
-    return df_copy
-    
-def run_conciliation_cdc_factoring(df, log_messages, progress_bar=None):
-    """
-    Conciliación de Factoring (USD).
-    Incluye limpieza automática de Diferencial Cambiario y cruce por Contrato.
-    """
-    log_messages.append("\n--- INICIANDO LÓGICA DE CDC - FACTORING (USD) ---")
-    
-    df = normalizar_datos_cdc_factoring(df, log_messages)
-    if progress_bar: progress_bar.progress(0.2, text="Fase de Normalización completada.")
-
-    total_conciliados = 0
-
-    # --- FASE 0: CONCILIACIÓN AUTOMÁTICA (DIFERENCIAL CAMBIARIO) ---
-    # Detectamos ajustes contables por valoración de moneda.
-    # Buscamos en Referencia, Fuente y Descripción si existe.
-    def es_ajuste_cambiario(row):
-        texto_completo = (str(row.get('Referencia', '')) + " " + 
-                          str(row.get('Fuente', '')) + " " + 
-                          str(row.get('Descripción', ''))).upper()
-        
-        palabras_clave = ['DIFERENCIA DE CAMBIO', 'DIFERENCIAS DE CAMBIO', 'DIFERENCIAL CAMBIARIO', 'AJUSTE CAMBIARIO', 'DIFF']
-        
-        for palabra in palabras_clave:
-            if palabra in texto_completo:
-                return True
-        return False
-
-    # Aplicamos el filtro
-    indices_dif = df[df.apply(es_ajuste_cambiario, axis=1) & (~df['Conciliado'])].index
-
-    if not indices_dif.empty:
-        df.loc[indices_dif, 'Conciliado'] = True
-        df.loc[indices_dif, 'Grupo_Conciliado'] = 'AUTOMATICO_DIF_CAMBIO'
-        count_dif = len(indices_dif)
-        total_conciliados += count_dif
-        log_messages.append(f"✔️ Fase Auto: {count_dif} movimientos conciliados por ser 'Diferencia en Cambio'.")
-    # ------------------------------------------------------------------
-    
-    # Filtramos pendientes reales para la lógica de contratos
-    df_pendientes = df[~df['Conciliado']]
-    
-    # Agrupamos por NIT y Contrato
-    # Ignoramos los que no tienen contrato identificado para esta fase
-    grupos = df_pendientes[df_pendientes['Contrato'] != 'SIN_CONTRATO'].groupby(['NIT_Normalizado', 'Contrato'])
-    
-    log_messages.append(f"ℹ️ Se encontraron {len(grupos)} contratos para analizar.")
-
-    for (nit, contrato), grupo in grupos:
-        if len(grupo) < 2: continue
-        
-        # Validar suma cero en Dólares
-        if np.isclose(grupo['Monto_USD'].sum(), 0, atol=TOLERANCIA_MAX_USD):
-            indices = grupo.index
-            df.loc[indices, 'Conciliado'] = True
-            df.loc[indices, 'Grupo_Conciliado'] = f"FACT_{nit}_{contrato}"
-            total_conciliados += len(indices)
-
-    if total_conciliados > 0:
-        log_messages.append(f"✔️ Conciliación Factoring: {total_conciliados} movimientos conciliados.")
-    
-    log_messages.append("\n--- PROCESO DE CONCILIACIÓN FINALIZADO ---")
-    return df
-
-# --- (J) Módulo: Asientos por Clasificar (VES) ---
+# --- (H) Módulo: Asientos por Clasificar (VES) (212.05.1005) ---
 def run_conciliation_asientos_por_clasificar(df, log_messages, progress_bar=None):
     """
     Conciliación de Asientos por Clasificar (BS).
@@ -1413,8 +1317,61 @@ def run_conciliation_asientos_por_clasificar(df, log_messages, progress_bar=None
     
     return df
 
-# --- (K) Módulo: Proveedores d/Mcia -Costos Causados ---
+# --- (I) Módulo: Devoluciones a Proveedores (212.07.6009) ---
+def normalizar_datos_proveedores(df, log_messages):
+    df_copy = df.copy()
+    
+    nit_col_name = None
+    for col in df_copy.columns:
+        if str(col).strip().upper() in ['NIT', 'RIF']:
+            nit_col_name = col
+            break
+            
+    if nit_col_name:
+        log_messages.append(f"✔️ Se encontró la columna de identificador fiscal ('{nit_col_name}') y se usará como clave principal.")
+        df_copy['Clave_Proveedor'] = df_copy[nit_col_name].astype(str).str.upper().str.replace(r'[^A-Z0-9]', '', regex=True)
+    else:
+        log_messages.append("⚠️ ADVERTENCIA: No se encontró la columna 'NIT' o 'RIF'. Se recurrirá a usar 'Nombre del Proveedor', lo cual es menos preciso.")
+        df_copy['Clave_Proveedor'] = df_copy['Nombre del Proveedor'].astype(str).str.strip().str.upper()
 
+    def extraer_clave_comp(row):
+        if row['Monto_USD'] > 0:
+            return str(row['Fuente']).strip().upper()
+        elif row['Monto_USD'] < 0:
+            match = re.search(r'(COMP-\d+)', str(row['Referencia']).upper())
+            if match:
+                return match.group(1)
+        return np.nan
+        
+    df_copy['Clave_Comp'] = df_copy.apply(extraer_clave_comp, axis=1)
+    return df_copy
+
+def run_conciliation_devoluciones_proveedores(df, log_messages):
+    log_messages.append("\n--- INICIANDO LÓGICA DE DEVOLUCIONES A PROVEEDORES (USD) ---")
+    
+    df = normalizar_datos_proveedores(df, log_messages) 
+    
+    total_conciliados = 0
+    df_procesable = df.loc[(~df['Conciliado']) & (df['Clave_Proveedor'].notna()) & (df['Clave_Comp'].notna())]
+    
+    grupos = df_procesable.groupby(['Clave_Proveedor', 'Clave_Comp'])
+    
+    log_messages.append(f"ℹ️ Se encontraron {len(grupos)} grupos de Proveedor/COMP para analizar.")
+    for (proveedor_clave, comp), grupo in grupos:
+        if abs(round(grupo['Monto_USD'].sum(), 2)) <= TOLERANCIA_MAX_USD:
+            indices = grupo.index
+            df.loc[indices, ['Conciliado', 'Grupo_Conciliado']] = [True, f"PROV_{proveedor_clave}_{comp}"]
+            total_conciliados += len(indices)
+
+    if total_conciliados > 0:
+        log_messages.append(f"✔️ Conciliación por Proveedor/COMP: {total_conciliados} movimientos conciliados.")
+    else:
+        log_messages.append("ℹ️ No se encontraron conciliaciones automáticas por Proveedor/COMP.")
+        
+    log_messages.append("\n--- PROCESO DE CONCILIACIÓN FINALIZADO ---")
+    return df
+
+# --- (J) Módulo: Proveedores d/Mcia -Costos Causados ---
 def run_conciliation_proveedores_costos(df, log_messages, progress_bar=None):
     """
     Conciliación 212.07.1012 - VERSIÓN DEFINITIVA V7.
@@ -1584,102 +1541,152 @@ def run_conciliation_proveedores_costos(df, log_messages, progress_bar=None):
             
     log_messages.append(f"✔️ Conciliación finalizada. Total: {total_conciliados} movimientos.")
     return df
+
+# --- (K) Módulo: CDC - Factoring (USD) (212.07.9001) ---
+
+def normalizar_datos_cdc_factoring(df, log_messages):
+    """
+    Extrae el código del contrato.
+    Nivel 1: Patrones FQ u O/C.
+    Nivel 2: Barrido después de palabra 'FACTORING'.
+    Nivel 3: Detección directa (si la referencia es solo el número).
+    """
+    df_copy = df.copy()
+    
+    # 1. Normalizar NIT
+    nit_col_name = next((col for col in df_copy.columns if str(col).strip().upper() in ['NIT', 'RIF']), None)
+    if nit_col_name:
+        df_copy['NIT_Normalizado'] = df_copy[nit_col_name].astype(str).str.upper().str.replace(r'[^A-Z0-9]', '', regex=True)
+    else:
+        df_copy['NIT_Normalizado'] = 'SIN_NIT'
+
+    def limpiar_y_extraer(texto_crudo):
+        if not isinstance(texto_crudo, str): return None
+        texto = texto_crudo.upper().strip()
+        if not texto: return None
+        
+        # --- NIVEL 1: Patrones de Alta Precisión (FQ y O/C) ---
+        match_fq = re.search(r"(FQ-[A-Z0-9-]+)", texto)
+        if match_fq: return match_fq.group(1)
+        
+        match_oc = re.search(r"O/C\s*[-]?\s*([A-Z0-9]+)", texto)
+        if match_oc: return match_oc.group(1)
+
+        # --- NIVEL 2: Barrido Inteligente después de 'FACTORING' ---
+        if "FACTORING" in texto:
+            try:
+                parte_derecha = texto.split("FACTORING", 1)[1]
+                parte_derecha = parte_derecha.replace('$', ' ').replace(':', ' ').replace(',', ' ')
+                palabras = parte_derecha.split()
+                ignorar = ['DE', 'DEL', 'AL', 'NRO', 'NUM', 'NUMERO', 'REF', 'NO', 'PAGO', 'ABONO', 'CANCELACION', 'FAC', 'FACT']
+                
+                for palabra in palabras:
+                    p_clean = palabra.replace('.', '').strip()
+                    if p_clean in ignorar: continue
+                    if any(char.isdigit() for char in p_clean):
+                        if len(p_clean) >= 3: return p_clean
+            except IndexError:
+                pass
+
+        # --- NIVEL 3: Referencia Directa (Caso Febeca) ---
+        # Si la referencia NO tiene espacios y contiene números (ej: "6016301")
+        # Verificamos que sea un bloque sólido alfanumérico
+        if ' ' not in texto:
+            # Debe tener al menos un número
+            if any(char.isdigit() for char in texto):
+                # Longitud mínima 4 para evitar capturar "1", "2023" (años), etc.
+                if len(texto) >= 4:
+                    return texto
+
+        return None
+
+    def extraer_contrato_row(row):
+        # Buscamos primero en Referencia, luego en Fuente
+        contrato_ref = limpiar_y_extraer(row.get('Referencia', ''))
+        if contrato_ref: return contrato_ref
+        
+        contrato_fuente = limpiar_y_extraer(row.get('Fuente', ''))
+        if contrato_fuente: return contrato_fuente
+        
+        return 'SIN_CONTRATO'
+
+    df_copy['Contrato'] = df_copy.apply(extraer_contrato_row, axis=1)
+    
+    return df_copy
+    
+def run_conciliation_cdc_factoring(df, log_messages, progress_bar=None):
+    """
+    Conciliación de Factoring (USD).
+    Incluye limpieza automática de Diferencial Cambiario y cruce por Contrato.
+    """
+    log_messages.append("\n--- INICIANDO LÓGICA DE CDC - FACTORING (USD) ---")
+    
+    df = normalizar_datos_cdc_factoring(df, log_messages)
+    if progress_bar: progress_bar.progress(0.2, text="Fase de Normalización completada.")
+
+    total_conciliados = 0
+
+    # --- FASE 0: CONCILIACIÓN AUTOMÁTICA (DIFERENCIAL CAMBIARIO) ---
+    # Detectamos ajustes contables por valoración de moneda.
+    # Buscamos en Referencia, Fuente y Descripción si existe.
+    def es_ajuste_cambiario(row):
+        texto_completo = (str(row.get('Referencia', '')) + " " + 
+                          str(row.get('Fuente', '')) + " " + 
+                          str(row.get('Descripción', ''))).upper()
+        
+        palabras_clave = ['DIFERENCIA DE CAMBIO', 'DIFERENCIAS DE CAMBIO', 'DIFERENCIAL CAMBIARIO', 'AJUSTE CAMBIARIO', 'DIFF']
+        
+        for palabra in palabras_clave:
+            if palabra in texto_completo:
+                return True
+        return False
+
+    # Aplicamos el filtro
+    indices_dif = df[df.apply(es_ajuste_cambiario, axis=1) & (~df['Conciliado'])].index
+
+    if not indices_dif.empty:
+        df.loc[indices_dif, 'Conciliado'] = True
+        df.loc[indices_dif, 'Grupo_Conciliado'] = 'AUTOMATICO_DIF_CAMBIO'
+        count_dif = len(indices_dif)
+        total_conciliados += count_dif
+        log_messages.append(f"✔️ Fase Auto: {count_dif} movimientos conciliados por ser 'Diferencia en Cambio'.")
+        
+    # Filtramos pendientes reales para la lógica de contratos
+    df_pendientes = df[~df['Conciliado']]
+    
+    # Agrupamos por NIT y Contrato
+    # Ignoramos los que no tienen contrato identificado para esta fase
+    grupos = df_pendientes[df_pendientes['Contrato'] != 'SIN_CONTRATO'].groupby(['NIT_Normalizado', 'Contrato'])
+    
+    log_messages.append(f"ℹ️ Se encontraron {len(grupos)} contratos para analizar.")
+
+    for (nit, contrato), grupo in grupos:
+        if len(grupo) < 2: continue
+        
+        # Validar suma cero en Dólares
+        if np.isclose(grupo['Monto_USD'].sum(), 0, atol=TOLERANCIA_MAX_USD):
+            indices = grupo.index
+            df.loc[indices, 'Conciliado'] = True
+            df.loc[indices, 'Grupo_Conciliado'] = f"FACT_{nit}_{contrato}"
+            total_conciliados += len(indices)
+
+    if total_conciliados > 0:
+        log_messages.append(f"✔️ Conciliación Factoring: {total_conciliados} movimientos conciliados.")
+    
+    log_messages.append("\n--- PROCESO DE CONCILIACIÓN FINALIZADO ---")
+    return df
+
+
+
+
+
+
+
+
 # ==============================================================================
 # FUNCIONES MAESTRAS DE ESTRATEGIA
 # ==============================================================================
 
-def run_conciliation_fondos_en_transito (df, log_messages):
-    df = normalizar_referencia_fondos_en_transito(df)
-    log_messages.append("\n--- INICIANDO LÓGICA DE FONDOS EN TRÁNSITO ---")
-    conciliar_diferencia_cambio(df, log_messages)
-    conciliar_ajuste_automatico(df, log_messages)
-    conciliar_pares_exactos_cero(df, 'GRUPO_SILLACA', 'FASE SILLACA 1/7 (Cruce CERO)', log_messages)
-    conciliar_pares_exactos_por_referencia(df, 'GRUPO_SILLACA', 'FASE SILLACA 2/7 (Pares por Referencia)', log_messages)
-    cruzar_pares_simples(df, 'REINTEGRO_SILLACA', 'FASE SILLACA 3/7 (Pares por Monto)', log_messages)
-    cruzar_grupos_por_criterio(df, 'REINTEGRO_SILLACA', 'Asiento', 'SILLACA_ASIENTO', 'FASE SILLACA 4/7 (Grupos por Asiento)', log_messages)
-    cruzar_grupos_por_criterio(df, 'REINTEGRO_SILLACA', 'Referencia_Normalizada_Literal', 'SILLACA_REF', 'FASE SILLACA 5/7 (Grupos por Ref. Literal)', log_messages)
-    cruzar_grupos_por_criterio(df, 'REINTEGRO_SILLACA', 'Fecha', 'SILLACA_FECHA', 'FASE SILLACA 6/7 (Grupos por Fecha)', log_messages)
-    conciliar_lote_por_grupo(df, 'GRUPO_SILLACA', 'FASE SILLACA 7/7 (CRUCE POR LOTE)', log_messages)
-    conciliar_pares_exactos_cero(df, 'GRUPO_NOTA', 'FASE NOTAS 1/6 (Cruce CERO)', log_messages)
-    conciliar_pares_exactos_por_referencia(df, 'GRUPO_NOTA', 'FASE NOTAS 2/6 (Pares por Referencia)', log_messages)
-    cruzar_pares_simples(df, 'NOTA_GENERAL', 'FASE NOTAS 3/6 (Pares por Monto)', log_messages)
-    cruzar_grupos_por_criterio(df, 'NOTA_GENERAL', 'Referencia_Normalizada_Literal', 'NOTA_REF', 'FASE NOTAS 4/6 (Grupos por Ref. Literal)', log_messages)
-    cruzar_grupos_por_criterio(df, 'NOTA_GENERAL', 'Fecha', 'NOTA_FECHA', 'FASE NOTAS 5/6 (Grupos por Fecha)', log_messages)
-    conciliar_lote_por_grupo(df, 'GRUPO_NOTA', 'FASE NOTAS 6/6 (CRUCE POR LOTE)', log_messages)
-    conciliar_pares_exactos_cero(df, 'GRUPO_BANCO', 'FASE BANCO 1/5 (Cruce CERO)', log_messages)
-    conciliar_pares_exactos_por_referencia(df, 'GRUPO_BANCO', 'FASE BANCO 2/5 (Pares por Referencia)', log_messages)
-    cruzar_pares_simples(df, 'BANCO_A_BANCO', 'FASE BANCO 3/5 (Pares por Monto)', log_messages)
-    cruzar_grupos_por_criterio(df, 'BANCO_A_BANCO', 'Referencia_Normalizada_Literal', 'BANCO_REF', 'FASE BANCO 4/5 (Grupos por Ref. Literal)', log_messages)
-    cruzar_grupos_por_criterio(df, 'BANCO_A_BANCO', 'Fecha', 'BANCO_FECHA', 'FASE BANCO 5/5 (Grupos por Fecha)', log_messages)
-    conciliar_pares_exactos_cero(df, 'GRUPO_REMESA', 'FASE REMESA 1/3 (Cruce CERO)', log_messages)
-    cruzar_pares_simples(df, 'REMESA_GENERAL', 'FASE REMESA 2/3 (Pares por Monto)', log_messages)
-    cruzar_grupos_por_criterio(df, 'REMESA_GENERAL', 'Referencia_Normalizada_Literal', 'REMESA_REF', 'FASE REMESA 3/3 (Grupos por Ref. Literal)', log_messages)
-    conciliar_grupos_globales_por_referencia(df, log_messages)
-    conciliar_pares_globales_remanentes(df, log_messages)
-    conciliar_grupos_complejos_usd(df, log_messages)
-    conciliar_pares_globales_remanentes(df, log_messages)
-    log_messages.append("\n--- PROCESO DE CONCILIACIÓN FINALIZADO ---")
-    return df
-
-def run_conciliation_fondos_por_depositar(df, log_messages, progress_bar=None):
-    log_messages.append("\n--- INICIANDO LÓGICA DE FONDOS POR DEPOSITAR (USD) ---")
-    df = normalizar_referencia_fondos_usd(df)
-    
-    conciliar_automaticos_usd(df, log_messages)
-    if progress_bar: progress_bar.progress(0.1, text="Fase 1/6: Conciliaciones automáticas completada.")
-    
-    conciliar_grupos_por_referencia_usd(df, log_messages)
-    if progress_bar: progress_bar.progress(0.2, text="Fase 2/6: Grupos por referencia específica completada.")
-    
-    conciliar_pares_banco_a_banco_usd(df, log_messages)
-    if progress_bar: progress_bar.progress(0.35, text="Fase 3/6: Pares 'Banco a Banco' completada.")
-    
-    conciliar_pares_globales_exactos_usd(df, log_messages)
-    if progress_bar: progress_bar.progress(0.5, text="Fase 4/6: Pares globales exactos completada.")
-    
-    conciliar_pares_globales_remanentes_usd(df, log_messages)
-    if progress_bar: progress_bar.progress(0.65, text="Fase 5/6: Búsqueda de pares con tolerancia completada.")
-
-    conciliar_grupos_complejos_usd(df, log_messages, progress_bar)
-    if progress_bar: progress_bar.progress(0.9, text="Fase 6/6: Búsqueda de grupos complejos completada.")
-    
-    conciliar_gran_total_final_usd(df, log_messages)
-    
-    log_messages.append("\n--- PROCESO DE CONCILIACIÓN FINALIZADO ---")
-    return df
-
-def run_conciliation_viajes(df, log_messages, progress_bar=None):
-    log_messages.append("\n--- INICIANDO LÓGICA DE CUENTAS DE VIAJES (BS) ---")
-    
-    df = normalizar_referencia_viajes(df, log_messages)
-    if progress_bar: progress_bar.progress(0.2, text="Fase de Normalización completada.")
-    
-    conciliar_pares_exactos_por_nit_viajes(df, log_messages)
-    if progress_bar: progress_bar.progress(0.5, text="Fase 1/2: Búsqueda de pares exactos completada.")
-    
-    conciliar_grupos_por_nit_viajes(df, log_messages)
-    if progress_bar: progress_bar.progress(0.9, text="Fase 2/2: Búsqueda de grupos complejos completada.")
-    
-    log_messages.append("\n--- PROCESO DE CONCILIACIÓN FINALIZADO ---")
-    return df
-
-def run_conciliation_deudores_empleados_me(df, log_messages, progress_bar=None):
-    """
-    Orquesta el proceso de conciliación para la cuenta Deudores Empleados en ME.
-    La lógica principal es conciliar por empleado si su saldo total en USD es cero.
-    """
-    log_messages.append("\n--- INICIANDO LÓGICA DE DEUDORES EMPLEADOS (ME) ---")
-    
-    # Paso 1: Normalizar los datos para obtener una clave de empleado fiable
-    df = normalizar_datos_deudores_empleados(df, log_messages)
-    if progress_bar: progress_bar.progress(0.3, text="Fase de Normalización completada.")
-    
-    # Paso 2: Ejecutar la lógica de conciliación principal
-    conciliar_grupos_por_empleado(df, log_messages)
-    if progress_bar: progress_bar.progress(0.8, text="Fase de Conciliación por Empleado completada.")
-    
-    log_messages.append("\n--- PROCESO DE CONCILIACIÓN FINALIZADO ---")
-    return df
 
 # ==============================================================================
 # LÓGICAS PARA LA HERRAMIENTA DE RELACIONES DE RETENCIONES
