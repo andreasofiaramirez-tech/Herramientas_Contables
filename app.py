@@ -1,47 +1,33 @@
 # ==============================================================================
-# 1. BLOQUE DE INICIO Y CONFIGURACIÓN
-# ==============================================================================    
-
-# ==============================================================================
-# 2. EL "CEREBRO" DE CONCILIACIÓN
-# ==============================================================================    
-
-# ==============================================================================
-# 3. NAVEGACIÓN Y MENÚ PRINCIPAL
-# ==============================================================================    
-
-# ==============================================================================
-# 4. VISTAS DE CONCILIACIÓN (Motores Genéricos)
-# ==============================================================================    
-
-# ==============================================================================
-# 5. VISTAS DE HERRAMIENTAS ESPECIALES (Lógicas Complejas)
-# ==============================================================================    
-
-# ==============================================================================
-# 6. VISTAS DE AUDITORÍA FISCAL
-# ==============================================================================    
-
-# ==============================================================================
-# 7. VISTAS ESPECÍFICAS DE COFERSA
-# ==============================================================================    
-
-# ==============================================================================
-# 8. FLUJO PRINCIPAL (EL ROUTER)
-# ==============================================================================    
-
+# I. INFRAESTRUCTURA, SEGURIDAD Y CONFIGURACIÓN
+# ============================================================================== 
 import streamlit as st
 import pandas as pd
 import traceback
 from functools import partial
 
-# --- BLOQUE 1: IMPORTAR GUÍAS  ---
+# --- Configuración de la página de Streamlit ---
+st.set_page_config(page_title="Conciliador Automático", page_icon="🤖", layout="wide")
+
+# --- Inicialización del Estado de la Sesión ---
+if 'page' not in st.session_state:
+    st.session_state.page = 'inicio'
+if 'password_correct' not in st.session_state:
+    st.session_state.password_correct = False
+if 'processing_complete' not in st.session_state:
+    st.session_state.processing_complete = False
+    st.session_state.log_messages = []
+    st.session_state.csv_output = None
+    st.session_state.excel_output = None
+    st.session_state.df_saldos_abiertos = pd.DataFrame()
+    st.session_state.df_conciliados = pd.DataFrame()
+
+# --- Bloque 1: Importación de Guías ---
 from guides import (
     GUIA_GENERAL_ESPECIFICACIONES, 
     LOGICA_POR_CUENTA, 
     GUIA_COMPLETA_RETENCIONES,
     GUIA_PAQUETE_CC,
-    GUIA_IMPRENTA,
     GUIA_GENERADOR,
     GUIA_PENSIONES,
     GUIA_AJUSTES_USD,
@@ -49,36 +35,40 @@ from guides import (
     GUIA_COMISIONES
 )
 
-# --- BLOQUE 2: IMPORTAR LÓGICA  ---
+# --- Bloque 2: Importación de Lógica Contable ---
 from logic import (
+    # Conciliaciones Mayoreo
     run_conciliation_fondos_en_transito,
     run_conciliation_fondos_por_depositar,
-    run_conciliation_devoluciones_proveedores,
-    run_conciliation_viajes,
-    run_conciliation_retenciones,
     run_conciliation_cobros_viajeros,
+    run_conciliation_deudores_empleados_me,
+    run_conciliation_viajes,
     run_conciliation_otras_cxp,
     run_conciliation_haberes_clientes,
-    run_conciliation_cdc_factoring,
     run_conciliation_asientos_por_clasificar,
-    run_conciliation_deudores_empleados_me,
-    run_analysis_paquete_cc,
-    run_cuadre_cb_cg,
-    validar_coincidencia_empresa,
-    run_cross_check_imprenta,
-    generar_txt_retenciones_galac,
-    procesar_calculo_pensiones,
-    procesar_ajustes_balance_usd,
-    run_conciliation_envios_cofersa,
+    run_conciliation_devoluciones_proveedores,
     run_conciliation_proveedores_costos,
+    run_conciliation_cdc_factoring,
+    # Conciliaciones COFERSA
+    run_conciliation_envios_cofersa,
     run_conciliation_fondos_fondos_cofersa,
     run_conciliation_dev_proveedores_cofersa,
-    preparar_datos_softland_debito,
+    # Procesos Fiscales y Auditoría
+    run_conciliation_retenciones,
+    procesar_calculo_pensiones,
     run_conciliation_debito_fiscal,
-    run_process_comisiones
+    run_analysis_paquete_cc,
+    procesar_ajustes_balance_usd,
+    run_process_comisiones,
+    # Helpers
+    run_cuadre_cb_cg,
+    validar_coincidencia_empresa,
+    preparar_datos_softland_debito,
+    run_cross_check_imprenta,
+    generar_txt_retenciones_galac
 )
 
-# --- BLOQUE 3: IMPORTAR UTILS ---
+# --- Bloque 3: Importación de Utilidades (Reportes y Carga) ---
 from utils import (
     cargar_y_limpiar_datos,
     generar_reporte_excel,
@@ -99,10 +89,8 @@ from utils import (
     cargar_datos_fondos_cofersa,
 )
 
+# --- Bloque 4: Helpers de Interfaz ---
 def mostrar_error_amigable(e, contexto=""):
-    """
-    Traduce errores técnicos de Python a mensajes amigables para el usuario contable.
-    """
     error_tecnico = str(e)
     mensaje_usuario = ""
     recomendacion = ""
@@ -151,25 +139,10 @@ def mostrar_error_amigable(e, contexto=""):
         st.code(traceback.format_exc())
 
 
-# --- Configuración de la página de Streamlit ---
-st.set_page_config(page_title="Conciliador Automático", page_icon="🤖", layout="wide")
-
-# --- Inicialización del Estado de la Sesión ---
-if 'page' not in st.session_state:
-    st.session_state.page = 'inicio'
-if 'password_correct' not in st.session_state:
-    st.session_state.password_correct = False
-if 'processing_complete' not in st.session_state:
-    st.session_state.processing_complete = False
-    st.session_state.log_messages = []
-    st.session_state.csv_output = None
-    st.session_state.excel_output = None
-    st.session_state.df_saldos_abiertos = pd.DataFrame()
-    st.session_state.df_conciliados = pd.DataFrame()
-
-# ==============================================================================
-# BLOQUE DE AUTENTICACIÓN
-# ==============================================================================
+def set_page(page_name):
+    st.session_state.page = page_name
+    
+# --- Bloque 5: Autenticación ---
 def password_entered():
     """Verifica la contraseña ingresada y actualiza el estado."""
     st.session_state.authentication_attempted = True
@@ -180,9 +153,7 @@ def password_entered():
         st.session_state.password_correct = False
 
 if not st.session_state.get("password_correct", False):
-    
     _ , col_main, _ = st.columns([1, 1.5, 1])
-
     with col_main:
         _ , col_logo, _ = st.columns([1, 2, 1])
         with col_logo:
@@ -206,25 +177,19 @@ if not st.session_state.get("password_correct", False):
                 label_visibility="collapsed", 
                 placeholder="Ingresa la contraseña"
             )
-            
-            # --- NUEVO BOTÓN DE INGRESAR ---
-            # Se activa con Clic. Llama a la misma función de validación.
+
             st.button("Ingresar", on_click=password_entered, type="primary", use_container_width=True)
-            # -------------------------------
             
             if st.session_state.get("authentication_attempted", False):
                 if not st.session_state.get("password_correct", False):
                     st.error("😕 Contraseña incorrecta.")
             else:
-                # Pequeño espacio visual
                 st.markdown("") 
                 st.info("Por favor, ingresa la contraseña para continuar.")
 
         st.divider()
         st.markdown("<p style='text-align: center; margin-bottom: 5px; font-size: 0.9rem;'>Una herramienta para las empresas del grupo:</p>", unsafe_allow_html=True)
         
-        # Creamos 5 columnas: 1 vacía, 3 para logos, 1 vacía. 
-        # Esto reduce el ancho efectivo de los logos y hace el encabezado más angosto.
         _, col1, col2, col3, _ = st.columns([1, 2, 2, 2, 1]) 
         
         logo_cols = [col1, col2, col3]
@@ -241,12 +206,11 @@ if not st.session_state.get("password_correct", False):
                     st.image(logos_info[i]["path"], width=150) # Ajusta el width a tu gusto (120-150 suele ser ideal)
                 except:
                     st.markdown(f"<p style='text-align: center; font-size: small;'>{logos_info[i]['fallback']}</p>", unsafe_allow_html=True)
-
     st.stop()
 
 # ==============================================================================
-# DICCIONARIO CENTRAL DE ESTRATEGIAS (EL "CEREBRO")
-# ==============================================================================
+# II. ESTRATEGIAS DE CONCILIACIÓN
+# ==============================================================================    
 def run_conciliation_wrapper(func, df, log_messages, progress_bar=None):
     return func(df, log_messages)
 
@@ -391,11 +355,8 @@ ESTRATEGIAS = {
 }
 
 # ==============================================================================
-# RENDERIZADO DE VISTAS (PÁGINAS)
+# III. PANEL DE CONTROL (HOME)
 # ==============================================================================
-def set_page(page_name):
-    st.session_state.page = page_name
-
 def render_inicio():
     # --- CABECERA CON LOGOS ---
     st.markdown("<br>", unsafe_allow_html=True)
@@ -446,83 +407,10 @@ def render_inicio():
     st.markdown("---")
     st.caption("v2.1 - Sistema Integral de Automatización Contable.")
 
-def render_retenciones():
-    st.title("🧾 Herramienta de Auditoría de Retenciones", anchor=False)
-    if st.button("⬅️ Volver al Inicio", key="back_from_ret"):
-        set_page('inicio')
-        if 'processing_ret_complete' in st.session_state:
-            del st.session_state['processing_ret_complete']
-        st.rerun()
 
-    st.markdown("""
-    Esta herramienta audita el proceso de retenciones cruzando la **Preparación Contable (CP)**, 
-    la **Fuente Oficial (GALAC)** y el **Diario Contable (CG)** para identificar discrepancias.
-    """)
-
-    # --- El expander ahora lee el texto desde el archivo guides.py ---
-    with st.expander("📖 Guía Completa: Cómo Usar y Entender la Herramienta de Auditoría", expanded=True):
-        st.markdown(GUIA_COMPLETA_RETENCIONES)
-
-    st.subheader("1. Cargue los Archivos de Excel (.xlsx):", anchor=False)
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        st.info("Archivos de Preparación y Registro")
-        file_cp = st.file_uploader("1. Relacion_Retenciones_CP.xlsx", type="xlsx")
-        file_cg = st.file_uploader("2. Transacciones_Diario_CG.xlsx", type="xlsx")
-
-    with col2:
-        st.info("Archivos Oficiales (Fuente GALAC)")
-        file_iva = st.file_uploader("3. Retenciones_IVA.xlsx", type="xlsx")
-        file_islr = st.file_uploader("4. Retenciones_ISLR.xlsx", type="xlsx")
-        file_mun = st.file_uploader("5. Retenciones_Municipales.xlsx", type="xlsx")
-
-    if all([file_cp, file_cg, file_iva, file_islr, file_mun]):
-        if st.button("▶️ Iniciar Auditoría de Retenciones", type="primary", use_container_width=True):
-            with st.spinner('Ejecutando auditoría... Este proceso puede tardar unos momentos.'):
-                log_messages = []
-                
-                try:
-                    reporte_resultado = run_conciliation_retenciones(
-                        file_cp, file_cg, file_iva, file_islr, file_mun, log_messages
-                    )
-                    
-                    if reporte_resultado is None:
-                        raise Exception("Error interno: La lógica devolvió un resultado vacío.")
-
-                    st.session_state.reporte_ret_output = reporte_resultado
-                    st.session_state.log_messages_ret = log_messages
-                    st.session_state.processing_ret_complete = True
-                    st.rerun()
-
-                except Exception as e:
-                    mostrar_error_amigable(e, "la Auditoría de Retenciones")
-                    st.session_state.log_messages_ret = log_messages
-                    # No activamos processing_ret_complete en error para no mostrar el botón de descarga vacío,
-                    # pero sí guardamos los logs por si quieres verlos.
-                    st.session_state.processing_ret_complete = True 
-                    # Importante: Si hubo error, reporte_ret_output debe ser None
-                    st.session_state.reporte_ret_output = None 
-
-    # --- BLOQUE 2: MOSTRAR RESULTADOS (Fuera del if del botón) ---
-    if st.session_state.get('processing_ret_complete', False):
-        
-        # Solo mostramos Éxito y Descarga si hay un reporte generado
-        if st.session_state.get('reporte_ret_output') is not None:
-            st.success("✅ ¡Auditoría de retenciones completada con éxito!")
-            st.download_button(
-                "⬇️ Descargar Reporte de Auditoría (Excel)",
-                st.session_state.reporte_ret_output,
-                "Reporte_Auditoria_Retenciones.xlsx",
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True
-            )
-        
-        # El log lo mostramos siempre (sea éxito o error controlado)
-        if 'log_messages_ret' in st.session_state and st.session_state.log_messages_ret:
-            with st.expander("Ver registro detallado del proceso de auditoría"):
-                st.text_area("Log de Auditoría de Retenciones", '\n'.join(st.session_state.log_messages_ret), height=400)
-
+# ==============================================================================
+# IV. CICLO DE CONCILIACIONES (ESTÁNDAR Y ESPECIALES)
+# ==============================================================================
 def render_especificaciones():
     st.title('📄 Herramienta de Conciliación de Cuentas', anchor=False)
     if st.button("⬅️ Volver al Inicio", key="back_from_spec"):
@@ -681,449 +569,6 @@ def render_especificaciones():
             if 'Fecha' in df_conciliados_vista.columns:
                 df_conciliados_vista['Fecha'] = pd.to_datetime(df_conciliados_vista['Fecha']).dt.strftime('%d/%m/%Y')
             st.dataframe(df_conciliados_vista, use_container_width=True)
-
-def render_paquete_cc():
-    st.title('📦 Herramienta de Análisis de Paquete CC', anchor=False)
-    if st.button("⬅️ Volver al Inicio", key="back_from_paquete"):
-        set_page('inicio')
-        if 'processing_paquete_complete' in st.session_state:
-            del st.session_state['processing_paquete_complete']
-        st.rerun()
-    
-    st.markdown("Esta herramienta analiza el diario contable para clasificar y agrupar los asientos.")
-
-    with st.expander("📖 Manual de Usuario: Criterios de Análisis y Errores Comunes", expanded=False):
-        st.markdown(GUIA_PAQUETE_CC)
-    
-    CASA_OPTIONS = ["FEBECA, C.A", "MAYOR BEVAL, C.A", "PRISMA, C.A", "FEBECA, C.A (QUINCALLA)"]
-    st.subheader("1. Seleccione la Empresa (Casa):", anchor=False)
-    casa_seleccionada = st.selectbox("Empresa", CASA_OPTIONS, label_visibility="collapsed", key="casa_paquete_cc")
-    # ------------------------------------------
-    
-    st.subheader("2. Cargue el Archivo de Movimientos del Diario (.xlsx):", anchor=False)
-    
-    columnas_requeridas = ['Asiento', 'Fecha', 'Fuente', 'Cuenta Contable', 'Descripción de Cuenta', 'Referencia', 'Débito Dolar', 'Crédito Dolar', 'Débito VES', 'Crédito VES']
-    texto_columnas = "**Columnas Esenciales Requeridas:**\n" + "\n".join([f"- `{col}`" for col in columnas_requeridas])
-    st.info(texto_columnas, icon="ℹ️")
-    
-    uploaded_diario = st.file_uploader("Movimientos del Diario Contable", type="xlsx", label_visibility="collapsed")
-    
-    if uploaded_diario:
-        if st.button("▶️ Iniciar Análisis", type="primary", use_container_width=True):
-            with st.spinner('Ejecutando análisis de asientos... Este proceso puede tardar unos momentos.'):
-                log_messages = []
-                try:
-                    df_diario = pd.read_excel(uploaded_diario)
-                    
-                    # Mapeo robusto para estandarizar nombres de columnas
-                    # Nombres estándar que la lógica espera
-                    standard_names = {
-                        'Débito Dolar': ['Debito Dolar', 'Débitos Dolar', 'Débito Dólar', 'Debito Dólar'],
-                        'Crédito Dolar': ['Credito Dolar', 'Créditos Dolar', 'Crédito Dólar', 'Credito Dólar'],
-                        'Débito VES': ['Debito VES', 'Débitos VES', 'Débito Bolivar', 'Debito Bolivar', 'Débito Bs', 'Debito Bs'],
-                        'Crédito VES': ['Credito VES', 'Créditos VES', 'Crédito Bolivar', 'Credito Bolivar', 'Crédito Bs', 'Credito Bs'],
-                        'Descripción de Cuenta': ['Descripcion de Cuenta', 'Descripción de la Cuenta', 'Descripcion de la Cuenta', 'Descripción de la Cuenta Contable', 'Descripcion de la Cuenta Contable']
-                    }
-
-                    # Crear un diccionario para el renombrado final
-                    rename_map = {}
-                    # Normalizar las columnas del DataFrame para una comparación más fácil
-                    df_columns_normalized = {col.strip(): col for col in df_diario.columns}
-
-                    for standard, variations in standard_names.items():
-                        # Añadir el nombre estándar a su propia lista de variaciones
-                        all_variations = [standard] + variations
-                        for var_name in all_variations:
-                            if var_name in df_columns_normalized:
-                                # Si encontramos una variación, la mapeamos al nombre estándar
-                                rename_map[df_columns_normalized[var_name]] = standard
-                                break # Pasamos al siguiente nombre estándar
-
-                    # Aplicar el renombrado
-                    df_diario.rename(columns=rename_map, inplace=True)
-                    log_messages.append(f"✔️ Columnas estandarizadas. Mapeo aplicado: {rename_map}")
-
-                    df_resultado = run_analysis_paquete_cc(df_diario, log_messages)
-                    
-                    st.session_state.reporte_paquete_output = generar_reporte_paquete_cc(df_resultado, casa_seleccionada)
-                    st.session_state.log_messages_paquete = log_messages
-                    st.session_state.processing_paquete_complete = True
-                    st.rerun()
-
-                except Exception as e:
-                    mostrar_error_amigable(e, "el Análisis de Paquete CC")
-                    st.session_state.processing_paquete_complete = False
-
-    if st.session_state.get('processing_paquete_complete', False):
-        st.success("✅ ¡Análisis de Paquete CC completado con éxito!")
-        st.download_button(
-            "⬇️ Descargar Reporte de Análisis (Excel)",
-            st.session_state.reporte_paquete_output,
-            "Reporte_Analisis_Paquete_CC.xlsx",
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True
-        )
-        with st.expander("Ver registro detallado del proceso de análisis"):
-            st.text_area("Log de Análisis", '\n'.join(st.session_state.log_messages_paquete), height=400)
-
-def render_cuadre():
-    st.title("⚖️ Cuadre de Disponibilidad (CB vs CG)", anchor=False)
-    
-    # --- BOTÓN VOLVER AL INICIO ---
-    if st.button("⬅️ Volver al Inicio", key="back_from_cuadre"):
-        set_page('inicio')
-        st.rerun()
-    
-    # --- SELECTOR DE EMPRESA ---
-    CASA_OPTIONS = ["MAYOR BEVAL, C.A", "FEBECA, C.A", "FEBECA, C.A (QUINCALLA)", "PRISMA, C.A"]
-    col_emp, _ = st.columns([1, 1])
-    with col_emp:
-        empresa_sel = st.selectbox("Seleccione la Empresa:", CASA_OPTIONS, key="empresa_cuadre")
-    
-    st.info("Sube el Reporte de Tesorería (CB) y el Balance de Comprobación (CG). Pueden ser PDF o Excel.")
-    
-    # --- CARGA DE ARCHIVOS ---
-    col1, col2 = st.columns(2)
-    with col1:
-        file_cb = st.file_uploader("1. Reporte Tesorería (CB)", type=['pdf', 'xlsx'])
-    with col2:
-        file_cg = st.file_uploader("2. Balance Contable (CG)", type=['pdf', 'xlsx'])
-        
-    # --- BOTÓN DE ACCIÓN ---
-    if file_cb and file_cg:
-        if st.button("Comparar Saldos", type="primary", use_container_width=True):
-            log = []
-            try:
-                # Importamos funciones necesarias (incluyendo la nueva validación)
-                from logic import run_cuadre_cb_cg, validar_coincidencia_empresa
-                from utils import generar_reporte_cuadre
-                
-                # --- FASE 0: VALIDACIÓN DE SEGURIDAD ---
-                # 1. Verificar archivo Tesorería
-                es_valido_cb, msg_cb = validar_coincidencia_empresa(file_cb, empresa_sel)
-                if not es_valido_cb:
-                    st.error(f"⛔ ALERTA DE SEGURIDAD (Tesorería): {msg_cb}")
-                    st.warning("Por favor verifique que seleccionó la empresa correcta en el menú.")
-                    st.stop() # Detiene la ejecución aquí para proteger los datos
-                
-                # 2. Verificar archivo Contabilidad
-                es_valido_cg, msg_cg = validar_coincidencia_empresa(file_cg, empresa_sel)
-                if not es_valido_cg:
-                    st.error(f"⛔ ALERTA DE SEGURIDAD (Contabilidad): {msg_cg}")
-                    st.warning("Por favor verifique que seleccionó la empresa correcta en el menú.")
-                    st.stop() # Detiene la ejecución aquí
-                # ---------------------------------------
-
-                # --- FASE 1: PROCESAMIENTO ---
-                with st.spinner("Analizando y cruzando saldos..."):
-                    df_res, df_huerfanos = run_cuadre_cb_cg(file_cb, file_cg, empresa_sel, log)
-                
-                # --- FASE 2: MOSTRAR RESULTADOS EN PANTALLA ---
-                st.subheader("Resumen de Saldos", anchor=False)
-                
-                # Mostramos solo columnas clave para no saturar la vista
-                cols_pantalla = ['Moneda', 'Banco (Tesorería)', 'Cuenta Contable', 'Descripción', 'Saldo Final CB', 'Saldo Final CG', 'Diferencia', 'Estado']
-                st.dataframe(df_res[cols_pantalla], use_container_width=True)
-                
-                # Si hay cuentas huérfanas (no configuradas), mostramos alerta
-                if not df_huerfanos.empty:
-                    st.error(f"⚠️ ATENCIÓN: Se detectaron {len(df_huerfanos)} cuentas con saldo que NO están configuradas. Revisa la 3ra pestaña del Excel.")
-                    st.dataframe(df_huerfanos, use_container_width=True)
-                
-                # --- FASE 3: GENERAR EXCEL ---
-                excel_data = generar_reporte_cuadre(df_res, df_huerfanos, empresa_sel)
-                
-                st.download_button(
-                    label="⬇️ Descargar Reporte Completo (Excel)",
-                    data=excel_data,
-                    file_name=f"Cuadre_CB_CG_{empresa_sel}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True
-                )
-                
-                # Log técnico al final
-                with st.expander("Ver Log de Extracción"):
-                    st.write(log)
-                    
-            except Exception as e:
-                mostrar_error_amigable(e, "el Cuadre CB-CG")
-                
-def render_imprenta():
-    st.title("🖨️ Gestión de Imprenta (Retenciones de IVA)", anchor=False)
-    
-    if st.button("⬅️ Volver al Inicio", key="back_from_imprenta"):
-        set_page('inicio')
-        st.rerun()
-
-    tab1, tab2 = st.tabs(["✅ 1. Validar TXTs Existentes", "⚙️ 2. Generar TXT desde Softland"])
-    
-    # --- PESTAÑA 1: VALIDACIÓN ---
-    with tab1:
-        st.info("Valida integridad entre el Libro de Ventas y el archivo TXT de Retenciones ya generado.")
-        c1, c2 = st.columns(2)
-        with c1: f_sales = st.file_uploader("1. Libro de Ventas (.txt)", type=['txt'], key="v_sales")
-        with c2: f_ret = st.file_uploader("2. Archivo Retenciones (.txt)", type=['txt'], key="v_ret")
-            
-        if f_sales and f_ret:
-            if st.button("Validar Archivos", type="primary", key="btn_val"):
-                log = []
-                try:
-                    from logic import run_cross_check_imprenta
-                    from utils import generar_reporte_imprenta
-                    
-                    df, txt = run_cross_check_imprenta(f_sales, f_ret, log)
-                    if not df.empty:
-                        err = df[df['Estado'].str.contains('ERROR')]
-                        if not err.empty: st.error(f"❌ {len(err)} errores."); st.dataframe(err)
-                        else: st.success("✅ Validación Exitosa."); st.dataframe(df.head())
-                        
-                        st.download_button("⬇️ Excel Resultados", generar_reporte_imprenta(df), "Validacion.xlsx")
-                    with st.expander("Log"): st.write(log)
-                except Exception as e: mostrar_error_amigable(e, "Validación")
-
-    # --- PESTAÑA 2: GENERACIÓN ---
-    with tab2:
-        st.info("Calcula y genera el TXT cruzando Softland con el Libro de Ventas (Excel).")
-        c1, c2 = st.columns(2)
-        with c1: f_soft = st.file_uploader("1. Mayor Softland (Excel)", type=['xlsx'], key="g_soft")
-        with c2: f_book = st.file_uploader("2. Libro Ventas GALAC (Excel)", type=['xlsx'], key="g_book")
-            
-        if f_soft and f_book:
-            if st.button("Generar TXT", type="primary", key="btn_gen"):
-                log = []
-                try:
-                    # IMPORTANTE: Estos nombres deben coincidir con logic.py
-                    from logic import generar_txt_retenciones_galac
-                    from utils import generar_archivo_txt, generar_reporte_auditoria_txt
-                    
-                    txt_lines, df_audit = generar_txt_retenciones_galac(f_soft, f_book, log)
-                    
-                    if df_audit is not None and not df_audit.empty:
-                        st.success(f"✅ Procesado. {len(df_audit)} registros.")
-                        st.dataframe(df_audit.head())
-                        
-                        col_a, col_b = st.columns(2)
-                        col_a.download_button("⬇️ TXT para GALAC", generar_archivo_txt(txt_lines), "Retenciones_GALAC.txt")
-                        col_b.download_button("⬇️ Auditoría Excel", generar_reporte_auditoria_txt(df_audit), "Auditoria_Imprenta.xlsx")
-                    else:
-                        st.warning("⚠️ No se generaron datos.")
-                    
-                    with st.expander("Log"): st.write(log)
-                except Exception as e: mostrar_error_amigable(e, "Generación")
-
-def render_pensiones():
-    st.title("🛡️ Cálculo Ley Protección Pensiones (9%)", anchor=False)
-    
-    with st.expander("📖 Guía de Uso"):
-        st.markdown(GUIA_PENSIONES)
-
-    if st.button("⬅️ Volver al Inicio", key="back_pen"):
-        set_page('inicio')
-        st.rerun()
-        
-    # 1. Configuración de Empresa
-    EMPRESAS_NOMINA = ["FEBECA", "BEVAL", "PRISMA", "QUINCALLA"]
-    col_emp, _ = st.columns([1, 1])
-    with col_emp:
-        empresa_sel = st.selectbox("Seleccione la Empresa:", EMPRESAS_NOMINA, key="empresa_pensiones")
-
-    # 2. Carga de Archivos
-    c1, c2, c3 = st.columns([1.5, 1.5, 1])
-    with c1:
-        file_mayor = st.file_uploader("1. Mayor Contable (Excel)", type=['xlsx'], key="pen_mayor")
-    with c2:
-        file_nomina = st.file_uploader("2. Resumen Nómina (Validación)", type=['xlsx'], key="pen_nom")
-    with c3:
-        tasa = st.number_input("Tasa de Cambio", min_value=0.01, value=1.0, format="%.4f", key="pen_tasa")
-        num_asiento = st.text_input("Número de Asiento (Cargador)", value="CG0000", key="pen_num_asiento")
-
-    # 3. Botón de Acción
-    if file_mayor and tasa > 0:
-        if st.button("Calcular Impuesto", type="primary", use_container_width=True, key="btn_calc_pen"):
-            log = []
-            try:
-                from logic import procesar_calculo_pensiones
-                from utils import generar_reporte_pensiones
-                
-                with st.spinner("Procesando mayor contable y cruzando con nómina..."):
-                    # Ejecutar lógica principal
-                    df_calc, df_base, df_asiento, dict_val = procesar_calculo_pensiones(file_mayor, file_nomina, tasa, empresa_sel, log, num_asiento)
-                
-                if df_asiento is not None and not df_asiento.empty:
-                    # Mostrar resultados en pantalla
-                    total_pagar = df_asiento['Crédito VES'].sum()
-                    
-                    # Alertas de Validación
-                    if dict_val.get('estado') == 'OK':
-                        st.success(f"✅ Cálculo exitoso para {empresa_sel}. Total a Pagar: Bs. {total_pagar:,.2f}")
-                    else:
-                        st.warning(
-                            f"⚠️ Atención: Descuadres detectados (Ver Hoja 1).\n"
-                            f"• Dif. Salarios: {dict_val.get('dif_salario', 0):,.2f}\n"
-                            f"• Dif. Tickets: {dict_val.get('dif_ticket', 0):,.2f}\n"
-                            f"• Dif. Impuesto: {dict_val.get('dif_imp', 0):,.2f}"
-                        )
-                    
-                    st.subheader("Vista Previa del Asiento")
-
-                    # --- MEJORA VISUAL EN PANTALLA ---
-                    # 1. Ordenar columnas
-                    cols_orden = ['Centro Costo', 'Cuenta Contable', 'Descripción', 'Débito VES', 'Crédito VES', 'Débito USD', 'Crédito USD', 'Tasa']
-                    df_view = df_asiento[cols_orden].copy()
-                    
-                    # 2. Fila de Totales
-                    totales = {
-                        'Centro Costo': 'TOTALES', 'Cuenta Contable': '', 'Descripción': '',
-                        'Débito VES': df_view['Débito VES'].sum(), 'Crédito VES': df_view['Crédito VES'].sum(),
-                        'Débito USD': df_view['Débito USD'].sum(), 'Crédito USD': df_view['Crédito USD'].sum(), 'Tasa': ''
-                    }
-                    df_view = pd.concat([df_view, pd.DataFrame([totales])], ignore_index=True)
-                    
-                    # 3. Formato Venezolano (1.000,00)
-                    def fmt_ve(x):
-                        if isinstance(x, (float, int)):
-                            return "{:,.2f}".format(x).replace(",", "X").replace(".", ",").replace("X", ".")
-                        return x
-
-                    for col in ['Débito VES', 'Crédito VES', 'Débito USD', 'Crédito USD', 'Tasa']:
-                        df_view[col] = df_view[col].apply(fmt_ve)
-
-                    st.dataframe(df_view, use_container_width=True, hide_index=True)
-                    # ---------------------------------
-                    
-                    # --- PREPARACIÓN PARA EXCEL ---
-                    fecha_cierre = pd.Timestamp.today()
-                    try:
-                        if 'FECHA' in df_base.columns:
-                            # Tomamos la primera fecha válida y calculamos el último día de ese mes
-                            primera_fecha = pd.to_datetime(df_base['FECHA'].iloc[0])
-                            fecha_cierre = primera_fecha + pd.offsets.MonthEnd(0)
-                    except:
-                        pass # Si falla, usa fecha de hoy
-                    
-                    # --- NUEVO: NOMBRE DE ARCHIVO DINÁMICO ---
-                    # Formato: Calculo_Pensiones_EMPRESA_MES.YY.xlsx
-                    meses_abr = {1:"ENE", 2:"FEB", 3:"MAR", 4:"ABR", 5:"MAY", 6:"JUN", 7:"JUL", 8:"AGO", 9:"SEP", 10:"OCT", 11:"NOV", 12:"DIC"}
-                    mes_txt = meses_abr.get(fecha_cierre.month, "MES")
-                    anio_txt = str(fecha_cierre.year)[-2:]
-                    
-                    nombre_archivo_final = f"Calculo_Pensiones_{empresa_sel}_{mes_txt}.{anio_txt}.xlsx"
-                    # ------------------------------------------
-                    
-                    # Generar Reporte Excel
-                    excel_data = generar_reporte_pensiones(df_calc, df_base, df_asiento, dict_val, empresa_sel, tasa, fecha_cierre)
-
-                    cargador_bin = generar_cargador_asiento_pensiones(df_asiento, fecha_cierre)
-    
-                    st.divider()
-                    st.subheader("🚀 Generación de Cargador")
-                    st.download_button(
-                        label="⬇️ Descargar Cargador para el Sistema (.xlsx)",
-                        data=cargador_bin,
-                        file_name=f"CARGADOR_{num_asiento}.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        use_container_width=True
-                    )
-                    
-                    st.download_button(
-                        "⬇️ Descargar Reporte Completo (Excel)",
-                        excel_data,
-                        file_name=nombre_archivo_final, # <--- CAMBIO AQUÍ
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        use_container_width=True
-                    )
-                else:
-                    st.error("No se pudo generar el cálculo. Por favor revisa el log.")
-
-                # Mostrar Log
-                with st.expander("Ver Log de Proceso"):
-                    st.write(log)
-
-            except Exception as e:
-                mostrar_error_amigable(e, "el Cálculo de Pensiones")
-
-def render_ajustes_usd():
-    st.title("📉 Ajustes al Balance en USD", anchor=False)
-    
-    # Guía Desplegable
-    with st.expander("📖 Guía de Uso: Reglas y Archivos"):
-        st.markdown(GUIA_AJUSTES_USD) # Asegúrate de haber importado esto al inicio
-
-    # Botón Volver
-    if st.button("⬅️ Volver al Inicio", key="back_adj_usd"):
-        set_page('inicio')
-        st.rerun()
-    
-    # --- SECCIÓN 1: CARGA DE ARCHIVOS ---
-    st.subheader("1. Archivos de Entrada", anchor=False)
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        f_cb = st.file_uploader("1. Conciliación Tesorería (Excel)", type=['xlsx'], key="adj_cb")
-        f_cg = st.file_uploader("2. Balance Comprobación (PDF/Excel)", type=['pdf', 'xlsx'], key="adj_cg")
-        f_hab = st.file_uploader("5. Reporte Haberes (Excel)", type=['xlsx'], key="adj_hab")
-        
-    with col2:
-        f_v_me = st.file_uploader("3. Auxiliar Viajes ME (Excel)", type=['xlsx'], key="adj_v_me")
-        f_v_bs = st.file_uploader("4. Auxiliar Viajes Bs (Excel)", type=['xlsx'], key="adj_v_bs")
-        
-    # --- SECCIÓN 2: PARÁMETROS ---
-    st.subheader("2. Parámetros de Cálculo", anchor=False)
-    c_tasa1, c_tasa2, c_emp = st.columns(3)
-    
-    with c_tasa1:
-        tasa_bcv = st.number_input("Tasa BCV (Cierre)", min_value=0.0001, value=1.0, format="%.4f", key="adj_t_bcv")
-    with c_tasa2:
-        tasa_corp = st.number_input("Tasa CORP (Interna)", min_value=0.0001, value=1.0, format="%.4f", key="adj_t_corp")
-    with c_emp:
-        EMPRESAS = ["FEBECA, C.A", "MAYOR BEVAL, C.A", "PRISMA, C.A", "FEBECA, C.A (QUINCALLA)"]
-        empresa = st.selectbox("Empresa", EMPRESAS, key="adj_empresa")
-    
-    # --- BOTÓN DE EJECUCIÓN ---
-    if st.button("Calcular Ajustes y Asiento", type="primary", use_container_width=True, key="btn_calc_adj"):
-        if not f_cg:
-            st.error("⚠️ El Balance de Comprobación es obligatorio.")
-        else:
-            log = []
-            try:
-                from logic import procesar_ajustes_balance_usd
-                from utils import generar_reporte_ajustes_usd
-                
-                with st.spinner("Analizando balance, cruzando bancos y calculando ajustes..."):
-                    df_res, df_banc, df_asiento, df_raw, val_data = procesar_ajustes_balance_usd(
-                        f_cb, f_cg, f_v_me, f_v_bs, f_hab, tasa_bcv, tasa_corp, log
-                    )
-                
-                # --- RESULTADOS ---
-                if not df_asiento.empty:
-                    st.success("✅ Ajustes Calculados Exitosamente")
-                    
-                    st.subheader("Vista Previa del Asiento Contable")
-                    st.dataframe(df_asiento, use_container_width=True)
-                    
-                    # Generar nombre de archivo dinámico
-                    mes_txt = "CIERRE" # Podrías extraerlo del DF si quisieras
-                    nombre_archivo = f"Ajustes_Balance_USD_{empresa}.xlsx"
-                    
-                    # Generar Excel
-                    excel_data = generar_reporte_ajustes_usd(df_res, df_banc, df_asiento, df_raw, empresa, val_data)
-                    
-                    st.download_button(
-                        label="⬇️ Descargar Reporte Completo (Excel)",
-                        data=excel_data,
-                        file_name=nombre_archivo,
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        use_container_width=True
-                    )
-                else:
-                    st.warning("⚠️ El proceso terminó pero no se generaron asientos de ajuste (¿Todo estaba cuadrado?).")
-                
-                # Mostrar Log
-                with st.expander("Ver Log del Proceso"):
-                    st.write(log)
-                    
-            except Exception as e:
-                mostrar_error_amigable(e, "el Cálculo de Ajustes de Balance")
 
 def render_cofersa():
     st.title("🚛 Envíos en Tránsito COFERSA Local (101050200)", anchor=False)
@@ -1284,6 +729,542 @@ def render_cofersa_fondos():
             except Exception as e:
                 mostrar_error_amigable(e, "la Conciliación de Fondos Cofersa")
 
+
+def render_cuadre():
+    st.title("⚖️ Cuadre de Disponibilidad (CB vs CG)", anchor=False)
+    if st.button("⬅️ Volver al Inicio", key="back_from_cuadre"):
+        set_page('inicio')
+        st.rerun()
+    
+    # --- SELECTOR DE EMPRESA ---
+    CASA_OPTIONS = ["MAYOR BEVAL, C.A", "FEBECA, C.A", "FEBECA, C.A (QUINCALLA)", "PRISMA, C.A"]
+    col_emp, _ = st.columns([1, 1])
+    with col_emp:
+        empresa_sel = st.selectbox("Seleccione la Empresa:", CASA_OPTIONS, key="empresa_cuadre")
+    
+    st.info("Sube el Reporte de Tesorería (CB) y el Balance de Comprobación (CG). Pueden ser PDF o Excel.")
+    
+    # --- CARGA DE ARCHIVOS ---
+    col1, col2 = st.columns(2)
+    with col1:
+        file_cb = st.file_uploader("1. Reporte Tesorería (CB)", type=['pdf', 'xlsx'])
+    with col2:
+        file_cg = st.file_uploader("2. Balance Contable (CG)", type=['pdf', 'xlsx'])
+        
+    # --- BOTÓN DE ACCIÓN ---
+    if file_cb and file_cg:
+        if st.button("Comparar Saldos", type="primary", use_container_width=True):
+            log = []
+            try:
+                # Importamos funciones necesarias (incluyendo la nueva validación)
+                from logic import run_cuadre_cb_cg, validar_coincidencia_empresa
+                from utils import generar_reporte_cuadre
+                
+                # --- FASE 0: VALIDACIÓN DE SEGURIDAD ---
+                # 1. Verificar archivo Tesorería
+                es_valido_cb, msg_cb = validar_coincidencia_empresa(file_cb, empresa_sel)
+                if not es_valido_cb:
+                    st.error(f"⛔ ALERTA DE SEGURIDAD (Tesorería): {msg_cb}")
+                    st.warning("Por favor verifique que seleccionó la empresa correcta en el menú.")
+                    st.stop() # Detiene la ejecución aquí para proteger los datos
+                
+                # 2. Verificar archivo Contabilidad
+                es_valido_cg, msg_cg = validar_coincidencia_empresa(file_cg, empresa_sel)
+                if not es_valido_cg:
+                    st.error(f"⛔ ALERTA DE SEGURIDAD (Contabilidad): {msg_cg}")
+                    st.warning("Por favor verifique que seleccionó la empresa correcta en el menú.")
+                    st.stop() # Detiene la ejecución aquí
+
+                # --- FASE 1: PROCESAMIENTO ---
+                with st.spinner("Analizando y cruzando saldos..."):
+                    df_res, df_huerfanos = run_cuadre_cb_cg(file_cb, file_cg, empresa_sel, log)
+                
+                # --- FASE 2: MOSTRAR RESULTADOS EN PANTALLA ---
+                st.subheader("Resumen de Saldos", anchor=False)
+                
+                # Mostramos solo columnas clave para no saturar la vista
+                cols_pantalla = ['Moneda', 'Banco (Tesorería)', 'Cuenta Contable', 'Descripción', 'Saldo Final CB', 'Saldo Final CG', 'Diferencia', 'Estado']
+                st.dataframe(df_res[cols_pantalla], use_container_width=True)
+                
+                # Si hay cuentas huérfanas (no configuradas), mostramos alerta
+                if not df_huerfanos.empty:
+                    st.error(f"⚠️ ATENCIÓN: Se detectaron {len(df_huerfanos)} cuentas con saldo que NO están configuradas. Revisa la 3ra pestaña del Excel.")
+                    st.dataframe(df_huerfanos, use_container_width=True)
+                
+                # --- FASE 3: GENERAR EXCEL ---
+                excel_data = generar_reporte_cuadre(df_res, df_huerfanos, empresa_sel)
+                
+                st.download_button(
+                    label="⬇️ Descargar Reporte Completo (Excel)",
+                    data=excel_data,
+                    file_name=f"Cuadre_CB_CG_{empresa_sel}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
+                
+                # Log técnico al final
+                with st.expander("Ver Log de Extracción"):
+                    st.write(log)
+                    
+            except Exception as e:
+                mostrar_error_amigable(e, "el Cuadre CB-CG")
+
+def render_ajustes_usd():
+    st.title("📉 Ajustes al Balance en USD", anchor=False)
+    
+    # Guía Desplegable
+    with st.expander("📖 Guía de Uso: Reglas y Archivos"):
+        st.markdown(GUIA_AJUSTES_USD) # Asegúrate de haber importado esto al inicio
+
+    # Botón Volver
+    if st.button("⬅️ Volver al Inicio", key="back_adj_usd"):
+        set_page('inicio')
+        st.rerun()
+    
+    # --- SECCIÓN 1: CARGA DE ARCHIVOS ---
+    st.subheader("1. Archivos de Entrada", anchor=False)
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        f_cb = st.file_uploader("1. Conciliación Tesorería (Excel)", type=['xlsx'], key="adj_cb")
+        f_cg = st.file_uploader("2. Balance Comprobación (PDF/Excel)", type=['pdf', 'xlsx'], key="adj_cg")
+        f_hab = st.file_uploader("5. Reporte Haberes (Excel)", type=['xlsx'], key="adj_hab")
+        
+    with col2:
+        f_v_me = st.file_uploader("3. Auxiliar Viajes ME (Excel)", type=['xlsx'], key="adj_v_me")
+        f_v_bs = st.file_uploader("4. Auxiliar Viajes Bs (Excel)", type=['xlsx'], key="adj_v_bs")
+        
+    # --- SECCIÓN 2: PARÁMETROS ---
+    st.subheader("2. Parámetros de Cálculo", anchor=False)
+    c_tasa1, c_tasa2, c_emp = st.columns(3)
+    
+    with c_tasa1:
+        tasa_bcv = st.number_input("Tasa BCV (Cierre)", min_value=0.0001, value=1.0, format="%.4f", key="adj_t_bcv")
+    with c_tasa2:
+        tasa_corp = st.number_input("Tasa CORP (Interna)", min_value=0.0001, value=1.0, format="%.4f", key="adj_t_corp")
+    with c_emp:
+        EMPRESAS = ["FEBECA, C.A", "MAYOR BEVAL, C.A", "PRISMA, C.A", "FEBECA, C.A (QUINCALLA)"]
+        empresa = st.selectbox("Empresa", EMPRESAS, key="adj_empresa")
+    
+    # --- BOTÓN DE EJECUCIÓN ---
+    if st.button("Calcular Ajustes y Asiento", type="primary", use_container_width=True, key="btn_calc_adj"):
+        if not f_cg:
+            st.error("⚠️ El Balance de Comprobación es obligatorio.")
+        else:
+            log = []
+            try:
+                from logic import procesar_ajustes_balance_usd
+                from utils import generar_reporte_ajustes_usd
+                
+                with st.spinner("Analizando balance, cruzando bancos y calculando ajustes..."):
+                    df_res, df_banc, df_asiento, df_raw, val_data = procesar_ajustes_balance_usd(
+                        f_cb, f_cg, f_v_me, f_v_bs, f_hab, tasa_bcv, tasa_corp, log
+                    )
+                
+                # --- RESULTADOS ---
+                if not df_asiento.empty:
+                    st.success("✅ Ajustes Calculados Exitosamente")
+                    
+                    st.subheader("Vista Previa del Asiento Contable")
+                    st.dataframe(df_asiento, use_container_width=True)
+                    
+                    # Generar nombre de archivo dinámico
+                    mes_txt = "CIERRE" # Podrías extraerlo del DF si quisieras
+                    nombre_archivo = f"Ajustes_Balance_USD_{empresa}.xlsx"
+                    
+                    # Generar Excel
+                    excel_data = generar_reporte_ajustes_usd(df_res, df_banc, df_asiento, df_raw, empresa, val_data)
+                    
+                    st.download_button(
+                        label="⬇️ Descargar Reporte Completo (Excel)",
+                        data=excel_data,
+                        file_name=nombre_archivo,
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True
+                    )
+                else:
+                    st.warning("⚠️ El proceso terminó pero no se generaron asientos de ajuste (¿Todo estaba cuadrado?).")
+                
+                # Mostrar Log
+                with st.expander("Ver Log del Proceso"):
+                    st.write(log)
+                    
+            except Exception as e:
+                mostrar_error_amigable(e, "el Cálculo de Ajustes de Balance")
+
+def render_paquete_cc():
+    st.title('📦 Herramienta de Análisis de Paquete CC', anchor=False)
+    if st.button("⬅️ Volver al Inicio", key="back_from_paquete"):
+        set_page('inicio')
+        if 'processing_paquete_complete' in st.session_state:
+            del st.session_state['processing_paquete_complete']
+        st.rerun()
+    
+    st.markdown("Esta herramienta analiza el diario contable para clasificar y agrupar los asientos.")
+
+    with st.expander("📖 Manual de Usuario: Criterios de Análisis y Errores Comunes", expanded=False):
+        st.markdown(GUIA_PAQUETE_CC)
+    
+    CASA_OPTIONS = ["FEBECA, C.A", "MAYOR BEVAL, C.A", "PRISMA, C.A", "FEBECA, C.A (QUINCALLA)"]
+    st.subheader("1. Seleccione la Empresa (Casa):", anchor=False)
+    casa_seleccionada = st.selectbox("Empresa", CASA_OPTIONS, label_visibility="collapsed", key="casa_paquete_cc")
+    
+    st.subheader("2. Cargue el Archivo de Movimientos del Diario (.xlsx):", anchor=False)
+    
+    columnas_requeridas = ['Asiento', 'Fecha', 'Fuente', 'Cuenta Contable', 'Descripción de Cuenta', 'Referencia', 'Débito Dolar', 'Crédito Dolar', 'Débito VES', 'Crédito VES']
+    texto_columnas = "**Columnas Esenciales Requeridas:**\n" + "\n".join([f"- `{col}`" for col in columnas_requeridas])
+    st.info(texto_columnas, icon="ℹ️")
+    
+    uploaded_diario = st.file_uploader("Movimientos del Diario Contable", type="xlsx", label_visibility="collapsed")
+    
+    if uploaded_diario:
+        if st.button("▶️ Iniciar Análisis", type="primary", use_container_width=True):
+            with st.spinner('Ejecutando análisis de asientos... Este proceso puede tardar unos momentos.'):
+                log_messages = []
+                try:
+                    df_diario = pd.read_excel(uploaded_diario)
+                    
+                    # Mapeo robusto para estandarizar nombres de columnas
+                    # Nombres estándar que la lógica espera
+                    standard_names = {
+                        'Débito Dolar': ['Debito Dolar', 'Débitos Dolar', 'Débito Dólar', 'Debito Dólar'],
+                        'Crédito Dolar': ['Credito Dolar', 'Créditos Dolar', 'Crédito Dólar', 'Credito Dólar'],
+                        'Débito VES': ['Debito VES', 'Débitos VES', 'Débito Bolivar', 'Debito Bolivar', 'Débito Bs', 'Debito Bs'],
+                        'Crédito VES': ['Credito VES', 'Créditos VES', 'Crédito Bolivar', 'Credito Bolivar', 'Crédito Bs', 'Credito Bs'],
+                        'Descripción de Cuenta': ['Descripcion de Cuenta', 'Descripción de la Cuenta', 'Descripcion de la Cuenta', 'Descripción de la Cuenta Contable', 'Descripcion de la Cuenta Contable']
+                    }
+
+                    # Crear un diccionario para el renombrado final
+                    rename_map = {}
+                    # Normalizar las columnas del DataFrame para una comparación más fácil
+                    df_columns_normalized = {col.strip(): col for col in df_diario.columns}
+
+                    for standard, variations in standard_names.items():
+                        # Añadir el nombre estándar a su propia lista de variaciones
+                        all_variations = [standard] + variations
+                        for var_name in all_variations:
+                            if var_name in df_columns_normalized:
+                                # Si encontramos una variación, la mapeamos al nombre estándar
+                                rename_map[df_columns_normalized[var_name]] = standard
+                                break # Pasamos al siguiente nombre estándar
+
+                    # Aplicar el renombrado
+                    df_diario.rename(columns=rename_map, inplace=True)
+                    log_messages.append(f"✔️ Columnas estandarizadas. Mapeo aplicado: {rename_map}")
+
+                    df_resultado = run_analysis_paquete_cc(df_diario, log_messages)
+                    
+                    st.session_state.reporte_paquete_output = generar_reporte_paquete_cc(df_resultado, casa_seleccionada)
+                    st.session_state.log_messages_paquete = log_messages
+                    st.session_state.processing_paquete_complete = True
+                    st.rerun()
+
+                except Exception as e:
+                    mostrar_error_amigable(e, "el Análisis de Paquete CC")
+                    st.session_state.processing_paquete_complete = False
+
+    if st.session_state.get('processing_paquete_complete', False):
+        st.success("✅ ¡Análisis de Paquete CC completado con éxito!")
+        st.download_button(
+            "⬇️ Descargar Reporte de Análisis (Excel)",
+            st.session_state.reporte_paquete_output,
+            "Reporte_Analisis_Paquete_CC.xlsx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
+        with st.expander("Ver registro detallado del proceso de análisis"):
+            st.text_area("Log de Análisis", '\n'.join(st.session_state.log_messages_paquete), height=400)
+
+def render_comisiones():
+    st.title("🏦 Auditoría de Conciliación de Comisiones", anchor=False)
+    
+    if st.button("⬅️ Volver al Inicio"):
+        set_page('inicio')
+        st.rerun()
+
+    with st.expander("📖 Guía de Uso"):
+        st.markdown(GUIA_COMISIONES)
+
+    empresa = st.selectbox("Seleccione la empresa:", ["Febeca", "Beval", "Sillaca", "Prisma"])
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        f1 = st.file_uploader(f"1. Resumen de Comisiones ({empresa})", type="xlsx")
+    with col2:
+        f2 = st.file_uploader(f"2. Diario Contable ({empresa})", type="xlsx")
+
+    if f1 and f2:
+        if st.button(f"🚀 Procesar Auditoría {empresa}", type="primary", use_container_width=True):
+            log_messages = []
+            try:
+                with st.spinner("Analizando consistencia de montos..."):
+                    df_res, df_err_asientos = run_process_comisiones(pd.read_excel(f1), pd.read_excel(f2), log_messages)
+                
+                if df_res is not None:
+                    # --- 1. DEFINICIÓN DE LA VARIABLE (SOLUCIÓN AL ERROR) ---
+                    # Verificamos si existe al menos una 'X' roja en la columna Estatus
+                    hay_errores = df_res['Estatus'].str.contains("❌").any()
+                    
+                    # --- 2. ALERTAS VISUALES ---
+                    if not hay_errores:
+                        st.success(f"✅ ¡Excelente! Cuadratura perfecta en VES y USD para {empresa}.")
+                    else:
+                        st.warning(f"⚠️ Se detectaron diferencias en la auditoría de {empresa}.")
+
+                    # --- 3. MOSTRAR RESULTADOS EN PANTALLA ---
+                    st.subheader("📋 Resumen de Auditoría de Cuadratura")
+                    
+                    # Función para dar color a la tabla
+                    def color_estatus(val):
+                        color = 'red' if '❌' in str(val) else 'green'
+                        return f'color: {color}; font-weight: bold'
+
+                    # NUEVOS NOMBRES: Sincronizados con el modelo profesional de logic.py
+                    columnas_visibles = ['Banco', 'Estatus', 'Observación']
+                    
+                    try:
+                        st.dataframe(
+                            df_res[columnas_visibles].style.applymap(color_estatus, subset=['Estatus']),
+                            use_container_width=True,
+                            hide_index=True
+                        )
+                    except Exception as e:
+                        # Fallback por si hay algún otro desajuste de nombres
+                        st.write("Detalle de resultados:")
+                        st.dataframe(df_res, use_container_width=True)
+
+                    # --- 4. BOTÓN DE DESCARGA ---
+                    # Ahora la variable 'hay_errores' ya existe y no dará error
+                    if hay_errores:
+                        st.divider()
+                        excel_bin = generar_reporte_errores_comisiones(df_res, df_err_asientos, empresa)
+                        st.download_button(
+                            label="📥 Descargar Reporte Completo (2 Pestañas)",
+                            data=excel_bin,
+                            file_name=f"Auditoria_Comisiones_{empresa}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            use_container_width=True
+                        )
+                
+                with st.expander("Ver Log técnico"):
+                    for m in log_messages: st.text(m)
+            except Exception as e:
+                mostrar_error_amigable(e, "la Auditoría de Comisiones")
+
+
+# ==============================================================================
+# V. CICLO FISCAL Y DE AUDITORÍA
+# ==============================================================================
+def render_retenciones():
+    st.title("🧾 Herramienta de Auditoría de Retenciones", anchor=False)
+    if st.button("⬅️ Volver al Inicio", key="back_from_ret"):
+        set_page('inicio')
+        if 'processing_ret_complete' in st.session_state:
+            del st.session_state['processing_ret_complete']
+        st.rerun()
+
+    st.markdown("""
+    Esta herramienta audita el proceso de retenciones cruzando la **Preparación Contable (CP)**, 
+    la **Fuente Oficial (GALAC)** y el **Diario Contable (CG)** para identificar discrepancias.
+    """)
+
+    # --- El expander ahora lee el texto desde el archivo guides.py ---
+    with st.expander("📖 Guía Completa: Cómo Usar y Entender la Herramienta de Auditoría", expanded=True):
+        st.markdown(GUIA_COMPLETA_RETENCIONES)
+
+    st.subheader("1. Cargue los Archivos de Excel (.xlsx):", anchor=False)
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.info("Archivos de Preparación y Registro")
+        file_cp = st.file_uploader("1. Relacion_Retenciones_CP.xlsx", type="xlsx")
+        file_cg = st.file_uploader("2. Transacciones_Diario_CG.xlsx", type="xlsx")
+
+    with col2:
+        st.info("Archivos Oficiales (Fuente GALAC)")
+        file_iva = st.file_uploader("3. Retenciones_IVA.xlsx", type="xlsx")
+        file_islr = st.file_uploader("4. Retenciones_ISLR.xlsx", type="xlsx")
+        file_mun = st.file_uploader("5. Retenciones_Municipales.xlsx", type="xlsx")
+
+    if all([file_cp, file_cg, file_iva, file_islr, file_mun]):
+        if st.button("▶️ Iniciar Auditoría de Retenciones", type="primary", use_container_width=True):
+            with st.spinner('Ejecutando auditoría... Este proceso puede tardar unos momentos.'):
+                log_messages = []
+                
+                try:
+                    reporte_resultado = run_conciliation_retenciones(
+                        file_cp, file_cg, file_iva, file_islr, file_mun, log_messages
+                    )
+                    
+                    if reporte_resultado is None:
+                        raise Exception("Error interno: La lógica devolvió un resultado vacío.")
+
+                    st.session_state.reporte_ret_output = reporte_resultado
+                    st.session_state.log_messages_ret = log_messages
+                    st.session_state.processing_ret_complete = True
+                    st.rerun()
+
+                except Exception as e:
+                    mostrar_error_amigable(e, "la Auditoría de Retenciones")
+                    st.session_state.log_messages_ret = log_messages
+                    # No activamos processing_ret_complete en error para no mostrar el botón de descarga vacío,
+                    # pero sí guardamos los logs por si quieres verlos.
+                    st.session_state.processing_ret_complete = True 
+                    # Importante: Si hubo error, reporte_ret_output debe ser None
+                    st.session_state.reporte_ret_output = None 
+
+    # --- BLOQUE 2: MOSTRAR RESULTADOS (Fuera del if del botón) ---
+    if st.session_state.get('processing_ret_complete', False):
+        
+        # Solo mostramos Éxito y Descarga si hay un reporte generado
+        if st.session_state.get('reporte_ret_output') is not None:
+            st.success("✅ ¡Auditoría de retenciones completada con éxito!")
+            st.download_button(
+                "⬇️ Descargar Reporte de Auditoría (Excel)",
+                st.session_state.reporte_ret_output,
+                "Reporte_Auditoria_Retenciones.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+        
+        # El log lo mostramos siempre (sea éxito o error controlado)
+        if 'log_messages_ret' in st.session_state and st.session_state.log_messages_ret:
+            with st.expander("Ver registro detallado del proceso de auditoría"):
+                st.text_area("Log de Auditoría de Retenciones", '\n'.join(st.session_state.log_messages_ret), height=400)
+
+
+def render_pensiones():
+    st.title("🛡️ Cálculo Ley Protección Pensiones (9%)", anchor=False)
+    
+    with st.expander("📖 Guía de Uso"):
+        st.markdown(GUIA_PENSIONES)
+
+    if st.button("⬅️ Volver al Inicio", key="back_pen"):
+        set_page('inicio')
+        st.rerun()
+        
+    # 1. Configuración de Empresa
+    EMPRESAS_NOMINA = ["FEBECA", "BEVAL", "PRISMA", "QUINCALLA"]
+    col_emp, _ = st.columns([1, 1])
+    with col_emp:
+        empresa_sel = st.selectbox("Seleccione la Empresa:", EMPRESAS_NOMINA, key="empresa_pensiones")
+
+    # 2. Carga de Archivos
+    c1, c2, c3 = st.columns([1.5, 1.5, 1])
+    with c1:
+        file_mayor = st.file_uploader("1. Mayor Contable (Excel)", type=['xlsx'], key="pen_mayor")
+    with c2:
+        file_nomina = st.file_uploader("2. Resumen Nómina (Validación)", type=['xlsx'], key="pen_nom")
+    with c3:
+        tasa = st.number_input("Tasa de Cambio", min_value=0.01, value=1.0, format="%.4f", key="pen_tasa")
+        num_asiento = st.text_input("Número de Asiento (Cargador)", value="CG0000", key="pen_num_asiento")
+
+    # 3. Botón de Acción
+    if file_mayor and tasa > 0:
+        if st.button("Calcular Impuesto", type="primary", use_container_width=True, key="btn_calc_pen"):
+            log = []
+            try:
+                from logic import procesar_calculo_pensiones
+                from utils import generar_reporte_pensiones
+                
+                with st.spinner("Procesando mayor contable y cruzando con nómina..."):
+                    # Ejecutar lógica principal
+                    df_calc, df_base, df_asiento, dict_val = procesar_calculo_pensiones(file_mayor, file_nomina, tasa, empresa_sel, log, num_asiento)
+                
+                if df_asiento is not None and not df_asiento.empty:
+                    # Mostrar resultados en pantalla
+                    total_pagar = df_asiento['Crédito VES'].sum()
+                    
+                    # Alertas de Validación
+                    if dict_val.get('estado') == 'OK':
+                        st.success(f"✅ Cálculo exitoso para {empresa_sel}. Total a Pagar: Bs. {total_pagar:,.2f}")
+                    else:
+                        st.warning(
+                            f"⚠️ Atención: Descuadres detectados (Ver Hoja 1).\n"
+                            f"• Dif. Salarios: {dict_val.get('dif_salario', 0):,.2f}\n"
+                            f"• Dif. Tickets: {dict_val.get('dif_ticket', 0):,.2f}\n"
+                            f"• Dif. Impuesto: {dict_val.get('dif_imp', 0):,.2f}"
+                        )
+                    
+                    st.subheader("Vista Previa del Asiento")
+
+                    # --- MEJORA VISUAL EN PANTALLA ---
+                    # 1. Ordenar columnas
+                    cols_orden = ['Centro Costo', 'Cuenta Contable', 'Descripción', 'Débito VES', 'Crédito VES', 'Débito USD', 'Crédito USD', 'Tasa']
+                    df_view = df_asiento[cols_orden].copy()
+                    
+                    # 2. Fila de Totales
+                    totales = {
+                        'Centro Costo': 'TOTALES', 'Cuenta Contable': '', 'Descripción': '',
+                        'Débito VES': df_view['Débito VES'].sum(), 'Crédito VES': df_view['Crédito VES'].sum(),
+                        'Débito USD': df_view['Débito USD'].sum(), 'Crédito USD': df_view['Crédito USD'].sum(), 'Tasa': ''
+                    }
+                    df_view = pd.concat([df_view, pd.DataFrame([totales])], ignore_index=True)
+                    
+                    # 3. Formato Venezolano (1.000,00)
+                    def fmt_ve(x):
+                        if isinstance(x, (float, int)):
+                            return "{:,.2f}".format(x).replace(",", "X").replace(".", ",").replace("X", ".")
+                        return x
+
+                    for col in ['Débito VES', 'Crédito VES', 'Débito USD', 'Crédito USD', 'Tasa']:
+                        df_view[col] = df_view[col].apply(fmt_ve)
+
+                    st.dataframe(df_view, use_container_width=True, hide_index=True)
+                    # ---------------------------------
+                    
+                    # --- PREPARACIÓN PARA EXCEL ---
+                    fecha_cierre = pd.Timestamp.today()
+                    try:
+                        if 'FECHA' in df_base.columns:
+                            # Tomamos la primera fecha válida y calculamos el último día de ese mes
+                            primera_fecha = pd.to_datetime(df_base['FECHA'].iloc[0])
+                            fecha_cierre = primera_fecha + pd.offsets.MonthEnd(0)
+                    except:
+                        pass # Si falla, usa fecha de hoy
+                    
+                    # --- NUEVO: NOMBRE DE ARCHIVO DINÁMICO ---
+                    # Formato: Calculo_Pensiones_EMPRESA_MES.YY.xlsx
+                    meses_abr = {1:"ENE", 2:"FEB", 3:"MAR", 4:"ABR", 5:"MAY", 6:"JUN", 7:"JUL", 8:"AGO", 9:"SEP", 10:"OCT", 11:"NOV", 12:"DIC"}
+                    mes_txt = meses_abr.get(fecha_cierre.month, "MES")
+                    anio_txt = str(fecha_cierre.year)[-2:]
+                    
+                    nombre_archivo_final = f"Calculo_Pensiones_{empresa_sel}_{mes_txt}.{anio_txt}.xlsx"
+                    # ------------------------------------------
+                    
+                    # Generar Reporte Excel
+                    excel_data = generar_reporte_pensiones(df_calc, df_base, df_asiento, dict_val, empresa_sel, tasa, fecha_cierre)
+
+                    cargador_bin = generar_cargador_asiento_pensiones(df_asiento, fecha_cierre)
+    
+                    st.divider()
+                    st.subheader("🚀 Generación de Cargador")
+                    st.download_button(
+                        label="⬇️ Descargar Cargador para el Sistema (.xlsx)",
+                        data=cargador_bin,
+                        file_name=f"CARGADOR_{num_asiento}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True
+                    )
+                    
+                    st.download_button(
+                        "⬇️ Descargar Reporte Completo (Excel)",
+                        excel_data,
+                        file_name=nombre_archivo_final, # <--- CAMBIO AQUÍ
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True
+                    )
+                else:
+                    st.error("No se pudo generar el cálculo. Por favor revisa el log.")
+
+                # Mostrar Log
+                with st.expander("Ver Log de Proceso"):
+                    st.write(log)
+
+            except Exception as e:
+                mostrar_error_amigable(e, "el Cálculo de Pensiones")
+
+
 def render_debito_fiscal():
     st.title("📑 Verificación de Débito Fiscal (Bs.)", anchor=False)
     if st.button("⬅️ Volver al Inicio"): 
@@ -1366,84 +1347,9 @@ def render_debito_fiscal():
                 st.error(f"Error detectado: {str(e)}")
                 st.exception(e)
 
-def render_comisiones():
-    st.title("🏦 Auditoría de Conciliación de Comisiones", anchor=False)
-    
-    if st.button("⬅️ Volver al Inicio"):
-        set_page('inicio')
-        st.rerun()
 
-    with st.expander("📖 Guía de Uso"):
-        st.markdown(GUIA_COMISIONES)
-
-    empresa = st.selectbox("Seleccione la empresa:", ["Febeca", "Beval", "Sillaca", "Prisma"])
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        f1 = st.file_uploader(f"1. Resumen de Comisiones ({empresa})", type="xlsx")
-    with col2:
-        f2 = st.file_uploader(f"2. Diario Contable ({empresa})", type="xlsx")
-
-    if f1 and f2:
-        if st.button(f"🚀 Procesar Auditoría {empresa}", type="primary", use_container_width=True):
-            log_messages = []
-            try:
-                with st.spinner("Analizando consistencia de montos..."):
-                    df_res, df_err_asientos = run_process_comisiones(pd.read_excel(f1), pd.read_excel(f2), log_messages)
-                
-                if df_res is not None:
-                    # --- 1. DEFINICIÓN DE LA VARIABLE (SOLUCIÓN AL ERROR) ---
-                    # Verificamos si existe al menos una 'X' roja en la columna Estatus
-                    hay_errores = df_res['Estatus'].str.contains("❌").any()
-                    
-                    # --- 2. ALERTAS VISUALES ---
-                    if not hay_errores:
-                        st.success(f"✅ ¡Excelente! Cuadratura perfecta en VES y USD para {empresa}.")
-                    else:
-                        st.warning(f"⚠️ Se detectaron diferencias en la auditoría de {empresa}.")
-
-                    # --- 3. MOSTRAR RESULTADOS EN PANTALLA ---
-                    st.subheader("📋 Resumen de Auditoría de Cuadratura")
-                    
-                    # Función para dar color a la tabla
-                    def color_estatus(val):
-                        color = 'red' if '❌' in str(val) else 'green'
-                        return f'color: {color}; font-weight: bold'
-
-                    # NUEVOS NOMBRES: Sincronizados con el modelo profesional de logic.py
-                    columnas_visibles = ['Banco', 'Estatus', 'Observación']
-                    
-                    try:
-                        st.dataframe(
-                            df_res[columnas_visibles].style.applymap(color_estatus, subset=['Estatus']),
-                            use_container_width=True,
-                            hide_index=True
-                        )
-                    except Exception as e:
-                        # Fallback por si hay algún otro desajuste de nombres
-                        st.write("Detalle de resultados:")
-                        st.dataframe(df_res, use_container_width=True)
-
-                    # --- 4. BOTÓN DE DESCARGA ---
-                    # Ahora la variable 'hay_errores' ya existe y no dará error
-                    if hay_errores:
-                        st.divider()
-                        excel_bin = generar_reporte_errores_comisiones(df_res, df_err_asientos, empresa)
-                        st.download_button(
-                            label="📥 Descargar Reporte Completo (2 Pestañas)",
-                            data=excel_bin,
-                            file_name=f"Auditoria_Comisiones_{empresa}.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            use_container_width=True
-                        )
-                
-                with st.expander("Ver Log técnico"):
-                    for m in log_messages: st.text(m)
-            except Exception as e:
-                mostrar_error_amigable(e, "la Auditoría de Comisiones")
-                
 # ==============================================================================
-# FLUJO PRINCIPAL DE LA APLICACIÓN (ROUTER)
+# VI. ENRUTAMIENTO FINAL (ROUTER)
 # ==============================================================================
 def main():
     page_map = {
