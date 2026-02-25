@@ -58,6 +58,7 @@ def buscar_columna(df, palabras):
 def normalizar_referencia_fondos_en_transito(df):
     """Clasifica movimientos según palabras clave en la referencia para Fondos en Tránsito."""
     df_copy = df.copy()
+    
     def clasificar(referencia_str):
         if pd.isna(referencia_str): return 'OTRO', 'OTRO', ''
         ref = str(referencia_str).upper().strip()
@@ -301,6 +302,7 @@ def run_conciliation_fondos_en_transito (df, log_messages):
 # --- (B) Módulo: Fondos por Depositar (ME) (111.04.6001)---
 def normalizar_referencia_fondos_usd(df):
     df_copy = df.copy()
+    
     def clasificar_usd(ref_str):
         if pd.isna(ref_str): return 'OTRO', 'OTRO', 'OTRO'
         ref = str(ref_str).upper().strip()
@@ -680,7 +682,6 @@ def run_conciliation_fondos_por_depositar(df, log_messages, progress_bar=None):
     return df
 
 # --- (C) Módulo: Fondos por Depositar – Cobros Viajeros – ME (111.04.6001) ---
-
 def normalizar_datos_cobros_viajeros(df, log_messages):
     """
     Función de normalización que ahora asegura que la columna 'Asiento'
@@ -710,7 +711,6 @@ def normalizar_datos_cobros_viajeros(df, log_messages):
     df_copy['Es_Reverso'] = df_copy['Referencia'].str.contains('REVERSO', case=False, na=False)
     
     return df_copy
-
 
 def run_conciliation_cobros_viajeros(df, log_messages, progress_bar=None):
     """
@@ -1122,7 +1122,6 @@ def run_conciliation_otras_cxp(df, log_messages, progress_bar=None):
     return df
     
 # --- (G) Módulo: Haberes de Clientes (VES) (212.05.1108)---
-
 def run_conciliation_haberes_clientes(df, log_messages, progress_bar=None):
     """
     Conciliación de Haberes de Clientes (BS).
@@ -1543,7 +1542,6 @@ def run_conciliation_proveedores_costos(df, log_messages, progress_bar=None):
     return df
 
 # --- (K) Módulo: CDC - Factoring (USD) (212.07.9001) ---
-
 def normalizar_datos_cdc_factoring(df, log_messages):
     """
     Extrae el código del contrato.
@@ -1597,7 +1595,6 @@ def normalizar_datos_cdc_factoring(df, log_messages):
                 # Longitud mínima 4 para evitar capturar "1", "2023" (años), etc.
                 if len(texto) >= 4:
                     return texto
-
         return None
 
     def extraer_contrato_row(row):
@@ -1611,7 +1608,6 @@ def normalizar_datos_cdc_factoring(df, log_messages):
         return 'SIN_CONTRATO'
 
     df_copy['Contrato'] = df_copy.apply(extraer_contrato_row, axis=1)
-    
     return df_copy
     
 def run_conciliation_cdc_factoring(df, log_messages, progress_bar=None):
@@ -1676,16 +1672,15 @@ def run_conciliation_cdc_factoring(df, log_messages, progress_bar=None):
     log_messages.append("\n--- PROCESO DE CONCILIACIÓN FINALIZADO ---")
     return df
 
-
-
-
-
-
-
-
 # ==============================================================================
-# FUNCIONES MAESTRAS DE ESTRATEGIA
+# 4. MÓDULOS DE CONCILIACIÓN - COFERSA
 # ==============================================================================
+
+
+
+
+
+
 
 
 # ==============================================================================
