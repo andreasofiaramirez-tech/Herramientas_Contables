@@ -1,7 +1,7 @@
 # guides.py
 
 # ==============================================================================
-# GUÍA GENERAL PARA LA HERRAMIENTA DE ESPECIFICACIONES
+# 1. GUÍAS GENERALES Y HERRAMIENTAS DE AUDITORÍA
 # ==============================================================================
 
 GUIA_GENERAL_ESPECIFICACIONES = """
@@ -40,6 +40,93 @@ Ambos archivos deben contener las **columnas esenciales** que se listan en el re
 1.  Una vez finalizado, descargue el **Reporte Completo (Excel)** para su análisis y archivo.
 2.  **MUY IMPORTANTE:** Descargue los **Saldos para Próximo Mes (excel)**. Este archivo es su nuevo punto de partida y deberá usarlo como el archivo de "Saldos anteriores" en la próxima conciliación de esta misma cuenta.
 """
+
+# ==============================================================================
+# GUÍA PARA LA HERRAMIENTA DE RETENCIONES
+# -----------------------------------------------------------------------------
+
+GUIA_COMPLETA_RETENCIONES = """
+### Guía Práctica: Paso a Paso para el Uso Correcto
+
+Siga estos 4 pasos para garantizar una auditoría exitosa y sin errores.
+
+---
+
+#### **Paso 1: Preparación de los 5 Archivos de Entrada**
+
+La calidad de la auditoría depende de la correcta preparación de los datos. Asegúrese de que sus archivos `.xlsx` cumplan con lo siguiente:
+
+**1. 📂 Relacion_Retenciones_CP.xlsx (Su archivo de trabajo)**
+*   **Formato:** Los encabezados de la tabla deben estar **exactamente en la fila 5**.
+*   **Columnas Esenciales Requeridas:**
+    - `Asiento Contable`
+    - `Proveedor` (Debe contener el RIF del proveedor)
+    - `Tipo`
+    - `Fecha`
+    - `Número` (El número de comprobante de retención)
+    - `Monto`
+    - `Aplicación` (Aquí se busca el número de factura)
+    - `Subtipo` (Debe contener 'IVA', 'ISLR' o 'MUNICIPAL')
+
+**2. 📂 Transacciones_Diario_CG.xlsx (Su reporte del diario contable)**
+*   **ACCIÓN CRÍTICA:** Antes de exportar, **filtre el diario contable** para incluir únicamente los asientos cuyo rango de fechas coincida con el de su archivo CP. Esto acelera el proceso y evita falsos negativos.
+*   **Columnas Esenciales Requeridas:**
+    - `ASIENTO`
+    - `CUENTACONTABLE`
+    - `DEBITOVES` (o un nombre similar como DÉBITO, DEBEVESDÉBITO)
+    - `CREDITOVES` (o un nombre similar como CRÉDITO)
+
+**3, 4 y 5. 📂 Archivos de GALAC (IVA, ISLR, Municipales)**
+*   Estos deben ser los reportes oficiales generados por el sistema, sin modificaciones. La herramienta está programada para leer su estructura nativa.
+
+---
+
+#### **Paso 2: Carga de Archivos en la Herramienta**
+
+1.  Arrastre y suelte (o busque) cada uno de los 5 archivos en su respectiva caja de carga en la interfaz.
+2.  La aplicación reconocerá los archivos y activará el botón de inicio.
+
+---
+
+#### **Paso 3: Ejecución y Descarga del Reporte**
+
+1.  Haga clic en el botón **"▶️ Iniciar Auditoría de Retenciones"**.
+2.  Espere mientras la herramienta procesa y concilia todos los registros.
+3.  Una vez finalizado, aparecerá el botón **"⬇️ Descargar Reporte de Auditoría (Excel)"**. Haga clic para obtener su archivo de resultados.
+
+---
+
+#### **Paso 4: Interpretación de los Resultados en el Excel**
+
+El reporte de Excel generado tiene dos columnas clave que resumen el estado de cada registro:
+
+*   **`Cp Vs Galac`**: Le dice si su registro de CP coincide con la fuente oficial.
+    - **`Sí`**: ¡Perfecto! El registro de CP coincide con GALAC.
+    - **`Anulado`**: El registro fue marcado como anulado en su CP.
+    - **`Comprobante no encontrado`**: El número de comprobante, para ese RIF, no existe en el reporte de GALAC. Verifique el número y el RIF.
+    - **`Error de Subtipo`**: El registro fue encontrado, pero en un tipo de retención diferente (ej: se declaró como IVA pero se encontró en ISLR).
+
+*   **`Validacion CG`**: Una vez validado con GALAC, se verifica contra el diario contable.
+    - **`Conciliado en CG`**: ¡Éxito! El asiento, la cuenta contable y el monto son correctos en el diario.
+    - **`Asiento no encontrado en CG`**: El número de asiento de su CP no existe en el archivo del diario que subió.
+    - **`Cuenta Contable no coincide`**: El asiento se registró en una cuenta que no corresponde al tipo de retención.
+    - **`Monto no coincide`**: El monto del débito/crédito en el diario no coincide con el monto de su CP.
+
+💡 **Un registro está 100% conciliado solo si ambas columnas muestran un estado exitoso.**
+
+---
+### Análisis Detallado: ¿Cómo Funciona la Lógica de Conciliación?
+
+La herramienta realiza una auditoría automática en dos fases cruciales:
+
+#### **Fase 1: Validación Cruzada (CP vs. GALAC)**
+Se asegura que lo preparado en la **Contabilidad Preparada (CP)** coincida con la fuente oficial **GALAC**. La lógica varía según el tipo de retención (IVA, ISLR, Municipal) buscando siempre una combinación de **RIF, Comprobante, Factura y Monto**.
+
+#### **Fase 2: Verificación Contable Final (CP vs. CG)**
+Una vez validado contra GALAC, se asegura que el registro fue correctamente asentado en la **Contabilidad General (CG)**, usando el **Número de Asiento** como llave para verificar la **Cuenta Contable** y el **Monto** correctos.
+"""
+
+
 
 # ==============================================================================
 # DICCIONARIO DE GUÍAS ESPECÍFICAS POR CUENTA
@@ -280,90 +367,7 @@ El archivo generado es dinámico: **solo mostrará las pestañas que contengan d
 """,
 }
 
-# ==============================================================================
-# GUÍA PARA LA HERRAMIENTA DE RETENCIONES
-# ==============================================================================
 
-GUIA_COMPLETA_RETENCIONES = """
-### Guía Práctica: Paso a Paso para el Uso Correcto
-
-Siga estos 4 pasos para garantizar una auditoría exitosa y sin errores.
-
----
-
-#### **Paso 1: Preparación de los 5 Archivos de Entrada**
-
-La calidad de la auditoría depende de la correcta preparación de los datos. Asegúrese de que sus archivos `.xlsx` cumplan con lo siguiente:
-
-**1. 📂 Relacion_Retenciones_CP.xlsx (Su archivo de trabajo)**
-*   **Formato:** Los encabezados de la tabla deben estar **exactamente en la fila 5**.
-*   **Columnas Esenciales Requeridas:**
-    - `Asiento Contable`
-    - `Proveedor` (Debe contener el RIF del proveedor)
-    - `Tipo`
-    - `Fecha`
-    - `Número` (El número de comprobante de retención)
-    - `Monto`
-    - `Aplicación` (Aquí se busca el número de factura)
-    - `Subtipo` (Debe contener 'IVA', 'ISLR' o 'MUNICIPAL')
-
-**2. 📂 Transacciones_Diario_CG.xlsx (Su reporte del diario contable)**
-*   **ACCIÓN CRÍTICA:** Antes de exportar, **filtre el diario contable** para incluir únicamente los asientos cuyo rango de fechas coincida con el de su archivo CP. Esto acelera el proceso y evita falsos negativos.
-*   **Columnas Esenciales Requeridas:**
-    - `ASIENTO`
-    - `CUENTACONTABLE`
-    - `DEBITOVES` (o un nombre similar como DÉBITO, DEBEVESDÉBITO)
-    - `CREDITOVES` (o un nombre similar como CRÉDITO)
-
-**3, 4 y 5. 📂 Archivos de GALAC (IVA, ISLR, Municipales)**
-*   Estos deben ser los reportes oficiales generados por el sistema, sin modificaciones. La herramienta está programada para leer su estructura nativa.
-
----
-
-#### **Paso 2: Carga de Archivos en la Herramienta**
-
-1.  Arrastre y suelte (o busque) cada uno de los 5 archivos en su respectiva caja de carga en la interfaz.
-2.  La aplicación reconocerá los archivos y activará el botón de inicio.
-
----
-
-#### **Paso 3: Ejecución y Descarga del Reporte**
-
-1.  Haga clic en el botón **"▶️ Iniciar Auditoría de Retenciones"**.
-2.  Espere mientras la herramienta procesa y concilia todos los registros.
-3.  Una vez finalizado, aparecerá el botón **"⬇️ Descargar Reporte de Auditoría (Excel)"**. Haga clic para obtener su archivo de resultados.
-
----
-
-#### **Paso 4: Interpretación de los Resultados en el Excel**
-
-El reporte de Excel generado tiene dos columnas clave que resumen el estado de cada registro:
-
-*   **`Cp Vs Galac`**: Le dice si su registro de CP coincide con la fuente oficial.
-    - **`Sí`**: ¡Perfecto! El registro de CP coincide con GALAC.
-    - **`Anulado`**: El registro fue marcado como anulado en su CP.
-    - **`Comprobante no encontrado`**: El número de comprobante, para ese RIF, no existe en el reporte de GALAC. Verifique el número y el RIF.
-    - **`Error de Subtipo`**: El registro fue encontrado, pero en un tipo de retención diferente (ej: se declaró como IVA pero se encontró en ISLR).
-
-*   **`Validacion CG`**: Una vez validado con GALAC, se verifica contra el diario contable.
-    - **`Conciliado en CG`**: ¡Éxito! El asiento, la cuenta contable y el monto son correctos en el diario.
-    - **`Asiento no encontrado en CG`**: El número de asiento de su CP no existe en el archivo del diario que subió.
-    - **`Cuenta Contable no coincide`**: El asiento se registró en una cuenta que no corresponde al tipo de retención.
-    - **`Monto no coincide`**: El monto del débito/crédito en el diario no coincide con el monto de su CP.
-
-💡 **Un registro está 100% conciliado solo si ambas columnas muestran un estado exitoso.**
-
----
-### Análisis Detallado: ¿Cómo Funciona la Lógica de Conciliación?
-
-La herramienta realiza una auditoría automática en dos fases cruciales:
-
-#### **Fase 1: Validación Cruzada (CP vs. GALAC)**
-Se asegura que lo preparado en la **Contabilidad Preparada (CP)** coincida con la fuente oficial **GALAC**. La lógica varía según el tipo de retención (IVA, ISLR, Municipal) buscando siempre una combinación de **RIF, Comprobante, Factura y Monto**.
-
-#### **Fase 2: Verificación Contable Final (CP vs. CG)**
-Una vez validado contra GALAC, se asegura que el registro fue correctamente asentado en la **Contabilidad General (CG)**, usando el **Número de Asiento** como llave para verificar la **Cuenta Contable** y el **Monto** correctos.
-"""
 
 # ==============================================================================
 # GUÍA PARA EL ANÁLISIS DE PAQUETE CC
