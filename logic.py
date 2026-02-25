@@ -1,5 +1,8 @@
-# logic.py
+# ==============================================================================
+# CONFIGURACIÓN GENERAL Y HELPERS GLOBALES
+# ==============================================================================
 
+# --- Imports ---
 import pandas as pd
 import numpy as np
 import re
