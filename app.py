@@ -1356,7 +1356,6 @@ def main():
         'retenciones': render_retenciones,
         'paquete_cc': render_paquete_cc, 
         'cuadre': render_cuadre,
-        'imprenta': render_imprenta,
         'pensiones': render_pensiones,
         'ajustes_usd' : render_ajustes_usd,
         'cofersa': render_cofersa,     
