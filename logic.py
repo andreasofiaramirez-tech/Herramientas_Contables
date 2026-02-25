@@ -20,13 +20,25 @@ TOLERANCIA_MAX_BS = 2.00
 TOLERANCIA_MAX_USD = 0.50
 
 # --- Funciones de utilidad Común ---
-def normalizar_texto_busqueda(texto):
+def normalizar_texto(texto):
     """Limpia tildes, acentos y convierte a mayúsculas para comparaciones ciegas"""
     if not texto: return ""
-    # Elimina acentos (ej: Débito -> DEBITO)
     texto_norm = ''.join(c for c in unicodedata.normalize('NFD', str(texto))
                         if unicodedata.category(c) != 'Mn')
     return texto_norm.upper().strip()
+
+def buscar_columna(df, palabras):
+    """Busca columnas en cualquier Excel ignorando acentos y mayúsculas"""
+    # Normalizamos las palabras que buscamos
+    palabras_objetivo = [normalizar_texto_busqueda(p) for p in palabras]
+    for col in df.columns:
+        # Normalizamos el nombre de la columna del Excel
+        col_excel_norm = normalizar_texto_busqueda(col)
+        # Verificamos si todas las palabras clave están en la columna
+        if all(p in col_excel_norm for p in palabras_objetivo):
+            return col
+    return None
+
 
 # ==============================================================================
 # LÓGICAS DE CONCILIACIÓN DETALLADAS
@@ -4845,20 +4857,6 @@ def run_conciliation_debito_fiscal(df_soft_total, df_imprenta_logica, tolerancia
 # MODULO: AUDITORIA DE COMISIONES (CREACION DE EDUARDO)
 # ==============================================================================
 
-def buscar_columna_comisiones(df, palabras):
-    """Busca columnas ignorando acentos y mayúsculas"""
-    # Normalizamos las palabras que buscamos
-    palabras_objetivo = [normalizar_texto_busqueda(p) for p in palabras]
-    
-    for col in df.columns:
-        # Normalizamos el nombre de la columna del Excel
-        col_excel_norm = normalizar_texto_busqueda(col)
-        
-        # Verificamos si todas las palabras clave están en la columna
-        if all(p in col_excel_norm for p in palabras_objetivo):
-            return col
-    return None
-
 def run_process_comisiones(df_resumen, df_diario, log_messages):
     """Lógica V19: Auditoría Inteligente por Moneda del Banco (VES/USD)"""
     df_resumen.columns = [str(c).strip() for c in df_resumen.columns]
@@ -4866,22 +4864,22 @@ def run_process_comisiones(df_resumen, df_diario, log_messages):
 
     # --- 1. RADAR DE COLUMNAS ---
     # Resumen (Tesorería)
-    c_banco_id = buscar_columna_comisiones(df_resumen, ["CUENTA", "BANCARIA"])
-    c_banco_nom = buscar_columna_comisiones(df_resumen, ["BANCO"])
-    c_mov_cb = buscar_columna_comisiones(df_resumen, ["MOVIMIENTOS"])
-    c_ini = buscar_columna_comisiones(df_resumen, ["CB", "DESDE"])
-    c_fin = buscar_columna_comisiones(df_resumen, ["CB", "HASTA"])
-    c_deb_cb = buscar_columna_comisiones(df_resumen, ["TOTAL", "DEBITO"])
-    c_cre_cb = buscar_columna_comisiones(df_resumen, ["TOTAL", "CREDITO"])
+    c_banco_id = buscar_columna(df_resumen, ["CUENTA", "BANCARIA"])
+    c_banco_nom = buscar_columna(df_resumen, ["BANCO"])
+    c_mov_cb = buscar_columna(df_resumen, ["MOVIMIENTOS"])
+    c_ini = buscar_columna(df_resumen, ["CB", "DESDE"])
+    c_fin = buscar_columna(df_resumen, ["CB", "HASTA"])
+    c_deb_cb = buscar_columna(df_resumen, ["TOTAL", "DEBITO"])
+    c_cre_cb = buscar_columna(df_resumen, ["TOTAL", "CREDITO"])
 
     # Diario (Contabilidad)
-    c_asiento = buscar_columna_comisiones(df_diario, ["ASIENTO"])
-    c_cuenta = buscar_columna_comisiones(df_diario, ["CUENTA", "CONTABLE"])
+    c_asiento = buscar_columna(df_diario, ["ASIENTO"])
+    c_cuenta = buscar_columna(df_diario, ["CUENTA", "CONTABLE"])
     # Detectar todas las opciones posibles de montos
-    c_deb_cg_ves = buscar_columna_comisiones(df_diario, ["DEBITO", "VES"]) or buscar_columna_comisiones(df_diario, ["DEBITO", "BOLIVAR"])
-    c_cre_cg_ves = buscar_columna_comisiones(df_diario, ["CREDITO", "VES"]) or buscar_columna_comisiones(df_diario, ["CREDITO", "BOLIVAR"])
-    c_deb_cg_usd = buscar_columna_comisiones(df_diario, ["DEBITO", "DOLAR"]) or buscar_columna_comisiones(df_diario, ["DEBITO", "USD"])
-    c_cre_cg_usd = buscar_columna_comisiones(df_diario, ["CREDITO", "DOLAR"]) or buscar_columna_comisiones(df_diario, ["CREDITO", "USD"])
+    c_deb_cg_ves = buscar_columna(df_diario, ["DEBITO", "VES"]) or buscar_columna(df_diario, ["DEBITO", "BOLIVAR"])
+    c_cre_cg_ves = buscar_columna(df_diario, ["CREDITO", "VES"]) or buscar_columna(df_diario, ["CREDITO", "BOLIVAR"])
+    c_deb_cg_usd = buscar_columna(df_diario, ["DEBITO", "DOLAR"]) or buscar_columna(df_diario, ["DEBITO", "USD"])
+    c_cre_cg_usd = buscar_columna(df_diario, ["CREDITO", "DOLAR"]) or buscar_columna(df_diario, ["CREDITO", "USD"])
 
     if not all([c_ini, c_fin, c_deb_cb, c_asiento, c_deb_cg_ves]):
         log_messages.append("❌ ERROR: No se detectaron las columnas críticas.")
