@@ -64,8 +64,6 @@ from logic import (
     run_cuadre_cb_cg,
     validar_coincidencia_empresa,
     preparar_datos_softland_debito,
-    run_cross_check_imprenta,
-    generar_txt_retenciones_galac
 )
 
 # --- Bloque 3: Importación de Utilidades (Reportes y Carga) ---
