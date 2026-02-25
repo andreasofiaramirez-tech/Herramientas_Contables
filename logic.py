@@ -1676,6 +1676,349 @@ def run_conciliation_cdc_factoring(df, log_messages, progress_bar=None):
 # 4. MÓDULOS DE CONCILIACIÓN - COFERSA
 # ==============================================================================
 
+# --- (A) Módulo: Envios en Transito (COL) (101050200) ---
+def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
+    """ Busca pares exactos DENTRO de cada TIPO antes de evaluar el saldo total del grupo. """
+    log_messages.append("\n--- INICIANDO CONCILIACIÓN COFERSA (V16 - PARES INTERNOS POR TIPO) ---")
+    
+    df['Conciliado'] = False
+    df['Estado_Cofersa'] = 'PENDIENTE'
+    
+# Eliminar movimientos que no tienen impacto monetario (Neto 0 en ambas monedas)
+    df = df[(df['Neto Local'].abs() > 0.001) | (df['Neto Dólar'].abs() > 0.001)].copy()
+    
+    # 1. Normalización de la llave TIPO
+    df['Ref_Norm'] = (
+        df['Tipo'].astype(str)
+        .str.strip()
+        .str.upper()
+        .replace(['NAN', 'NONE', '', '0', '0.0'], 'SIN_TIPO')
+    )
+    
+    # 2. Sincronización de montos
+    df['Neto Local'] = (df['Débito Colones'].fillna(0) - df['Crédito Colones'].fillna(0)).round(2)
+    df['Neto Dólar'] = (df['Débito Dolar'].fillna(0) - df['Crédito Dolar'].fillna(0)).round(2)
+    
+    # Verificación de seguridad para el log
+    log_messages.append("✅ Montos calculados automáticamente: [Neto = Débito - Crédito]")
+    
+    total_conciliados = 0
+    indices_usados = set()
+
+    # --- FASE ÚNICA: ANÁLISIS DE GRUPOS POR TIPO ---
+    df_procesable = df[df['Ref_Norm'] != 'SIN_TIPO'].copy()
+    
+    if not df_procesable.empty:
+        for tipo_val, grupo in df_procesable.groupby('Ref_Norm'):
+            # Si TODO el grupo suma cero en Colones Y en Dólares, cerramos todo de una vez
+            suma_local = round(grupo['Neto Local'].sum(), 2)
+            suma_usd = round(grupo['Neto Dólar'].sum(), 2)
+            
+            if abs(suma_local) <= TOLERANCIA_ESTRICTA and abs(suma_usd) <= TOLERANCIA_ESTRICTA:
+                idx_grupo = grupo.index
+                df.loc[idx_grupo, 'Conciliado'] = True
+                df.loc[idx_grupo, 'Estado_Cofersa'] = f'GRUPO_CERRADO_{tipo_val}'
+                indices_usados.update(idx_grupo)
+                continue # Pasa al siguiente grupo
+            
+            # --- SUB-FASE A: BUSCAR PARES EXACTOS DENTRO DEL TIPO ---
+            # Esto resuelve el caso de Débito y Crédito iguales que se quedaban abiertos
+            debitos = grupo[grupo['Neto Local'] > 0].copy()
+            creditos = grupo[grupo['Neto Local'] < 0].copy()
+            
+            for idx_d, row_d in debitos.iterrows():
+                monto_buscar = abs(row_d['Neto Local'])
+                # Buscamos en los créditos uno que tenga el mismo monto y no haya sido usado
+                match_credito = creditos[
+                    (creditos['Neto Local'].abs() == monto_buscar) & 
+                    (~creditos.index.isin(indices_usados))
+                ]
+                
+                if not match_credito.empty:
+                    idx_c = match_credito.index[0]
+                    # Validamos que el par también sume cero en USD o sea despreciable
+                    # Si no suma cero en USD, lo dejamos para la sub-fase B
+                    if abs(row_d['Neto Dólar'] + df.loc[idx_c, 'Neto Dólar']) <= TOLERANCIA_ESTRICTA:
+                        indices_pareja = [idx_d, idx_c]
+                        df.loc[indices_pareja, 'Conciliado'] = True
+                        df.loc[indices_pareja, 'Estado_Cofersa'] = f'PAR_BI_MONEDA_{tipo_val}'
+                        indices_usados.update(indices_pareja)
+
+            # --- SUB-FASE B: VERIFICAR SI EL RESTO DEL GRUPO SUMA CERO ---
+            # Lo que no se concilió como par exacto, vemos si suma cero como bloque
+            remanente_grupo = grupo[~grupo.index.isin(indices_usados)]
+            
+            if len(remanente_grupo) >= 2:
+                suma_remanente = round(remanente_grupo['Neto Local'].sum(), 2)
+                if abs(suma_remanente) <= TOLERANCIA_ESTRICTA:
+                    indices_rem = remanente_grupo.index
+                    df.loc[indices_rem, 'Conciliado'] = True
+                    df.loc[indices_rem, 'Estado_Cofersa'] = f'GRUPO_NETO_{tipo_val}'
+                    indices_usados.update(indices_rem)
+                    total_conciliados += len(indices_rem)
+
+    if progress_bar:
+        progress_bar.progress(1.0)
+
+    # 1. Calculamos el total de filas que quedaron marcadas como Conciliado = True
+    total_movimientos_cerrados = len(df[df['Conciliado'] == True])
+
+    # 2. Preparamos los contadores para la UI (opcional si vas a usar el retorno múltiple)
+    count_pares = len(df[df['Estado_Cofersa'].str.contains('PAR_', na=False)])
+    count_grupos = len(df[df['Estado_Cofersa'].str.contains('GRUPO_|AJUSTE_', na=False)])
+    count_pendientes = len(df[df['Estado_Cofersa'] == 'PENDIENTE'])
+
+    # 3. Corregimos el log (usando el nombre de variable correcto)
+    log_messages.append(f"🏁 Proceso finalizado. Total movimientos cerrados: {total_movimientos_cerrados}")
+    
+    if progress_bar:
+        progress_bar.progress(1.0)
+
+    # 4. Retornamos según lo que espera tu app.py
+    # Si tu app.py espera solo el DF, usa: return df
+    # Si aplicaste mi consejo anterior de retorno múltiple, usa:
+    return df, count_pares, count_grupos, count_pendientes
+
+# --- (B) Módulo: Fondos en Transito (COL) (101010300) ---
+def normalizar_fondos_transito_cofersa(df):
+    """Extrae números de referencia y fuente, y normaliza texto para cruces."""
+    def extraer_id(texto):
+        if pd.isna(texto): return ""
+        # Extraemos solo los números de más de 4 dígitos (posibles depósitos)
+        nums = re.findall(r'\d{4,}', str(texto))
+        return nums[0] if nums else ""
+
+    df['Ref_Norm'] = df['Referencia'].astype(str).str.strip().str.upper()
+    df['Ref_Num'] = df['Referencia'].apply(extraer_id)
+    df['Fuente_Num'] = df['Fuente'].apply(extraer_id)
+    return df
+    
+def run_conciliation_fondos_fondos_cofersa(df, log_messages, progress_bar=None):
+    """
+    Motor de conciliación de alta velocidad para Fondos COFERSA (V18).
+    Incluye fase de normalización y optimización por Hash Mapping.
+    """
+    log_messages.append("\n--- INICIANDO CONCILIACIÓN FONDOS COFERSA (OPTIMIZADA V18) ---")
+    
+    # 1. SEGURIDAD: Eliminar duplicados de columnas y reiniciar estados
+    df = df.loc[:, ~df.columns.duplicated()].copy()
+    df['Conciliado'] = False
+    df['Grupo_Conciliado'] = ""
+    df['Estado_Cofersa'] = 'PENDIENTE'
+    
+    # 2. NORMALIZACIÓN (SOLUCIÓN AL KEYERROR)
+    def extraer_id(texto):
+        if pd.isna(texto): return ""
+        nums = re.findall(r'\d{4,}', str(texto))
+        return nums[0] if nums else ""
+
+    log_messages.append("⚙️ Preparando llaves de cruce...")
+    df['Ref_Norm'] = df['Referencia'].astype(str).str.strip().str.upper()
+    df['Ref_Num'] = df['Referencia'].apply(extraer_id)
+    df['Fuente_Num'] = df['Fuente'].apply(extraer_id)
+    
+    # Asegurar tipos de datos numéricos
+    df['Monto_CRC'] = pd.to_numeric(df['Monto_CRC'], errors='coerce').fillna(0).round(2)
+    df['Monto_USD'] = pd.to_numeric(df['Monto_USD'], errors='coerce').fillna(0).round(2)
+    
+    total_conciliados = 0
+    indices_usados = set()
+
+    # --- FASE 1: PARES EXACTOS (TEXTO + CRC + USD) ---
+    log_messages.append("⚡ Fase 1: Emparejamiento por texto y montos...")
+    
+    # Llave compuesta para búsqueda instantánea
+    df['_Key1'] = df['Ref_Norm'] + "_" + df['Monto_CRC'].abs().astype(str) + "_" + df['Monto_USD'].abs().astype(str)
+    
+    for _, grupo in df[~df['Conciliado']].groupby('_Key1'):
+        debs = grupo[grupo['Monto_CRC'] > 0].index.tolist()
+        creds = grupo[grupo['Monto_CRC'] < 0].index.tolist()
+        
+        while debs and creds:
+            idx_d, idx_c = debs.pop(0), creds.pop(0)
+            if abs(df.at[idx_d, 'Monto_CRC'] + df.at[idx_c, 'Monto_CRC']) <= 0.01:
+                df.loc[[idx_d, idx_c], ['Conciliado', 'Grupo_Conciliado', 'Estado_Cofersa']] = [True, "PAR_TEXTO_BIMONEDA", "PAR_TEXTO_BIMONEDA"]
+                indices_usados.update([idx_d, idx_c])
+                total_conciliados += 2
+
+    # --- FASE 2: CRUCE POR ID DE DOCUMENTO (Optimizado con Diccionario) ---
+    log_messages.append("⚡ Fase 2: Cruce inteligente por número de depósito...")
+    
+    df_pend = df[~df['Conciliado']].copy()
+    creds_subset = df_pend[df_pend['Monto_CRC'] < 0]
+    
+    # Mapa de búsqueda: {(ID_Doc, Monto_Abs): [Lista de Indices]}
+    mapa_creditos = {}
+    for idx, row in creds_subset.iterrows():
+        m_crc = abs(row['Monto_CRC'])
+        for doc_id in [row['Ref_Num'], row['Fuente_Num']]:
+            if doc_id:
+                key = (doc_id, m_crc)
+                if key not in mapa_creditos: mapa_creditos[key] = []
+                mapa_creditos[key].append(idx)
+
+    debs_subset = df_pend[df_pend['Monto_CRC'] > 0]
+    for idx_d, row_d in debs_subset.iterrows():
+        m_crc = abs(row_d['Monto_CRC'])
+        for doc_id in [row_d['Ref_Num'], row_d['Fuente_Num']]:
+            if not doc_id: continue
+            key = (doc_id, m_crc)
+            
+            if key in mapa_creditos and mapa_creditos[key]:
+                for i, idx_c in enumerate(mapa_creditos[key]):
+                    if idx_c in indices_usados: continue
+                    # Validación de tolerancia USD
+                    if abs(row_d['Monto_USD'] + df.at[idx_c, 'Monto_USD']) <= 0.00:
+                        etiqueta = f"DEPOSITO_{doc_id}"
+                        df.loc[[idx_d, idx_c], ['Conciliado', 'Grupo_Conciliado', 'Estado_Cofersa']] = [True, etiqueta, etiqueta]
+                        indices_usados.update([idx_d, idx_c])
+                        total_conciliados += 2
+                        mapa_creditos[key].pop(i)
+                        break
+                if idx_d in indices_usados: break
+
+    # --- FASE 3: CRUCE CC VS CB (Sufijos de 4 dígitos) ---
+    log_messages.append("⚡ Fase 3: Cruce por terminación de 4 dígitos...")
+    
+    def get_suffix(val):
+        nums = "".join(filter(str.isdigit, str(val)))
+        return nums[-4:] if len(nums) >= 4 else None
+
+    df_p3 = df[~df['Conciliado']].copy()
+    mapa_cb = {}
+    asientos_cb = df_p3[df_p3['Asiento'].astype(str).str.startswith('CB')]
+    
+    for idx, row in asientos_cb.iterrows():
+        sufijo = get_suffix(row['Fuente']) or get_suffix(row['Referencia'])
+        if sufijo:
+            key = (sufijo, abs(row['Monto_CRC']))
+            if key not in mapa_cb: mapa_cb[key] = []
+            mapa_cb[key].append(idx)
+
+    asientos_cc = df_p3[df_p3['Asiento'].astype(str).str.startswith('CC')]
+    for idx_cc, row_cc in asientos_cc.iterrows():
+        sufijo_cc = get_suffix(row_cc['Referencia']) or get_suffix(row_cc['Fuente'])
+        if sufijo_cc:
+            key_cc = (sufijo_cc, abs(row_cc['Monto_CRC']))
+            if key_cc in mapa_cb and mapa_cb[key_cc]:
+                for i, idx_cb in enumerate(mapa_cb[key_cc]):
+                    if idx_cb in indices_usados: continue
+                    if abs(row_cc['Monto_USD'] + df.at[idx_cb, 'Monto_USD']) <= 1.00:
+                        etiqueta = f"CRUCE_CC_CB_{sufijo_cc}"
+                        df.loc[[idx_cc, idx_cb], ['Conciliado', 'Grupo_Conciliado', 'Estado_Cofersa']] = [True, etiqueta, etiqueta]
+                        indices_usados.update([idx_cc, idx_cb])
+                        total_conciliados += 2
+                        mapa_cb[key_cc].pop(i)
+                        break
+
+    # --- FASE 4: CRUCE ESPECIAL PAGO-CLICK (V19 - BÚSQUEDA INTEGRAL) ---
+    log_messages.append("--- Fase 4: Cruce Especial PAGO-CLICK (Identificador de 5 dígitos) ---")
+    
+    df_p4 = df[~df['Conciliado']].copy()
+    
+    # Función interna para extraer los últimos 5 dígitos de cualquier cadena
+    def extraer_ultimos_5(texto):
+        if pd.isna(texto): return None
+        # Extraemos todos los números y los unimos
+        nums = "".join(re.findall(r'\d+', str(texto)))
+        return nums[-5:] if len(nums) >= 5 else None
+
+    # Solo trabajamos con filas que mencionen CLICK
+    mask_click = df_p4['Referencia'].str.contains('CLICK', case=False, na=False)
+    df_click = df_p4[mask_click].copy()
+
+    if not df_click.empty:
+        for idx_a, row_a in df_click.iterrows():
+            if idx_a in indices_usados: continue
+            
+            # Sacamos los candidatos de la Fila A (de su Ref y de su Fuente)
+            id_ref_a = extraer_ultimos_5(row_a['Referencia'])
+            id_fnt_a = extraer_ultimos_5(row_a['Fuente'])
+            
+            # Buscamos en el resto de los pendientes (no solo los que dicen CLICK)
+            # para encontrar la contrapartida (como el asiento CB de la imagen)
+            df_posibles_b = df[~df['Conciliado']]
+            
+            for idx_b, row_b in df_posibles_b.iterrows():
+                if idx_b == idx_a or idx_b in indices_usados: continue
+                
+                id_ref_b = extraer_ultimos_5(row_b['Referencia'])
+                id_fnt_b = extraer_ultimos_5(row_b['Fuente'])
+                
+                # --- LA LLAVE MAESTRA (Cruce cruzado de Ref vs Fuente) ---
+                # Caso 1: Ref de A coincide con Fuente de B
+                # Caso 2: Fuente de A coincide con Ref de B
+                match_id = (id_ref_a and id_fnt_b and id_ref_a == id_fnt_b) or \
+                           (id_fnt_a and id_ref_b and id_fnt_a == id_ref_b)
+                
+                if match_id:
+                    # Validación de montos (CRC exacto, USD con margen de 1.00)
+                    if abs(row_a['Monto_CRC'] + row_b['Monto_CRC']) <= 0.01:
+                        if abs(row_a['Monto_USD'] + row_b['Monto_USD']) <= 1.00:
+                            
+                            etiqueta = f"CLICK_{id_ref_a or id_fnt_a}"
+                            df.loc[[idx_a, idx_b], ['Conciliado', 'Grupo_Conciliado', 'Estado_Cofersa']] = [True, etiqueta, etiqueta]
+                            indices_usados.update([idx_a, idx_b])
+                            total_conciliados += 2
+                            break # Ya encontramos pareja para la Fila A
+
+    # Limpiar columnas auxiliares
+    if '_Key1' in df.columns: df.drop(columns=['_Key1'], inplace=True)
+    if progress_bar: progress_bar.progress(1.0)
+    
+    log_messages.append(f"🏁 Finalizado: {total_conciliados} movimientos conciliados.")
+    return df
+    
+def run_conciliation_dev_proveedores_cofersa(df, log_messages, moneda_base='CRC'):
+    """
+    Lógica para Devoluciones a Proveedores COFERSA.
+    Cruce por NIT + Número de EMB (extraído de Referencia).
+    moneda_base: 'CRC' para Colones, 'USD' para Dólares.
+    """
+    log_messages.append(f"\n--- INICIANDO CONCILIACIÓN DEV. PROVEEDORES ({moneda_base}) ---")
+    
+    # 1. Parámetros según moneda
+    col_monto = 'Neto Local' if moneda_base == 'CRC' else 'Neto Dólar'
+    TOLERANCIA = 0.01
+
+    # 2. Extracción de la Llave de Embarque (Regex)
+    def extraer_emb(texto):
+        if pd.isna(texto): return 'SIN_EMB'
+        # Busca EM o M seguido de dígitos (ej: EM25010 o M3500)
+        match = re.search(r'([EM]\d+)', str(texto).upper())
+        return match.group(1) if match else 'SIN_EMB'
+
+    df['EMB_Key'] = df['Referencia'].apply(extraer_emb)
+    
+    # 3. Limpieza de NIT y Estados
+    df['NIT'] = df['NIT'].astype(str).str.strip().replace(['NAN', 'NONE', '0', '0.0'], 'SIN_NIT')
+    df['Conciliado'] = False
+    df['Estado_Cofersa'] = 'PENDIENTE'
+    
+    total_conciliados = 0
+
+    # 4. Cruce Maestro: Grupo por NIT + EMB_Key
+    # Ignoramos los que no tienen EMB o NIT para evitar cruces masivos erróneos
+    df_procesable = df[(df['EMB_Key'] != 'SIN_EMB') & (df['NIT'] != 'SIN_NIT')].copy()
+    
+    if not df_procesable.empty:
+        grupos = df_procesable.groupby(['NIT', 'EMB_Key'])
+        for (nit, emb), grupo in grupos:
+            if len(grupo) < 2: continue
+            
+            suma_grupo = round(grupo[col_monto].sum(), 2)
+            
+            if abs(suma_grupo) <= TOLERANCIA:
+                indices = grupo.index
+                df.loc[indices, 'Conciliado'] = True
+                df.loc[indices, 'Estado_Cofersa'] = f'DEV_PROV_{emb}'
+                total_conciliados += len(indices)
+
+    log_messages.append(f"✔️ Proceso finalizado. Se conciliaron {total_conciliados} movimientos por NIT/EMBARQUE.")
+    return df
+
+
+
 
 
 
@@ -4368,358 +4711,8 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
 
     return pd.DataFrame(resumen_ajustes), pd.DataFrame(lista_bancos_reporte), df_asiento, df_balance_raw, val_data
     
-# ==============================================================================
-# LÓGICA ENVIOS EN TRANSITO COFERSA (101050200)
-# ==============================================================================
-def run_conciliation_envios_cofersa(df, log_messages, progress_bar=None):
-    """
-    Conciliación COFERSA (V16).
-    Busca pares exactos DENTRO de cada TIPO antes de evaluar el saldo total del grupo.
-    """
-    log_messages.append("\n--- INICIANDO CONCILIACIÓN COFERSA (V16 - PARES INTERNOS POR TIPO) ---")
-    
-    df['Conciliado'] = False
-    df['Estado_Cofersa'] = 'PENDIENTE'
-    TOLERANCIA_ESTRICTA = 0.01 
-    
-# Eliminar movimientos que no tienen impacto monetario (Neto 0 en ambas monedas)
-    df = df[(df['Neto Local'].abs() > 0.001) | (df['Neto Dólar'].abs() > 0.001)].copy()
-    
-    # 1. Normalización de la llave TIPO
-    df['Ref_Norm'] = (
-        df['Tipo'].astype(str)
-        .str.strip()
-        .str.upper()
-        .replace(['NAN', 'NONE', '', '0', '0.0'], 'SIN_TIPO')
-    )
-    
-    # 2. Sincronización de montos
-    df['Neto Local'] = (df['Débito Colones'].fillna(0) - df['Crédito Colones'].fillna(0)).round(2)
-    df['Neto Dólar'] = (df['Débito Dolar'].fillna(0) - df['Crédito Dolar'].fillna(0)).round(2)
-    
-    # Verificación de seguridad para el log
-    log_messages.append("✅ Montos calculados automáticamente: [Neto = Débito - Crédito]")
-    
-    total_conciliados = 0
-    indices_usados = set()
 
-    # --- FASE ÚNICA: ANÁLISIS DE GRUPOS POR TIPO ---
-    df_procesable = df[df['Ref_Norm'] != 'SIN_TIPO'].copy()
-    
-    if not df_procesable.empty:
-        for tipo_val, grupo in df_procesable.groupby('Ref_Norm'):
-            # --- MEJORA: VALIDACIÓN GLOBAL DEL GRUPO (BI-MONEDA) ---
-            # Si TODO el grupo suma cero en Colones Y en Dólares, cerramos todo de una vez
-            suma_local = round(grupo['Neto Local'].sum(), 2)
-            suma_usd = round(grupo['Neto Dólar'].sum(), 2)
-            
-            if abs(suma_local) <= TOLERANCIA_ESTRICTA and abs(suma_usd) <= TOLERANCIA_ESTRICTA:
-                idx_grupo = grupo.index
-                df.loc[idx_grupo, 'Conciliado'] = True
-                df.loc[idx_grupo, 'Estado_Cofersa'] = f'GRUPO_CERRADO_{tipo_val}'
-                indices_usados.update(idx_grupo)
-                continue # Pasa al siguiente grupo
-            
-            # --- SUB-FASE A: BUSCAR PARES EXACTOS DENTRO DEL TIPO ---
-            # Esto resuelve el caso de Débito y Crédito iguales que se quedaban abiertos
-            debitos = grupo[grupo['Neto Local'] > 0].copy()
-            creditos = grupo[grupo['Neto Local'] < 0].copy()
-            
-            for idx_d, row_d in debitos.iterrows():
-                monto_buscar = abs(row_d['Neto Local'])
-                # Buscamos en los créditos uno que tenga el mismo monto y no haya sido usado
-                match_credito = creditos[
-                    (creditos['Neto Local'].abs() == monto_buscar) & 
-                    (~creditos.index.isin(indices_usados))
-                ]
-                
-                if not match_credito.empty:
-                    idx_c = match_credito.index[0]
-                    # Validamos que el par también sume cero en USD o sea despreciable
-                    # Si no suma cero en USD, lo dejamos para la sub-fase B
-                    if abs(row_d['Neto Dólar'] + df.loc[idx_c, 'Neto Dólar']) <= TOLERANCIA_ESTRICTA:
-                        indices_pareja = [idx_d, idx_c]
-                        df.loc[indices_pareja, 'Conciliado'] = True
-                        df.loc[indices_pareja, 'Estado_Cofersa'] = f'PAR_BI_MONEDA_{tipo_val}'
-                        indices_usados.update(indices_pareja)
 
-            # --- SUB-FASE B: VERIFICAR SI EL RESTO DEL GRUPO SUMA CERO ---
-            # Lo que no se concilió como par exacto, vemos si suma cero como bloque
-            remanente_grupo = grupo[~grupo.index.isin(indices_usados)]
-            
-            if len(remanente_grupo) >= 2:
-                suma_remanente = round(remanente_grupo['Neto Local'].sum(), 2)
-                if abs(suma_remanente) <= TOLERANCIA_ESTRICTA:
-                    indices_rem = remanente_grupo.index
-                    df.loc[indices_rem, 'Conciliado'] = True
-                    df.loc[indices_rem, 'Estado_Cofersa'] = f'GRUPO_NETO_{tipo_val}'
-                    indices_usados.update(indices_rem)
-                    total_conciliados += len(indices_rem)
-
-    if progress_bar:
-        progress_bar.progress(1.0)
-
-    # 1. Calculamos el total de filas que quedaron marcadas como Conciliado = True
-    total_movimientos_cerrados = len(df[df['Conciliado'] == True])
-
-    # 2. Preparamos los contadores para la UI (opcional si vas a usar el retorno múltiple)
-    count_pares = len(df[df['Estado_Cofersa'].str.contains('PAR_', na=False)])
-    count_grupos = len(df[df['Estado_Cofersa'].str.contains('GRUPO_|AJUSTE_', na=False)])
-    count_pendientes = len(df[df['Estado_Cofersa'] == 'PENDIENTE'])
-
-    # 3. Corregimos el log (usando el nombre de variable correcto)
-    log_messages.append(f"🏁 Proceso finalizado. Total movimientos cerrados: {total_movimientos_cerrados}")
-    
-    if progress_bar:
-        progress_bar.progress(1.0)
-
-    # 4. Retornamos según lo que espera tu app.py
-    # Si tu app.py espera solo el DF, usa: return df
-    # Si aplicaste mi consejo anterior de retorno múltiple, usa:
-    return df, count_pares, count_grupos, count_pendientes
-
-# ==============================================================================
-# LÓGICA FONDOS EN TRANSITO (101010300)
-# ==============================================================================
-def normalizar_fondos_transito_cofersa(df):
-    """Extrae números de referencia y fuente, y normaliza texto para cruces."""
-    def extraer_id(texto):
-        if pd.isna(texto): return ""
-        # Extraemos solo los números de más de 4 dígitos (posibles depósitos)
-        nums = re.findall(r'\d{4,}', str(texto))
-        return nums[0] if nums else ""
-
-    # --- CORRECCIÓN: Definimos Ref_Norm para evitar el KeyError ---
-    df['Ref_Norm'] = df['Referencia'].astype(str).str.strip().str.upper()
-    # --------------------------------------------------------------
-
-    df['Ref_Num'] = df['Referencia'].apply(extraer_id)
-    df['Fuente_Num'] = df['Fuente'].apply(extraer_id)
-    return df
-    
-def run_conciliation_fondos_fondos_cofersa(df, log_messages, progress_bar=None):
-    """
-    Motor de conciliación de alta velocidad para Fondos COFERSA (V18).
-    Incluye fase de normalización y optimización por Hash Mapping.
-    """
-    log_messages.append("\n--- INICIANDO CONCILIACIÓN FONDOS COFERSA (OPTIMIZADA V18) ---")
-    
-    # 1. SEGURIDAD: Eliminar duplicados de columnas y reiniciar estados
-    df = df.loc[:, ~df.columns.duplicated()].copy()
-    df['Conciliado'] = False
-    df['Grupo_Conciliado'] = ""
-    df['Estado_Cofersa'] = 'PENDIENTE'
-    
-    # 2. NORMALIZACIÓN (SOLUCIÓN AL KEYERROR)
-    def extraer_id(texto):
-        if pd.isna(texto): return ""
-        nums = re.findall(r'\d{4,}', str(texto))
-        return nums[0] if nums else ""
-
-    log_messages.append("⚙️ Preparando llaves de cruce...")
-    df['Ref_Norm'] = df['Referencia'].astype(str).str.strip().str.upper()
-    df['Ref_Num'] = df['Referencia'].apply(extraer_id)
-    df['Fuente_Num'] = df['Fuente'].apply(extraer_id)
-    
-    # Asegurar tipos de datos numéricos
-    df['Monto_CRC'] = pd.to_numeric(df['Monto_CRC'], errors='coerce').fillna(0).round(2)
-    df['Monto_USD'] = pd.to_numeric(df['Monto_USD'], errors='coerce').fillna(0).round(2)
-    
-    total_conciliados = 0
-    indices_usados = set()
-
-    # --- FASE 1: PARES EXACTOS (TEXTO + CRC + USD) ---
-    log_messages.append("⚡ Fase 1: Emparejamiento por texto y montos...")
-    
-    # Llave compuesta para búsqueda instantánea
-    df['_Key1'] = df['Ref_Norm'] + "_" + df['Monto_CRC'].abs().astype(str) + "_" + df['Monto_USD'].abs().astype(str)
-    
-    for _, grupo in df[~df['Conciliado']].groupby('_Key1'):
-        debs = grupo[grupo['Monto_CRC'] > 0].index.tolist()
-        creds = grupo[grupo['Monto_CRC'] < 0].index.tolist()
-        
-        while debs and creds:
-            idx_d, idx_c = debs.pop(0), creds.pop(0)
-            if abs(df.at[idx_d, 'Monto_CRC'] + df.at[idx_c, 'Monto_CRC']) <= 0.01:
-                df.loc[[idx_d, idx_c], ['Conciliado', 'Grupo_Conciliado', 'Estado_Cofersa']] = [True, "PAR_TEXTO_BIMONEDA", "PAR_TEXTO_BIMONEDA"]
-                indices_usados.update([idx_d, idx_c])
-                total_conciliados += 2
-
-    # --- FASE 2: CRUCE POR ID DE DOCUMENTO (Optimizado con Diccionario) ---
-    log_messages.append("⚡ Fase 2: Cruce inteligente por número de depósito...")
-    
-    df_pend = df[~df['Conciliado']].copy()
-    creds_subset = df_pend[df_pend['Monto_CRC'] < 0]
-    
-    # Mapa de búsqueda: {(ID_Doc, Monto_Abs): [Lista de Indices]}
-    mapa_creditos = {}
-    for idx, row in creds_subset.iterrows():
-        m_crc = abs(row['Monto_CRC'])
-        for doc_id in [row['Ref_Num'], row['Fuente_Num']]:
-            if doc_id:
-                key = (doc_id, m_crc)
-                if key not in mapa_creditos: mapa_creditos[key] = []
-                mapa_creditos[key].append(idx)
-
-    debs_subset = df_pend[df_pend['Monto_CRC'] > 0]
-    for idx_d, row_d in debs_subset.iterrows():
-        m_crc = abs(row_d['Monto_CRC'])
-        for doc_id in [row_d['Ref_Num'], row_d['Fuente_Num']]:
-            if not doc_id: continue
-            key = (doc_id, m_crc)
-            
-            if key in mapa_creditos and mapa_creditos[key]:
-                for i, idx_c in enumerate(mapa_creditos[key]):
-                    if idx_c in indices_usados: continue
-                    # Validación de tolerancia USD
-                    if abs(row_d['Monto_USD'] + df.at[idx_c, 'Monto_USD']) <= 0.00:
-                        etiqueta = f"DEPOSITO_{doc_id}"
-                        df.loc[[idx_d, idx_c], ['Conciliado', 'Grupo_Conciliado', 'Estado_Cofersa']] = [True, etiqueta, etiqueta]
-                        indices_usados.update([idx_d, idx_c])
-                        total_conciliados += 2
-                        mapa_creditos[key].pop(i)
-                        break
-                if idx_d in indices_usados: break
-
-    # --- FASE 3: CRUCE CC VS CB (Sufijos de 4 dígitos) ---
-    log_messages.append("⚡ Fase 3: Cruce por terminación de 4 dígitos...")
-    
-    def get_suffix(val):
-        nums = "".join(filter(str.isdigit, str(val)))
-        return nums[-4:] if len(nums) >= 4 else None
-
-    df_p3 = df[~df['Conciliado']].copy()
-    mapa_cb = {}
-    asientos_cb = df_p3[df_p3['Asiento'].astype(str).str.startswith('CB')]
-    
-    for idx, row in asientos_cb.iterrows():
-        sufijo = get_suffix(row['Fuente']) or get_suffix(row['Referencia'])
-        if sufijo:
-            key = (sufijo, abs(row['Monto_CRC']))
-            if key not in mapa_cb: mapa_cb[key] = []
-            mapa_cb[key].append(idx)
-
-    asientos_cc = df_p3[df_p3['Asiento'].astype(str).str.startswith('CC')]
-    for idx_cc, row_cc in asientos_cc.iterrows():
-        sufijo_cc = get_suffix(row_cc['Referencia']) or get_suffix(row_cc['Fuente'])
-        if sufijo_cc:
-            key_cc = (sufijo_cc, abs(row_cc['Monto_CRC']))
-            if key_cc in mapa_cb and mapa_cb[key_cc]:
-                for i, idx_cb in enumerate(mapa_cb[key_cc]):
-                    if idx_cb in indices_usados: continue
-                    if abs(row_cc['Monto_USD'] + df.at[idx_cb, 'Monto_USD']) <= 1.00:
-                        etiqueta = f"CRUCE_CC_CB_{sufijo_cc}"
-                        df.loc[[idx_cc, idx_cb], ['Conciliado', 'Grupo_Conciliado', 'Estado_Cofersa']] = [True, etiqueta, etiqueta]
-                        indices_usados.update([idx_cc, idx_cb])
-                        total_conciliados += 2
-                        mapa_cb[key_cc].pop(i)
-                        break
-
-    # --- FASE 4: CRUCE ESPECIAL PAGO-CLICK (V19 - BÚSQUEDA INTEGRAL) ---
-    log_messages.append("--- Fase 4: Cruce Especial PAGO-CLICK (Identificador de 5 dígitos) ---")
-    
-    df_p4 = df[~df['Conciliado']].copy()
-    
-    # Función interna para extraer los últimos 5 dígitos de cualquier cadena
-    def extraer_ultimos_5(texto):
-        if pd.isna(texto): return None
-        # Extraemos todos los números y los unimos
-        nums = "".join(re.findall(r'\d+', str(texto)))
-        return nums[-5:] if len(nums) >= 5 else None
-
-    # Solo trabajamos con filas que mencionen CLICK
-    mask_click = df_p4['Referencia'].str.contains('CLICK', case=False, na=False)
-    df_click = df_p4[mask_click].copy()
-
-    if not df_click.empty:
-        for idx_a, row_a in df_click.iterrows():
-            if idx_a in indices_usados: continue
-            
-            # Sacamos los candidatos de la Fila A (de su Ref y de su Fuente)
-            id_ref_a = extraer_ultimos_5(row_a['Referencia'])
-            id_fnt_a = extraer_ultimos_5(row_a['Fuente'])
-            
-            # Buscamos en el resto de los pendientes (no solo los que dicen CLICK)
-            # para encontrar la contrapartida (como el asiento CB de la imagen)
-            df_posibles_b = df[~df['Conciliado']]
-            
-            for idx_b, row_b in df_posibles_b.iterrows():
-                if idx_b == idx_a or idx_b in indices_usados: continue
-                
-                id_ref_b = extraer_ultimos_5(row_b['Referencia'])
-                id_fnt_b = extraer_ultimos_5(row_b['Fuente'])
-                
-                # --- LA LLAVE MAESTRA (Cruce cruzado de Ref vs Fuente) ---
-                # Caso 1: Ref de A coincide con Fuente de B
-                # Caso 2: Fuente de A coincide con Ref de B
-                match_id = (id_ref_a and id_fnt_b and id_ref_a == id_fnt_b) or \
-                           (id_fnt_a and id_ref_b and id_fnt_a == id_ref_b)
-                
-                if match_id:
-                    # Validación de montos (CRC exacto, USD con margen de 1.00)
-                    if abs(row_a['Monto_CRC'] + row_b['Monto_CRC']) <= 0.01:
-                        if abs(row_a['Monto_USD'] + row_b['Monto_USD']) <= 1.00:
-                            
-                            etiqueta = f"CLICK_{id_ref_a or id_fnt_a}"
-                            df.loc[[idx_a, idx_b], ['Conciliado', 'Grupo_Conciliado', 'Estado_Cofersa']] = [True, etiqueta, etiqueta]
-                            indices_usados.update([idx_a, idx_b])
-                            total_conciliados += 2
-                            break # Ya encontramos pareja para la Fila A
-
-    # Limpiar columnas auxiliares
-    if '_Key1' in df.columns: df.drop(columns=['_Key1'], inplace=True)
-    if progress_bar: progress_bar.progress(1.0)
-    
-    log_messages.append(f"🏁 Finalizado: {total_conciliados} movimientos conciliados.")
-    return df
-    
-def run_conciliation_dev_proveedores_cofersa(df, log_messages, moneda_base='CRC'):
-    """
-    Lógica para Devoluciones a Proveedores COFERSA.
-    Cruce por NIT + Número de EMB (extraído de Referencia).
-    moneda_base: 'CRC' para Colones, 'USD' para Dólares.
-    """
-    log_messages.append(f"\n--- INICIANDO CONCILIACIÓN DEV. PROVEEDORES ({moneda_base}) ---")
-    
-    # 1. Parámetros según moneda
-    col_monto = 'Neto Local' if moneda_base == 'CRC' else 'Neto Dólar'
-    TOLERANCIA = 0.01
-
-    # 2. Extracción de la Llave de Embarque (Regex)
-    def extraer_emb(texto):
-        if pd.isna(texto): return 'SIN_EMB'
-        # Busca EM o M seguido de dígitos (ej: EM25010 o M3500)
-        match = re.search(r'([EM]\d+)', str(texto).upper())
-        return match.group(1) if match else 'SIN_EMB'
-
-    df['EMB_Key'] = df['Referencia'].apply(extraer_emb)
-    
-    # 3. Limpieza de NIT y Estados
-    df['NIT'] = df['NIT'].astype(str).str.strip().replace(['NAN', 'NONE', '0', '0.0'], 'SIN_NIT')
-    df['Conciliado'] = False
-    df['Estado_Cofersa'] = 'PENDIENTE'
-    
-    total_conciliados = 0
-
-    # 4. Cruce Maestro: Grupo por NIT + EMB_Key
-    # Ignoramos los que no tienen EMB o NIT para evitar cruces masivos erróneos
-    df_procesable = df[(df['EMB_Key'] != 'SIN_EMB') & (df['NIT'] != 'SIN_NIT')].copy()
-    
-    if not df_procesable.empty:
-        grupos = df_procesable.groupby(['NIT', 'EMB_Key'])
-        for (nit, emb), grupo in grupos:
-            if len(grupo) < 2: continue
-            
-            suma_grupo = round(grupo[col_monto].sum(), 2)
-            
-            if abs(suma_grupo) <= TOLERANCIA:
-                indices = grupo.index
-                df.loc[indices, 'Conciliado'] = True
-                df.loc[indices, 'Estado_Cofersa'] = f'DEV_PROV_{emb}'
-                total_conciliados += len(indices)
-
-    log_messages.append(f"✔️ Proceso finalizado. Se conciliaron {total_conciliados} movimientos por NIT/EMBARQUE.")
-    return df
 
 # ==============================================================================
 # LÓGICA VERIFICACIÓN DE DÉBITO FISCAL (BS)
