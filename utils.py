@@ -2921,8 +2921,26 @@ def generar_reporte_errores_comisiones(df_final, df_diario_errores, nombre_empre
         if df_diario_errores is not None and not df_diario_errores.empty:
             df_diario_errores.to_excel(writer, sheet_name='Asientos con Diferencia', index=False)
             ws2 = writer.sheets['Asientos con Diferencia']
+            
+            # Formatos para la Hoja 2
+            fmt_money = workbook.add_format({'num_format': '#,##0.00', 'border': 1})
+            fmt_red = workbook.add_format({'num_format': '#,##0.00', 'border': 1, 'font_color': 'red', 'bold': True})
+            fmt_header_red = workbook.add_format({'bold': True, 'bg_color': '#FFC7CE', 'border': 1, 'align': 'center'})
+
+            # Aplicar encabezados bonitos
+            for i, col in enumerate(df_diario_errores.columns):
+                ws2.write(0, i, col, fmt_header_red)
+
+            # Ajustar anchos para que se lea todo
+            ws2.set_column('A:B', 15) # Asiento y Fecha
+            ws2.set_column('C:C', 35) # Banco
+            ws2.set_column('E:G', 18, fmt_money) # Montos y Diferencia
+            ws2.set_column('H:I', 35) # Estado y Referencia
+
+            # Resaltar la columna de Diferencia en rojo
+            ws2.set_column('G:G', 18, fmt_red)
+            
             ws2.set_tab_color('red')
-            ws2.set_column('A:Z', 18)
 
     return output.getvalue()
 
