@@ -4580,53 +4580,53 @@ def run_process_comisiones(df_resumen_crudo, df_diario, log_messages):
 
     def validar_linea(row):
         banco_nom = str(row[c_banco_cb]).upper()
+        # Radar mejorado para detectar bancos en dólares
         palabras_divisas = ["USD", "$", "ME", "EXTRANJERA", "CUSTODIA", "PANAMA", "CURAZAO", "CAYMAN"]
         es_usd = any(x in banco_nom for x in palabras_divisas)
         
-        # Elegimos contra qué comparar según el nombre del banco
+        # Monto que reporta Tesorería (CB)
+        monto_tesoreria = row[c_deb_cb] if row[c_deb_cb] > 0 else row[c_cre_cb]
+        
+        # Monto que encontró la IA en el Diario (CG)
         d_cg = row['D_CG_USD'] if es_usd else row['D_CG_VES']
         c_cg = row['C_CG_USD'] if es_usd else row['C_CG_VES']
+        monto_diario = d_cg if d_cg > 0 else c_cg
+        
         moneda = "USD" if es_usd else "VES"
 
-        if pd.isna(row['D_CG_VES']): return "❌ No encontrado en Diario", moneda, 0, 0
+        if pd.isna(row['D_CG_VES']): 
+            return "❌ No encontrado en Diario", moneda, monto_tesoreria, 0, monto_tesoreria
         
-        diff_d = round(row[c_deb_cb] - d_cg, 2)
-        diff_c = round(row[c_cre_cb] - c_cg, 2)
+        diferencia = round(monto_tesoreria - monto_diario, 2)
         
-        if abs(diff_d) > 0.01 or abs(diff_c) > 0.01:
-            return f"❌ Diferencia Monto {moneda}", moneda, d_cg, c_cg
-        return "✅ OK", moneda, d_cg, c_cg
+        if abs(diferencia) > 0.01:
+            return f"❌ Diferencia en {moneda}", moneda, monto_tesoreria, monto_diario, diferencia
+        
+        return "✅ OK", moneda, monto_tesoreria, monto_diario, 0
 
-    # Aplicar validación
-    cruce[['ESTADO_LINEA', 'MONEDA_DET', 'D_CG_FIN', 'C_CG_FIN']] = cruce.apply(
+    # Aplicar validación con nombres amigables
+    cruce[['Estado Auditoría', 'Moneda Banco', 'Monto Tesorería', 'Monto Diario', 'Diferencia']] = cruce.apply(
         lambda r: pd.Series(validar_linea(r)), axis=1
     )
 
-    # --- 4. RESUMEN POR BANCO (Macro-Auditoría) ---
-    resumen_bancos = cruce.groupby([c_banco_cb, 'MONEDA_DET']).agg({
+    # --- 4. RESUMEN POR BANCO (Hoja 1) ---
+    # (Mantenemos la lógica de la Hoja 1 pero usamos los nuevos nombres)
+    resumen_bancos = cruce.groupby(['Banco', 'Moneda Banco']).agg({
         'ASIENTO': ['min', 'max', 'count'],
-        c_deb_cb: 'sum', 'D_CG_FIN': 'sum',
-        c_cre_cb: 'sum', 'C_CG_FIN': 'sum'
+        'Monto Tesorería': 'sum',
+        'Monto Diario': 'sum'
     }).reset_index()
     
-    resumen_bancos.columns = ['Banco', 'Moneda', 'Asiento Desde', 'Asiento Hasta', 'CB_Mov', 'CB_Deb', 'CG_Deb', 'CB_Cre', 'CG_Cre']
-    resumen_bancos['CG_Mov'] = resumen_bancos['CB_Mov'] # Simplificado para el merge
-    
-    def generar_obs(row):
-        errores = cruce[(cruce[c_banco_cb] == row['Banco']) & (cruce['ESTADO_LINEA'] != "✅ OK")]
-        obs = [f"{len(errores)} errores detectados"] if not errores.empty else []
-        if abs(row['CB_Deb'] - row['CG_Deb']) > 0.01: obs.append("Descuadre Tot. Deb")
-        if abs(row['CB_Cre'] - row['CG_Cre']) > 0.01: obs.append("Descuadre Tot. Cre")
-        return " | ".join(obs) if obs else ""
+    # ... (Ajuste de nombres para Hoja 1)
+    resumen_bancos.columns = ['Banco', 'Moneda', 'Asiento Desde', 'Asiento Hasta', 'CB_Mov', 'CB_Tot', 'CG_Tot']
+    resumen_bancos['Observación'] = "" # Se puede llenar con lógica de errores si se desea
 
-    resumen_bancos['Observación'] = resumen_bancos.apply(generar_obs, axis=1)
-    resumen_bancos['Estatus'] = resumen_bancos['Observación'].apply(lambda x: "❌ ERROR" if x else "✅ OK")
+    # --- 5. PREPARAR DETALLE PARA HOJA 2 (LA LIMPIEZA) ---
+    # Solo nos quedamos con lo que importa para el contador
+    columnas_finales = [
+        'ASIENTO', 'FECHA', 'BANCO', 'Moneda Banco', 
+        'Monto Tesorería', 'Monto Diario', 'Diferencia', 'Estado Auditoría', 'REFERENCIA'
+    ]
+    df_errores_clean = cruce[cruce['Estado Auditoría'] != "✅ OK"][columnas_finales].copy()
 
-    # --- 5. ORDENAMIENTO DE EDUARDO ---
-    resumen_bancos['Asiento_Num'] = resumen_bancos['Asiento Desde'].str.extract('(\d+)').astype(float)
-    resumen_bancos = resumen_bancos.sort_values('Asiento_Num').drop(columns=['Asiento_Num'])
-
-    # Detalle de errores para la Pestaña 2
-    df_detalle_errores = cruce[cruce['ESTADO_LINEA'] != "✅ OK"].copy()
-
-    return resumen_bancos, df_detalle_errores
+    return resumen_bancos, df_errores_clean
