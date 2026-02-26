@@ -4510,6 +4510,19 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
 # ------------------------------------------------------------------------------
 # 6.4. AUDITORIA DE COMISIONES (CREACION DE EDUARDO)
 # ------------------------------------------------------------------------------
+def desduplicar_lista_nombres(lista_sucia):
+    """Agrega un sufijo _1, _2 si encuentra nombres repetidos en la lista"""
+    nuevos_nombres = []
+    conteo = {}
+    for nombre in lista_sucia:
+        nombre_limpio = str(nombre).strip().upper()
+        if nombre_limpio not in conteo:
+            nuevos_nombres.append(nombre_limpio)
+            conteo[nombre_limpio] = 1
+        else:
+            nuevos_nombres.append(f"{nombre_limpio}_{conteo[nombre_limpio]}")
+            conteo[nombre_limpio] += 1
+    return nuevos_nombres
 
 def run_process_comisiones(df_cb_raw, df_cg_raw, log_messages):
     """
@@ -4532,8 +4545,8 @@ def run_process_comisiones(df_cb_raw, df_cg_raw, log_messages):
 
     # Extraemos los datos y limpiamos nombres de columnas duplicadas
     df_cb = df_cb_raw.iloc[header_idx+1:].copy()
-    nombres_sucios = [str(c).strip().upper() for c in df_cb_raw.iloc[header_idx].values]
-    df_cb.columns = pd.io.common.dedup_names(nombres_sucios, is_unicode=True)
+    nombres_crudos = df_cb_raw.iloc[header_idx].values
+    df_cb.columns = desduplicar_lista_nombres(nombres_crudos)
     
     # FILTRO DE INTEGRIDAD: Solo dejamos filas que tengan un Asiento real (ej: CB001)
     # Esto borra automáticamente títulos de bancos, nombres de empresa y filas vacías.
