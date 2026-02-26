@@ -4608,7 +4608,7 @@ def run_process_comisiones(df_resumen_crudo, df_diario, log_messages):
         c_cre_cb: 'sum', 'C_CG_FIN': 'sum'
     }).reset_index()
     
-    resumen_bancos.columns = ['Banco', 'Moneda', 'Desde', 'Hasta', 'CB_Mov', 'CB_Deb', 'CG_Deb', 'CB_Cre', 'CG_Cre']
+    resumen_bancos.columns = ['Banco', 'Moneda', 'Asiento Desde', 'Asiento Hasta', 'CB_Mov', 'CB_Deb', 'CG_Deb', 'CB_Cre', 'CG_Cre']
     resumen_bancos['CG_Mov'] = resumen_bancos['CB_Mov'] # Simplificado para el merge
     
     def generar_obs(row):
@@ -4622,7 +4622,7 @@ def run_process_comisiones(df_resumen_crudo, df_diario, log_messages):
     resumen_bancos['Estatus'] = resumen_bancos['Observación'].apply(lambda x: "❌ ERROR" if x else "✅ OK")
 
     # --- 5. ORDENAMIENTO DE EDUARDO ---
-    resumen_bancos['Asiento_Num'] = resumen_bancos['Desde'].str.extract('(\d+)').astype(float)
+    resumen_bancos['Asiento_Num'] = resumen_bancos['Asiento Desde'].str.extract('(\d+)').astype(float)
     resumen_bancos = resumen_bancos.sort_values('Asiento_Num').drop(columns=['Asiento_Num'])
 
     # Detalle de errores para la Pestaña 2
