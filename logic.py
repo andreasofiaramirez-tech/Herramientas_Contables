@@ -4580,7 +4580,8 @@ def run_process_comisiones(df_resumen_crudo, df_diario, log_messages):
 
     def validar_linea(row):
         banco_nom = str(row[c_banco_cb]).upper()
-        es_usd = any(x in banco_nom for x in ["USD", "$", "ME", "EXTRANJERA", "CUSTODIA"])
+        palabras_divisas = ["USD", "$", "ME", "EXTRANJERA", "CUSTODIA", "PANAMA", "CURAZAO", "CAYMAN"]
+        es_usd = any(x in banco_nom for x in palabras_divisas)
         
         # Elegimos contra qué comparar según el nombre del banco
         d_cg = row['D_CG_USD'] if es_usd else row['D_CG_VES']
