@@ -4514,8 +4514,9 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
 # ------------------------------------------------------------------------------
 
 def run_process_comisiones(df_resumen, df_diario, log_messages):
-    df_resumen.columns = [str(c).strip() for c in df_resumen.columns]
-    df_diario.columns = [str(c).strip() for c in df_diario.columns]
+    df_diario.columns = df_diario.columns.astype(str).str.strip()
+    df_resumen.columns = df_resumen.columns.astype(str).str.strip()
+    df_diario.rename(columns={'Cuenta Contable': 'Cuenta Bancaria'}, inplace=True, errors='ignore')
 
     # --- 1. RADAR DE COLUMNAS ---
     # Resumen (Tesorería)
@@ -4603,5 +4604,11 @@ def run_process_comisiones(df_resumen, df_diario, log_messages):
 
     # Consolidamos todos los asientos que dieron error en un solo DataFrame
     df_detalle_errores = pd.concat(lista_asientos_error, ignore_index=True) if lista_asientos_error else pd.DataFrame()
+
+    df_final = pd.DataFrame(resultados)
+    if 'Asiento Desde' in df_final.columns:
+        # Extraemos el número para ordenar (ej: CB001 -> 1)
+        df_final['Asiento_Num'] = df_final['Asiento Desde'].str.extract('(\d+)').astype(float)
+        df_final = df_final.sort_values(by='Asiento_Num').drop(columns=['Asiento_Num'])
 
     return pd.DataFrame(resultados), df_detalle_errores 
