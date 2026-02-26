@@ -1028,9 +1028,10 @@ def render_comisiones():
             log_messages = []
             try:
                 with st.spinner("Analizando consistencia multimoneda..."):
-                    # LLAMADA AL MOTOR PROFESIONAL (V20)
+                    # El motor ahora devuelve (None, None) si falla el radar
                     df_res, df_err_asientos = run_process_comisiones(pd.read_excel(f1), pd.read_excel(f2), log_messages)
                 
+                # VALIDACIÓN CRÍTICA: Solo seguimos si df_res tiene datos
                 if df_res is not None:
                     hay_errores = df_res['Estatus'].str.contains("❌").any()
                     
