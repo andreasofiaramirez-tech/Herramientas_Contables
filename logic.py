@@ -4610,24 +4610,29 @@ def run_process_comisiones(df_resumen_crudo, df_diario, log_messages):
     )
 
     # --- 4. RESUMEN POR BANCO (Hoja 1) ---
-    # Agrupamos por los nombres técnicos que traen los datos
+    # Agrupamos calculando Débitos y Créditos por separado para CB y CG
     resumen_bancos = cruce.groupby([c_banco_cb, 'Moneda Banco']).agg({
-        'ASIENTO': ['min', 'max', 'count'],
-        'Monto Tesorería': 'sum',
-        'Monto Diario': 'sum'
+        'ASIENTO': ['min', 'max', 'count'], # Desde, Hasta, CB_Mov
+        c_deb_cb: 'sum',                    # CB_Deb
+        'D_CG_FIN': 'sum',                  # CG_Deb
+        c_cre_cb: 'sum',                    # CB_Cre
+        'C_CG_FIN': 'sum'                   # CG_Cre
     }).reset_index()
     
-    # FORZAMOS LOS NOMBRES EXACTOS QUE BUSCA APP.PY
-    # Esto elimina el error KeyError: 'Banco'
+    # Asignamos los nombres de columna que el reporte de utils.py espera encontrar
     resumen_bancos.columns = [
-        'Banco',            # Columna 0
-        'Moneda',           # Columna 1
-        'Asiento Desde',    # Columna 2
-        'Asiento Hasta',    # Columna 3
-        'CB_Mov',           # Columna 4
-        'CB_Tot',           # Columna 5
-        'CG_Tot'            # Columna 6
+        'Banco', 'Moneda', 
+        'Asiento Desde', 'Asiento Hasta', 'CB_Mov', 
+        'CB_Deb', 'CG_Deb', 
+        'CB_Cre', 'CG_Cre'
     ]
+
+    # Calculamos el conteo de movimientos encontrados en Contabilidad (CG_Mov)
+    def calcular_conteo_cg(banco_nom):
+        # Contamos cuántas filas de este banco NO tienen el error de "No encontrado"
+        return len(cruce[(cruce[c_banco_cb] == banco_nom) & (cruce['Estado Auditoría'] != "❌ No encontrado en Diario")])
+
+    resumen_bancos['CG_Mov'] = resumen_bancos['Banco'].apply(calcular_conteo_cg)
 
     # Generamos la columna de Observación y Estatus para la interfaz
     def generar_resumen_web(row):
