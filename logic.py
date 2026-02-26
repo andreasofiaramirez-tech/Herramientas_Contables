@@ -4512,54 +4512,50 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
 # ------------------------------------------------------------------------------
 
 def run_process_comisiones(df_cb_raw, df_cg_raw, log_messages):
-    """Lógica V25: Cruce Analítico Asiento-a-Asiento para Softland"""
+    """
+    Lógica V27: Auditoría Analítica Multimoneda.
+    Cruza Tesorería (CB) vs Contabilidad (CG) asiento por asiento.
+    """
     
-    # --- 1. PROCESAR TESORERÍA (CB) ---
+    # --- 1. IDENTIFICACIÓN Y LIMPIEZA DE TESORERÍA (CB) ---
+    # Buscamos en qué fila empieza la tabla real (donde esté la palabra ASIENTO)
     header_idx = None
     for i in range(min(15, len(df_cb_raw))):
-        fila_valores = [str(x).upper().strip() for x in df_cb_raw.iloc[i].values]
+        fila_valores = [normalizar_texto_busqueda(x) for x in df_cb_raw.iloc[i].values]
         if "ASIENTO" in fila_valores:
             header_idx = i
             break
     
     if header_idx is None:
-        log_messages.append("❌ ERROR: No se encontró la columna 'ASIENTO' en Tesorería.")
+        log_messages.append("❌ ERROR: No se encontró la columna 'ASIENTO' en el archivo de Tesorería.")
         return None, None
 
-    # Extraemos los datos
+    # Extraemos los datos y limpiamos nombres de columnas duplicadas
     df_cb = df_cb_raw.iloc[header_idx+1:].copy()
-    df_cb.columns = [str(c).strip().upper() for c in df_cb_raw.iloc[header_idx].values]
+    nombres_sucios = [str(c).strip().upper() for c in df_cb_raw.iloc[header_idx].values]
+    df_cb.columns = pd.io.common.dedup_names(nombres_sucios, is_unicode=True)
     
-    # --- FILTRO DE INTEGRIDAD: ELIMINAR FILAS DE ENCABEZADOS Y TÍTULOS ---
-    # 1. Solo permitimos filas donde 'ASIENTO' empiece con letras seguidas de números (ej: CB001)
-    # Esto elimina automáticamente las filas que dicen 'PRISMA' o 'ASIENTO' (repetido)
+    # FILTRO DE INTEGRIDAD: Solo dejamos filas que tengan un Asiento real (ej: CB001)
+    # Esto borra automáticamente títulos de bancos, nombres de empresa y filas vacías.
     df_cb = df_cb[df_cb['ASIENTO'].astype(str).str.match(r'^[A-Z]{2}\d+', case=False, na=False)]
     
-    # 2. Eliminamos filas donde la cuenta bancaria sea igual al nombre del encabezado
-    if "CUENTA BANCARIA" in df_cb.columns:
-        df_cb = df_cb[df_cb['CUENTA BANCARIA'].astype(str).upper() != "CUENTA BANCARIA"]
-    
-    # Detectar columnas de monto
-    c_deb_cb = next((c for c in df_cb.columns if "DEBITO" in c), None)
-    c_cre_cb = next((c for c in df_cb.columns if "CREDITO" in c), None)
-    c_banco_cb = "CUENTA BANCARIA" if "CUENTA BANCARIA" in df_cb.columns else df_cb.columns[1]
+    # Identificamos columnas de monto y banco en Tesorería
+    c_deb_cb = next((c for c in df_cb.columns if "DEBITO" in str(c).upper()), None)
+    c_cre_cb = next((c for c in df_cb.columns if "CREDITO" in str(c).upper()), None)
+    c_banco_cb = next((c for c in df_cb.columns if "BANCO" in str(c).upper() or "CUENTA" in str(c).upper()), df_cb.columns[1])
 
+    # Función para convertir montos latinos (1.234,56) a números de Python (1234.56)
     def limpiar_monto(val):
         if pd.isna(val) or str(val).strip() in ['', '-', 'nan', '0']: return 0.0
         if isinstance(val, (int, float)): return float(val)
         t = str(val).replace('.', '').replace(',', '.')
         t_clean = re.sub(r'[^\d.-]', '', t)
-        try: return float(t_clean) if t_clean else 0.0
-        except: return 0.0
+        return float(t_clean) if t_clean else 0.0
 
     df_cb['DEB_CB'] = df_cb[c_deb_cb].apply(limpiar_monto)
     df_cb['CRE_CB'] = df_cb[c_cre_cb].apply(limpiar_monto)
-    df_cb['NETO_CB'] = df_cb['DEB_CB'] - df_cb['CRE_CB']
-
-    # 3. FILTRO FINAL DE IMPORTANCIA: Solo filas con dinero
-    df_cb = df_cb[df_cb['NETO_CB'].abs() > 0.001]
-    
-    log_messages.append(f"✔️ Tesorería procesada: {len(df_cb)} asientos reales detectados.")
+    # El neto nos dice cuánto dinero se movió en total en esa línea
+    df_cb['NETO_CB'] = (df_cb['DEB_CB'] - df_cb['CRE_CB']).round(2)
 
     # --- 2. PROCESAR CONTABILIDAD (CG) ---
     df_cg = df_cg_raw.copy()
@@ -4567,62 +4563,95 @@ def run_process_comisiones(df_cb_raw, df_cg_raw, log_messages):
     
     c_asiento_cg = buscar_columna_comisiones(df_cg, ["ASIENTO"])
     c_cuenta_cg = buscar_columna_comisiones(df_cg, ["CUENTA", "CONTABLE"])
-    c_deb_cg = buscar_columna_comisiones(df_cg, ["DEBITO", "VES"])
-    c_cre_cg = buscar_columna_comisiones(df_cg, ["CREDITO", "VES"])
+    c_deb_cg_v = buscar_columna_comisiones(df_cg, ["DEBITO", "VES"])
+    c_cre_cg_v = buscar_columna_comisiones(df_cg, ["CREDITO", "VES"])
+    c_deb_cg_u = buscar_columna_comisiones(df_cg, ["DEBITO", "DOLAR"])
+    c_cre_cg_u = buscar_columna_comisiones(df_cg, ["CREDITO", "DOLAR"])
 
-    # FILTRO CRÍTICO: En el Diario, solo nos interesan las cuentas de BANCO (1.1.1.02...)
-    # Esto evita duplicar montos al sumar la contrapartida del gasto.
+    # FILTRO BANCARIO: Solo sumamos líneas de cuentas de BANCO (1.1.1.02...)
+    # Ignoramos cuentas de gastos o impuestos para comparar "Banco contra Banco"
     df_cg_bancos = df_cg[df_cg[c_cuenta_cg].astype(str).str.startswith('1.1.1.02', na=False)].copy()
     
-    for c in [c_deb_cg, c_cre_cg]:
-        df_cg_bancos[c] = pd.to_numeric(df_cg_bancos[c], errors='coerce').fillna(0)
+    for c in [c_deb_cg_v, c_cre_cg_v, c_deb_cg_u, c_cre_cg_u]:
+        if c: df_cg_bancos[c] = pd.to_numeric(df_cg_bancos[c], errors='coerce').fillna(0)
     
-    # Consolidamos el diario por asiento (por si un banco tiene dos líneas en el mismo asiento)
-    cg_resumen = df_cg_bancos.groupby(c_asiento_cg).agg({c_deb_cg: 'sum', c_cre_cg: 'sum'}).reset_index()
-    cg_resumen.columns = ['ASIENTO', 'DEB_CG', 'CRE_CG']
-    cg_resumen['NETO_CG'] = cg_resumen['DEB_CG'] - cg_resumen['CRE_CG']
+    # Consolidamos el Diario por asiento para comparar montos totales por operación
+    cg_resumen = df_cg_bancos.groupby(c_asiento_cg).agg({
+        c_deb_cg_v: 'sum', c_cre_cg_v: 'sum',
+        c_deb_cg_u: 'sum', c_cre_cg_u: 'sum'
+    }).reset_index()
+    cg_resumen.columns = ['ASIENTO', 'D_VES', 'C_VES', 'D_USD', 'C_USD']
 
-    # --- 3. CRUCE (JOIN) ---
-    log_messages.append("🔬 Realizando cruce analítico de asientos...")
+    # --- 3. CRUCE ANALÍTICO (EL CAREO) ---
+    log_messages.append("🔬 Ejecutando cruce quirúrgico asiento por asiento...")
     
-    # Forzamos texto en el ID del asiento para evitar errores de tipo
-    df_cb['ASIENTO'] = df_cb['ASIENTO'].astype(str).str.strip()
-    cg_resumen['ASIENTO'] = cg_resumen['ASIENTO'].astype(str).str.strip()
-    
+    # Unimos Tesorería y Contabilidad por el ID del Asiento
     df_final = pd.merge(df_cb, cg_resumen, on='ASIENTO', how='left')
 
-    # --- 4. VALIDACIÓN ---
-    def auditar(row):
-        if pd.isna(row['NETO_CG']): return "❌ No encontrado en Diario", "VES", row['NETO_CB']
-        dif = round(row['NETO_CB'] - row['NETO_CG'], 2)
-        if abs(dif) > 0.01: return f"❌ Descuadre: {dif}", "VES", dif
-        return "✅ OK", "VES", 0
+    def auditar_linea(row):
+        """Lógica interna para decidir si una fila está bien o mal"""
+        # 1. Extraer nombre del banco de forma segura (evita error de 'Series')
+        val_banco = row[c_banco_cb]
+        if hasattr(val_banco, 'iloc'): val_banco = val_banco.iloc[0]
+        banco_nom = str(val_banco).upper()
+        
+        # 2. Radar de divisas: ¿Es una cuenta en Dólares?
+        palabras_divisas = ["USD", "$", "ME", "EXTRANJERA", "CUSTODIA", "PANAMA", "CURAZAO", "CAYMAN"]
+        es_usd = any(x in banco_nom for x in palabras_divisas)
+        moneda = "USD" if es_usd else "VES"
 
-    df_final[['Estado Auditoría', 'Moneda', 'Diferencia']] = df_final.apply(
-        lambda r: pd.Series(auditar(r)), axis=1
+        # 3. Validar si el asiento existe en el Diario
+        if pd.isna(row['D_VES']): 
+            return "❌ No encontrado en Diario", moneda, row['NETO_CB'], 0, row['NETO_CB']
+        
+        # 4. Elegir montos a comparar según la moneda detectada
+        d_cg = row['D_USD'] if es_usd else row['D_VES']
+        c_cg = row['C_USD'] if es_usd else row['C_VES']
+        neto_cg = round(d_cg - c_cg, 2)
+        
+        diferencia = round(row['NETO_CB'] - neto_cg, 2)
+        
+        if abs(diferencia) > 0.01:
+            return f"❌ Diferencia Monto {moneda}", moneda, row['NETO_CB'], neto_cg, diferencia
+        
+        return "✅ OK", moneda, row['NETO_CB'], neto_cg, 0
+
+    # Aplicamos la auditoría línea por línea
+    df_final[['Estado Auditoría', 'Moneda Banco', 'Monto Tesorería', 'Monto Diario', 'Diferencia']] = df_final.apply(
+        lambda r: pd.Series(auditar_linea(r)), axis=1
     )
 
-    # --- 5. PREPARAR REPORTES ---
-    # Resumen para la Hoja 1
-    c_banco_cb = df_cb.columns[1] # Usualmente la segunda columna es el banco
-    resumen_hoja1 = df_final.groupby([c_banco_cb, 'Moneda']).agg({
+    # --- 4. RESUMEN MACRO (HOJA 1) ---
+    # Agrupamos resultados para ver el estatus general de cada banco
+    resumen_hoja1 = df_final.groupby([c_banco_cb, 'Moneda Banco']).agg({
         'ASIENTO': ['min', 'max', 'count'],
-        'DEB_CB': 'sum', 'DEB_CG': 'sum',
-        'CRE_CB': 'sum', 'CRE_CG': 'sum'
+        'DEB_CB': 'sum', 'D_VES': 'sum', # Referenciales VES
+        'CRE_CB': 'sum', 'C_VES': 'sum'
     }).reset_index()
     
     resumen_hoja1.columns = ['Banco', 'Moneda', 'Asiento Desde', 'Asiento Hasta', 'CB_Mov', 'CB_Deb', 'CG_Deb', 'CB_Cre', 'CG_Cre']
-    resumen_hoja1['CG_Mov'] = resumen_hoja1['CB_Mov'] # Simplificado
-    resumen_hoja1['Estatus'] = resumen_hoja1.apply(lambda r: "❌ ERROR" if abs(r['CB_Deb']-r['CG_Deb'])>0.01 or abs(r['CB_Cre']-r['CG_Cre'])>0.01 else "✅ OK", axis=1)
-    resumen_hoja1['Observación'] = ""
+    resumen_hoja1['CG_Mov'] = resumen_hoja1['CB_Mov'] 
+    
+    # Identificamos qué bancos tienen errores en la Hoja 1
+    def marcar_error_macro(row):
+        err = df_final[(df_final[c_banco_cb] == row['Banco']) & (df_final['Estado Auditoría'] != "✅ OK")]
+        obs = f"{len(err)} errores detectados" if not err.empty else ""
+        return pd.Series([obs, "❌ ERROR" if obs else "✅ OK"])
 
-    # Detalle para la Hoja 2
-    df_errores = df_final[df_final['Estado Auditoría'] != "✅ OK"].copy()
-    # Estandarizamos nombres para el reporte profesional de utils.py
-    df_errores.rename(columns={
-        'NETO_CB': 'Monto Tesorería',
-        'NETO_CG': 'Monto Diario',
-        'Estado Auditoría': 'Estado Auditoría'
-    }, inplace=True, errors='ignore')
+    resumen_hoja1[['Observación', 'Estatus']] = resumen_hoja1.apply(marcar_error_macro, axis=1)
 
-    return resumen_hoja1, df_errores
+    # --- 5. PREPARAR DETALLE PARA PESTAÑA 2 (SOLO ERRORES) ---
+    columnas_limpias = {
+        'ASIENTO': 'ASIENTO', 'FECHA': 'FECHA', c_banco_cb: 'BANCO', 
+        'Moneda Banco': 'MONEDA', 'Monto Tesorería': 'TESORERIA', 
+        'Monto Diario': 'DIARIO', 'Diferencia': 'DIFERENCIA', 
+        'Estado Auditoría': 'ESTADO', 'REFERENCIA': 'REFERENCIA'
+    }
+    
+    df_errores_analitico = df_final[df_final['Estado Auditoría'] != "✅ OK"].copy()
+    # Filtramos solo las columnas que existen y las renombramos para el contador
+    cols_existentes = [c for c in columnas_limpias.keys() if c in df_errores_analitico.columns]
+    df_errores_analitico = df_errores_analitico[cols_existentes].rename(columns=columnas_limpias)
+
+    log_messages.append(f"🏁 Auditoría finalizada. Se analizaron {len(df_cb)} asientos.")
+    return resumen_hoja1, df_errores_analitico
