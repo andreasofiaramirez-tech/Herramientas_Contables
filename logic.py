@@ -4610,23 +4610,44 @@ def run_process_comisiones(df_resumen_crudo, df_diario, log_messages):
     )
 
     # --- 4. RESUMEN POR BANCO (Hoja 1) ---
-    # (Mantenemos la lógica de la Hoja 1 pero usamos los nuevos nombres)
-    resumen_bancos = cruce.groupby(['Banco', 'Moneda Banco']).agg({
+    # Agrupamos por los nombres técnicos que traen los datos
+    resumen_bancos = cruce.groupby([c_banco_cb, 'Moneda Banco']).agg({
         'ASIENTO': ['min', 'max', 'count'],
         'Monto Tesorería': 'sum',
         'Monto Diario': 'sum'
     }).reset_index()
     
-    # ... (Ajuste de nombres para Hoja 1)
-    resumen_bancos.columns = ['Banco', 'Moneda', 'Asiento Desde', 'Asiento Hasta', 'CB_Mov', 'CB_Tot', 'CG_Tot']
-    resumen_bancos['Observación'] = "" # Se puede llenar con lógica de errores si se desea
+    # FORZAMOS LOS NOMBRES EXACTOS QUE BUSCA APP.PY
+    # Esto elimina el error KeyError: 'Banco'
+    resumen_bancos.columns = [
+        'Banco',            # Columna 0
+        'Moneda',           # Columna 1
+        'Asiento Desde',    # Columna 2
+        'Asiento Hasta',    # Columna 3
+        'CB_Mov',           # Columna 4
+        'CB_Tot',           # Columna 5
+        'CG_Tot'            # Columna 6
+    ]
 
-    # --- 5. PREPARAR DETALLE PARA HOJA 2 (LA LIMPIEZA) ---
-    # Solo nos quedamos con lo que importa para el contador
-    columnas_finales = [
+    # Generamos la columna de Observación y Estatus para la interfaz
+    def generar_resumen_web(row):
+        errores = cruce[(cruce[c_banco_cb] == row['Banco']) & (cruce['Estado Auditoría'] != "✅ OK")]
+        obs = f"{len(errores)} error(es) detectado(s)" if not errores.empty else ""
+        estatus = "❌ ERROR" if obs else "✅ OK"
+        return pd.Series([obs, estatus])
+
+    resumen_bancos[['Observación', 'Estatus']] = resumen_bancos.apply(generar_resumen_web, axis=1)
+
+    # --- 5. ORDENAMIENTO Y LIMPIEZA FINAL ---
+    # Extraemos el número del asiento para ordenar correctamente (Mejora de Eduardo)
+    resumen_bancos['Asiento_Num'] = resumen_bancos['Asiento Desde'].str.extract('(\d+)').astype(float)
+    resumen_bancos = resumen_bancos.sort_values('Asiento_Num').drop(columns=['Asiento_Num'])
+
+    # Preparamos el detalle de errores para la Pestaña 2 del Excel
+    columnas_excel = [
         'ASIENTO', 'FECHA', 'BANCO', 'Moneda Banco', 
         'Monto Tesorería', 'Monto Diario', 'Diferencia', 'Estado Auditoría', 'REFERENCIA'
     ]
-    df_errores_clean = cruce[cruce['Estado Auditoría'] != "✅ OK"][columnas_finales].copy()
+    df_errores_reporte = cruce[cruce['Estado Auditoría'] != "✅ OK"][columnas_excel].copy()
 
-    return resumen_bancos, df_errores_clean
+    return resumen_bancos, df_errores_reporte
