@@ -4638,16 +4638,41 @@ def run_process_comisiones(df_resumen_crudo, df_diario, log_messages):
 
     resumen_bancos[['Observación', 'Estatus']] = resumen_bancos.apply(generar_resumen_web, axis=1)
 
-    # --- 5. ORDENAMIENTO Y LIMPIEZA FINAL ---
-    # Extraemos el número del asiento para ordenar correctamente (Mejora de Eduardo)
+    # --- 5. ORDENAMIENTO Y PREPARACIÓN DE REPORTES (VERSIÓN BLINDADA) ---
+    
+    # Ordenamiento de la Hoja 1 (Resumen)
     resumen_bancos['Asiento_Num'] = resumen_bancos['Asiento Desde'].str.extract('(\d+)').astype(float)
     resumen_bancos = resumen_bancos.sort_values('Asiento_Num').drop(columns=['Asiento_Num'])
 
-    # Preparamos el detalle de errores para la Pestaña 2 del Excel
-    columnas_excel = [
-        'ASIENTO', 'FECHA', 'BANCO', 'Moneda Banco', 
-        'Monto Tesorería', 'Monto Diario', 'Diferencia', 'Estado Auditoría', 'REFERENCIA'
-    ]
-    df_errores_reporte = cruce[cruce['Estado Auditoría'] != "✅ OK"][columnas_excel].copy()
+    # --- CORRECCIÓN DEL ERROR 'BANCO', 'REFERENCIA' ---
+    # En lugar de usar nombres fijos, buscamos qué columnas existen realmente en el cruce
+    # para armar la pestaña de detalles (Hoja 2)
+    
+    posibles_columnas = {
+        'ASIENTO': 'ASIENTO',
+        'FECHA': 'FECHA',
+        'BANCO': c_banco_cb, # Usamos la variable que detectó el radar
+        'MONEDA': 'Moneda Banco',
+        'TESORERIA': 'Monto Tesorería',
+        'DIARIO': 'Monto Diario',
+        'DIFERENCIA': 'Diferencia',
+        'ESTADO': 'Estado Auditoría',
+        'REFERENCIA': 'REFERENCIA'
+    }
 
-    return resumen_bancos, df_errores_reporte
+    # Creamos una lista solo con las columnas que sí están en el DataFrame 'cruce'
+    columnas_finales_existentes = []
+    mapa_renombrado_visual = {}
+
+    for nombre_amigable, nombre_tecnico in posibles_columnas.items():
+        if nombre_tecnico in cruce.columns:
+            columnas_finales_existentes.append(nombre_tecnico)
+            mapa_renombrado_visual[nombre_tecnico] = nombre_amigable
+
+    # Filtramos los errores y aplicamos la selección segura
+    df_errores_det = cruce[cruce['Estado Auditoría'] != "✅ OK"][columnas_finales_existentes].copy()
+    
+    # Renombramos para que el Excel sea súper legible (Mayúsculas limpias)
+    df_errores_det.rename(columns=mapa_renombrado_visual, inplace=True)
+
+    return resumen_bancos, df_errores_det
