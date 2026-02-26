@@ -34,14 +34,15 @@ TOLERANCIA_COFERSA = 0.00     # Saldo 0 estricto para Envíos y Fondos
 def normalizar_texto_busqueda(texto):
     """Limpia tildes, acentos y convierte a mayúsculas para comparaciones ciegas"""
     if not texto: return ""
-    # Esta línea quita los acentos (É -> E, ó -> o)
+    import unicodedata
+    # Elimina acentos (ej: Débito -> DEBITO)
     texto_norm = ''.join(c for c in unicodedata.normalize('NFD', str(texto))
                         if unicodedata.category(c) != 'Mn')
     return texto_norm.upper().strip()
 
-def buscar_columna(df, palabras):
-    """Busca columnas ignorando acentos y mayúsculas"""
-    # Normalizamos las palabras que buscamos (ej: ['DEBITO', 'VES'])
+def buscar_columna_comisiones(df, palabras):
+    """Busca columnas ignorando acentos y mayúsculas (El radar de la herramienta)"""
+    # Normalizamos las palabras que buscamos
     palabras_objetivo = [normalizar_texto_busqueda(p) for p in palabras]
     
     for col in df.columns:
