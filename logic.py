@@ -4534,15 +4534,33 @@ def run_process_comisiones(df_resumen, df_diario, log_messages):
     # Diario (Contabilidad)
     c_asiento = buscar_columna(df_diario, ["ASIENTO"])
     c_cuenta = buscar_columna(df_diario, ["CUENTA", "CONTABLE"])
-    # Detectar todas las opciones posibles de montos
     c_deb_cg_ves = buscar_columna(df_diario, ["DEBITO", "VES"]) or buscar_columna(df_diario, ["DEBITO", "BOLIVAR"])
     c_cre_cg_ves = buscar_columna(df_diario, ["CREDITO", "VES"]) or buscar_columna(df_diario, ["CREDITO", "BOLIVAR"])
     c_deb_cg_usd = buscar_columna(df_diario, ["DEBITO", "DOLAR"]) or buscar_columna(df_diario, ["DEBITO", "USD"])
     c_cre_cg_usd = buscar_columna(df_diario, ["CREDITO", "DOLAR"]) or buscar_columna(df_diario, ["CREDITO", "USD"])
 
-    if not all([c_ini, c_fin, c_deb_cb, c_asiento, c_deb_cg_ves]):
-        log_messages.append("❌ ERROR: No se detectaron las columnas críticas.")
+    # --- 1.1. DIAGNÓSTICO DETALLADO DE COLUMNAS (NUEVA UBICACIÓN) ---
+    faltantes_resumen = []
+    if not c_ini: faltantes_resumen.append("CB Desde")
+    if not c_fin: faltantes_resumen.append("CB Hasta")
+    if not c_deb_cb: faltantes_resumen.append("Total Débito (Tesorería)")
+    if not c_cre_cb: faltantes_resumen.append("Total Crédito (Tesorería)")
+
+    faltantes_diario = []
+    if not c_asiento: faltantes_diario.append("Asiento")
+    if not c_cuenta: faltantes_diario.append("Cuenta Contable / Bancaria")
+    if not c_deb_cg_ves: faltantes_diario.append("Débito VES / Local")
+    if not c_cre_cg_ves: faltantes_diario.append("Crédito VES / Local")
+
+    if faltantes_resumen or faltantes_diario:
+        if faltantes_resumen:
+            log_messages.append(f"❌ Archivo RESUMEN: No encontré estas columnas -> {', '.join(faltantes_resumen)}")
+        if faltantes_diario:
+            log_messages.append(f"❌ Archivo DIARIO: No encontré estas columnas -> {', '.join(faltantes_diario)}")
+        
+        log_messages.append("💡 Tip: Revisa que los nombres no tengan caracteres extraños o celdas combinadas en la Fila 1.")
         return None, None 
+    # ---------------------------------------------------------------
 
     # --- 2. PREPARACIÓN ---
     CUENTAS_OMITIR = ['1.1.4.01.1.010', '6.1.1.15.1.005', '7.1.3.04.3.001', '7.1.3.50.1.001', '7.1.3.50.1.002']
