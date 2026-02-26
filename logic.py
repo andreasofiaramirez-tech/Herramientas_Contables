@@ -4542,7 +4542,7 @@ def run_process_comisiones(df_resumen, df_diario, log_messages):
 
     if not all([c_ini, c_fin, c_deb_cb, c_asiento, c_deb_cg_ves]):
         log_messages.append("❌ ERROR: No se detectaron las columnas críticas.")
-        return None
+        return None, None 
 
     # --- 2. PREPARACIÓN ---
     CUENTAS_OMITIR = ['1.1.4.01.1.010', '6.1.1.15.1.005', '7.1.3.04.3.001', '7.1.3.50.1.001', '7.1.3.50.1.002']
