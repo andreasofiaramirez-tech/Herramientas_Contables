@@ -4538,11 +4538,35 @@ def run_process_comisiones(df_cb_raw, df_cg_raw, log_messages):
     c_cre_cb = "CRÉDITOS" if "CRÉDITOS" in df_cb.columns else "CREDITOS"
     
     def limpiar_monto(val):
-        if pd.isna(val) or str(val).strip() in ['', '-']: return 0.0
-        if isinstance(val, (int, float)): return float(val)
-        # Formato latino: 1.234,56 -> 1234.56
-        t = str(val).replace('.', '').replace(',', '.')
-        return float(re.sub(r'[^\d.-]', '', t))
+        if pd.isna(val): 
+            return 0.0
+        
+        # Convertir a texto y limpiar espacios
+        t = str(val).strip().replace(' ', '')
+        
+        # Casos comunes de "celda vacía" en reportes contables
+        if t in ['', '-', 'nan', 'None', '.', ',']: 
+            return 0.0
+        
+        # Detectar formato latino (1.234,56) vs estándar (1,234.56)
+        if ',' in t and '.' in t:
+            if t.rfind(',') > t.rfind('.'): # Caso Latino: 1.234,56
+                t = t.replace('.', '').replace(',', '.')
+            else: # Caso US: 1,234.56
+                t = t.replace(',', '')
+        elif ',' in t: # Solo comas: 355,44
+            t = t.replace(',', '.')
+            
+        # Eliminar cualquier caracter que no sea número, punto decimal o signo negativo
+        t_clean = re.sub(r'[^\d.-]', '', t)
+        
+        try:
+            # Validar que t_clean no sea solo un punto o un guion tras la limpieza
+            if not t_clean or t_clean in ['.', '-', '-.']:
+                return 0.0
+            return float(t_clean)
+        except:
+            return 0.0
 
     df_cb['DEB_CB'] = df_cb[c_deb_cb].apply(limpiar_monto)
     df_cb['CRE_CB'] = df_cb[c_cre_cb].apply(limpiar_monto)
