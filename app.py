@@ -973,78 +973,88 @@ def render_paquete_cc():
             st.text_area("Log de Análisis", '\n'.join(st.session_state.log_messages_paquete), height=400)
 
 def render_comisiones():
-    st.title("🏦 Auditoría de Conciliación de Comisiones", anchor=False)
-    
+    # --- 1. CONFIGURACIÓN DE COLORES DINÁMICOS (EDUARDO) ---
+    if "messages" not in st.session_state:
+        st.session_state.messages = [{"role": "assistant", "content": "¡Hola! Soy tu asistente de comisiones. Elige una empresa y sube los archivos para empezar."}]
+
+    # 2. SELECCIÓN DE EMPRESA EN SIDEBAR (EDUARDO)
+    with st.sidebar:
+        st.title("🤖 Bot: Asistente")
+        for message in st.session_state.messages:
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
+        
+        if prompt := st.chat_input("Escribe tu duda..."):
+            st.session_state.messages.append({"role": "user", "content": prompt})
+            st.rerun()
+
+        st.markdown("---")
+        empresa = st.selectbox("Empresa:", ["PRISMA", "BEVAL", "FEBECA", "SILLACA"], key="empresa_sel")
+        
+        colores = {
+            "PRISMA":  {"borde": "#566573", "fondo": "#F8F9F9"},
+            "BEVAL":   {"borde": "#28A745", "fondo": "#EAFAF1"},
+            "FEBECA":  {"borde": "#2196F3", "fondo": "#E8F4FD"},
+            "SILLACA": {"borde": "#FF00FF", "fondo": "#FDE9F9"}
+        }
+        color_emp = colores[empresa]
+
+    # 3. ESTILOS CSS DINÁMICOS (EDUARDO)
+    st.markdown(f"""
+        <style>
+        .etiqueta-rellena {{ background-color: {color_emp['borde']}; color: white; padding: 10px; border-radius: 10px 10px 0 0; font-weight: bold; text-align: center; display: block; }}
+        [data-testid="stFileUploader"] {{ background-color: {color_emp['fondo']} !important; border: 2px solid {color_emp['borde']} !important; border-radius: 0 0 15px 15px !important; padding: 10px; }}
+        div.stButton > button {{ background-color: {color_emp['borde']} !important; color: white !important; width: 100%; border-radius: 12px; height: 3.5em; font-weight: bold; font-size: 18px; }}
+        </style>
+        """, unsafe_allow_html=True)
+
+    # 4. CUERPO PRINCIPAL
+    st.title(f"🏦 Auditoría de Conciliación {empresa}", anchor=False)
     if st.button("⬅️ Volver al Inicio"):
         set_page('inicio')
         st.rerun()
 
-    with st.expander("📖 Guía de Uso"):
-        st.markdown(GUIA_COMISIONES)
-
-    empresa = st.selectbox("Seleccione la empresa:", ["Febeca", "Beval", "Sillaca", "Prisma"])
-    
+    # Layout de carga de archivos (Diseño Eduardo)
     col1, col2 = st.columns(2)
     with col1:
-        f1 = st.file_uploader(f"1. Resumen de Comisiones ({empresa})", type="xlsx")
+        st.markdown(f'<p class="etiqueta-rellena">{empresa} Resumen Comisiones (CB)</p>', unsafe_allow_html=True)
+        f1 = st.file_uploader("CB", type=["xlsx"], key="cb_file", label_visibility="collapsed")
     with col2:
-        f2 = st.file_uploader(f"2. Diario Contable ({empresa})", type="xlsx")
+        st.markdown(f'<p class="etiqueta-rellena">{empresa} Diario Contable (CG)</p>', unsafe_allow_html=True)
+        f2 = st.file_uploader("CG", type=["xlsx"], key="cg_file", label_visibility="collapsed")
 
     if f1 and f2:
-        if st.button(f"🚀 Procesar Auditoría {empresa}", type="primary", use_container_width=True):
+        if st.button(f"⚡ Iniciar Auditoría - {empresa}", type="primary"):
             log_messages = []
             try:
-                with st.spinner("Analizando consistencia de montos..."):
+                with st.spinner("Analizando consistencia multimoneda..."):
+                    # LLAMADA AL MOTOR PROFESIONAL (V20)
                     df_res, df_err_asientos = run_process_comisiones(pd.read_excel(f1), pd.read_excel(f2), log_messages)
                 
                 if df_res is not None:
-                    # --- 1. DEFINICIÓN DE LA VARIABLE (SOLUCIÓN AL ERROR) ---
-                    # Verificamos si existe al menos una 'X' roja en la columna Estatus
                     hay_errores = df_res['Estatus'].str.contains("❌").any()
                     
-                    # --- 2. ALERTAS VISUALES ---
                     if not hay_errores:
-                        st.success(f"✅ ¡Excelente! Cuadratura perfecta en VES y USD para {empresa}.")
+                        st.success(f"🎊 ¡Excelente! Cuadratura perfecta en VES y USD para {empresa}.")
+                        st.session_state.messages.append({"role": "assistant", "content": f"✅ Auditoría de **{empresa}** finalizada: Todo cuadrado."})
                     else:
-                        st.warning(f"⚠️ Se detectaron diferencias en la auditoría de {empresa}.")
+                        st.warning(f"⚠️ Se detectaron diferencias en {empresa}.")
+                        st.session_state.messages.append({"role": "assistant", "content": f"⚠️ Eduardo, encontré diferencias en **{empresa}**. Revisa el reporte."})
 
-                    # --- 3. MOSTRAR RESULTADOS EN PANTALLA ---
-                    st.subheader("📋 Resumen de Auditoría de Cuadratura")
-                    
-                    # Función para dar color a la tabla
-                    def color_estatus(val):
-                        color = 'red' if '❌' in str(val) else 'green'
-                        return f'color: {color}; font-weight: bold'
+                    # Visualización Profesional
+                    st.subheader("📋 Resumen de Auditoría")
+                    st.dataframe(df_res[['Banco', 'Moneda', 'Estatus', 'Observación']], use_container_width=True, hide_index=True)
 
-                    # NUEVOS NOMBRES: Sincronizados con el modelo profesional de logic.py
-                    columnas_visibles = ['Banco', 'Estatus', 'Observación']
-                    
-                    try:
-                        st.dataframe(
-                            df_res[columnas_visibles].style.applymap(color_estatus, subset=['Estatus']),
-                            use_container_width=True,
-                            hide_index=True
-                        )
-                    except Exception as e:
-                        # Fallback por si hay algún otro desajuste de nombres
-                        st.write("Detalle de resultados:")
-                        st.dataframe(df_res, use_container_width=True)
-
-                    # --- 4. BOTÓN DE DESCARGA ---
-                    # Ahora la variable 'hay_errores' ya existe y no dará error
                     if hay_errores:
-                        st.divider()
+                        # MANTENEMOS EL REPORTE VIEJO PROFESIONAL (Punto solicitado)
                         excel_bin = generar_reporte_errores_comisiones(df_res, df_err_asientos, empresa)
                         st.download_button(
-                            label="📥 Descargar Reporte Completo (2 Pestañas)",
+                            label=f"📥 Descargar Reporte de Diferencias ({empresa})",
                             data=excel_bin,
                             file_name=f"Auditoria_Comisiones_{empresa}.xlsx",
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                             use_container_width=True
                         )
-                
-                with st.expander("Ver Log técnico"):
-                    for m in log_messages: st.text(m)
             except Exception as e:
                 mostrar_error_amigable(e, "la Auditoría de Comisiones")
 
