@@ -1,5 +1,3 @@
-# guides.py
-
 # ==============================================================================
 # 1. GUÍAS GENERALES Y HERRAMIENTAS DE AUDITORÍA
 # ==============================================================================
@@ -41,10 +39,9 @@ Ambos archivos deben contener las **columnas esenciales** que se listan en el re
 2.  **MUY IMPORTANTE:** Descargue los **Saldos para Próximo Mes (excel)**. Este archivo es su nuevo punto de partida y deberá usarlo como el archivo de "Saldos anteriores" en la próxima conciliación de esta misma cuenta.
 """
 
-# ==============================================================================
+# -----------------------------------------------------------------------------
 # GUÍA PARA LA HERRAMIENTA DE RETENCIONES
 # -----------------------------------------------------------------------------
-
 GUIA_COMPLETA_RETENCIONES = """
 ### Guía Práctica: Paso a Paso para el Uso Correcto
 
@@ -368,11 +365,9 @@ El archivo generado es dinámico: **solo mostrará las pestañas que contengan d
 }
 
 
-
-# ==============================================================================
+# -----------------------------------------------------------------------------
 # GUÍA PARA EL ANÁLISIS DE PAQUETE CC
-# ==============================================================================
-
+# -----------------------------------------------------------------------------
 GUIA_PAQUETE_CC = """
 ### 📘 Manual de Operaciones: Análisis de Paquete CC
 
@@ -432,17 +427,9 @@ Esta herramienta clasifica automáticamente los miles de asientos del diario en 
 Vaya a la hoja **"Listado Correlativo"**. Verá los asientos en orden numérico. Mayorice en lotes hasta que encuentre una **Línea Roja**. Deténgase, corrija ese asiento en el sistema contable, y continúe con el siguiente lote.
 """
 
-
-GUIA_IMPRENTA = """
-### 🖨️ Validación de TXT
-Verifica que las facturas del TXT existan en el Libro de Ventas.
-"""
-
-GUIA_GENERADOR = """
-### ⚙️ Generación de TXT
-Crea el archivo de retenciones calculando el prorrateo de montos desde Softland.
-"""
-
+# -----------------------------------------------------------------------------
+# GUÍA PARA PENSIONES
+# -----------------------------------------------------------------------------
 GUIA_PENSIONES = """
 ### 🛡️ Manual de Usuario: Cálculo Ley Protección de Pensiones (9%)
 
@@ -485,6 +472,9 @@ Esta herramienta automatiza el cálculo del aporte del 9%, genera el asiento con
 *   **⚠️ Descuadre:** Si aparece una alerta amarilla, descargue el Excel y revise la **Hoja 1**. Allí verá una tabla comparativa que le indicará si la diferencia está en los **Salarios** o en los **Tickets**.
 """
 
+# -----------------------------------------------------------------------------
+# GUÍA PARA AJUSTES AL BALANCE EN USD
+# -----------------------------------------------------------------------------
 GUIA_AJUSTES_USD = """
 ### 📉 Guía: Ajustes al Balance en USD
 
@@ -522,6 +512,9 @@ GUIA_GENERADOR = "Generación de archivos de retenciones para GALAC."
 GUIA_PENSIONES = "Cálculo del aporte del 9% de la Ley de Pensiones."
 GUIA_AJUSTES_USD = "Valoración de activos y pasivos en moneda extranjera al cierre."
 
+# -----------------------------------------------------------------------------
+# GUÍA PARA DEBITO FISCAL
+# -----------------------------------------------------------------------------
 GUIA_DEBITO_FISCAL = """
 ### 📑 Manual de Usuario: Verificación de Débito Fiscal
 
@@ -558,6 +551,9 @@ Esta herramienta realiza una auditoría integral entre la contabilidad (**Softla
 *   **Validación de Totales:** Los subtotales del listado de incidencias coinciden exactamente con los montos de "Diferencia" de los cuadros de mando.
 """
 
+# -----------------------------------------------------------------------------
+# GUÍA PARA COMISIONES
+# -----------------------------------------------------------------------------
 GUIA_COMISIONES = """
 ### 🏦 Manual: Auditoría de Conciliación de Comisiones
 Esta herramienta cruza el reporte de **Resumen de Comisiones** contra el **Diario Contable** para verificar que los montos debitados coincidan con lo asentado.
