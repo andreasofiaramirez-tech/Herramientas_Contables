@@ -4515,10 +4515,10 @@ def run_process_comisiones(df_cb_raw, df_cg_raw, log_messages):
     """Lógica V25: Cruce Analítico Asiento-a-Asiento para Softland"""
     
     # --- 1. PROCESAR TESORERÍA (CB) ---
-    # Detectar fila de encabezados (buscamos la palabra ASIENTO)
     header_idx = None
     for i in range(min(15, len(df_cb_raw))):
-        if "ASIENTO" in [str(x).upper() for x in df_cb_raw.iloc[i].values]:
+        fila_valores = [str(x).upper().strip() for x in df_cb_raw.iloc[i].values]
+        if "ASIENTO" in fila_valores:
             header_idx = i
             break
     
@@ -4526,51 +4526,40 @@ def run_process_comisiones(df_cb_raw, df_cg_raw, log_messages):
         log_messages.append("❌ ERROR: No se encontró la columna 'ASIENTO' en Tesorería.")
         return None, None
 
+    # Extraemos los datos
     df_cb = df_cb_raw.iloc[header_idx+1:].copy()
     df_cb.columns = [str(c).strip().upper() for c in df_cb_raw.iloc[header_idx].values]
     
-    # Limpiar filas de totales y vacías
-    df_cb = df_cb[df_cb['ASIENTO'].notna()]
-    df_cb = df_cb[~df_cb['ASIENTO'].astype(str).str.contains('TOTAL', case=False, na=False)]
+    # --- FILTRO DE INTEGRIDAD: ELIMINAR FILAS DE ENCABEZADOS Y TÍTULOS ---
+    # 1. Solo permitimos filas donde 'ASIENTO' empiece con letras seguidas de números (ej: CB001)
+    # Esto elimina automáticamente las filas que dicen 'PRISMA' o 'ASIENTO' (repetido)
+    df_cb = df_cb[df_cb['ASIENTO'].astype(str).str.match(r'^[A-Z]{2}\d+', case=False, na=False)]
     
-    # Identificar columnas de monto en CB
-    c_deb_cb = "DÉBITOS" if "DÉBITOS" in df_cb.columns else "DEBITOS"
-    c_cre_cb = "CRÉDITOS" if "CRÉDITOS" in df_cb.columns else "CREDITOS"
+    # 2. Eliminamos filas donde la cuenta bancaria sea igual al nombre del encabezado
+    if "CUENTA BANCARIA" in df_cb.columns:
+        df_cb = df_cb[df_cb['CUENTA BANCARIA'].astype(str).upper() != "CUENTA BANCARIA"]
     
+    # Detectar columnas de monto
+    c_deb_cb = next((c for c in df_cb.columns if "DEBITO" in c), None)
+    c_cre_cb = next((c for c in df_cb.columns if "CREDITO" in c), None)
+    c_banco_cb = "CUENTA BANCARIA" if "CUENTA BANCARIA" in df_cb.columns else df_cb.columns[1]
+
     def limpiar_monto(val):
-        if pd.isna(val): 
-            return 0.0
-        
-        # Convertir a texto y limpiar espacios
-        t = str(val).strip().replace(' ', '')
-        
-        # Casos comunes de "celda vacía" en reportes contables
-        if t in ['', '-', 'nan', 'None', '.', ',']: 
-            return 0.0
-        
-        # Detectar formato latino (1.234,56) vs estándar (1,234.56)
-        if ',' in t and '.' in t:
-            if t.rfind(',') > t.rfind('.'): # Caso Latino: 1.234,56
-                t = t.replace('.', '').replace(',', '.')
-            else: # Caso US: 1,234.56
-                t = t.replace(',', '')
-        elif ',' in t: # Solo comas: 355,44
-            t = t.replace(',', '.')
-            
-        # Eliminar cualquier caracter que no sea número, punto decimal o signo negativo
+        if pd.isna(val) or str(val).strip() in ['', '-', 'nan', '0']: return 0.0
+        if isinstance(val, (int, float)): return float(val)
+        t = str(val).replace('.', '').replace(',', '.')
         t_clean = re.sub(r'[^\d.-]', '', t)
-        
-        try:
-            # Validar que t_clean no sea solo un punto o un guion tras la limpieza
-            if not t_clean or t_clean in ['.', '-', '-.']:
-                return 0.0
-            return float(t_clean)
-        except:
-            return 0.0
+        try: return float(t_clean) if t_clean else 0.0
+        except: return 0.0
 
     df_cb['DEB_CB'] = df_cb[c_deb_cb].apply(limpiar_monto)
     df_cb['CRE_CB'] = df_cb[c_cre_cb].apply(limpiar_monto)
     df_cb['NETO_CB'] = df_cb['DEB_CB'] - df_cb['CRE_CB']
+
+    # 3. FILTRO FINAL DE IMPORTANCIA: Solo filas con dinero
+    df_cb = df_cb[df_cb['NETO_CB'].abs() > 0.001]
+    
+    log_messages.append(f"✔️ Tesorería procesada: {len(df_cb)} asientos reales detectados.")
 
     # --- 2. PROCESAR CONTABILIDAD (CG) ---
     df_cg = df_cg_raw.copy()
