@@ -4516,120 +4516,96 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
 # 6.4. AUDITORIA DE COMISIONES (CREACION DE EDUARDO)
 # ------------------------------------------------------------------------------
 
-def run_process_comisiones(df_resumen, df_diario, log_messages):
-    df_diario.columns = df_diario.columns.astype(str).str.strip()
-    df_resumen.columns = df_resumen.columns.astype(str).str.strip()
-    df_diario.rename(columns={'Cuenta Contable': 'Cuenta Bancaria'}, inplace=True, errors='ignore')
-
-    # --- 1. RADAR DE COLUMNAS ---
-    # Resumen (Tesorería)
-    c_banco_id = buscar_columna(df_resumen, ["CUENTA", "BANCARIA"])
-    c_banco_nom = buscar_columna(df_resumen, ["BANCO"])
-    c_mov_cb = buscar_columna(df_resumen, ["MOVIMIENTOS"])
-    c_ini = buscar_columna(df_resumen, ["CB", "DESDE"])
-    c_fin = buscar_columna(df_resumen, ["CB", "HASTA"])
-    c_deb_cb = buscar_columna(df_resumen, ["TOTAL", "DEBITO"])
-    c_cre_cb = buscar_columna(df_resumen, ["TOTAL", "CREDITO"])
-
-    # Diario (Contabilidad)
-    c_asiento = buscar_columna(df_diario, ["ASIENTO"])
-    c_cuenta = buscar_columna(df_diario, ["CUENTA", "CONTABLE"])
-    c_deb_cg_ves = buscar_columna(df_diario, ["DEBITO", "VES"]) or buscar_columna(df_diario, ["DEBITO", "BOLIVAR"])
-    c_cre_cg_ves = buscar_columna(df_diario, ["CREDITO", "VES"]) or buscar_columna(df_diario, ["CREDITO", "BOLIVAR"])
-    c_deb_cg_usd = buscar_columna(df_diario, ["DEBITO", "DOLAR"]) or buscar_columna(df_diario, ["DEBITO", "USD"])
-    c_cre_cg_usd = buscar_columna(df_diario, ["CREDITO", "DOLAR"]) or buscar_columna(df_diario, ["CREDITO", "USD"])
-
-    # --- 1.1. DIAGNÓSTICO DETALLADO DE COLUMNAS (NUEVA UBICACIÓN) ---
-    faltantes_resumen = []
-    if not c_ini: faltantes_resumen.append("CB Desde")
-    if not c_fin: faltantes_resumen.append("CB Hasta")
-    if not c_deb_cb: faltantes_resumen.append("Total Débito (Tesorería)")
-    if not c_cre_cb: faltantes_resumen.append("Total Crédito (Tesorería)")
-
-    faltantes_diario = []
-    if not c_asiento: faltantes_diario.append("Asiento")
-    if not c_cuenta: faltantes_diario.append("Cuenta Contable / Bancaria")
-    if not c_deb_cg_ves: faltantes_diario.append("Débito VES / Local")
-    if not c_cre_cg_ves: faltantes_diario.append("Crédito VES / Local")
-
-    if faltantes_resumen or faltantes_diario:
-        if faltantes_resumen:
-            log_messages.append(f"❌ Archivo RESUMEN: No encontré estas columnas -> {', '.join(faltantes_resumen)}")
-        if faltantes_diario:
-            log_messages.append(f"❌ Archivo DIARIO: No encontré estas columnas -> {', '.join(faltantes_diario)}")
-        
-        log_messages.append("💡 Tip: Revisa que los nombres no tengan caracteres extraños o celdas combinadas en la Fila 1.")
-        return None, None 
-    # ---------------------------------------------------------------
-
-    # --- 2. PREPARACIÓN ---
-    CUENTAS_OMITIR = ['1.1.4.01.1.010', '6.1.1.15.1.005', '7.1.3.04.3.001', '7.1.3.50.1.001', '7.1.3.50.1.002']
-    df_cg_fil = df_diario[~df_diario[c_cuenta].astype(str).isin(CUENTAS_OMITIR)].copy()
+def run_process_comisiones(df_resumen_crudo, df_diario, log_messages):
+    """Lógica V23: Auditoría Quirúrgica Asiento por Asiento + Totales"""
     
-    # Conversión numérica
-    for c in [c_deb_cb, c_cre_cb]: df_resumen[c] = pd.to_numeric(df_resumen[c], errors='coerce').fillna(0)
-    for c in [c_deb_cg_ves, c_cre_cg_ves, c_deb_cg_usd, c_cre_cg_usd]:
-        if c: df_cg_fil[c] = pd.to_numeric(df_cg_fil[c], errors='coerce').fillna(0)
+    # --- 1. IDENTIFICACIÓN DE TABLA ANALÍTICA (CB) ---
+    header_row = 0
+    for i in range(min(10, len(df_resumen_crudo))):
+        if "ASIENTO" in [str(x).upper() for x in df_resumen_crudo.iloc[i].values]:
+            header_row = i + 1
+            break
+    
+    df_cb = df_resumen_crudo.iloc[header_row:].copy()
+    df_cb.columns = df_resumen_crudo.iloc[header_row-1].values
+    df_cb.columns = [str(c).strip().upper() for c in df_cb.columns]
+    
+    # Limpieza de datos CB (Analítico)
+    df_cb = df_cb[df_cb['ASIENTO'].notna() & df_cb['ASIENTO'].astype(str).str.contains('CB|CC|CG', na=False)]
+    c_deb_cb = "DÉBITOS" if "DÉBITOS" in df_cb.columns else "DEBITOS"
+    c_cre_cb = "CRÉDITOS" if "CRÉDITOS" in df_cb.columns else "CREDITOS"
+    c_banco_cb = "CUENTA BANCA" if "CUENTA BANCA" in df_cb.columns else df_cb.columns[1]
 
-    # --- 3. PROCESAMIENTO CON DETECCIÓN DE MONEDA ---
-    resultados = []
-    lista_asientos_error = []
-    log_messages.append("Iniciando auditoría multimoneda y captura de asientos con error...")
+    for c in [c_deb_cb, c_cre_cb]:
+        df_cb[c] = pd.to_numeric(df_cb[c].astype(str).str.replace('.', '').str.replace(',', '.').replace('-', '0'), errors='coerce').fillna(0)
 
-    for _, row in df_resumen.iterrows():
-        banco_str = str(row.get(c_banco_nom, '')).upper()
-        es_usd = any(x in banco_str for x in ["USD", "$", "ME", "EXTRANJERA", "CUSTODIA"])
-        moneda_label = "USD" if es_usd else "VES"
+    # --- 2. PREPARACIÓN DIARIO (CG) ---
+    df_diario.columns = [normalizar_texto_busqueda(c) for c in df_diario.columns]
+    c_asiento_cg = buscar_columna_comisiones(df_diario, ["ASIENTO"])
+    c_cuenta_cg = buscar_columna_comisiones(df_diario, ["CUENTA", "BANCARIA"]) or buscar_columna_comisiones(df_diario, ["CUENTA", "CONTABLE"])
+    c_deb_cg = buscar_columna_comisiones(df_diario, ["DEBITO", "VES"])
+    c_cre_cg = buscar_columna_comisiones(df_diario, ["CREDITO", "VES"])
 
-        ini, fin = str(row[c_ini]), str(row[c_fin])
-        subset_cg = df_cg_fil[df_cg_fil[c_asiento].astype(str).between(ini, fin)]
+    CUENTAS_OMITIR = ['1.1.4.01.1.010', '6.1.1.15.1.005', '7.1.3.04.3.001', '7.1.3.50.1.001', '7.1.3.50.1.002']
+    df_cg = df_diario[~df_diario[c_cuenta_cg].astype(str).isin(CUENTAS_OMITIR)].copy()
+    for c in [c_deb_cg, c_cre_cg]: df_cg[c] = pd.to_numeric(df_cg[c], errors='coerce').fillna(0)
 
-        # Montos CB (Tesorería)
-        d_cb = row[c_deb_cb]
-        c_cb = row[c_cre_cb]
+    # --- 3. CRUCE MICRO (ASIENTO POR ASIENTO) ---
+    log_messages.append("🔬 Ejecutando cruce quirúrgico asiento por asiento...")
+    
+    # Consolidamos el diario por número de asiento (porque en CG un asiento puede tener muchas líneas)
+    cg_asientos = df_cg.groupby(c_asiento_cg).agg({c_deb_cg: 'sum', c_cre_cg: 'sum'}).reset_index()
+    cg_asientos.columns = ['ASIENTO', 'DEB_CG', 'CRE_CG']
 
-        # Montos CG (Contabilidad) - Selección Dinámica de Columna
-        if es_usd and c_deb_cg_usd:
-            d_cg = subset_cg[c_deb_cg_usd].sum()
-            c_cg = subset_cg[c_cre_cg_usd].sum()
-        else:
-            d_cg = subset_cg[c_deb_cg_ves].sum()
-            c_cg = subset_cg[c_cre_cg_ves].sum()
+    # Unimos Tesorería con Contabilidad por el ID del Asiento
+    # Cruce LEFT JOIN: Todo lo de Tesorería vs lo que haya en Contabilidad
+    cruce_asientos = pd.merge(df_cb, cg_asientos, left_on='ASIENTO', right_on='ASIENTO', how='left')
 
-        # Validación
+    # Marcamos diferencias individuales
+    cruce_asientos['DIFF_DEB'] = (cruce_asientos[c_deb_cb] - cruce_asientos['DEB_CG']).round(2)
+    cruce_asientos['DIFF_CRE'] = (cruce_asientos[c_cre_cb] - cruce_asientos['CRE_CG']).round(2)
+    
+    def detectar_error_fila(row):
+        if pd.isna(row['DEB_CG']): return "❌ Asiento NO encontrado en Diario"
+        if abs(row['DIFF_DEB']) > 0.01 or abs(row['DIFF_CRE']) > 0.01: return "❌ Diferencia de Monto"
+        return "✅ OK"
+
+    cruce_asientos['ESTADO_LINEA'] = cruce_asientos.apply(detectar_error_fila, axis=1)
+
+    # --- 4. RESUMEN MACRO (POR BANCO) ---
+    log_messages.append("📊 Generando resumen de cuadre por Banco...")
+    
+    resumen_bancos = cruce_asientos.groupby(c_banco_cb).agg({
+        'ASIENTO': ['min', 'max', 'count'],
+        c_deb_cb: 'sum',
+        'DEB_CG': 'sum',
+        c_cre_cb: 'sum',
+        'CRE_CG': 'sum'
+    }).reset_index()
+    
+    resumen_bancos.columns = ['Banco_ID', 'Desde', 'Hasta', 'CB_Mov', 'CB_Deb', 'CG_Deb', 'CB_Cre', 'CG_Cre']
+    resumen_bancos['CG_Mov'] = 0 # Se llenará ahora
+
+    # Llenar observación macro
+    def auditoria_macro(row):
         obs = []
-        if abs(d_cb - d_cg) > 0.01: obs.append(f"Descuadre Deb {moneda_label}")
-        if abs(c_cb - c_cg) > 0.01: obs.append(f"Descuadre Cre {moneda_label}")
-        if len(subset_cg) != row.get(c_mov_cb, 0): obs.append("Diferencia en conteo de Mov.")
-            
-        estatus = "❌ ERROR" if obs else "✅ OK"
+        # Buscamos cuántos asientos de este banco fallaron en el cruce micro
+        errores_micro = cruce_asientos[(cruce_asientos[c_banco_cb] == row['Banco_ID']) & (cruce_asientos['ESTADO_LINEA'] != "✅ OK")]
         
-        # SI HAY ERROR, GUARDAMOS EL DETALLE DEL DIARIO
-        if estatus == "❌ ERROR":
-            temp_err = subset_cg.copy()
-            temp_err['Motivo Error'] = " | ".join(obs)
-            temp_err['Banco Relacionado'] = row.get(c_banco_nom, '')
-            lista_asientos_error.append(temp_err)
-            
-        resultados.append({
-            'Banco': row.get(c_banco_nom, ''),
-            'Moneda': moneda_label,
-            'CB_Mov': row.get(c_mov_cb, 0), 'CG_Mov': len(subset_cg),
-            'CB_Deb': d_cb, 'CG_Deb': d_cg,
-            'CB_Cre': c_cb, 'CG_Cre': c_cg,
-            'Observación': " | ".join(obs) if obs else "",
-            'Asiento Desde': ini, 
-            'Asiento Hasta': fin, 
-            'Estatus': estatus
-        })
+        if not errores_micro.empty:
+            cant = len(errores_micro)
+            obs.append(f"{cant} asientos con error")
+        
+        if abs(row['CB_Deb'] - row['CG_Deb']) > 0.01: obs.append("Descuadre Total Débitos")
+        if abs(row['CB_Cre'] - row['CG_Cre']) > 0.01: obs.append("Descuadre Total Créditos")
+        
+        return " | ".join(obs) if obs else ""
 
-    # Consolidamos todos los asientos que dieron error en un solo DataFrame
-    df_detalle_errores = pd.concat(lista_asientos_error, ignore_index=True) if lista_asientos_error else pd.DataFrame()
+    resumen_bancos['Observación'] = resumen_bancos.apply(auditoria_macro, axis=1)
+    resumen_bancos['Estatus'] = resumen_bancos['Observación'].apply(lambda x: "❌ ERROR" if x else "✅ OK")
+    resumen_bancos['Moneda'] = 'VES'
 
-    df_final = pd.DataFrame(resultados)
-    if 'Asiento Desde' in df_final.columns:
-        # Extraemos el número para ordenar (ej: CB001 -> 1)
-        df_final['Asiento_Num'] = df_final['Asiento Desde'].str.extract('(\d+)').astype(float)
-        df_final = df_final.sort_values(by='Asiento_Num').drop(columns=['Asiento_Num'])
+    # --- 5. PREPARAR DETALLE DE ERRORES PARA PESTAÑA 2 ---
+    df_errores_analitico = cruce_asientos[cruce_asientos['ESTADO_LINEA'] != "✅ OK"].copy()
 
-    return pd.DataFrame(resultados), df_detalle_errores 
+    return resumen_bancos, df_errores_analitico
