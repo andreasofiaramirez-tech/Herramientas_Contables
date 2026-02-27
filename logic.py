@@ -3006,24 +3006,62 @@ def procesar_calculo_locti(f_v, f_i, f_r, log_messages):
             log_messages.append(f"✅ Reserva Anterior: {res_ant:,.2f}")
             break
 
-    # 6. Cálculos
+    # 6. Cálculos LOCTI (0.5%)
     base_mes = v_mes + i_mes
-    aporte_mes = base_mes * 0.005
     base_acum = v_acum + i_acum
+    
+    aporte_mes = base_mes * 0.005
     acum_directo = base_acum * 0.005
+    
     proyectado = res_ant + aporte_mes
-    dif = abs(proyectado - acum_directo)
+    diferencia = abs(proyectado - acum_directo)
 
-    resumen = {
+    # 7. Construcción de Resultados para la UI
+    resumen_calculo = {
         "v_mes": v_mes, "v_acum": v_acum,
         "i_mes": i_mes, "i_acum": i_acum,
         "res_ant": res_ant, "aporte_mes": aporte_mes,
         "acum_directo": acum_directo, "proyectado": proyectado,
-        "diferencia": dif, "base_mes": base_mes, "base_acum": base_acum
+        "diferencia": diferencia, "base_mes": base_mes, "base_acum": base_acum
     }
 
-    log_messages.append(f"🏁 Cálculo finalizado. Diferencia de conciliación: {dif:,.2f}")
-    return resumen
+    # 8. GENERACIÓN DE ESTRUCTURA PARA EL CARGADOR
+    monto_ves = round(aporte_mes, 2)
+    monto_usd = round(monto_ves / tasa_cambio, 4) if tasa_cambio > 0 else 0.0
+
+    asiento_data = [
+        {
+            "Asiento": num_asiento,
+            "Nit": "ND",
+            "Centro Costo": "01.01.080.01", # Centro administrativo
+            "Cuenta Contable": "7.1.3.57.1.001",
+            "Descripción": "Aporte LOCTI del Mes",
+            "Fuente": "LOCTI",
+            "Referencia": "APORTE LOCTI 0.5%",
+            "Débito VES": monto_ves,
+            "Crédito VES": 0.0,
+            "Débito USD": monto_usd,
+            "Crédito USD": 0.0
+        },
+        {
+            "Asiento": num_asiento,
+            "Nit": "ND",
+            "Centro Costo": "00.00.000.00", # Centro de pasivos
+            "Cuenta Contable": "2.1.3.02.5.001",
+            "Descripción": "LOCTI por Pagar",
+            "Fuente": "LOCTI",
+            "Referencia": "APORTE LOCTI 0.5%",
+            "Débito VES": 0.0,
+            "Crédito VES": monto_ves,
+            "Débito USD": 0.0,
+            "Crédito USD": monto_usd
+        }
+    ]
+    
+    df_asiento = pd.DataFrame(asiento_data)
+    
+    log_messages.append(f"🏁 Proceso finalizado exitosamente.")
+    return resumen_calculo, df_asiento
 
 
 
