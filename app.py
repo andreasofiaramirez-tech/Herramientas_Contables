@@ -83,7 +83,7 @@ from utils import (
     generar_reporte_debito_fiscal,
     generar_hoja_pendientes_dev_cofersa,
     cargar_datos_fondos_cofersa,
-    generar_reporte_comisiones,
+    generar_reporte_auditoria_comisiones,
 )
 
 # --- Bloque 4: Helpers de Interfaz ---
