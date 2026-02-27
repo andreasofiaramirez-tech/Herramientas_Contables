@@ -3041,7 +3041,8 @@ def procesar_calculo_locti(f_v, f_i, f_r, log_messages):
             "Débito VES": monto_ves,
             "Crédito VES": 0.0,
             "Débito USD": monto_usd,
-            "Crédito USD": 0.0
+            "Crédito USD": 0.0,
+            "Tasa": tasa_cambio
         },
         {
             "Asiento": num_asiento,
@@ -3054,7 +3055,8 @@ def procesar_calculo_locti(f_v, f_i, f_r, log_messages):
             "Débito VES": 0.0,
             "Crédito VES": monto_ves,
             "Débito USD": 0.0,
-            "Crédito USD": monto_usd
+            "Crédito USD": monto_usd,
+            "Tasa": tasa_cambio
         }
     ]
     
