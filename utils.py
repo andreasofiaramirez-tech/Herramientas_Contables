@@ -2999,13 +2999,26 @@ def _generar_hoja_conciliados_fondos_cofersa(workbook, formatos, df_conciliados)
 # 1. AUDITORIA COMISIONES
 # ==============================================================================
 def generar_reporte_auditoria_comisiones(df_res, df_cg_raw, df_cb_raw, nombre_empresa, color_hex):
-    output = BytesIO()
-    
-    # Necesitamos leer de nuevo el CB tal cual (sin saltar filas) para la réplica
-    # El df_cb_raw ya viene cargado por pandas, pero si queremos la réplica exacta
-    # incluiremos todas las filas iniciales.
-    
+    output = BytesIO()    
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        workbook = writer.book
+
+        # --- 1. DEFINICIÓN DE TODOS LOS FORMATOS (Crucial para evitar NameError) ---
+        header_fmt = workbook.add_format({
+            'bold': True, 
+            'fg_color': color_hex, 
+            'font_color': 'white', 
+            'border': 1, 
+            'align': 'center', 
+            'valign': 'vcenter', 
+            'text_wrap': True
+        })
+        money_fmt = workbook.add_format({'num_format': '#,##0.00', 'border': 1})
+        text_fmt = workbook.add_format({'border': 1, 'valign': 'vcenter'})
+        date_fmt = workbook.add_format({'num_format': 'dd/mm/yyyy', 'border': 1, 'align': 'center'})
+        err_fmt = workbook.add_format({'bg_color': '#FFC7CE', 'font_color': '#9C0006'})
+
+        
         # --- HOJA 1: AUDITORÍA ---
         df_res.to_excel(writer, index=False, sheet_name='Resultados Auditoría')
         workbook = writer.book
@@ -3037,39 +3050,53 @@ def generar_reporte_auditoria_comisiones(df_res, df_cg_raw, df_cb_raw, nombre_em
             'format': err_fmt
         })
 
-        # --- HOJA 2: RÉPLICA MAYOR CG ---
-        # Escribimos el mayor original tal cual
+        # --- 2. HOJA 1: RESULTADOS DE AUDITORÍA ---
+        df_res.to_excel(writer, index=False, sheet_name='Resultados Auditoría')
+        ws_aud = writer.sheets['Resultados Auditoría']
+        
+        ws_aud.freeze_panes(1, 0) # Punto 2: Fijar fila 1
+        ws_aud.set_row(0, 45)     # Encabezado alto para que se lean las descripciones
+
+        for i, col in enumerate(df_res.columns):
+            ws_aud.write(0, i, col, header_fmt)
+            # Anchos automáticos descriptivos
+            if 'Hallazgos' in col or 'Concepto' in col: width = 50
+            elif 'Correcta' in col or 'Coincide' in col: width = 25
+            else: width = 15
+            ws_aud.set_column(i, i, width, text_fmt)
+            
+            if 'Monto' in col:
+                ws_aud.set_column(i, i, 18, money_fmt)
+
+        # Pintar fila de rojo si hay error en Monto (Col G) o Banco (Col H)
+        # La fórmula busca el carácter "❌" en esas columnas
+        ws_aud.conditional_format(1, 0, len(df_res), len(df_res.columns)-1, {
+            'type': 'formula',
+            'criteria': '=OR(ISNUMBER(SEARCH("❌", $G2)), ISNUMBER(SEARCH("❌", $H2)))',
+            'format': err_fmt
+        })
+
+        # --- 3. HOJA 2: CONSULTA MAYOR CG (Réplica) ---
         df_cg_raw.to_excel(writer, index=False, sheet_name='Consulta Mayor CG')
         ws_cg = writer.sheets['Consulta Mayor CG']
         ws_cg.freeze_panes(1, 0)
-        # Ajuste de ancho de columnas automático para la réplica
-        for i, col in enumerate(df_cg_raw.columns):
-            max_len = max(df_cg_raw[col].astype(str).map(len).max(), len(str(col))) + 2
-            ws_cg.set_column(i, i, min(max_len, 50))
+        # Ancho estándar para el mayor
+        ws_cg.set_column('A:K', 20, text_fmt)
 
-        # --- HOJA 3: RÉPLICA REPORTE CB (TESORERÍA) ---
-        # Escribimos el raw sin cabeceras (Replica exacta)
+        # --- 4. HOJA 3: CONSULTA REPORTE CB (Réplica Exacta y Legible) ---
+        # Escribimos el raw tal cual se subió (header=False para no duplicar títulos)
         df_cb_raw.to_excel(writer, index=False, header=False, sheet_name='Consulta Reporte CB')
         ws_cb = writer.sheets['Consulta Reporte CB']
         
-        # DEFINICIÓN DE ANCHOS QUIRÚRGICOS PARA LA RÉPLICA CB
-        # Columna A: Asiento
-        ws_cb.set_column(0, 0, 15, text_fmt)
-        # Columna B: Cuenta Bancaria
-        ws_cb.set_column(1, 1, 15, text_fmt)
-        # Columna C: Fecha (Aplicamos date_fmt para quitar el 00:00:00)
-        ws_cb.set_column(2, 2, 14, date_fmt)
-        # Columna D: Tipo
-        ws_cb.set_column(3, 3, 8, text_fmt)
-        # Columna E: Número
-        ws_cb.set_column(4, 4, 14, text_fmt)
-        # Columna F: Beneficiario
-        ws_cb.set_column(5, 5, 35, text_fmt)
-        # Columna G: Subtipo
-        ws_cb.set_column(6, 6, 25, text_fmt)
-        # Columna H: Concepto
-        ws_cb.set_column(7, 7, 40, text_fmt)
-        # Columna I y J: Débitos y Créditos
-        ws_cb.set_column(8, 9, 16, money_fmt)
+        # Ajuste de anchos y formatos específicos por columna para la réplica
+        ws_cb.set_column(0, 0, 15, text_fmt)   # A: Asiento
+        ws_cb.set_column(1, 1, 15, text_fmt)   # B: Cuenta Bancaria
+        ws_cb.set_column(2, 2, 14, date_fmt)   # C: Fecha (LIMPIA SIN HORA)
+        ws_cb.set_column(3, 3, 8,  text_fmt)   # D: Tipo
+        ws_cb.set_column(4, 4, 14, text_fmt)   # E: Número
+        ws_cb.set_column(5, 5, 35, text_fmt)   # F: Beneficiario
+        ws_cb.set_column(6, 6, 25, text_fmt)   # G: Subtipo
+        ws_cb.set_column(7, 7, 40, text_fmt)   # H: Concepto (Ancho para descripciones)
+        ws_cb.set_column(8, 9, 16, money_fmt)  # I y J: Débitos y Crédito
 
     return output.getvalue()
