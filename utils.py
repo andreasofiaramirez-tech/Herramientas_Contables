@@ -3135,6 +3135,7 @@ def generar_reporte_excel_locti(res, df_asiento, data_meta):
         mes_nombre = data_meta['mes_nombre']
         mes_corto = data_meta['mes_corto']
         usuario = data_meta['usuario']
+        num_casa = data_meta.get('num_casa', '000')
 
         # --- DEFINICIÓN DE ESTILOS (RÉPLICA PENSIONES) ---
         fmt_title_label = workbook.add_format({'bold': True, 'align': 'left', 'valign': 'vcenter'})
