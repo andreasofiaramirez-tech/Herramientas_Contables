@@ -2961,7 +2961,7 @@ def limpiar_monto_locti(v):
         return float(s)
     except: return 0.0
 
-def procesar_calculo_locti(f_v, f_i, f_r, log_messages):
+def procesar_calculo_locti(f_v, f_i, f_r, tasa_cambio, num_asiento, log_messages):
     """
     Extrae base imponible de 3 balances y calcula el aporte del 0.5%.
     """
