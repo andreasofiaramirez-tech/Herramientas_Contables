@@ -2949,6 +2949,82 @@ def run_conciliation_debito_fiscal(df_soft_total, df_imprenta_logica, tolerancia
     merged[['Estado', '_Tipo_Final', '_Nombre_Final']] = merged.apply(clasificar, axis=1, result_type='expand')
     return merged
 
+# ------------------------------------------------------------------------------
+# 5.4. CALCULO LOCTI (0,5%)
+# ------------------------------------------------------------------------------
+def limpiar_monto_locti(v):
+    """Limpia formatos de moneda latinos y americanos."""
+    if pd.isna(v) or v == "": return 0.0
+    if isinstance(v, (int, float)): return float(v)
+    try:
+        s = str(v).strip().replace('.', '').replace(',', '.')
+        return float(s)
+    except: return 0.0
+
+def procesar_calculo_locti(f_v, f_i, f_r, log_messages):
+    """
+    Extrae base imponible de 3 balances y calcula el aporte del 0.5%.
+    """
+    log_messages.append("--- INICIANDO PROCESAMIENTO LOCTI ---")
+    
+    # 1. Carga de Dataframes
+    df_v = pd.read_excel(f_v, header=None)
+    df_i = pd.read_excel(f_i, header=None)
+    df_r = pd.read_excel(f_r, header=None)
+
+    # 2. Configuración de Cuentas
+    cta_ventas = "4.0.0.00.0.000"
+    cta_reserva = "7.1.3.57.1.001"
+    ctas_ingresos = ["6.1.1.13.0.000", "6.1.1.15.0.000", "6.1.1.17.0.000", 
+                     "6.1.1.19.0.000", "6.1.1.20.0.000", "6.1.1.22.0.000"]
+
+    v_mes, v_acum = 0.0, 0.0
+    i_mes, i_acum = 0.0, 0.0
+    res_ant = 0.0
+
+    # 3. Extracción Ventas
+    for _, row in df_v.iterrows():
+        if str(row[0]).strip() == cta_ventas:
+            v_mes = limpiar_monto_locti(row[5]) - limpiar_monto_locti(row[4])
+            v_acum = abs(limpiar_monto_locti(row[6]))
+            log_messages.append(f"✅ Ventas Detectadas: Mes {v_mes:,.2f} | Acum {v_acum:,.2f}")
+            break
+
+    # 4. Extracción Ingresos (Suma de grupo 6.1.1.X)
+    found_ing = 0
+    for _, row in df_i.iterrows():
+        if str(row[0]).strip() in ctas_ingresos:
+            i_mes += (limpiar_monto_locti(row[5]) - limpiar_monto_locti(row[4]))
+            i_acum += abs(limpiar_monto_locti(row[6]))
+            found_ing += 1
+    log_messages.append(f"✅ Ingresos Mercantiles: {found_ing} cuentas sumadas.")
+
+    # 5. Extracción Reserva
+    for _, row in df_r.iterrows():
+        if str(row[0]).strip() == cta_reserva:
+            res_ant = abs(limpiar_monto_locti(row[6]))
+            log_messages.append(f"✅ Reserva Anterior: {res_ant:,.2f}")
+            break
+
+    # 6. Cálculos
+    base_mes = v_mes + i_mes
+    aporte_mes = base_mes * 0.005
+    base_acum = v_acum + i_acum
+    acum_directo = base_acum * 0.005
+    proyectado = res_ant + aporte_mes
+    dif = abs(proyectado - acum_directo)
+
+    resumen = {
+        "v_mes": v_mes, "v_acum": v_acum,
+        "i_mes": i_mes, "i_acum": i_acum,
+        "res_ant": res_ant, "aporte_mes": aporte_mes,
+        "acum_directo": acum_directo, "proyectado": proyectado,
+        "diferencia": dif, "base_mes": base_mes, "base_acum": base_acum
+    }
+
+    log_messages.append(f"🏁 Cálculo finalizado. Diferencia de conciliación: {dif:,.2f}")
+    return resumen
+
 
 
 # ==============================================================================
