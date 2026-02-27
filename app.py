@@ -1431,7 +1431,7 @@ def render_locti():
         c1, c2, c3 = st.columns(3)
         filial = c1.selectbox("🏢 Seleccione la Filial:", list(dict_filiales.keys()))
         fecha_rep = c2.date_input("📅 Mes de Cierre:", value=pd.Timestamp.now())
-        usuario = c3.text_input("👤 Analista:", value=" ").upper()
+        usuario = c3.text_input("👤 Hecho por:", value=" ").upper()
 
     # Estilos de Lusi
     st.markdown("""
