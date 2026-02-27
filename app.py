@@ -1339,7 +1339,12 @@ def render_comisiones_bancarias():
                     df_cg_replica = pd.read_excel(f_cg) # El mayor suele ser estándar
 
                     # Llamamos a la lógica (que usa sus propios procesos de limpieza internos)
-                    df_res = run_conciliation_comisiones_bancarias(pd.read_excel(f_cb), pd.read_excel(f_cg), log)
+                    df_res = run_conciliation_comisiones_bancarias(
+                        pd.read_excel(f_cb), 
+                        pd.read_excel(f_cg), 
+                        casa_sel, # <--- Pasamos la empresa seleccionada
+                        log
+                    )
                     
                     st.success(f"✅ Proceso completado exitosamente para {casa_sel}")
                     st.dataframe(df_res, use_container_width=True)
