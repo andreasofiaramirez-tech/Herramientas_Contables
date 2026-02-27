@@ -3000,45 +3000,61 @@ def _generar_hoja_conciliados_fondos_cofersa(workbook, formatos, df_conciliados)
 # ==============================================================================
 def generar_reporte_auditoria_comisiones(df_res, df_cg_raw, df_cb_raw, nombre_empresa, color_hex):
     output = BytesIO()
+    
+    # Necesitamos leer de nuevo el CB tal cual (sin saltar filas) para la réplica
+    # El df_cb_raw ya viene cargado por pandas, pero si queremos la réplica exacta
+    # incluiremos todas las filas iniciales.
+    
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        # HOJA 1: RESULTADOS DE AUDITORÍA
-        df_res.to_excel(writer, index=False, sheet_name='Auditoría')
+        # --- HOJA 1: AUDITORÍA ---
+        df_res.to_excel(writer, index=False, sheet_name='Resultados Auditoría')
         workbook = writer.book
-        ws_aud = writer.sheets['Auditoría']
+        ws_aud = writer.sheets['Resultados Auditoría']
         
-        # Formatos
-        header_fmt = workbook.add_format({'bold': True, 'fg_color': color_hex, 'font_color': 'white', 'border': 1, 'align': 'center'})
+        header_fmt = workbook.add_format({'bold': True, 'fg_color': color_hex, 'font_color': 'white', 'border': 1, 'align': 'center', 'valign': 'vcenter', 'text_wrap': True})
         err_fmt = workbook.add_format({'bg_color': '#FFC7CE', 'font_color': '#9C0006'})
-        money_fmt = workbook.add_format({'num_format': '#,##0.00'})
-        
-        # Punto 2: Fijar fila 1 y Estilizar
+        money_fmt = workbook.add_format({'num_format': '#,##0.00', 'border': 1})
+        text_fmt = workbook.add_format({'border': 1})
+
         ws_aud.freeze_panes(1, 0)
+        ws_aud.set_row(0, 45) # Hacer el encabezado más alto para las explicaciones
+
         for i, col in enumerate(df_res.columns):
             ws_aud.write(0, i, col, header_fmt)
-            # Anchos automáticos
-            width = 18
-            if col == 'Concepto (CB)' or col == 'Observaciones': width = 45
-            ws_aud.set_column(i, i, width)
+            # Anchos proporcionales
+            if 'Hallazgos' in col or 'Concepto' in col: width = 50
+            elif 'Correcta' in col or 'Coincide' in col: width = 25
+            else: width = 15
+            ws_aud.set_column(i, i, width, text_fmt)
             
-            # Formato moneda para montos
             if 'Monto' in col:
-                ws_aud.set_column(i, i, 18, money_fmt)
+                ws_aud.set_column(i, i, 20, money_fmt)
 
-        # Pintar de Rojo filas con ❌ en la columna 'Monto OK' (es la columna G index 6)
+        # Formato condicional: Si hay una ❌ en la columna G (índice 6), pintar fila
         ws_aud.conditional_format(1, 0, len(df_res), len(df_res.columns)-1, {
             'type': 'formula',
-            'criteria': '=$G2="❌"',
+            'criteria': '=ISNUMBER(SEARCH("❌", $G2))',
             'format': err_fmt
         })
 
-        # Punto 5: Hoja Mayor CG
+        # --- HOJA 2: RÉPLICA MAYOR CG ---
+        # Escribimos el mayor original tal cual
         df_cg_raw.to_excel(writer, index=False, sheet_name='Consulta Mayor CG')
         ws_cg = writer.sheets['Consulta Mayor CG']
         ws_cg.freeze_panes(1, 0)
+        # Ajuste de ancho de columnas automático para la réplica
+        for i, col in enumerate(df_cg_raw.columns):
+            max_len = max(df_cg_raw[col].astype(str).map(len).max(), len(str(col))) + 2
+            ws_cg.set_column(i, i, min(max_len, 50))
 
-        # Punto 6: Hoja Reporte CB
-        df_cb_raw.to_excel(writer, index=False, sheet_name='Consulta Reporte CB')
+        # --- HOJA 3: RÉPLICA REPORTE CB (TESORERÍA) ---
+        # Para que sea réplica exacta, NO usamos df_cb_raw (que ya tiene headers movidos),
+        # sino que el usuario subió el archivo. El app.py debe pasar el raw original.
+        df_cb_raw.to_excel(writer, index=False, header=False, sheet_name='Consulta Reporte CB')
         ws_cb = writer.sheets['Consulta Reporte CB']
-        ws_cb.freeze_panes(1, 0)
+        ws_cb.freeze_panes(3, 0) # Fijamos en la fila 3 porque es donde suelen estar los datos
+        # Ajuste de ancho para CB
+        for i in range(df_cb_raw.shape[1]):
+            ws_cb.set_column(i, i, 20)
 
     return output.getvalue()
