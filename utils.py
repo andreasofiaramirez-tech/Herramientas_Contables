@@ -3022,7 +3022,7 @@ def generar_reporte_auditoria_comisiones(df_res, df_cg_raw, df_cb_raw, nombre_em
         for i, col in enumerate(df_res.columns):
             ws_aud.write(0, i, col, header_fmt)
             # Anchos proporcionales
-            if 'Hallazgos' in col or 'Concepto' in col: width = 50
+            if 'Hallazgos' in col or 'Concepto' in col: width = 45
             elif 'Correcta' in col or 'Coincide' in col: width = 25
             else: width = 15
             ws_aud.set_column(i, i, width, text_fmt)
@@ -3033,7 +3033,7 @@ def generar_reporte_auditoria_comisiones(df_res, df_cg_raw, df_cb_raw, nombre_em
         # Formato condicional: Si hay una ❌ en la columna G (índice 6), pintar fila
         ws_aud.conditional_format(1, 0, len(df_res), len(df_res.columns)-1, {
             'type': 'formula',
-            'criteria': '=ISNUMBER(SEARCH("❌", $G2))',
+            'criteria': '=OR(ISNUMBER(SEARCH("❌", $G2)), ISNUMBER(SEARCH("❌", $H2)))',
             'format': err_fmt
         })
 
