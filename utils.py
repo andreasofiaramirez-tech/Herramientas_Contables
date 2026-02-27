@@ -3048,13 +3048,28 @@ def generar_reporte_auditoria_comisiones(df_res, df_cg_raw, df_cb_raw, nombre_em
             ws_cg.set_column(i, i, min(max_len, 50))
 
         # --- HOJA 3: RÉPLICA REPORTE CB (TESORERÍA) ---
-        # Para que sea réplica exacta, NO usamos df_cb_raw (que ya tiene headers movidos),
-        # sino que el usuario subió el archivo. El app.py debe pasar el raw original.
+        # Escribimos el raw sin cabeceras (Replica exacta)
         df_cb_raw.to_excel(writer, index=False, header=False, sheet_name='Consulta Reporte CB')
         ws_cb = writer.sheets['Consulta Reporte CB']
-        ws_cb.freeze_panes(3, 0) # Fijamos en la fila 3 porque es donde suelen estar los datos
-        # Ajuste de ancho para CB
-        for i in range(df_cb_raw.shape[1]):
-            ws_cb.set_column(i, i, 20)
+        
+        # DEFINICIÓN DE ANCHOS QUIRÚRGICOS PARA LA RÉPLICA CB
+        # Columna A: Asiento
+        ws_cb.set_column(0, 0, 15, text_fmt)
+        # Columna B: Cuenta Bancaria
+        ws_cb.set_column(1, 1, 15, text_fmt)
+        # Columna C: Fecha (Aplicamos date_fmt para quitar el 00:00:00)
+        ws_cb.set_column(2, 2, 14, date_fmt)
+        # Columna D: Tipo
+        ws_cb.set_column(3, 3, 8, text_fmt)
+        # Columna E: Número
+        ws_cb.set_column(4, 4, 14, text_fmt)
+        # Columna F: Beneficiario
+        ws_cb.set_column(5, 5, 35, text_fmt)
+        # Columna G: Subtipo
+        ws_cb.set_column(6, 6, 25, text_fmt)
+        # Columna H: Concepto
+        ws_cb.set_column(7, 7, 40, text_fmt)
+        # Columna I y J: Débitos y Créditos
+        ws_cb.set_column(8, 9, 16, money_fmt)
 
     return output.getvalue()
