@@ -4502,4 +4502,42 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
     }
 
     return pd.DataFrame(resumen_ajustes), pd.DataFrame(lista_bancos_reporte), df_asiento, df_balance_raw, val_data
+
+# ------------------------------------------------------------------------------
+# 6.4. AUDITORIA DE COMISIONES (CREACION DE EDUARDO)
+# ------------------------------------------------------------------------------
     
+def run_conciliation_comisiones_bancarias(df_diario, log_messages):
+    """
+    Procesa el diario contable para el análisis de comisiones.
+    Estandariza nombres y ordena por número de asiento.
+    """
+    log_messages.append("--- INICIANDO PROCESO DE COMISIONES BANCARIAS ---")
+    df = df_diario.copy()
+    
+    # Estandarización de columnas (Usando el estándar de la herramienta)
+    rename_map = {
+        'Cuenta Contable': 'Cuenta Bancaria',
+        'Débito USD': 'Débito Dólar',
+        'Crédito USD': 'Crédito Dólar',
+        'DEBITO VES': 'Débito VES',
+        'CREDITO VES': 'Crédito VES'
+    }
+    df.rename(columns=rename_map, inplace=True, errors='ignore')
+    
+    # Asegurar existencia de columnas de moneda extranjera
+    for c in ["Débito Dólar", "Crédito Dólar"]:
+        if c not in df.columns:
+            df[c] = 0.0
+            
+    # Marcar estatus inicial
+    df['Estatus Conciliación'] = "✅ Conciliado"
+    
+    # Ordenamiento numérico inteligente de Asientos
+    if 'Asiento' in df.columns:
+        # Extraer solo números por si el asiento es 'CG-100'
+        df['Asiento_Num'] = df['Asiento'].astype(str).str.extract('(\d+)').astype(float)
+        df = df.sort_values(by='Asiento_Num').drop(columns=['Asiento_Num'])
+    
+    log_messages.append(f"✔️ Se procesaron {len(df)} movimientos de comisiones.")
+    return df
