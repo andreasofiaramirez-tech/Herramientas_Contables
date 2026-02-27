@@ -4509,13 +4509,13 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
     
 def run_conciliation_comisiones_bancarias(df_diario, log_messages):
     """
-    Procesa el diario contable para el análisis de comisiones.
-    Estandariza nombres y ordena por número de asiento.
+    Motor técnico para la estandarización y ordenamiento de comisiones bancarias.
     """
-    log_messages.append("--- INICIANDO PROCESO DE COMISIONES BANCARIAS ---")
+    log_messages.append("--- INICIANDO PROCESAMIENTO DE COMISIONES BANCARIAS ---")
     df = df_diario.copy()
     
-    # Estandarización de columnas (Usando el estándar de la herramienta)
+    # Estandarización de nombres (Radar de columnas)
+    df.columns = df.columns.astype(str).str.strip()
     rename_map = {
         'Cuenta Contable': 'Cuenta Bancaria',
         'Débito USD': 'Débito Dólar',
@@ -4525,19 +4525,17 @@ def run_conciliation_comisiones_bancarias(df_diario, log_messages):
     }
     df.rename(columns=rename_map, inplace=True, errors='ignore')
     
-    # Asegurar existencia de columnas de moneda extranjera
+    # Inicialización de columnas de control
+    if 'Estatus Conciliación' not in df.columns:
+        df['Estatus Conciliación'] = "✅ Conciliado"
+    
     for c in ["Débito Dólar", "Crédito Dólar"]:
-        if c not in df.columns:
-            df[c] = 0.0
-            
-    # Marcar estatus inicial
-    df['Estatus Conciliación'] = "✅ Conciliado"
+        if c not in df.columns: df[c] = 0.0
     
-    # Ordenamiento numérico inteligente de Asientos
+    # Ordenamiento profesional por Asiento (maneja formatos como CG-123 o 123)
     if 'Asiento' in df.columns:
-        # Extraer solo números por si el asiento es 'CG-100'
-        df['Asiento_Num'] = df['Asiento'].astype(str).str.extract('(\d+)').astype(float)
-        df = df.sort_values(by='Asiento_Num').drop(columns=['Asiento_Num'])
-    
-    log_messages.append(f"✔️ Se procesaron {len(df)} movimientos de comisiones.")
+        df['Asiento_Sort'] = pd.to_numeric(df['Asiento'].astype(str).str.extract('(\d+)', expand=False), errors='coerce')
+        df = df.sort_values(by='Asiento_Sort').drop(columns=['Asiento_Sort'])
+        
+    log_messages.append(f"✔️ {len(df)} registros analizados y ordenados.")
     return df
