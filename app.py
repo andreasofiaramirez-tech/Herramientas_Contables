@@ -31,8 +31,7 @@ from guides import (
     GUIA_GENERADOR,
     GUIA_PENSIONES,
     GUIA_AJUSTES_USD,
-    GUIA_DEBITO_FISCAL,
-    GUIA_COMISIONES
+    GUIA_DEBITO_FISCAL
 )
 
 # --- Bloque 2: Importación de Lógica Contable ---
@@ -59,7 +58,6 @@ from logic import (
     run_conciliation_debito_fiscal,
     run_analysis_paquete_cc,
     procesar_ajustes_balance_usd,
-    run_process_comisiones,
     # Helpers
     run_cuadre_cb_cg,
     validar_coincidencia_empresa,
@@ -83,7 +81,6 @@ from utils import (
     cargar_datos_cofersa,
     generar_reporte_debito_fiscal,
     generar_hoja_pendientes_dev_cofersa,
-    generar_reporte_errores_comisiones,
     cargar_datos_fondos_cofersa,
 )
 
@@ -382,7 +379,6 @@ def render_inicio():
         st.button("📄 Especificaciones", on_click=set_page, args=['especificaciones'], use_container_width=True)
         st.button("📦 Análisis Paquete CC", on_click=set_page, args=['paquete_cc'], use_container_width=True)
         st.button("⚖️ Cuadre CB - CG", on_click=set_page, args=['cuadre'], use_container_width=True)
-        st.button("🏦 Auditoría Comisiones", on_click=set_page, args=['comisiones'], use_container_width=True)
         st.button("📉 Ajustes al Balance USD", on_click=set_page, args=['ajustes_usd'], use_container_width=True)
 
     with c2:
@@ -972,137 +968,7 @@ def render_paquete_cc():
         with st.expander("Ver registro detallado del proceso de análisis"):
             st.text_area("Log de Análisis", '\n'.join(st.session_state.log_messages_paquete), height=400)
 
-def render_comisiones():
-    # --- 1. INICIALIZACIÓN DEL ASISTENTE (BOT) ---
-    if "messages" not in st.session_state:
-        st.session_state.messages = [
-            {"role": "assistant", "content": "¡Hola! Soy tu asistente de auditoría. Selecciona una empresa, sube los archivos y yo me encargo de verificar los montos."}
-        ]
 
-    # --- 2. BARRA LATERAL: BOT Y SELECCIÓN DE EMPRESA ---
-    with st.sidebar:
-        st.title("🤖 Bot: Asistente")
-        
-        # Mostrar historial del chat
-        for message in st.session_state.messages:
-            with st.chat_message(message["role"]):
-                st.markdown(message["content"])
-
-        # Input del chat
-        if prompt := st.chat_input("Escribe tu duda..."):
-            st.session_state.messages.append({"role": "user", "content": prompt})
-            # Respuesta rápida automática
-            resp = "Recuerda que los archivos deben ser .xlsx y tener los encabezados en la Fila 1."
-            if "error" in prompt.lower(): resp = "Si ves un error rojo, copia el detalle técnico y dáselo a la IA para que ajustemos el radar."
-            st.session_state.messages.append({"role": "assistant", "content": resp})
-            st.rerun()
-
-        st.markdown("---")
-        empresa = st.selectbox("Empresa a Auditar:", ["PRISMA", "BEVAL", "FEBECA", "SILLACA"], key="empresa_sel")
-        
-        # Configuración de Colores (Diseño Eduardo)
-        colores = {
-            "PRISMA":  {"borde": "#566573", "fondo": "#F8F9F9"},
-            "BEVAL":   {"borde": "#28A745", "fondo": "#EAFAF1"},
-            "FEBECA":  {"borde": "#2196F3", "fondo": "#E8F4FD"},
-            "SILLACA": {"borde": "#FF00FF", "fondo": "#FDE9F9"}
-        }
-        color_emp = colores[empresa]
-
-    # --- 3. INYECCIÓN DE ESTILOS CSS DINÁMICOS ---
-    st.markdown(f"""
-        <style>
-        .etiqueta-rellena {{ background-color: {color_emp['borde']}; color: white; padding: 10px; border-radius: 10px 10px 0 0; font-weight: bold; text-align: center; display: block; }}
-        [data-testid="stFileUploader"] {{ background-color: {color_emp['fondo']} !important; border: 2px solid {color_emp['borde']} !important; border-radius: 0 0 15px 15px !important; padding: 10px; }}
-        div.stButton > button {{ background-color: {color_emp['borde']} !important; color: white !important; width: 100%; border-radius: 12px; height: 3.5em; font-weight: bold; font-size: 18px; }}
-        </style>
-        """, unsafe_allow_html=True)
-
-    # --- 4. CUERPO PRINCIPAL ---
-    st.title(f"🏦 Auditoría de Conciliación - {empresa}", anchor=False)
-    
-    if st.button("⬅️ Volver al Inicio", key="back_home"):
-        set_page('inicio')
-        st.rerun()
-
-    with st.expander("📖 Guía de Uso Rápida"):
-        st.markdown(GUIA_COMISIONES)
-
-    # Layout de carga de archivos (Diseño Eduardo)
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown(f'<p class="etiqueta-rellena">{empresa} Resumen Comisiones (CB)</p>', unsafe_allow_html=True)
-        f1 = st.file_uploader("Subir CB", type=["xlsx"], key="cb_file", label_visibility="collapsed")
-    with col2:
-        st.markdown(f'<p class="etiqueta-rellena">{empresa} Diario Contable (CG)</p>', unsafe_allow_html=True)
-        f2 = st.file_uploader("Subir CG", type=["xlsx"], key="cg_file", label_visibility="collapsed")
-
-    # --- 5. EJECUCIÓN DE LA AUDITORÍA ---
-    if f1 and f2:
-        if st.button(f"🚀 Iniciar Auditoría {empresa}", type="primary"):
-            log_messages = []
-            try:
-                with st.spinner("Analizando consistencia multimoneda y volumetría..."):
-                    # Llamada al motor en logic.py (V21)
-                    # El motor debe devolver 2 cosas: (DataFrame Resumen, DataFrame Asientos Error)
-                    df_res, df_err_asientos = run_process_comisiones(pd.read_excel(f1), pd.read_excel(f2), log_messages)
-                
-                if df_res is not None:
-                    # Guardamos resultados en el estado de la sesión para persistencia
-                    st.session_state.resultado_comisiones = df_res
-                    st.session_state.asientos_error = df_err_asientos
-                    st.session_state.logs_comisiones = log_messages
-                    
-                    # Mensaje del Bot según resultado
-                    hay_errores = df_res['Estatus'].str.contains("❌").any()
-                    if not hay_errores:
-                        st.session_state.messages.append({"role": "assistant", "content": f"✅ ¡Todo cuadrado en **{empresa}**! Los montos y movimientos coinciden."})
-                    else:
-                        st.session_state.messages.append({"role": "assistant", "content": f"⚠️ Encontré diferencias en **{empresa}**. Puedes descargar el detalle de los asientos abajo."})
-                else:
-                    # Si el radar falló, mostramos el log de por qué falló
-                    st.error("❌ No se pudo completar la auditoría debido a columnas faltantes.")
-                    with st.expander("Ver detalle de columnas no encontradas"):
-                        for m in log_messages: st.warning(m)
-
-            except Exception as e:
-                st.error(f"Error inesperado: {str(e)}")
-                with st.expander("Ver detalle técnico"):
-                    st.code(e)
-
-    # --- 6. VISUALIZACIÓN DE RESULTADOS (PERSISTENTE) ---
-    if "resultado_comisiones" in st.session_state and st.session_state.resultado_comisiones is not None:
-        df_res = st.session_state.resultado_comisiones
-        df_err = st.session_state.asientos_error
-        
-        st.divider()
-        st.subheader("📋 Resumen de Resultados")
-
-        # Estilo de colores para la tabla en pantalla
-        def color_estatus(val):
-            color = 'red' if '❌' in str(val) else 'green'
-            return f'color: {color}; font-weight: bold'
-
-        # Mostramos columnas clave para la vista web
-        columnas_web = ['Banco', 'Moneda', 'Estatus', 'Observación']
-        st.dataframe(
-            df_res[columnas_web].style.applymap(color_estatus, subset=['Estatus']),
-            use_container_width=True, 
-            hide_index=True
-        )
-
-        # Botón de Descarga de Reporte Profesional (2 pestañas)
-        hay_errores = df_res['Estatus'].str.contains("❌").any()
-        if hay_errores:
-            st.info("💡 Se generó un reporte detallado con los asientos que presentan descuadre.")
-            excel_bin = generar_reporte_errores_comisiones(df_res, df_err, empresa)
-            st.download_button(
-                label=f"📥 Descargar Reporte de Diferencias ({empresa})",
-                data=excel_bin,
-                file_name=f"Auditoria_Comisiones_{empresa}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True
-            )
 
 # ==============================================================================
 # V. CICLO FISCAL Y DE AUDITORÍA
@@ -1415,7 +1281,6 @@ def main():
         'cofersa': render_cofersa,     
         'cofersa_fondos': render_cofersa_fondos,
         'debito_fiscal': render_debito_fiscal,
-        'comisiones': render_comisiones,
     }
     
     current_page = st.session_state.get('page', 'inicio')
