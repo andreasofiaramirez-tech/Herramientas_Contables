@@ -2998,26 +2998,47 @@ def _generar_hoja_conciliados_fondos_cofersa(workbook, formatos, df_conciliados)
 # ==============================================================================
 # 1. AUDITORIA COMISIONES
 # ==============================================================================
-def generar_reporte_comisiones(df, nombre_empresa, color_hex):
+def generar_reporte_auditoria_comisiones(df_res, df_cg_raw, df_cb_raw, nombre_empresa, color_hex):
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        df.to_excel(writer, index=False, sheet_name='Auditoría')
+        # HOJA 1: RESULTADOS DE AUDITORÍA
+        df_res.to_excel(writer, index=False, sheet_name='Auditoría')
         workbook = writer.book
-        ws = writer.sheets['Auditoría']
+        ws_aud = writer.sheets['Auditoría']
         
         # Formatos
-        header_fmt = workbook.add_format({'bold': True, 'fg_color': color_hex, 'font_color': 'white', 'border': 1})
-        err_fmt = workbook.add_format({'bg_color': '#FFC7CE', 'font_color': '#9C0006'}) # Rojo para errores
-        ok_fmt = workbook.add_format({'bg_color': '#C6EFCE', 'font_color': '#006100'})  # Verde para OK
+        header_fmt = workbook.add_format({'bold': True, 'fg_color': color_hex, 'font_color': 'white', 'border': 1, 'align': 'center'})
+        err_fmt = workbook.add_format({'bg_color': '#FFC7CE', 'font_color': '#9C0006'})
+        money_fmt = workbook.add_format({'num_format': '#,##0.00'})
         
-        # Cabeceras
-        for i, col in enumerate(df.columns):
-            ws.write(0, i, col, header_fmt)
-            ws.set_column(i, i, 22)
+        # Punto 2: Fijar fila 1 y Estilizar
+        ws_aud.freeze_panes(1, 0)
+        for i, col in enumerate(df_res.columns):
+            ws_aud.write(0, i, col, header_fmt)
+            # Anchos automáticos
+            width = 18
+            if col == 'Concepto (CB)' or col == 'Observaciones': width = 45
+            ws_aud.set_column(i, i, width)
+            
+            # Formato moneda para montos
+            if 'Monto' in col:
+                ws_aud.set_column(i, i, 18, money_fmt)
 
-        # Aplicar formato condicional a la columna Estatus (asumiendo que es la columna F)
-        ws.conditional_format('F2:F5000', {'type': 'text', 'criteria': 'containing', 'value': 'ERROR', 'format': err_fmt})
-        ws.conditional_format('F2:F5000', {'type': 'text', 'criteria': 'containing', 'value': 'OK', 'format': ok_fmt})
-                
+        # Pintar de Rojo filas con ❌ en la columna 'Monto OK' (es la columna G index 6)
+        ws_aud.conditional_format(1, 0, len(df_res), len(df_res.columns)-1, {
+            'type': 'formula',
+            'criteria': '=$G2="❌"',
+            'format': err_fmt
+        })
+
+        # Punto 5: Hoja Mayor CG
+        df_cg_raw.to_excel(writer, index=False, sheet_name='Consulta Mayor CG')
+        ws_cg = writer.sheets['Consulta Mayor CG']
+        ws_cg.freeze_panes(1, 0)
+
+        # Punto 6: Hoja Reporte CB
+        df_cb_raw.to_excel(writer, index=False, sheet_name='Consulta Reporte CB')
+        ws_cb = writer.sheets['Consulta Reporte CB']
+        ws_cb.freeze_panes(1, 0)
+
     return output.getvalue()
-    
