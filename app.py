@@ -58,6 +58,7 @@ from logic import (
     run_conciliation_debito_fiscal,
     run_analysis_paquete_cc,
     procesar_ajustes_balance_usd,
+    run_conciliation_comisiones_bancarias,
     # Helpers
     run_cuadre_cb_cg,
     validar_coincidencia_empresa,
@@ -82,6 +83,7 @@ from utils import (
     generar_reporte_debito_fiscal,
     generar_hoja_pendientes_dev_cofersa,
     cargar_datos_fondos_cofersa,
+    generar_reporte_comisiones,
 )
 
 # --- Bloque 4: Helpers de Interfaz ---
@@ -379,6 +381,7 @@ def render_inicio():
         st.button("📄 Especificaciones", on_click=set_page, args=['especificaciones'], use_container_width=True)
         st.button("📦 Análisis Paquete CC", on_click=set_page, args=['paquete_cc'], use_container_width=True)
         st.button("⚖️ Cuadre CB - CG", on_click=set_page, args=['cuadre'], use_container_width=True)
+        st.button("💰 Comisiones Bancarias", on_click=set_page, args=['comisiones'], use_container_width=True)
         st.button("📉 Ajustes al Balance USD", on_click=set_page, args=['ajustes_usd'], use_container_width=True)
 
     with c2:
@@ -1265,6 +1268,58 @@ def render_debito_fiscal():
                 st.error(f"Error detectado: {str(e)}")
                 st.exception(e)
 
+def render_comisiones_bancarias():
+    st.title("💰 Conciliación de Comisiones Bancarias", anchor=False)
+    
+    if st.button("⬅️ Volver al Inicio"): 
+        set_page('inicio')
+        st.rerun()
+
+    # Diccionario de Colores de Eduardo (Integrado al ecosistema)
+    COLORES_CORP = {
+        "MAYOR BEVAL, C.A": "#28A745",
+        "FEBECA, C.A": "#2196F3",
+        "PRISMA, C.A": "#566573",
+        "FEBECA, C.A (QUINCALLA)": "#FF00FF"
+    }
+
+    casa_sel = st.selectbox("Seleccione la Empresa:", list(COLORES_CORP.keys()))
+    color_tema = COLORES_CORP[casa_sel]
+
+    st.markdown(f"""<div style="border-left: 5px solid {color_tema}; padding-left: 15px;">
+        Analice las comisiones del mes cargando el reporte de Comisiones (CB) y el Diario (CG).
+        </div>""", unsafe_allow_html=True)
+
+    col1, col2 = st.columns(2)
+    with col1:
+        f_cb = st.file_uploader(f"1. {casa_sel} Comisiones (CB)", type=['xlsx'])
+    with col2:
+        f_cg = st.file_uploader(f"2. {casa_sel} Diario (CG)", type=['xlsx'])
+
+    if f_cb and f_cg:
+        # Eduardo usó un botón verde brillante si ambos archivos están cargados
+        if st.button(f"⚡ Iniciar Proceso - {casa_sel}", type="primary"):
+            log = []
+            try:
+                with st.spinner("Procesando comisiones..."):
+                    df_cg = pd.read_excel(f_cg)
+                    # Llamamos a la nueva lógica en logic.py
+                    df_res = run_conciliation_comisiones_bancarias(df_cg, log)
+                    
+                    st.success(f"✅ Análisis completado para {casa_sel}")
+                    st.dataframe(df_res, use_container_width=True)
+                    
+                    # Generar Excel con el color corporativo
+                    excel_bin = generar_reporte_comisiones(df_res, casa_sel, color_tema)
+                    
+                    st.download_button(
+                        label=f"📥 Descargar Reporte {casa_sel}",
+                        data=excel_bin,
+                        file_name=f"Comisiones_{casa_sel}.xlsx",
+                        use_container_width=True
+                    )
+            except Exception as e:
+                mostrar_error_amigable(e, "el proceso de Comisiones")
 
 # ==============================================================================
 # VI. ENRUTAMIENTO FINAL (ROUTER)
