@@ -1333,6 +1333,7 @@ def main():
         'cuadre': render_cuadre,
         'pensiones': render_pensiones,
         'ajustes_usd' : render_ajustes_usd,
+        'comisiones': render_comisiones_bancarias,
         'cofersa': render_cofersa,     
         'cofersa_fondos': render_cofersa_fondos,
         'debito_fiscal': render_debito_fiscal,
