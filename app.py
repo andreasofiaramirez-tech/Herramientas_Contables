@@ -1416,6 +1416,7 @@ def render_comisiones_bancarias():
                 mostrar_error_amigable(e, "el módulo de Comisiones")
 
 def render_locti():
+    # --- 1. CABECERA E IDENTIDAD VISUAL ---
     st.title("⚖️ Cálculo LOCTI")
     
     if st.button("⬅️ Volver al Inicio"): 
@@ -1461,7 +1462,7 @@ def render_locti():
         </style>
     """, unsafe_allow_html=True)
 
-    # --- BARRA DE CONFIGURACIÓN ---
+    # --- 2. BARRA DE PARÁMETROS (Configuración de Cierre) ---
     dict_filiales = {
         "BEVAL, C.A.": "271", "FEBECA, C.A.": "004",
         "SILLACA, C.A.": "071", "PRISMA SISTEMAS": "298"
@@ -1474,6 +1475,7 @@ def render_locti():
         usuario = c3.text_input("👤 Hecho por:", value=" ").upper()
 
     st.markdown("---")
+    # --- 3. ÁREA DE CARGA DE ARCHIVOS (Diseño Lusi) ---
     st.markdown(f"### 📥 Carga de Balances de Comprobación: **{filial}**")
     
     col1, col2, col3 = st.columns(3)
@@ -1493,38 +1495,71 @@ def render_locti():
         f_r = st.file_uploader("Subir Reserva", type=["xlsx", "xls"], key="lr", label_visibility="collapsed")
         st.markdown('<p class="pin-guia">📍 Debe contener la cuenta 7.1.3.57.1.001</p>', unsafe_allow_html=True)
 
+    # --- 4. EJECUCIÓN Y RESULTADOS ---
     if f_v and f_i and f_r:
-        if st.button("🚀 Calcular Impuesto LOCTI", type="primary", use_container_width=True):
+        if st.button("🚀 Iniciar Cálculo y Generar Cargador", type="primary", use_container_width=True):
             log = []
             try:
-                res = procesar_calculo_locti(f_v, f_i, f_r, log)
+                with st.spinner("Procesando balances..."):
+                    # Llamada a logic.py (Motor de Lusi)
+                    res, df_asiento = procesar_calculo_locti(f_v, f_i, f_r, tasa, num_asto, log)
                 
-                # Cuadro de resultados de Lusi
-                st.divider()
-                st.success(f"🎊 Cálculo finalizado para {filial}")
-                
-                # Resumen en pantalla
-                m1, m2, m3 = st.columns(3)
-                m1.metric("Base Imponible Mes", f"Bs. {res['base_mes']:,.2f}")
-                m2.metric("Aporte del Mes (0.5%)", f"Bs. {res['aporte_mes']:,.2f}")
-                m3.metric("Diferencia Centavos", f"Bs. {res['diferencia']:,.2f}")
+                if res:
+                    st.success(f"✅ Cálculo finalizado para {filial}")
+                    
+                    # Métricas de Resumen
+                    m1, m2, m3, m4 = st.columns(4)
+                    m1.metric("Base Gravable", f"Bs. {res['base_mes']:,.2f}")
+                    m2.metric("Aporte Mes (0.5%)", f"Bs. {res['aporte_mes']:,.2f}")
+                    m3.metric("Saldo Acumulado", f"Bs. {res['acum_directo']:,.2f}")
+                    m4.metric("Diferencia", f"Bs. {res['diferencia']:,.2f}", delta_color="inverse")
 
-                # Preparar Meta-Data para Excel
-                meta = {
-                    "filial": filial, "usuario": usuario,
-                    "fecha_str": fecha_rep.strftime("%d/%m/%Y"),
-                    "mes_nombre": fecha_rep.strftime("%B %Y").upper(),
-                    "mes_corto": fecha_rep.strftime("%b.%y").upper()
-                }
-                
-                excel_bin = generar_reporte_excel_locti(res, meta)
-                st.download_button("📥 Descargar Reporte y Asiento LOCTI", excel_bin, f"LOCTI_{filial}_{meta['mes_corto']}.xlsx", use_container_width=True)
+                    # Cuadro de Conciliación Visual (Diseño Lusi)
+                    cuadra = res['diferencia'] < 1.0
+                    color_bg = '#d4edda' if cuadra else '#f8d7da'
+                    st.markdown(f"""
+                        <div style="background-color: {color_bg}; padding: 20px; border-radius: 10px; border: 1px solid #ccc; text-align: center; color: black;">
+                            <h4>{'✅ CONCILIACIÓN EXITOSA' if cuadra else '❌ DESCUADRE DETECTADO'}</h4>
+                            <p>Anterior ({res['res_ant']:,.2f}) + Mes ({res['aporte_mes']:,.2f}) = <b>{res['proyectado']:,.2f} Bs.</b></p>
+                        </div>
+                    """, unsafe_allow_html=True)
 
-                with st.expander("Ver Log de Auditoría"):
-                    for m in log: st.text(m)
+                    # --- 5. GENERACIÓN DE DESCARGAS ---
+                    st.divider()
+                    st.subheader("📥 Descarga de Archivos")
+                    d_col1, d_col2 = st.columns(2)
+
+                    # A. Reporte Excel de Lusi
+                    meta_data = {
+                        "filial": filial, "usuario": analista,
+                        "fecha_str": fecha_rep.strftime("%d/%m/%Y"),
+                        "mes_nombre": fecha_rep.strftime("%B %Y").upper(),
+                        "mes_corto": fecha_rep.strftime("%b.%y").upper()
+                    }
+                    excel_rep = generar_reporte_excel_locti(res, meta_data)
+                    d_col1.download_button(
+                        "📊 Descargar Informe LOCTI", 
+                        excel_rep, 
+                        f"Reporte_LOCTI_{filial.split(',')[0]}_{meta_data['mes_corto']}.xlsx",
+                        use_container_width=True
+                    )
+
+                    # B. Cargador Softland (Usando la FUNCIÓN UNIVERSAL de utils.py)
+                    cargador_bin = generar_cargador_softland_v2(df_asiento, fecha_rep)
+                    d_col2.download_button(
+                        "📥 Descargar Cargador para Sistema", 
+                        cargador_bin, 
+                        f"CARGADOR_LOCTI_{num_asto}.xlsx",
+                        use_container_width=True
+                    )
+
+                    with st.expander("Ver Log de Extracción"):
+                        for m in log: st.text(m)
 
             except Exception as e:
-                st.error(f"Error procesando archivos: {e}")
+                mostrar_error_amigable(e, "el proceso LOCTI")
+    else:
+        st.info("💡 Por favor, cargue los tres balances de comprobación para habilitar el cálculo.")
 
 # ==============================================================================
 # VI. ENRUTAMIENTO FINAL (ROUTER)
