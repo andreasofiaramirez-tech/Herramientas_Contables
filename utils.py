@@ -3193,3 +3193,73 @@ def generar_reporte_excel_locti(res, data_meta):
         ws2.write('A9', 'FECHA:', f_neg); ws2.write('B9', fecha_str)
 
     return output.getvalue()
+
+
+def generar_cargador_softland_v2(df_asiento, fecha_asiento):
+    """
+    Generador UNIVERSAL de archivos Excel para Softland.
+    Funciona para Pensiones, LOCTI y cualquier otro módulo.
+    """
+    import datetime
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        workbook = writer.book
+        
+        # Formatos estándar
+        header_fmt = workbook.add_format({'bold': True, 'align': 'center'})
+        data_fmt = workbook.add_format({'align': 'center'})
+        num_fmt = workbook.add_format({'num_format': '0.0000'})
+        fmt_fecha_nativa = workbook.add_format({'num_format': 14}) # ID 14 para Softland
+
+        # --- HOJA 1: "Asiento" ---
+        ws1 = workbook.add_worksheet("Asiento")
+        headers_asiento = ["Asiento", "Paquete", "Tipo Asiento", "Fecha", "Contabilidad"]
+        ws1.write_row(0, 0, headers_asiento, header_fmt)
+        
+        ws1.write(1, 0, df_asiento['Asiento'].iloc[0], data_fmt)
+        ws1.write(1, 1, "CG", data_fmt)
+        ws1.write(1, 2, "CG", data_fmt)
+        
+        # Fecha exacta con hora 0
+        f_raw = pd.to_datetime(fecha_asiento)
+        fecha_exacta = datetime.datetime(f_raw.year, f_raw.month, f_raw.day, 0, 0, 0)
+        ws1.write_datetime(1, 3, fecha_exacta, fmt_fecha_nativa)
+        
+        ws1.write(1, 4, "A", data_fmt)
+
+        # --- HOJA 2: "ND" ---
+        ws2 = workbook.add_worksheet("ND")
+        headers_nd = [
+            "Asiento", "Consecutivo", "Nit", "Centro De Costo", "Cuenta Contable", 
+            "Fuente", "Referencia", "Débito Local", "Débito Dólar", "Crédito Local", "Crédito Dólar"
+        ]
+        ws2.write_row(0, 0, headers_nd, header_fmt)
+
+        for i, row in df_asiento.iterrows():
+            r = i + 1
+            ws2.write(r, 0, row['Asiento'], data_fmt)
+            ws2.write(r, 1, i + 1, data_fmt)
+            ws2.write(r, 2, row['Nit'], data_fmt)
+            ws2.write(r, 3, row['Centro Costo'], data_fmt)
+            ws2.write(r, 4, row['Cuenta Contable'], data_fmt)
+            ws2.write(r, 5, row['Fuente'], data_fmt)
+            ws2.write(r, 6, row['Referencia'], data_fmt)
+            
+            # Función interna para escribir montos (limpia ceros para Softland)
+            def write_clean_val(col, val):
+                try:
+                    v = float(val)
+                    if v != 0: ws2.write_number(r, col, v, num_fmt)
+                    else: ws2.write(r, col, "")
+                except: ws2.write(r, col, "")
+
+            write_clean_val(7, row['Débito VES'])
+            write_clean_val(8, row['Débito USD'])
+            write_clean_val(9, row['Crédito VES'])
+            write_clean_val(10, row['Crédito USD'])
+
+        ws2.set_column('A:B', 15); ws2.set_column('D:G', 30); ws2.set_column('H:K', 18)
+
+    return output.getvalue()
+
+
