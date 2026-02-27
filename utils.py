@@ -3013,10 +3013,12 @@ def generar_reporte_auditoria_comisiones(df_res, df_cg_raw, df_cb_raw, nombre_em
             'valign': 'vcenter', 
             'text_wrap': True
         })
-        money_fmt = workbook.add_format({'num_format': '#,##0.00', 'border': 1})
-        text_fmt = workbook.add_format({'border': 1, 'valign': 'vcenter'})
-        date_fmt = workbook.add_format({'num_format': 'dd/mm/yyyy', 'border': 1, 'align': 'center'})
-        err_fmt = workbook.add_format({'bg_color': '#FFC7CE', 'font_color': '#9C0006'})
+        
+        # Formatos de datos con 'border': 0
+        money_fmt = workbook.add_format({'num_format': '#,##0.00', 'border': 0})
+        text_fmt = workbook.add_format({'border': 0, 'valign': 'vcenter'})
+        date_fmt = workbook.add_format({'num_format': 'dd/mm/yyyy', 'border': 0, 'align': 'left'})
+        err_fmt = workbook.add_format({'bg_color': '#FFC7CE', 'font_color': '#9C0006', 'border': 0})
 
         
         # --- HOJA 1: AUDITORÍA ---
@@ -3084,19 +3086,25 @@ def generar_reporte_auditoria_comisiones(df_res, df_cg_raw, df_cb_raw, nombre_em
         ws_cg.set_column('A:K', 20, text_fmt)
 
         # --- 4. HOJA 3: CONSULTA REPORTE CB (Réplica Exacta y Legible) ---
-        # Escribimos el raw tal cual se subió (header=False para no duplicar títulos)
-        df_cb_raw.to_excel(writer, index=False, header=False, sheet_name='Consulta Reporte CB')
+        df_cb_clean = df_cb_raw.copy()
+        try:
+            # Intentamos convertir la columna de fecha (índice 2) a datetime y luego a solo date
+            df_cb_clean.iloc[:, 2] = pd.to_datetime(df_cb_clean.iloc[:, 2], errors='coerce').dt.date
+        except:
+            pass
+
+        df_cb_clean.to_excel(writer, index=False, header=False, sheet_name='Consulta Reporte CB')
         ws_cb = writer.sheets['Consulta Reporte CB']
         
-        # Ajuste de anchos y formatos específicos por columna para la réplica
+        # Aplicamos anchos y formatos SIN BORDES
         ws_cb.set_column(0, 0, 15, text_fmt)   # A: Asiento
         ws_cb.set_column(1, 1, 15, text_fmt)   # B: Cuenta Bancaria
-        ws_cb.set_column(2, 2, 14, date_fmt)   # C: Fecha (LIMPIA SIN HORA)
+        ws_cb.set_column(2, 2, 14, date_fmt)   # C: Fecha (LIMPIA)
         ws_cb.set_column(3, 3, 8,  text_fmt)   # D: Tipo
         ws_cb.set_column(4, 4, 14, text_fmt)   # E: Número
         ws_cb.set_column(5, 5, 35, text_fmt)   # F: Beneficiario
         ws_cb.set_column(6, 6, 25, text_fmt)   # G: Subtipo
-        ws_cb.set_column(7, 7, 40, text_fmt)   # H: Concepto (Ancho para descripciones)
-        ws_cb.set_column(8, 9, 16, money_fmt)  # I y J: Débitos y Crédito
-
+        ws_cb.set_column(7, 7, 45, text_fmt)   # H: Concepto
+        ws_cb.set_column(8, 9, 16, money_fmt)  # I y J: Montos
+        
     return output.getvalue()
