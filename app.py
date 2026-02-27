@@ -1334,10 +1334,12 @@ def render_comisiones_bancarias():
             log = []
             try:
                 with st.spinner("Cruzando Tesorería vs Contabilidad..."):
-                    df_cb_raw = pd.read_excel(f_cb)
-                    df_cg_raw = pd.read_excel(f_cg)
+                    # Cargamos el CB crudo (header=None) para la réplica perfecta de la hoja de consulta
+                    df_cb_replica = pd.read_excel(f_cb, header=None)
+                    df_cg_replica = pd.read_excel(f_cg) # El mayor suele ser estándar
 
-                    df_res = run_conciliation_comisiones_bancarias(df_cb_raw, df_cg_raw, log)
+                    # Llamamos a la lógica (que usa sus propios procesos de limpieza internos)
+                    df_res = run_conciliation_comisiones_bancarias(pd.read_excel(f_cb), pd.read_excel(f_cg), log)
                     
                     st.success(f"✅ Proceso completado exitosamente para {casa_sel}")
                     st.dataframe(df_res, use_container_width=True)
@@ -1345,8 +1347,8 @@ def render_comisiones_bancarias():
                     # Reporte Excel personalizado con el color de la empresa
                     excel_bin = generar_reporte_auditoria_comisiones(
                         df_res,      # El resultado de la auditoría
-                        df_cg_raw,   # El mayor original (subido por el usuario)
-                        df_cb_raw,   # El reporte de tesorería original (subido por el usuario)
+                        df_cg_replica,  # El mayor original (subido por el usuario)
+                        df_cb_replica,   # El reporte de tesorería original (subido por el usuario)
                         casa_sel, 
                         tema['borde']
                     )
