@@ -3034,11 +3034,40 @@ def generar_reporte_auditoria_comisiones(df_res, df_cg_raw, df_cb_raw, nombre_em
             if 'Monto' in col: ws_aud.set_column(i, i, 18, money_aud_fmt)
         ws_aud.conditional_format(1, 0, len(df_res), len(df_res.columns)-1, {'type': 'formula', 'criteria': '=OR(ISNUMBER(SEARCH("❌", $G2)), ISNUMBER(SEARCH("❌", $H2)))', 'format': err_fmt})
 
-        # --- 3. HOJA 2: CONSULTA MAYOR CG ---
-        df_cg_raw.to_excel(writer, index=False, sheet_name='Consulta Mayor CG')
-        ws_cg = writer.sheets['Consulta Mayor CG']
+        # --- 3. HOJA 2: RÉPLICA MAESTRA MAYOR CG ---
+        ws_cg = workbook.add_worksheet('Consulta Mayor CG')
         ws_cg.hide_gridlines(2)
-        ws_cg.set_column('A:K', 20)
+        ws_cg.freeze_panes(1, 0)
+
+        # Anchos para el Mayor (Imagen B)
+        ws_cg.set_column(0, 0, 15) # Asiento
+        ws_cg.set_column(1, 1, 15) # Centro Costo
+        ws_cg.set_column(2, 2, 18) # Cuenta Contable
+        ws_cg.set_column(3, 3, 35) # Descripción
+        ws_cg.set_column(4, 4, 15) # Fuente
+        ws_cg.set_column(5, 5, 40) # Referencia
+        ws_cg.set_column(6, 9, 16) # Montos VES y USD
+        ws_cg.set_column(10, 10, 14) # Fecha
+
+        # Escribir encabezados de CG manualmente
+        for c_idx, col_name in enumerate(df_cg_raw.columns):
+            ws_cg.write(0, c_idx, col_name, header_rep_fmt)
+
+        # Escribir datos de CG
+        for r_idx, row in df_cg_raw.iterrows():
+            for c_idx, value in enumerate(row):
+                current_fmt = data_rep_fmt
+                # Formato especial por tipo de dato en la columna
+                if c_idx == 10: # Columna Fecha
+                    current_fmt = date_rep_fmt
+                    try: value = pd.to_datetime(value).date()
+                    except: pass
+                elif c_idx in [6, 7, 8, 9]: # Columnas de Montos
+                    current_fmt = money_rep_fmt
+                    try: value = float(value)
+                    except: value = 0.0
+                
+                ws_cg.write(r_idx + 1, c_idx, value if pd.notna(value) else "", current_fmt)
 
         # --- 4. HOJA 3: RÉPLICA MAESTRA REPORTE CB ---
         ws_cb = workbook.add_worksheet('Consulta Reporte CB')
