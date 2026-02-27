@@ -4507,9 +4507,9 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
 # 6.4. AUDITORIA DE COMISIONES (CREACION DE EDUARDO)
 # ------------------------------------------------------------------------------
 def run_conciliation_comisiones_bancarias(df_cb_raw, df_cg_raw, log_messages):
-    log_messages.append("--- INICIANDO AUDITORÍA DE COMISIONES (V2 - MULTI-HOJA) ---")
+    log_messages.append("--- INICIANDO AUDITORÍA DE COMISIONES (VERSIÓN AUTOEXPLICATIVA) ---")
     
-    # --- 1. PROCESAMIENTO DEL REPORTE DE TESORERÍA (Imagen A) ---
+    # --- 1. PROCESAMIENTO DEL REPORTE DE TESORERÍA ---
     df_cb = df_cb_raw.copy()
     header_found = False
     for i in range(len(df_cb)):
@@ -4529,7 +4529,7 @@ def run_conciliation_comisiones_bancarias(df_cb_raw, df_cg_raw, log_messages):
     df_cb = df_cb[~df_cb['Asiento'].astype(str).str.upper().str.contains('TOTAL', na=False)]
     df_cb['Créditos'] = pd.to_numeric(df_cb['Créditos'], errors='coerce').fillna(0)
 
-    # --- 2. PREPARACIÓN DEL MAYOR (Imagen B) ---
+    # --- 2. PREPARACIÓN DEL MAYOR (CG) ---
     df_cg = df_cg_raw.copy()
     for col in ['Débito VES', 'Crédito VES', 'Débito Dólar', 'Crédito Dólar']:
         if col in df_cg.columns:
@@ -4538,11 +4538,14 @@ def run_conciliation_comisiones_bancarias(df_cb_raw, df_cg_raw, log_messages):
     # --- 3. AUDITORÍA ASIENTO POR ASIENTO ---
     resultados = []
     
+    # Nombres de columnas autoexplicativos
+    COL_MONTO_STATUS = "Monto Coincide (CB vs CG)"
+    COL_GASTO_STATUS = "Cuenta Gasto Correcta (7.1.3.50 / 6.1.1.12)"
+    COL_CUADRADO_STATUS = "Asiento Cuadrado (Debe = Haber)"
+
     for banco, grupo_cb in df_cb.groupby('Cuenta Bancaria'):
-        log_messages.append(f"🔎 Auditando Banco: {banco}")
-        # Punto 1: Identificación de Moneda (USD si termina en E o es Panamá)
         es_usd = str(banco).upper().endswith('E')
-        moneda_label = 'USD' if es_usd else 'VES'
+        moneda_label = 'Dólares (USD)' if es_usd else 'Bolívares (VES)'
         
         for _, fila_cb in grupo_cb.iterrows():
             asiento_id = str(fila_cb['Asiento']).strip()
@@ -4551,58 +4554,60 @@ def run_conciliation_comisiones_bancarias(df_cb_raw, df_cg_raw, log_messages):
             
             asto_cg = df_cg[df_cg['Asiento'] == asiento_id]
             
-            check_monto, check_contra, check_cuadrado = "❌", "❌", "❌"
+            check_monto, check_contra, check_cuadrado = "❌ No coincide", "❌ Incorrecta", "❌ Descuadrado"
             monto_cg_banco = 0
             obs = []
 
             if asto_cg.empty:
-                obs.append("Asiento no existe en Contabilidad")
+                obs.append("El asiento no existe en el Mayor de Contabilidad")
             else:
                 col_monto_asto = 'Crédito Dólar' if es_usd else 'Crédito VES'
-                
-                # CORRECCIÓN PUNTO 1: Filtro ampliado para Bancos Nacionales (1.1.1.02) y Exterior (1.1.1.03)
+                # Buscamos en Bancos Nacionales (1.1.1.02) o Exterior (1.1.1.03)
                 linea_banco = asto_cg[asto_cg['Cuenta Contable'].astype(str).str.startswith(('1.1.1.02', '1.1.1.03'))]
                 monto_cg_banco = linea_banco[col_monto_asto].sum()
                 
+                # Validación de Monto
                 if abs(round(monto_cb, 2) - round(monto_cg_banco, 2)) <= 0.01:
-                    check_monto = "✅"
+                    check_monto = "✅ Monto Correcto"
                 else:
-                    obs.append(f"Dif: Tesorería({monto_cb:,.2f}) vs Conta({monto_cg_banco:,.2f})")
+                    obs.append(f"Dif: Tesorería {monto_cb:,.2f} vs Contabilidad {monto_cg_banco:,.2f}")
 
+                # Validación de Cuentas de Gasto
                 cta_gasto_prefijo = '7.1.3.50.1.002' if es_usd else '7.1.3.50.1.001'
                 tiene_gasto = asto_cg['Cuenta Contable'].astype(str).str.contains(cta_gasto_prefijo).any()
                 tiene_cambio = asto_cg['Cuenta Contable'].astype(str).str.contains('6.1.1.12.1.001').any()
                 
                 if tiene_gasto or tiene_cambio:
-                    check_contra = "✅"
+                    check_contra = "✅ Cuenta Correcta"
                 else:
-                    obs.append(f"Falta Cta Gasto {cta_gasto_prefijo}")
+                    obs.append(f"Falta registrar gasto en la cuenta {cta_gasto_prefijo}")
 
+                # Validación de Cuadre
                 total_debe = asto_cg['Débito VES'].sum() + asto_cg['Débito Dólar'].sum()
                 total_haber = asto_cg['Crédito VES'].sum() + asto_cg['Crédito Dólar'].sum()
                 if abs(total_debe - total_haber) < 0.1:
-                    check_cuadrado = "✅"
+                    check_cuadrado = "✅ Cuadrado"
                 else:
-                    obs.append("Asiento descuadrado")
+                    obs.append("La sumatoria del asiento no da cero (descuadrado)")
 
             resultados.append({
                 'Banco': banco,
-                'Moneda': moneda_label, # Punto 4
+                'Moneda Conciliada': moneda_label,
                 'Asiento': asiento_id,
-                'Concepto (CB)': concepto_cb,
-                'Monto CB': monto_cb,
-                'Monto CG': monto_cg_banco,
-                'Monto OK': check_monto,
-                'Gasto OK': check_contra,
-                'Cuadrado': check_cuadrado,
-                'Observaciones': " | ".join(obs)
+                'Concepto Reportado (CB)': concepto_cb,
+                'Monto en Tesorería (CB)': monto_cb,
+                'Monto en Contabilidad (CG)': monto_cg_banco,
+                COL_MONTO_STATUS: check_monto,
+                COL_GASTO_STATUS: check_contra,
+                COL_CUADRADO_STATUS: check_cuadrado,
+                'Hallazgos / Observaciones': " | ".join(obs)
             })
 
     df_final = pd.DataFrame(resultados)
 
-    # PUNTO 3: Ordenar Errores al principio (Cualquier fila con ❌ en Monto OK sube)
+    # Ordenar: Errores primero
     if not df_final.empty:
-        df_final['sort_helper'] = df_final['Monto OK'].apply(lambda x: 0 if x == "❌" else 1)
+        df_final['sort_helper'] = df_final[COL_MONTO_STATUS].apply(lambda x: 0 if "❌" in x else 1)
         df_final = df_final.sort_values(by=['sort_helper', 'Banco', 'Asiento']).drop(columns=['sort_helper'])
 
     return df_final
