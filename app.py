@@ -59,6 +59,7 @@ from logic import (
     run_analysis_paquete_cc,
     procesar_ajustes_balance_usd,
     run_conciliation_comisiones_bancarias,
+    procesar_calculo_locti,
     # Helpers
     run_cuadre_cb_cg,
     validar_coincidencia_empresa,
@@ -84,6 +85,7 @@ from utils import (
     generar_hoja_pendientes_dev_cofersa,
     cargar_datos_fondos_cofersa,
     generar_reporte_auditoria_comisiones,
+    generar_reporte_excel_locti
 )
 
 # --- Bloque 4: Helpers de Interfaz ---
@@ -387,7 +389,8 @@ def render_inicio():
     with c2:
         st.subheader("⚙️ Procesos Fiscales y Nómina")
         st.button("🛡️ Cálculo Pensiones (9%)", on_click=set_page, args=['pensiones'], use_container_width=True)
-        st.button("⚖️ Verificación Débito Fiscal", on_click=set_page, args=['debito_fiscal'], use_container_width=True)
+        st.button("⚖️ Cálculo LOCTI (0.5%)", on_click=set_page, args=['locti'], use_container_width=True)
+        st.button("📑 Verificación Débito Fiscal", on_click=set_page, args=['debito_fiscal'], use_container_width=True)
         st.button("🧾 Relación Retenciones", on_click=set_page, args=['retenciones'], use_container_width=True)
 
     st.divider()
@@ -1499,6 +1502,7 @@ def main():
         'cofersa': render_cofersa,     
         'cofersa_fondos': render_cofersa_fondos,
         'debito_fiscal': render_debito_fiscal,
+        'locti': render_locti,
     }
     
     current_page = st.session_state.get('page', 'inicio')
