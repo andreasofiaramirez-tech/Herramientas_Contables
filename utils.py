@@ -2999,112 +2999,94 @@ def _generar_hoja_conciliados_fondos_cofersa(workbook, formatos, df_conciliados)
 # 1. AUDITORIA COMISIONES
 # ==============================================================================
 def generar_reporte_auditoria_comisiones(df_res, df_cg_raw, df_cb_raw, nombre_empresa, color_hex):
-    output = BytesIO()    
+    output = BytesIO()
+    
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         workbook = writer.book
-
-        # --- 1. DEFINICIÓN DE TODOS LOS FORMATOS (Crucial para evitar NameError) ---
-        header_fmt = workbook.add_format({
-            'bold': True, 
-            'fg_color': color_hex, 
-            'font_color': 'white', 
-            'border': 1, 
-            'align': 'center', 
-            'valign': 'vcenter', 
-            'text_wrap': True
-        })
         
-        # Formatos de datos con 'border': 0
-        money_fmt = workbook.add_format({'num_format': '#,##0.00', 'border': 0})
-        text_fmt = workbook.add_format({'border': 0, 'valign': 'vcenter'})
-        date_fmt = workbook.add_format({'num_format': 'dd/mm/yyyy', 'border': 0, 'align': 'left'})
-        err_fmt = workbook.add_format({'bg_color': '#FFC7CE', 'font_color': '#9C0006', 'border': 0})
-
-        
-        # --- HOJA 1: AUDITORÍA ---
-        df_res.to_excel(writer, index=False, sheet_name='Resultados Auditoría')
-        workbook = writer.book
-        ws_aud = writer.sheets['Resultados Auditoría']
-        
-        header_fmt = workbook.add_format({'bold': True, 'fg_color': color_hex, 'font_color': 'white', 'border': 1, 'align': 'center', 'valign': 'vcenter', 'text_wrap': True})
+        # --- 1. DEFINICIÓN DE FORMATOS ---
+        # Formatos Hoja 1
+        header_aud_fmt = workbook.add_format({'bold': True, 'fg_color': color_hex, 'font_color': 'white', 'border': 1, 'align': 'center', 'valign': 'vcenter', 'text_wrap': True})
+        money_aud_fmt = workbook.add_format({'num_format': '#,##0.00', 'border': 1})
+        text_aud_fmt = workbook.add_format({'border': 1, 'valign': 'vcenter'})
         err_fmt = workbook.add_format({'bg_color': '#FFC7CE', 'font_color': '#9C0006'})
-        money_fmt = workbook.add_format({'num_format': '#,##0.00', 'border': 1})
-        text_fmt = workbook.add_format({'border': 1})
 
-        ws_aud.freeze_panes(1, 0)
-        ws_aud.set_row(0, 45) # Hacer el encabezado más alto para las explicaciones
+        # Formatos Hoja 3 (RÉPLICA EXACTA)
+        # Títulos de Banco (Ej: PRISMA ... BCO. BVC)
+        title_rep_fmt = workbook.add_format({'bold': True, 'font_size': 11, 'valign': 'vcenter'})
+        # Encabezados de tabla (Asiento, Cuenta, etc. - Con Borde)
+        header_rep_fmt = workbook.add_format({'bold': True, 'border': 1, 'align': 'center', 'bg_color': '#FFFFFF'})
+        # Filas de Totales (Negrita, con formato moneda)
+        total_rep_fmt = workbook.add_format({'bold': True, 'num_format': '#,##0.00', 'top': 1})
+        # Datos normales
+        data_rep_fmt = workbook.add_format({'border': 0})
+        date_rep_fmt = workbook.add_format({'num_format': 'dd/mm/yyyy', 'border': 0, 'align': 'center'})
+        money_rep_fmt = workbook.add_format({'num_format': '#,##0.00', 'border': 0})
 
-        for i, col in enumerate(df_res.columns):
-            ws_aud.write(0, i, col, header_fmt)
-            # Anchos proporcionales
-            if 'Hallazgos' in col or 'Concepto' in col: width = 45
-            elif 'Correcta' in col or 'Coincide' in col: width = 25
-            else: width = 15
-            ws_aud.set_column(i, i, width, text_fmt)
-            
-            if 'Monto' in col:
-                ws_aud.set_column(i, i, 20, money_fmt)
-
-        # Formato condicional: Si hay una ❌ en la columna G (índice 6), pintar fila
-        ws_aud.conditional_format(1, 0, len(df_res), len(df_res.columns)-1, {
-            'type': 'formula',
-            'criteria': '=OR(ISNUMBER(SEARCH("❌", $G2)), ISNUMBER(SEARCH("❌", $H2)))',
-            'format': err_fmt
-        })
-
-        # --- 2. HOJA 1: RESULTADOS DE AUDITORÍA ---
+        # --- 2. HOJA 1: RESULTADOS ---
         df_res.to_excel(writer, index=False, sheet_name='Resultados Auditoría')
         ws_aud = writer.sheets['Resultados Auditoría']
-        
-        ws_aud.freeze_panes(1, 0) # Punto 2: Fijar fila 1
-        ws_aud.set_row(0, 45)     # Encabezado alto para que se lean las descripciones
-
+        ws_aud.freeze_panes(1, 0)
+        ws_aud.hide_gridlines(2)
         for i, col in enumerate(df_res.columns):
-            ws_aud.write(0, i, col, header_fmt)
-            # Anchos automáticos descriptivos
-            if 'Hallazgos' in col or 'Concepto' in col: width = 50
-            elif 'Correcta' in col or 'Coincide' in col: width = 25
-            else: width = 15
-            ws_aud.set_column(i, i, width, text_fmt)
-            
-            if 'Monto' in col:
-                ws_aud.set_column(i, i, 18, money_fmt)
+            ws_aud.write(0, i, col, header_aud_fmt)
+            ws_aud.set_column(i, i, 45 if 'Hallazgos' in col or 'Concepto' in col else 18, text_aud_fmt)
+            if 'Monto' in col: ws_aud.set_column(i, i, 18, money_aud_fmt)
+        ws_aud.conditional_format(1, 0, len(df_res), len(df_res.columns)-1, {'type': 'formula', 'criteria': '=OR(ISNUMBER(SEARCH("❌", $G2)), ISNUMBER(SEARCH("❌", $H2)))', 'format': err_fmt})
 
-        # Pintar fila de rojo si hay error en Monto (Col G) o Banco (Col H)
-        # La fórmula busca el carácter "❌" en esas columnas
-        ws_aud.conditional_format(1, 0, len(df_res), len(df_res.columns)-1, {
-            'type': 'formula',
-            'criteria': '=OR(ISNUMBER(SEARCH("❌", $G2)), ISNUMBER(SEARCH("❌", $H2)))',
-            'format': err_fmt
-        })
-
-        # --- 3. HOJA 2: CONSULTA MAYOR CG (Réplica) ---
+        # --- 3. HOJA 2: CONSULTA MAYOR CG ---
         df_cg_raw.to_excel(writer, index=False, sheet_name='Consulta Mayor CG')
         ws_cg = writer.sheets['Consulta Mayor CG']
-        ws_cg.freeze_panes(1, 0)
-        # Ancho estándar para el mayor
-        ws_cg.set_column('A:K', 20, text_fmt)
+        ws_cg.hide_gridlines(2)
+        ws_cg.set_column('A:K', 20)
 
-        # --- 4. HOJA 3: CONSULTA REPORTE CB (Réplica Exacta y Legible) ---
-        df_cb_clean = df_cb_raw.copy()
-        try:
-            # Intentamos convertir la columna de fecha (índice 2) a datetime y luego a solo date
-            df_cb_clean.iloc[:, 2] = pd.to_datetime(df_cb_clean.iloc[:, 2], errors='coerce').dt.date
-        except:
-            pass
+        # --- 4. HOJA 3: RÉPLICA MAESTRA REPORTE CB ---
+        ws_cb = workbook.add_worksheet('Consulta Reporte CB')
+        ws_cb.hide_gridlines(2) # Quitar celdas de fondo
 
-        df_cb_clean.to_excel(writer, index=False, header=False, sheet_name='Consulta Reporte CB')
-        ws_cb = writer.sheets['Consulta Reporte CB']
-        
-        # Aplicamos anchos y formatos SIN BORDES
-        ws_cb.set_column(0, 0, 15, text_fmt)   # A: Asiento
-        ws_cb.set_column(1, 1, 15, text_fmt)   # B: Cuenta Bancaria
-        ws_cb.set_column(2, 2, 14, date_fmt)   # C: Fecha (LIMPIA)
-        ws_cb.set_column(3, 3, 8,  text_fmt)   # D: Tipo
-        ws_cb.set_column(4, 4, 14, text_fmt)   # E: Número
-        ws_cb.set_column(5, 5, 35, text_fmt)   # F: Beneficiario
-        ws_cb.set_column(6, 6, 25, text_fmt)   # G: Subtipo
-        ws_cb.set_column(7, 7, 45, text_fmt)   # H: Concepto
-        ws_cb.set_column(8, 9, 16, money_fmt)  # I y J: Montos
-        
+        # Anchos de columna idénticos al original
+        ws_cb.set_column(0, 1, 15) # A y B
+        ws_cb.set_column(2, 2, 14) # C (Fecha)
+        ws_cb.set_column(3, 3, 8)  # D (Tipo)
+        ws_cb.set_column(4, 4, 14) # E (Número)
+        ws_cb.set_column(5, 5, 35) # F (Beneficiario)
+        ws_cb.set_column(6, 6, 25) # G (Subtipo)
+        ws_cb.set_column(7, 7, 45) # H (Concepto)
+        ws_cb.set_column(8, 9, 16) # I y J (Montos)
+        ws_cb.set_column(10, 11, 15) # K y L
+
+        # BUCLE DE ESCRITURA INTELIGENTE
+        for r_idx, row in df_cb_raw.iterrows():
+            val_col_a = str(row[0]).strip().upper()
+            
+            # A. DETECTAR FILA DE ENCABEZADOS (Asiento, Fecha, etc.)
+            if val_col_a == 'ASIENTO':
+                fmt_fila = header_rep_fmt
+            # B. DETECTAR FILA DE TOTALES
+            elif 'TOTAL' in str(row[7]).upper() or 'TOTAL' in val_col_a:
+                fmt_fila = total_rep_fmt
+            # C. DETECTAR FILA DE TÍTULO DE BANCO (Si A tiene valor y no es asiento ni dato)
+            elif pd.notna(row[0]) and not val_col_a.startswith('CB'):
+                fmt_fila = title_rep_fmt
+            # D. FILA DE DATOS O VACÍA
+            else:
+                fmt_fila = data_rep_fmt
+
+            for c_idx, value in enumerate(row):
+                current_cell_fmt = fmt_fila
+                
+                # Excepciones de formato por columna dentro de la fila
+                if fmt_fila == data_rep_fmt:
+                    if c_idx == 2: # Fecha
+                        current_cell_fmt = date_rep_fmt
+                        try: value = pd.to_datetime(value).date()
+                        except: pass
+                    elif c_idx in [8, 9]: # Montos
+                        current_cell_fmt = money_rep_fmt
+                        try: value = float(value)
+                        except: value = 0.0
+                
+                # Escribir la celda
+                ws_cb.write(r_idx, c_idx, value if pd.notna(value) else "", current_cell_fmt)
+
     return output.getvalue()
