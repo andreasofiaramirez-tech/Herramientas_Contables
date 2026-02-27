@@ -4506,35 +4506,47 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
 # ------------------------------------------------------------------------------
 # 6.4. AUDITORIA DE COMISIONES (CREACION DE EDUARDO)
 # ------------------------------------------------------------------------------
-    
 def run_conciliation_comisiones_bancarias(df_cb_raw, df_cg_raw, log_messages):
-    log_messages.append("--- INICIANDO AUDITORÍA DE COMISIONES (FILTRO INTELIGENTE) ---")
+    log_messages.append("--- INICIANDO AUDITORÍA DE COMISIONES (MODO ROBUSTO) ---")
     
     # --- 1. PROCESAMIENTO DEL REPORTE DE TESORERÍA (Imagen A) ---
     df_cb = df_cb_raw.copy()
     
-    # Forzamos que los encabezados se tomen de la FILA 3 (índice 2 de pandas)
-    df_cb.columns = df_cb.iloc[2]
+    # ESCANEO DINÁMICO PARA ENCONTRAR EL ENCABEZADO
+    # Buscamos la fila que contiene 'Asiento' y 'Cuenta Bancaria'
+    header_found = False
+    for i in range(len(df_cb)):
+        row_values = [str(val).strip().upper() for val in df_cb.iloc[i].values]
+        if 'ASIENTO' in row_values:
+            # Encontramos la fila del encabezado
+            new_columns = [str(c).strip() for c in df_cb.iloc[i]]
+            df_cb.columns = new_columns
+            df_cb = df_cb.iloc[i + 1:].reset_index(drop=True)
+            header_found = True
+            log_messages.append(f"✅ Encabezado detectado en la fila index {i}")
+            break
+            
+    if not header_found:
+        log_messages.append("❌ ERROR: No se pudo localizar la columna 'Asiento' en el archivo.")
+        return pd.DataFrame()
+
+    # Normalizar nombres de columnas (quitar espacios extras)
+    df_cb.columns = [c.strip() for c in df_cb.columns]
+
+    # LIMPIEZA DE DATOS
+    # 1. Eliminar filas donde el Asiento sea nulo o no sea un string
+    df_cb = df_cb[df_cb['Asiento'].notna()]
     
-    # Nos quedamos con la data desde la fila 4 en adelante
-    df_cb = df_cb.iloc[3:].reset_index(drop=True)
-    
-    # LIMPIEZA INTELIGENTE:
-    # A. Quitamos filas donde el Asiento sea nulo (saltos de línea)
-    df_cb = df_cb.dropna(subset=['Asiento'])
-    
-    # B. Quitamos los encabezados repetidos (filas que dicen "Asiento" de nuevo)
-    df_cb = df_cb[df_cb['Asiento'].astype(str).str.upper() != 'ASIENTO']
-    
-    # C. Filtramos solo filas con asientos reales (que contengan 'CB')
-    # Esto elimina automáticamente las filas de "TOTAL" (como la fila 50)
+    # 2. Filtrar solo filas que contengan 'CB' (asientos reales)
+    # Esto limpia automáticamente encabezados repetidos y filas de TOTAL
     df_cb = df_cb[df_cb['Asiento'].astype(str).str.contains('CB', na=False, case=False)]
     
-    # Convertimos montos a números para poder sumar
+    # 3. Asegurar que Montos sean numéricos
     df_cb['Créditos'] = pd.to_numeric(df_cb['Créditos'], errors='coerce').fillna(0)
 
     # --- 2. PREPARACIÓN DEL MAYOR (Imagen B) ---
     df_cg = df_cg_raw.copy()
+    # Asegurar que las columnas clave de CG existan y sean numéricas
     for col in ['Débito VES', 'Crédito VES', 'Débito Dólar', 'Crédito Dólar']:
         if col in df_cg.columns:
             df_cg[col] = pd.to_numeric(df_cg[col], errors='coerce').fillna(0)
@@ -4542,59 +4554,64 @@ def run_conciliation_comisiones_bancarias(df_cb_raw, df_cg_raw, log_messages):
     # --- 3. AUDITORÍA ASIENTO POR ASIENTO ---
     resultados = []
     
-    # El nombre correcto según tu imagen es 'Cuenta Bancaria'
-    for banco, grupo_cb in df_cb.groupby('Cuenta Bancaria'):
-        log_messages.append(f"🔎 Analizando Banco: {banco}")
-        es_usd = str(banco).upper().endswith('E') # L = VES, E = USD
+    # Agrupamos por 'Cuenta Bancaria' (según Imagen A)
+    # Usamos column index si el nombre falla, pero aquí ya lo normalizamos arriba
+    col_banco = 'Cuenta Bancaria'
+    
+    for banco, grupo_cb in df_cb.groupby(col_banco):
+        log_messages.append(f"🔎 Auditando Banco: {banco}")
+        es_usd = str(banco).upper().endswith('E') # E=USD, L=VES
         
         for _, fila_cb in grupo_cb.iterrows():
             asiento_id = str(fila_cb['Asiento']).strip()
             monto_cb = float(fila_cb['Créditos'])
             
-            # Buscamos en Mayor
+            # Buscamos en Mayor por Asiento
             asto_cg = df_cg[df_cg['Asiento'] == asiento_id]
             
             check_monto, check_contra, check_cuadrado = "❌", "❌", "❌"
-            monto_cg = 0
+            monto_cg_banco = 0
             obs = []
 
             if asto_cg.empty:
-                obs.append("No hallado en Mayor (CG)")
+                obs.append("Asiento no existe en Contabilidad")
             else:
-                # Punto 1: Verificar Monto (en la línea del banco 1.1.1.02)
-                col_monto = 'Crédito Dólar' if es_usd else 'Crédito VES'
-                linea_banco = asto_cg[asto_cg['Cuenta Contable'].astype(str).str.startswith('1.1.1.02')]
-                monto_cg = linea_banco[col_monto].sum()
+                # Punto 1: Verificar Monto (Imagen B: Crédito VES o Crédito Dólar)
+                col_monto_asto = 'Crédito Dólar' if es_usd else 'Crédito VES'
                 
-                if abs(round(monto_cb, 2) - round(monto_cg, 2)) <= 0.01:
+                # Identificamos la línea del banco (prefijo 1.1.1.02)
+                linea_banco = asto_cg[asto_cg['Cuenta Contable'].astype(str).str.startswith('1.1.1.02')]
+                monto_cg_banco = linea_banco[col_monto_asto].sum()
+                
+                if abs(round(monto_cb, 2) - round(monto_cg_banco, 2)) <= 0.01:
                     check_monto = "✅"
                 else:
-                    obs.append(f"Diferencia Monto: CB({monto_cb}) vs CG({monto_cg})")
+                    obs.append(f"Dif: CB({monto_cb:,.2f}) vs CG({monto_cg_banco:,.2f})")
 
-                # Punto 3: Contrapartida (Gasto Bancario o Cambio)
-                cta_gasto = '7.1.3.50.1.002' if es_usd else '7.1.3.50.1.001'
-                tiene_gasto = asto_cg['Cuenta Contable'].astype(str).str.contains(cta_gasto).any()
+                # Punto 3: Contrapartida (Gastos 7.1.3.50 o Cambio 6.1.1.12)
+                cta_gasto_prefijo = '7.1.3.50.1.002' if es_usd else '7.1.3.50.1.001'
+                tiene_gasto = asto_cg['Cuenta Contable'].astype(str).str.contains(cta_gasto_prefijo).any()
                 tiene_cambio = asto_cg['Cuenta Contable'].astype(str).str.contains('6.1.1.12.1.001').any()
                 
                 if tiene_gasto or tiene_cambio:
                     check_contra = "✅"
                 else:
-                    obs.append(f"Falta Cta {cta_gasto}")
+                    obs.append(f"Falta Cta {cta_gasto_prefijo}")
 
-                # Punto 3-Nota: Suma D = Suma C
-                tot_debs = asto_cg['Débito VES'].sum() + asto_cg['Débito Dólar'].sum()
-                tot_creds = asto_cg['Crédito VES'].sum() + asto_cg['Crédito Dólar'].sum()
-                if abs(tot_debs - tot_creds) < 0.1:
+                # Punto 3-Nota: El asiento debe estar cuadrado (Débitos = Créditos)
+                total_debe = asto_cg['Débito VES'].sum() + asto_cg['Débito Dólar'].sum()
+                total_haber = asto_cg['Crédito VES'].sum() + asto_cg['Crédito Dólar'].sum()
+                if abs(total_debe - total_haber) < 0.1:
                     check_cuadrado = "✅"
                 else:
-                    obs.append("Asiento descuadrado")
+                    obs.append("Asiento descuadrado en CG")
 
             resultados.append({
                 'Banco': banco,
                 'Asiento': asiento_id,
                 'Referencia': fila_cb['Referencia'],
                 'Monto CB': monto_cb,
-                'Monto CG': monto_cg,
+                'Monto CG': monto_cg_banco,
                 'Monto OK': check_monto,
                 'Gasto OK': check_contra,
                 'Cuadrado': check_cuadrado,
@@ -4603,13 +4620,13 @@ def run_conciliation_comisiones_bancarias(df_cb_raw, df_cg_raw, log_messages):
 
     df_final = pd.DataFrame(resultados)
 
-    # --- PUNTO 4: VALIDACIÓN DE TOTALES POR BANCO ---
+    # --- PUNTO 4: RESUMEN POR BANCO ---
     if not df_final.empty:
-        log_messages.append("--- RESUMEN FINAL POR BANCO ---")
+        log_messages.append("--- RESULTADOS POR BANCO (TOTALES) ---")
         resumen = df_final.groupby('Banco').agg({'Monto CB': 'sum', 'Monto CG': 'sum'})
         for bco, row in resumen.iterrows():
             dif = round(row['Monto CB'] - row['Monto CG'], 2)
-            msg = "✅ CUADRADO" if abs(dif) < 0.1 else f"❌ DESCUADRE ({dif})"
-            log_messages.append(f"Banco {bco}: {msg}")
+            status = "✅ CUADRADO" if abs(dif) < 0.1 else f"❌ DESCUADRE (Bs. {dif:,.2f})"
+            log_messages.append(f"Banco {bco}: {status}")
 
     return df_final
