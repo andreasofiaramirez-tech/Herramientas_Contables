@@ -1268,6 +1268,34 @@ def render_debito_fiscal():
                 st.error(f"Error detectado: {str(e)}")
                 st.exception(e)
 
+# Función para que el bot analice los resultados
+def asistente_contable_inteligente(pregunta, df_resultados=None):
+    p = pregunta.lower()
+    
+    # 1. CONSULTA DE RESULTADOS (Si ya se corrió el proceso)
+    if df_resultados is not None and not df_resultados.empty:
+        if "cuántos errores" in p or "errores" in p:
+            errores = len(df_resultados[df_resultados['Monto OK'].str.contains("❌")])
+            return f"He encontrado {errores} errores en esta auditoría. Los bancos con problemas están resaltados en rojo en tu Excel."
+        
+        if "total cb" in p:
+            total = df_resultados['Monto en Tesorería (CB)'].sum()
+            return f"El monto total reportado por Tesorería es de Bs. {total:,.2f}."
+
+    # 2. DICCIONARIO DE CUENTAS
+    if "cuenta" in p and "usd" in p:
+        return "Para comisiones en dólares debes usar la cuenta 7.1.3.50.1.002 (Gastos Bancarios Exterior)."
+    
+    if "cuenta" in p and "ves" in p:
+        return "Para comisiones nacionales debes usar la cuenta 7.1.3.50.1.001 (Gastos Bancarios País)."
+
+    # 3. EXPLICACIÓN DE CONCEPTOS
+    if "cuadrado" in p or "check" in p:
+        return "El check de 'Asiento Cuadrado' significa que la suma de Débitos y Créditos en Contabilidad es cero. Si aparece ❌, el contador dejó el asiento descuadrado."
+
+    # 4. RESPUESTA POR DEFECTO
+    return "No estoy seguro de la respuesta. Intenta preguntarme por 'errores', 'cuentas contables' o el 'total' del reporte."
+    
 def render_comisiones_bancarias():
     # --- IDENTIDAD VISUAL CORPORATIVA (Basada en la propuesta original) ---
     CONFIG_EMPRESAS = {
@@ -1288,13 +1316,12 @@ def render_comisiones_bancarias():
             
         if prompt := st.chat_input("Consulte sobre este proceso..."):
             st.session_state.messages_com.append({"role": "user", "content": prompt})
-            # Respuesta lógica basada en palabras clave
-            p = prompt.lower()
-            if "archivo" in p or "columna" in p:
-                resp = "El sistema requiere columnas: 'Asiento', 'Referencia' y 'Cuenta Contable'."
-            else:
-                resp = "Asegúrese de que el archivo del Diario (CG) sea formato .xlsx."
-            st.session_state.messages_com.append({"role": "assistant", "content": resp})
+    
+            # Le pasamos el dataframe de resultados si ya existe
+            res_df = st.session_state.get('df_res_comisiones') 
+            respuesta = asistente_contable_inteligente(prompt, res_df)
+    
+            st.session_state.messages_com.append({"role": "assistant", "content": respuesta})
             st.rerun()
 
     # Cabecera Institucional
