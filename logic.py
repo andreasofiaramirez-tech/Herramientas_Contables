@@ -4506,10 +4506,43 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
 # ------------------------------------------------------------------------------
 # 6.4. AUDITORIA DE COMISIONES (CREACION DE EDUARDO)
 # ------------------------------------------------------------------------------
-def run_conciliation_comisiones_bancarias(df_cb_raw, df_cg_raw, log_messages):
-    log_messages.append("--- INICIANDO AUDITORÍA DE COMISIONES (VERSIÓN AUTOEXPLICATIVA) ---")
+# 1. Traemos los mapas que ya existen en el sistema para PRISMA, BEVAL, etc.
+from logic import MAPEO_CB_CG_PRISMA, MAPEO_CB_CG_BEVAL, MAPEO_CB_CG_FEBECA, MAPEO_CB_CG_SILLACA
+
+# 2. Dentro de la auditoría, comparamos identidades:
+def validar_identidad_banco(codigo_tesoreria, cuenta_contable_usada, empresa_sel):
+    # Buscamos en el diccionario de la empresa seleccionada
+    mapeo = {
+        "PRISMA": MAPEO_CB_CG_PRISMA,
+        "MAYOR BEVAL, C.A": MAPEO_CB_CG_BEVAL,
+        "FEBECA, C.A": MAPEO_CB_CG_FEBECA,
+        "SILLACA": MAPEO_CB_CG_SILLACA
+    }.get(empresa_sel, {})
     
-    # --- 1. PROCESAMIENTO DEL REPORTE DE TESORERÍA ---
+    config_esperada = mapeo.get(codigo_tesoreria, {})
+    cuenta_esperada = config_esperada.get('cta', 'NO_MAP')
+    
+    # Comparamos si la cuenta que usó el contador es la que correspondía al banco
+    if cuenta_contable_usada.strip() == cuenta_esperada:
+        return True
+    return False
+
+def run_conciliation_comisiones_bancarias(df_cb_raw, df_cg_raw, empresa_sel, log_messages):
+    log_messages.append(f"--- INICIANDO AUDITORÍA TOTAL DE COMISIONES - {empresa_sel} ---")
+    
+    # --- 1. SELECCIÓN DE DICCIONARIO DE IDENTIDAD ---
+    # Normalizamos el nombre de la empresa para el mapeo
+    mapeos = {
+        "PRISMA, C.A": MAPEO_CB_CG_PRISMA,
+        "MAYOR BEVAL, C.A": MAPEO_CB_CG_BEVAL,
+        "FEBECA, C.A": MAPEO_CB_CG_FEBECA,
+        "FEBECA, C.A (QUINCALLA)": MAPEO_CB_CG_FEBECA, # Usa el mismo que FEBECA
+        "SILLACA, C.A": MAPEO_CB_CG_SILLACA
+    }
+    # Obtenemos el diccionario específico para la empresa seleccionada
+    mapeo_identidad = mapeos.get(empresa_sel, {})
+    
+    # --- 2. PROCESAMIENTO DEL REPORTE DE TESORERÍA (CB) ---
     df_cb = df_cb_raw.copy()
     header_found = False
     for i in range(len(df_cb)):
@@ -4529,23 +4562,26 @@ def run_conciliation_comisiones_bancarias(df_cb_raw, df_cg_raw, log_messages):
     df_cb = df_cb[~df_cb['Asiento'].astype(str).str.upper().str.contains('TOTAL', na=False)]
     df_cb['Créditos'] = pd.to_numeric(df_cb['Créditos'], errors='coerce').fillna(0)
 
-    # --- 2. PREPARACIÓN DEL MAYOR (CG) ---
+    # --- 3. PREPARACIÓN DEL MAYOR (CG) ---
     df_cg = df_cg_raw.copy()
     for col in ['Débito VES', 'Crédito VES', 'Débito Dólar', 'Crédito Dólar']:
         if col in df_cg.columns:
             df_cg[col] = pd.to_numeric(df_cg[col], errors='coerce').fillna(0)
 
-    # --- 3. AUDITORÍA ASIENTO POR ASIENTO ---
+    # --- 4. AUDITORÍA ASIENTO POR ASIENTO ---
     resultados = []
     
     # Nombres de columnas autoexplicativos
     COL_MONTO_STATUS = "Monto Coincide (CB vs CG)"
+    COL_BANCO_STATUS = "Cuenta de Banco Correcta"
     COL_GASTO_STATUS = "Cuenta Gasto Correcta (7.1.3.50 / 6.1.1.12)"
     COL_CUADRADO_STATUS = "Asiento Cuadrado (Debe = Haber)"
 
-    for banco, grupo_cb in df_cb.groupby('Cuenta Bancaria'):
-        es_usd = str(banco).upper().endswith('E')
-        moneda_label = 'Dólares (USD)' if es_usd else 'Bolívares (VES)'
+    for banco_cb, grupo_cb in df_cb.groupby('Cuenta Bancaria'):
+        # Obtenemos la cuenta contable esperada desde el diccionario maestro
+        config_banco = mapeo_identidad.get(str(banco_cb).strip(), {})
+        cuenta_contable_esperada = config_banco.get('cta', 'SIN_DICCIONARIO')
+        es_usd = config_banco.get('moneda', 'VES') == 'USD'
         
         for _, fila_cb in grupo_cb.iterrows():
             asiento_id = str(fila_cb['Asiento']).strip()
@@ -4554,7 +4590,7 @@ def run_conciliation_comisiones_bancarias(df_cb_raw, df_cg_raw, log_messages):
             
             asto_cg = df_cg[df_cg['Asiento'] == asiento_id]
             
-            check_monto, check_contra, check_cuadrado = "❌ No coincide", "❌ Incorrecta", "❌ Descuadrado"
+            check_monto, check_banco, check_contra, check_cuadrado = "❌ No coincide", "❌ Incorrecta", "❌ Incorrecta", "❌ Descuadrado"
             monto_cg_banco = 0
             obs = []
 
@@ -4562,17 +4598,32 @@ def run_conciliation_comisiones_bancarias(df_cb_raw, df_cg_raw, log_messages):
                 obs.append("El asiento no existe en el Mayor de Contabilidad")
             else:
                 col_monto_asto = 'Crédito Dólar' if es_usd else 'Crédito VES'
-                # Buscamos en Bancos Nacionales (1.1.1.02) o Exterior (1.1.1.03)
-                linea_banco = asto_cg[asto_cg['Cuenta Contable'].astype(str).str.startswith(('1.1.1.02', '1.1.1.03'))]
-                monto_cg_banco = linea_banco[col_monto_asto].sum()
                 
-                # Validación de Monto
+                # VALIDACIÓN 1: Identidad del Banco (Punto 2 Mejorado)
+                # Buscamos líneas que usen la cuenta contable que el diccionario dice que corresponde al código CB
+                lineas_banco_real = asto_cg[asto_cg['Cuenta Contable'].astype(str).str.strip() == cuenta_contable_esperada]
+                
+                if not lineas_banco_real.empty:
+                    check_banco = "✅ Correcta"
+                    monto_cg_banco = lineas_banco_real[col_monto_asto].sum()
+                else:
+                    # Si no usó la correcta, buscamos qué cuenta de banco usó para informar el error
+                    lineas_cualquier_banco = asto_cg[asto_cg['Cuenta Contable'].astype(str).str.startswith(('1.1.1.02', '1.1.1.03'))]
+                    if not lineas_cualquier_banco.empty:
+                        cta_usada = lineas_cualquier_banco['Cuenta Contable'].iloc[0]
+                        check_banco = f"❌ Error: Se usó {cta_usada}"
+                        obs.append(f"Se esperaba la cuenta {cuenta_contable_esperada}")
+                        monto_cg_banco = lineas_cualquier_banco[col_monto_asto].sum()
+                    else:
+                        check_banco = "❌ No se halló cuenta de Banco"
+
+                # VALIDACIÓN 2: Monto (Punto 1)
                 if abs(round(monto_cb, 2) - round(monto_cg_banco, 2)) <= 0.01:
                     check_monto = "✅ Monto Correcto"
                 else:
-                    obs.append(f"Dif: Tesorería {monto_cb:,.2f} vs Contabilidad {monto_cg_banco:,.2f}")
+                    obs.append(f"Dif. Monto: Tesorería {monto_cb:,.2f} vs Contabilidad {monto_cg_banco:,.2f}")
 
-                # Validación de Cuentas de Gasto
+                # VALIDACIÓN 3: Contrapartida (Punto 3)
                 cta_gasto_prefijo = '7.1.3.50.1.002' if es_usd else '7.1.3.50.1.001'
                 tiene_gasto = asto_cg['Cuenta Contable'].astype(str).str.contains(cta_gasto_prefijo).any()
                 tiene_cambio = asto_cg['Cuenta Contable'].astype(str).str.contains('6.1.1.12.1.001').any()
@@ -4580,24 +4631,25 @@ def run_conciliation_comisiones_bancarias(df_cb_raw, df_cg_raw, log_messages):
                 if tiene_gasto or tiene_cambio:
                     check_contra = "✅ Cuenta Correcta"
                 else:
-                    obs.append(f"Falta registrar gasto en la cuenta {cta_gasto_prefijo}")
+                    obs.append(f"Falta Cta Gasto {cta_gasto_prefijo}")
 
-                # Validación de Cuadre
+                # VALIDACIÓN 4: Cuadre
                 total_debe = asto_cg['Débito VES'].sum() + asto_cg['Débito Dólar'].sum()
                 total_haber = asto_cg['Crédito VES'].sum() + asto_cg['Crédito Dólar'].sum()
                 if abs(total_debe - total_haber) < 0.1:
                     check_cuadrado = "✅ Cuadrado"
                 else:
-                    obs.append("La sumatoria del asiento no da cero (descuadrado)")
+                    obs.append("Asiento descuadrado")
 
             resultados.append({
-                'Banco': banco,
-                'Moneda Conciliada': moneda_label,
+                'Banco (Reporte CB)': banco_cb,
+                'Moneda': 'USD' if es_usd else 'VES',
                 'Asiento': asiento_id,
                 'Concepto Reportado (CB)': concepto_cb,
                 'Monto en Tesorería (CB)': monto_cb,
                 'Monto en Contabilidad (CG)': monto_cg_banco,
                 COL_MONTO_STATUS: check_monto,
+                COL_BANCO_STATUS: check_banco,  # Nueva Columna de Identidad
                 COL_GASTO_STATUS: check_contra,
                 COL_CUADRADO_STATUS: check_cuadrado,
                 'Hallazgos / Observaciones': " | ".join(obs)
@@ -4605,9 +4657,9 @@ def run_conciliation_comisiones_bancarias(df_cb_raw, df_cg_raw, log_messages):
 
     df_final = pd.DataFrame(resultados)
 
-    # Ordenar: Errores primero
+    # Ordenar: Errores de Monto o Banco primero
     if not df_final.empty:
-        df_final['sort_helper'] = df_final[COL_MONTO_STATUS].apply(lambda x: 0 if "❌" in x else 1)
-        df_final = df_final.sort_values(by=['sort_helper', 'Banco', 'Asiento']).drop(columns=['sort_helper'])
+        df_final['sort_helper'] = df_final.apply(lambda x: 0 if ("❌" in x[COL_MONTO_STATUS] or "❌" in x[COL_BANCO_STATUS]) else 1, axis=1)
+        df_final = df_final.sort_values(by=['sort_helper', 'Banco (Reporte CB)', 'Asiento']).drop(columns=['sort_helper'])
 
     return df_final
