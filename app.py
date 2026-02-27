@@ -1269,32 +1269,50 @@ def render_debito_fiscal():
                 st.exception(e)
 
 # Función para que el bot analice los resultados
-def asistente_contable_inteligente(pregunta, df_resultados=None):
+def asistente_contable_inteligente(pregunta, df=None):
     p = pregunta.lower()
     
-    # 1. CONSULTA DE RESULTADOS (Si ya se corrió el proceso)
-    if df_resultados is not None and not df_resultados.empty:
-        if "cuántos errores" in p or "errores" in p:
-            errores = len(df_resultados[df_resultados['Monto OK'].str.contains("❌")])
-            return f"He encontrado {errores} errores en esta auditoría. Los bancos con problemas están resaltados en rojo en tu Excel."
+    # 1. VERIFICAR SI HAY DATOS
+    if df is None or df.empty:
+        if any(w in p for w in ["error", "total", "monto", "asiento"]):
+            return "Aún no he analizado los datos. Por favor, carga los archivos y pulsa 'Iniciar Análisis' para poder responderte sobre este reporte."
+        return "Hola! Soy tu asistente contable. ¿En qué puedo ayudarte hoy?"
+
+    # 2. LÓGICA DE ERRORES (Detecta "error", "errores", "fallas", "mal")
+    if any(w in p for w in ["error", "falla", "malo", "no coincide"]):
+        # Buscamos en la columna de Monto OK o Banco OK
+        errores_monto = len(df[df['Monto Coincide (CB vs CG)'].str.contains("❌")])
+        errores_banco = len(df[df['Cuenta de Banco Correcta'].str.contains("❌")])
         
-        if "total cb" in p:
-            total = df_resultados['Monto en Tesorería (CB)'].sum()
-            return f"El monto total reportado por Tesorería es de Bs. {total:,.2f}."
+        if errores_monto == 0 and errores_banco == 0:
+            return "¡Buenas noticias! No detecté errores de monto ni de cuentas bancarias en este reporte."
+        
+        msg = f"He encontrado {errores_monto + errores_banco} incidencias: \n"
+        if errores_monto > 0: msg += f"- {errores_monto} diferencias de dinero entre Tesorería y Contabilidad.\n"
+        if errores_banco > 0: msg += f"- {errores_banco} errores en la cuenta contable del banco utilizada.\n"
+        msg += "Los verás resaltados en el Excel de descarga."
+        return msg
 
-    # 2. DICCIONARIO DE CUENTAS
-    if "cuenta" in p and "usd" in p:
-        return "Para comisiones en dólares debes usar la cuenta 7.1.3.50.1.002 (Gastos Bancarios Exterior)."
-    
-    if "cuenta" in p and "ves" in p:
-        return "Para comisiones nacionales debes usar la cuenta 7.1.3.50.1.001 (Gastos Bancarios País)."
+    # 3. LÓGICA DE TOTALES (Detecta "total", "suma", "monto", "cuanto")
+    if any(w in p for w in ["total", "suma", "monto", "cuánto", "cuanto"]):
+        total_cb = df['Monto en Tesorería (CB)'].sum()
+        total_cg = df['Monto en Contabilidad (CG)'].sum()
+        
+        if "dolar" in p or "usd" in p or "$" in p:
+            # Solo sumamos los que el reporte marcó como USD
+            usd_sum = df[df['Moneda'] == 'USD']['Monto en Tesorería (CB)'].sum()
+            return f"El total de comisiones en Dólares (USD) es de ${usd_sum:,.2f}."
+            
+        return f"El total reportado por Tesorería es Bs. {total_cb:,.2f} y lo registrado en Contabilidad es Bs. {total_cg:,.2f}."
 
-    # 3. EXPLICACIÓN DE CONCEPTOS
-    if "cuadrado" in p or "check" in p:
-        return "El check de 'Asiento Cuadrado' significa que la suma de Débitos y Créditos en Contabilidad es cero. Si aparece ❌, el contador dejó el asiento descuadrado."
+    # 4. CUENTAS CONTABLES
+    if "cuenta" in p or "donde" in p:
+        if "usd" in p or "dolar" in p:
+            return "Para comisiones en USD (Exterior), la cuenta correcta es 7.1.3.50.1.002."
+        return "Para comisiones en VES (País), la cuenta correcta es 7.1.3.50.1.001."
 
-    # 4. RESPUESTA POR DEFECTO
-    return "No estoy seguro de la respuesta. Intenta preguntarme por 'errores', 'cuentas contables' o el 'total' del reporte."
+    # 5. CASO POR DEFECTO
+    return "Entiendo tu pregunta, pero necesito que seas más específico. Puedes preguntarme por 'errores en el reporte', 'total de comisiones' o 'cuentas contables'."
     
 def render_comisiones_bancarias():
     # --- IDENTIDAD VISUAL CORPORATIVA (Basada en la propuesta original) ---
@@ -1372,7 +1390,7 @@ def render_comisiones_bancarias():
                         casa_sel, # <--- Pasamos la empresa seleccionada
                         log
                     )
-                    
+                    st.session_state['df_res_comisiones'] = df_res 
                     st.success(f"✅ Proceso completado exitosamente para {casa_sel}")
                     st.dataframe(df_res, use_container_width=True)
                     
