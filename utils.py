@@ -3136,6 +3136,20 @@ def generar_reporte_excel_locti(res, data_meta):
         mes_corto = data_meta['mes_corto']
         usuario = data_meta['usuario']
 
+        # --- DEFINICIÓN DE ESTILOS (RÉPLICA PENSIONES) ---
+        fmt_title_label = workbook.add_format({'bold': True, 'align': 'left', 'valign': 'vcenter'})
+        fmt_company = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'bottom': 1})
+        fmt_code_company = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'bottom': 1})
+        box_header = workbook.add_format({'bold': True, 'border': 1, 'align': 'center', 'valign': 'vcenter', 'text_wrap': True, 'bg_color': '#FFFFFF'})
+        box_data_center = workbook.add_format({'border': 1, 'align': 'center', 'valign': 'vcenter'})
+        box_data_left = workbook.add_format({'border': 1, 'align': 'left', 'valign': 'vcenter'})
+        box_money = workbook.add_format({'border': 1, 'num_format': '#,##0.00', 'valign': 'vcenter'})
+        box_money_bold = workbook.add_format({'border': 1, 'num_format': '#,##0.00', 'valign': 'vcenter', 'bold': True})
+        fmt_date_vouch = workbook.add_format({'border': 1, 'align': 'center', 'bold': True, 'num_format': 'dd/mm/yyyy'})
+        fmt_calc = workbook.add_format({'bg_color': '#FFFFFF', 'border': 1, 'align': 'center', 'bold': True, 'num_format': '#,##0.00'})
+        small_text = workbook.add_format({'font_size': 9, 'italic': True, 'align': 'left'})
+        top_line = workbook.add_format({'top': 1, 'font_size': 9})
+        
         # --- HOJA 1: CALCULO LOCTI ---
         ws1 = workbook.add_worksheet('Calculo LOCTI')
         ws1.hide_gridlines(2)
@@ -3173,24 +3187,93 @@ def generar_reporte_excel_locti(res, data_meta):
         ws1.write('A23', 'Saldo Proyectado'); ws1.write('D23', res['proyectado'], f_num)
         ws1.write('A24', 'DIFERENCIA (CENTAVOS)', f_neg); ws1.write('D24', res['diferencia'], f_num)
 
-        # --- HOJA 2: ASIENTO CONTABLE ---
+        # --- HOJA 2: ASIENTO CONTABLE (EL VOUCHER) ---
         ws2 = workbook.add_worksheet('Asiento Contable')
         ws2.hide_gridlines(2)
-        f_box = workbook.add_format({'border': 1, 'font_size': 9})
-        f_head = workbook.add_format({'bold': True, 'bg_color': '#D9EAD3', 'border': 1, 'align': 'center'})
         
-        ws2.set_column('A:E', 15); ws2.set_column('F:G', 18)
-        ws2.write('A1', 'COMPAÑÍA:', f_neg); ws2.write('B1', filial)
-        ws2.write('A2', 'CONCEPTO:', f_neg); ws2.write('B2', f'APARTADO LOCTI {mes_corto}')
+        # Configuración de anchos de columna (Réplica Pensiones)
+        ws2.set_column('A:A', 8)   # OFIC
+        ws2.set_column('B:B', 15)  # CC
+        ws2.set_column('C:C', 15)  # CTA
+        ws2.set_column('D:D', 2)   # Separador
+        ws2.set_column('E:F', 18)  # Título de cuenta
+        ws2.set_column('G:J', 18)  # Montos
+
+        # 1. ENCABEZADO
+        ws2.write('A1', "COMPAÑÍA:", fmt_title_label)
+        ws2.merge_range('C1:F1', filial, fmt_company)
+        ws2.write('G1', "Nº.", workbook.add_format({'bold': True, 'align': 'right'}))
+        ws2.write('H1', num_casa, fmt_code_company)
+
+        ws2.write('B3', "PARA ASENTAR EN DIARIO Y CUENTAS:", fmt_title_label)
+        ws2.write('B4', "1) Escríbase con máquina de escribir.", small_text)
+        ws2.write('B5', "2) Entréguese a Contabilidad.", small_text)
+        ws2.write('B6', "3) Anéxese documentación original, si la hay.", small_text)
+
+        # Cuadro ASENTADO
+        ws2.merge_range('G3:H3', "A S E N T A D O", box_header)
+        ws2.write('G4', "Operación No.: _______", workbook.add_format({'align': 'right'}))
+        ws2.write('H4', pd.to_datetime(fecha_str, dayfirst=True), fmt_date_vouch)
+
+        # 2. CABECERA DE TABLA
+        start_row = 8
+        ws2.merge_range(start_row, 0, start_row, 2, "NUMERO DE CUENTA", box_header)
+        ws2.merge_range(start_row, 3, start_row, 4, "TITULO DE CUENTA", box_header)
+        ws2.merge_range(start_row, 5, start_row, 6, "MONTO BOLÍVARES", box_header)
+        ws2.merge_range(start_row, 7, start_row, 8, "MONTO DOLARES", box_header)
         
-        headers = ['CUENTA', 'DESCRIPCIÓN', 'DEBE', 'HABER']
-        ws2.write_row('A4', headers, f_head)
+        headers = ["OFIC.", "CENTRO DE COSTO", "CTA.", "TITULO DE CUENTA", "", "DEBE (D)", "HABER (H)", "DEBE (D)", "HABER (H)"]
+        for i, h in enumerate(headers):
+            if h: ws2.write(start_row+1, i, h, box_header)
+
+        # 3. DATOS DEL ASIENTO (LOCTI solo tiene 2 líneas: Gasto y Pasivo)
+        row_idx = start_row + 2
+        for _, row in df_asiento.iterrows():
+            ws2.write(row_idx, 0, "01", box_data_center)
+            ws2.write(row_idx, 1, row['Centro Costo'], box_data_center)
+            ws2.write(row_idx, 2, row['Cuenta Contable'], box_data_center)
+            ws2.merge_range(row_idx, 3, row_idx, 4, row['Descripción'], box_data_left)
+            
+            # Montos VES
+            ws2.write(row_idx, 5, row['Débito VES'] if row['Débito VES'] > 0 else "", box_money)
+            ws2.write(row_idx, 6, row['Crédito VES'] if row['Crédito VES'] > 0 else "", box_money)
+            # Montos USD
+            ws2.write(row_idx, 7, row['Débito USD'] if row['Débito USD'] > 0 else "", box_money)
+            ws2.write(row_idx, 8, row['Crédito USD'] if row['Crédito USD'] > 0 else "", box_money)
+            row_idx += 1
+
+        # Totales
+        ws2.write(row_idx, 5, df_asiento['Débito VES'].sum(), box_money_bold)
+        ws2.write(row_idx, 6, df_asiento['Crédito VES'].sum(), box_money_bold)
+        ws2.write(row_idx, 7, df_asiento['Débito USD'].sum(), box_money_bold)
+        ws2.write(row_idx, 8, df_asiento['Crédito USD'].sum(), box_money_bold)
+
+        # 4. TEXTOS DEL DEBE/HABER
+        row_idx += 3
+        texto_concepto = f"APORTE LOCTI {mes_corto}"
         
-        ws2.write('A5', '7.1.3.57.1.001', f_box); ws2.write('B5', 'Gastos Locti', f_box); ws2.write('C5', res['aporte_mes'], f_num)
-        ws2.write('A6', '2.1.3.02.5.001', f_box); ws2.write('B6', 'Locti por Pagar', f_box); ws2.write('D6', res['aporte_mes'], f_num)
+        ws2.write(row_idx, 0, "TEXTO DEL DEBE", fmt_title_label)
+        ws2.merge_range(row_idx, 3, row_idx, 4, texto_concepto, fmt_calc)
+        ws2.write(row_idx, 6, df_asiento['Débito VES'].sum(), fmt_calc)
+        ws2.write(row_idx, 8, df_asiento['Débito USD'].sum(), fmt_calc)
         
-        ws2.write('A8', 'HECHO POR:', f_neg); ws2.write('B8', usuario)
-        ws2.write('A9', 'FECHA:', f_neg); ws2.write('B9', fecha_str)
+        row_idx += 3
+        ws2.write(row_idx, 0, "TEXTO DEL HABER", fmt_title_label)
+        ws2.merge_range(row_idx, 3, row_idx, 4, texto_concepto, fmt_calc)
+        ws2.write(row_idx, 6, df_asiento['Crédito VES'].sum(), fmt_calc)
+        ws2.write(row_idx, 8, df_asiento['Crédito USD'].sum(), fmt_calc)
+
+        # 5. FIRMAS Y PIE DE PÁGINA
+        row_idx += 4
+        ws2.write(row_idx, 0, "Hecho por:", top_line)
+        ws2.merge_range(row_idx, 3, row_idx, 4, "Aprobado por:", top_line)
+        ws2.write(row_idx, 6, "Procesado por:", top_line)
+        ws2.write(row_idx, 7, "Lugar y Fecha:", top_line)
+        
+        ws2.write(row_idx+1, 0, usuario, workbook.add_format({'bold': True, 'align': 'center'}))
+        ws2.merge_range(row_idx+1, 7, row_idx+1, 8, f"VALENCIA, {fecha_str}", fmt_calc)
+
+        ws2.merge_range(row_idx+3, 3, row_idx+3, 5, "ORIGINAL: CONTABILIDAD", workbook.add_format({'bold': True, 'align': 'center'}))
 
     return output.getvalue()
 
