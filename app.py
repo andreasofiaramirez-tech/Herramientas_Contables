@@ -1415,11 +1415,50 @@ def render_comisiones_bancarias():
                 mostrar_error_amigable(e, "el módulo de Comisiones")
 
 def render_locti():
-    st.title("⚖️ Cálculo Ley de Ciencia, Tecnología e Innovación (LOCTI)")
+    st.title("⚖️ Cálculo LOCTI")
     
     if st.button("⬅️ Volver al Inicio"): 
         set_page('inicio')
         st.rerun()
+
+    # --- IDENTIDAD VISUAL DE LUSI (Réplica Exacta) ---
+    st.markdown("""
+        <style>
+        /* Estilo para los encabezados de color */
+        .titulo-reporte {
+            padding: 12px; 
+            border-radius: 10px 10px 0px 0px; /* Redondeado solo arriba */
+            color: white; 
+            font-weight: bold;
+            text-align: center; 
+            font-size: 1.1em;
+            box-shadow: 2px 2px 5px rgba(0,0,0,0.1);
+        }
+        .ventas { background-color: #1a237e; } /* Azul Marino */
+        .ingresos { background-color: #1b5e20; } /* Verde Oscuro */
+        .reserva { background-color: #b71c1c; } /* Rojo Intenso */
+        
+        /* Ajuste del cargador de archivos para que se pegue al título */
+        [data-testid="stFileUploader"] {
+            border: 1px solid #ddd !important;
+            border-top: none !important; /* Quita el borde superior para unirlo al título */
+            border-radius: 0px 0px 10px 10px !important; /* Redondeado solo abajo */
+            padding: 10px;
+            background-color: #f8f9fa;
+        }
+        
+        /* Quitar el padding extra que Streamlit pone entre elementos */
+        .stMarkdown { margin-bottom: -15px; }
+        
+        /* Estilo para los mensajes con el pin */
+        .pin-guia {
+            font-size: 0.85rem;
+            color: #666;
+            margin-top: 10px;
+            margin-left: 5px;
+        }
+        </style>
+    """, unsafe_allow_html=True)
 
     # --- BARRA DE CONFIGURACIÓN ---
     dict_filiales = {
@@ -1430,28 +1469,28 @@ def render_locti():
     with st.container(border=True):
         c1, c2, c3 = st.columns(3)
         filial = c1.selectbox("🏢 Seleccione la Filial:", list(dict_filiales.keys()))
-        fecha_rep = c2.date_input("📅 Mes de Cierre:", value=pd.Timestamp.now())
+        fecha_rep = c2.date_input("📅 Mes de Cierre:", value=datetime(2026, 1, 31))
         usuario = c3.text_input("👤 Hecho por:", value=" ").upper()
 
-    # Estilos de Lusi
-    st.markdown("""
-        <style>
-        .box-lusi { padding: 15px; border-radius: 10px; color: white; font-weight: bold; text-align: center; margin-bottom: 10px; }
-        .v-blue { background-color: #003366; } .i-green { background-color: #2E7D32; } .r-red { background-color: #C62828; }
-        </style>
-    """, unsafe_allow_html=True)
-
-    st.subheader(f"📥 Balances de Comprobación: {filial}")
+    st.markdown("---")
+    st.markdown(f"### 📥 Carga de Balances de Comprobación: **{filial}**")
     
     col1, col2, col3 = st.columns(3)
-    f_v = col1.file_uploader("Subir Ventas", type=["xlsx"], key="lv", label_visibility="collapsed")
-    col1.markdown('<div class="box-lusi v-blue">Balance VENTAS (4.0)</div>', unsafe_allow_html=True)
     
-    f_i = col2.file_uploader("Subir Ingresos", type=["xlsx"], key="li", label_visibility="collapsed")
-    col2.markdown('<div class="box-lusi i-green">Balance INGRESOS (6.1.1)</div>', unsafe_allow_html=True)
+    with col1:
+        st.markdown('<div class="titulo-reporte ventas">🏢 Balance VENTAS</div>', unsafe_allow_html=True)
+        f_v = st.file_uploader("Subir Ventas", type=["xlsx", "xls"], key="lv", label_visibility="collapsed")
+        st.markdown('<p class="pin-guia">📍 Debe contener la cuenta 4.0.0.00.0.000</p>', unsafe_allow_html=True)
     
-    f_r = col3.file_uploader("Subir Reserva", type=["xlsx"], key="lr", label_visibility="collapsed")
-    col3.markdown('<div class="box-lusi r-red">RESERVA ANTERIOR (7.1.3)</div>', unsafe_allow_html=True)
+    with col2:
+        st.markdown('<div class="titulo-reporte ingresos">💰 Balance INGRESOS</div>', unsafe_allow_html=True)
+        f_i = st.file_uploader("Subir Ingresos", type=["xlsx", "xls"], key="li", label_visibility="collapsed")
+        st.markdown('<p class="pin-guia">📍 Debe contener los grupos 6.1.1.X</p>', unsafe_allow_html=True)
+    
+    with col3:
+        st.markdown('<div class="titulo-reporte reserva">📥 RESERVA ANTERIOR</div>', unsafe_allow_html=True)
+        f_r = st.file_uploader("Subir Reserva", type=["xlsx", "xls"], key="lr", label_visibility="collapsed")
+        st.markdown('<p class="pin-guia">📍 Debe contener la cuenta 7.1.3.57.1.001</p>', unsafe_allow_html=True)
 
     if f_v and f_i and f_r:
         if st.button("🚀 Calcular Impuesto LOCTI", type="primary", use_container_width=True):
