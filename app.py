@@ -1537,9 +1537,9 @@ def render_locti():
                         "filial": filial, "usuario": analista,
                         "fecha_str": fecha_rep.strftime("%d/%m/%Y"),
                         "mes_nombre": fecha_rep.strftime("%B %Y").upper(),
-                        "mes_corto": fecha_rep.strftime("%b.%y").upper()
+                        "mes_corto": fecha_rep.strftime("%b.%y").upper(), "num_casa": dict_filiales[filial]
                     }
-                    excel_rep = generar_reporte_excel_locti(res, meta_data)
+                    excel_rep = generar_reporte_excel_locti(res, df_asiento, meta_data)
                     d_col1.download_button(
                         "📊 Descargar Informe LOCTI", 
                         excel_rep, 
