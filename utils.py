@@ -2998,30 +2998,26 @@ def _generar_hoja_conciliados_fondos_cofersa(workbook, formatos, df_conciliados)
 # ==============================================================================
 # 1. AUDITORIA COMISIONES
 # ==============================================================================
-def generar_reporte_comisiones(df, nombre_empresa, color_hex):
-    """Genera el reporte Excel de comisiones con la paleta de colores corporativa."""
+def generar_reporte_auditoria_comisiones(df, nombre_empresa, color_hex):
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        df.to_excel(writer, index=False, sheet_name='Comisiones')
+        df.to_excel(writer, index=False, sheet_name='Auditoría')
         workbook = writer.book
-        ws = writer.sheets['Comisiones']
+        ws = writer.sheets['Auditoría']
         
-        # Formatos: Mix de lo profesional con la identidad visual dinámica
-        header_fmt = workbook.add_format({
-            'bold': True, 'fg_color': color_hex, 'font_color': 'white', 
-            'border': 1, 'align': 'center', 'valign': 'vcenter'
-        })
-        money_fmt = workbook.add_format({'num_format': '#,##0.00', 'border': 1})
-        text_fmt = workbook.add_format({'border': 1})
+        # Formatos
+        header_fmt = workbook.add_format({'bold': True, 'fg_color': color_hex, 'font_color': 'white', 'border': 1})
+        err_fmt = workbook.add_format({'bg_color': '#FFC7CE', 'font_color': '#9C0006'}) # Rojo para errores
+        ok_fmt = workbook.add_format({'bg_color': '#C6EFCE', 'font_color': '#006100'})  # Verde para OK
         
-        # Aplicar cabeceras y dimensiones
+        # Cabeceras
         for i, col in enumerate(df.columns):
             ws.write(0, i, col, header_fmt)
-            # Aplicar formato de moneda a columnas financieras
-            if any(k in col.upper() for k in ['VES', 'DÓLAR', 'USD', 'MONTO']):
-                ws.set_column(i, i, 18, money_fmt)
-            else:
-                ws.set_column(i, i, 22, text_fmt)
+            ws.set_column(i, i, 22)
+
+        # Aplicar formato condicional a la columna Estatus (asumiendo que es la columna F)
+        ws.conditional_format('F2:F5000', {'type': 'text', 'criteria': 'containing', 'value': 'ERROR', 'format': err_fmt})
+        ws.conditional_format('F2:F5000', {'type': 'text', 'criteria': 'containing', 'value': 'OK', 'format': ok_fmt})
                 
     return output.getvalue()
     
