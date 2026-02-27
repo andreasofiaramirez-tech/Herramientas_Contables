@@ -2998,7 +2998,7 @@ def _generar_hoja_conciliados_fondos_cofersa(workbook, formatos, df_conciliados)
 # ==============================================================================
 # 1. AUDITORIA COMISIONES
 # ==============================================================================
-def generar_reporte_auditoria_comisiones(df, nombre_empresa, color_hex):
+def generar_reporte_comisiones(df, nombre_empresa, color_hex):
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         df.to_excel(writer, index=False, sheet_name='Auditoría')
