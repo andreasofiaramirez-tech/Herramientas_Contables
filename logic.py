@@ -4507,35 +4507,67 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
 # 6.4. AUDITORIA DE COMISIONES (CREACION DE EDUARDO)
 # ------------------------------------------------------------------------------
     
-def run_conciliation_comisiones_bancarias(df_diario, log_messages):
-    """
-    Motor técnico para la estandarización y ordenamiento de comisiones bancarias.
-    """
-    log_messages.append("--- INICIANDO PROCESAMIENTO DE COMISIONES BANCARIAS ---")
-    df = df_diario.copy()
+def run_conciliation_comisiones_bancarias(df_cb_raw, df_cg_raw, log_messages):
+    log_messages.append("--- INICIANDO AUDITORÍA CRUZADA CB VS CG ---")
     
-    # Estandarización de nombres (Radar de columnas)
-    df.columns = df.columns.astype(str).str.strip()
-    rename_map = {
-        'Cuenta Contable': 'Cuenta Bancaria',
-        'Débito USD': 'Débito Dólar',
-        'Crédito USD': 'Crédito Dólar',
-        'DEBITO VES': 'Débito VES',
-        'CREDITO VES': 'Crédito VES'
-    }
-    df.rename(columns=rename_map, inplace=True, errors='ignore')
+    # --- PASO 1: LIMPIEZA DEL INFORME DE TESORERÍA (Imagen A) ---
+    # Filtramos filas que no son datos (encabezados repetidos o totales)
+    df_cb = df_cb_raw.copy()
+    # Identificamos filas de datos: Deben tener un asiento que empiece por CB o similar
+    df_cb = df_cb[df_cb['Asiento'].astype(str).str.contains('CB', na=False, case=False)]
+    # Eliminar posibles filas que digan "Asiento" (encabezados repetidos)
+    df_cb = df_cb[df_cb['Asiento'].astype(str).str.upper() != 'ASIENTO']
     
-    # Inicialización de columnas de control
-    if 'Estatus Conciliación' not in df.columns:
-        df['Estatus Conciliación'] = "✅ Conciliado"
+    # --- PASO 2: LIMPIEZA DEL MAYOR DE CONTABILIDAD (Imagen B) ---
+    df_cg = df_cg_raw.copy()
     
-    for c in ["Débito Dólar", "Crédito Dólar"]:
-        if c not in df.columns: df[c] = 0.0
+    # --- PASO 3: AUDITORÍA ASIENTO POR ASIENTO ---
+    resultados = []
     
-    # Ordenamiento profesional por Asiento (maneja formatos como CG-123 o 123)
-    if 'Asiento' in df.columns:
-        df['Asiento_Sort'] = pd.to_numeric(df['Asiento'].astype(str).str.extract('(\d+)', expand=False), errors='coerce')
-        df = df.sort_values(by='Asiento_Sort').drop(columns=['Asiento_Sort'])
+    # Agrupamos el CB por Banco para el Punto 4
+    for banco, grupo_cb in df_cb.groupby('Cuenta Banca'):
+        log_messages.append(f"🔎 Auditando Banco: {banco}")
+        es_usd = str(banco).upper().endswith('E') # Si termina en E es moneda extranjera
         
-    log_messages.append(f"✔️ {len(df)} registros analizados y ordenados.")
-    return df
+        for _, fila_cb in grupo_cb.iterrows():
+            asiento_id = str(fila_cb['Asiento']).strip()
+            monto_cb = float(fila_cb['Créditos']) # El monto que reporta tesorería
+            
+            # Buscamos el asiento en el Mayor (CG)
+            asiento_cg = df_cg[df_cg['Asiento'] == asiento_id]
+            
+            estatus = "OK"
+            detalles = []
+            
+            if asiento_cg.empty:
+                estatus = "ERROR: Asiento no hallado en Contabilidad"
+            else:
+                # Punto 1: Verificar Monto
+                # Si es USD comparamos 'Crédito Dólar', si es VES 'Crédito VES' (en la cuenta del banco)
+                col_monto_cg = 'Crédito Dólar' if es_usd else 'Crédito VES'
+                monto_cg_banco = asiento_cg[asiento_cg['Cuenta Contable'].astype(str).str.contains('1.1.1.02', na=False)][col_monto_cg].sum()
+                
+                if abs(monto_cb - monto_cg_banco) > 0.01:
+                    estatus = "ERROR: Diferencia de Montos"
+                    detalles.append(f"CB: {monto_cb} vs CG: {monto_cg_banco}")
+
+                # Punto 3: Verificar Contrapartida (Gasto Bancario)
+                cuenta_gasto = '7.1.3.50.1.002' if es_usd else '7.1.3.50.1.001'
+                tiene_gasto = asiento_cg['Cuenta Contable'].astype(str).str.contains(cuenta_gasto, na=False).any()
+                
+                if not tiene_gasto:
+                    estatus = "ADVERTENCIA: Contrapartida Incorrecta"
+                    detalles.append(f"No se halló la cuenta {cuenta_gasto}")
+
+            resultados.append({
+                'Banco': banco,
+                'Asiento': asiento_id,
+                'Referencia': fila_cb['Referencia'],
+                'Monto CB': monto_cb,
+                'Monto CG': monto_cg_banco if not asiento_cg.empty else 0,
+                'Estatus': estatus,
+                'Observaciones': " | ".join(detalles)
+            })
+
+    log_messages.append(f"✔️ Auditoría finalizada. {len(resultados)} asientos procesados.")
+    return pd.DataFrame(resultados)
