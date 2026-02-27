@@ -3119,3 +3119,77 @@ def generar_reporte_auditoria_comisiones(df_res, df_cg_raw, df_cb_raw, nombre_em
                 ws_cb.write(r_idx, c_idx, value if pd.notna(value) else "", current_cell_fmt)
 
     return output.getvalue()
+
+# ==============================================================================
+# 1. CALCULO LOCTI
+# ==============================================================================
+def generar_reporte_excel_locti(res, data_meta):
+    """
+    Genera el archivo Excel LOCTI con la hoja de Cálculo y el Asiento Contable.
+    """
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        workbook = writer.book
+        filial = data_meta['filial']
+        fecha_str = data_meta['fecha_str']
+        mes_nombre = data_meta['mes_nombre']
+        mes_corto = data_meta['mes_corto']
+        usuario = data_meta['usuario']
+
+        # --- HOJA 1: CALCULO LOCTI ---
+        ws1 = workbook.add_worksheet('Calculo LOCTI')
+        ws1.hide_gridlines(2)
+        
+        # Formatos
+        f_tit = workbook.add_format({'bold': True, 'align': 'center', 'font_size': 12})
+        f_num = workbook.add_format({'num_format': '#,##0.00'})
+        f_pct = workbook.add_format({'num_format': '0.00%'})
+        f_neg = workbook.add_format({'bold': True})
+        f_res = workbook.add_format({'bold': True, 'bg_color': '#FFFF00', 'num_format': '#,##0.00', 'border': 1})
+
+        ws1.set_column('A:A', 45); ws1.set_column('C:D', 20)
+        ws1.merge_range('A1:D1', filial, f_tit)
+        ws1.merge_range('A2:D2', 'CALCULO APORTE LOCTI (0.5%)', f_tit)
+        ws1.write('A4', f'PERIODO DE CIERRE: {mes_nombre}', f_neg)
+
+        # Tabla Mes
+        ws1.write('A6', '1. MOVIMIENTO DEL MES', f_neg)
+        ws1.write('A7', 'Ventas Netas Gravables'); ws1.write('C7', res['v_mes'], f_num)
+        ws1.write('A8', 'Ingresos Mercantiles'); ws1.write('C8', res['i_mes'], f_num)
+        ws1.write('A9', 'Base de Cálculo Mensual', f_neg); ws1.write('C9', res['base_mes'], f_num)
+        ws1.write('A10', 'Alícuota LOCTI'); ws1.write('C10', 0.005, f_pct)
+        ws1.write('A11', 'APORTE DEL MES A REGISTRAR', f_neg); ws1.write('D11', res['aporte_mes'], f_res)
+
+        # Tabla Acumulado
+        ws1.write('A14', '2. CONTROL DE ACUMULADOS (SALDO BALANCE G)', f_neg)
+        ws1.write('A15', 'Total Ventas Acumuladas'); ws1.write('C15', res['v_acum'], f_num)
+        ws1.write('A16', 'Total Ingresos Acumulados'); ws1.write('C16', res['i_acum'], f_num)
+        ws1.write('A17', 'Cálculo Directo sobre Saldo G'); ws1.write('D17', res['acum_directo'], f_num)
+
+        # Validación
+        ws1.write('A20', '3. CONCILIACIÓN DE RESERVA', f_neg)
+        ws1.write('A21', 'Saldo Reserva Anterior'); ws1.write('C21', res['res_ant'], f_num)
+        ws1.write('A22', 'Más: Aporte del Mes'); ws1.write('C22', res['aporte_mes'], f_num)
+        ws1.write('A23', 'Saldo Proyectado'); ws1.write('D23', res['proyectado'], f_num)
+        ws1.write('A24', 'DIFERENCIA (CENTAVOS)', f_neg); ws1.write('D24', res['diferencia'], f_num)
+
+        # --- HOJA 2: ASIENTO CONTABLE ---
+        ws2 = workbook.add_worksheet('Asiento Contable')
+        ws2.hide_gridlines(2)
+        f_box = workbook.add_format({'border': 1, 'font_size': 9})
+        f_head = workbook.add_format({'bold': True, 'bg_color': '#D9EAD3', 'border': 1, 'align': 'center'})
+        
+        ws2.set_column('A:E', 15); ws2.set_column('F:G', 18)
+        ws2.write('A1', 'COMPAÑÍA:', f_neg); ws2.write('B1', filial)
+        ws2.write('A2', 'CONCEPTO:', f_neg); ws2.write('B2', f'APARTADO LOCTI {mes_corto}')
+        
+        headers = ['CUENTA', 'DESCRIPCIÓN', 'DEBE', 'HABER']
+        ws2.write_row('A4', headers, f_head)
+        
+        ws2.write('A5', '7.1.3.57.1.001', f_box); ws2.write('B5', 'Gastos Locti', f_box); ws2.write('C5', res['aporte_mes'], f_num)
+        ws2.write('A6', '2.1.3.02.5.001', f_box); ws2.write('B6', 'Locti por Pagar', f_box); ws2.write('D6', res['aporte_mes'], f_num)
+        
+        ws2.write('A8', 'HECHO POR:', f_neg); ws2.write('B8', usuario)
+        ws2.write('A9', 'FECHA:', f_neg); ws2.write('B9', fecha_str)
+
+    return output.getvalue()
