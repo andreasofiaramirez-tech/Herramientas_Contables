@@ -1533,7 +1533,7 @@ def render_locti():
 
                     # A. Reporte Excel de Lusi
                     meta_data = {
-                        "filial": filial, "usuario": analista,
+                        "filial": filial, "usuario": hecho por,
                         "fecha_str": fecha_rep.strftime("%d/%m/%Y"),
                         "mes_nombre": fecha_rep.strftime("%B %Y").upper(),
                         "mes_corto": fecha_rep.strftime("%b.%y").upper()
