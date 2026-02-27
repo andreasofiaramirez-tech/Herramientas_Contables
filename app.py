@@ -1333,10 +1333,11 @@ def render_comisiones_bancarias():
         if st.button(f"⚡ Iniciar Análisis de Comisiones - {tema['tag']}"):
             log = []
             try:
-                with st.spinner("Analizando movimientos contables..."):
-                    df_cg = pd.read_excel(f_cg)
-                    # Lógica centralizada en logic.py
-                    df_res = run_conciliation_comisiones_bancarias(df_cg, log)
+                with st.spinner("Cruzando Tesorería vs Contabilidad..."):
+                df_cb_raw = pd.read_excel(f_cb)
+                df_cg_raw = pd.read_excel(f_cg)
+
+                df_res = run_conciliation_comisiones_bancarias(df_cb_raw, df_cg_raw, log)
                     
                     st.success(f"✅ Proceso completado exitosamente para {casa_sel}")
                     st.dataframe(df_res, use_container_width=True)
