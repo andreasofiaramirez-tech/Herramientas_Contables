@@ -3218,10 +3218,11 @@ def generar_reporte_excel_locti(res, df_asiento, data_meta):
 
         # 2. CABECERA DE TABLA
         start_row = 8
-        ws2.merge_range(start_row, 0, start_row, 2, "NUMERO DE CUENTA", box_header)
-        ws2.merge_range(start_row, 3, start_row, 4, "TITULO DE CUENTA", box_header)
-        ws2.merge_range(start_row, 5, start_row, 6, "MONTO BOLÍVARES", box_header)
-        ws2.merge_range(start_row, 7, start_row, 8, "MONTO DOLARES", box_header)
+        ws2.merge_range(start_row, 0, start_row, 2, "NUMERO DE CUENTA", box_header) # A9:C9
+        ws2.write(start_row, 3, "", box_header)                                    # D9 (VACÍO)
+        ws2.write(start_row, 4, "TITULO DE CUENTA", box_header)                    # E9
+        ws2.merge_range(start_row, 5, start_row, 6, "MONTO BOLÍVARES", box_header)   # F9:G9
+        ws2.merge_range(start_row, 7, start_row, 8, "MONTO DOLARES", box_header)     # H9:I9
         
         headers = ["OFIC.", "CENTRO DE COSTO", "CTA.", "TITULO DE CUENTA", "", "DEBE (D)", "HABER (H)", "DEBE (D)", "HABER (H)"]
         for i, h in enumerate(headers):
@@ -3230,10 +3231,11 @@ def generar_reporte_excel_locti(res, df_asiento, data_meta):
         # 3. DATOS DEL ASIENTO (LOCTI solo tiene 2 líneas: Gasto y Pasivo)
         row_idx = start_row + 2
         for _, row in df_asiento.iterrows():
-            ws2.write(row_idx, 0, "01", box_data_center)
-            ws2.write(row_idx, 1, row['Centro Costo'], box_data_center)
-            ws2.write(row_idx, 2, row['Cuenta Contable'], box_data_center)
-            ws2.merge_range(row_idx, 3, row_idx, 4, row['Descripción'], box_data_left)
+            ws2.write(row_idx, 0, "01", box_data_center)                # A
+            ws2.write(row_idx, 1, row['Centro Costo'], box_data_center) # B
+            ws2.write(row_idx, 2, row['Cuenta Contable'], box_data_center) # C
+            ws2.write(row_idx, 3, "", box_data_center)                  # D (VACÍO)
+            ws2.write(row_idx, 4, row['Descripción'], box_data_left)    # E (Descripción)
             
             # Montos VES
             ws2.write(row_idx, 5, row['Débito VES'] if row['Débito VES'] > 0 else "", box_money)
