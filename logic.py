@@ -4557,7 +4557,7 @@ def run_conciliation_comisiones_bancarias(df_cb_raw, df_cg_raw, log_messages):
             asto_cg = df_cg[df_cg['Asiento'] == asiento_id]
             
             check_monto = "❌"
-チェック_cta_banco = "❌"
+            cta_banco = "❌"
             check_contrapartida = "❌"
             check_cuadrante = "❌"
             obs = []
