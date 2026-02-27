@@ -1474,7 +1474,7 @@ def render_locti():
         fecha_rep = c2.date_input("📅 Mes de Cierre:", value=datetime(2026, 1, 31))
         tasa = c3.number_input("💵 Tasa de Cambio:", min_value=0.01, value=1.0, format="%.4f")
         num_asto = c4.text_input("🔢 N° Asiento:", value="CG0000")
-        usuario = c3.text_input("👤 Hecho por:", value=" ").upper()
+        analista = c3.text_input("👤 Hecho por:", value=" ").upper()
 
     st.markdown("---")
     # --- 3. ÁREA DE CARGA DE ARCHIVOS (Diseño Lusi) ---
