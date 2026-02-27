@@ -2994,3 +2994,37 @@ def _generar_hoja_conciliados_fondos_cofersa(workbook, formatos, df_conciliados)
     ws.set_column('C:D', 40)
     ws.set_column('E:F', 18)
     ws.set_column('G:G', 30)
+
+# ==============================================================================
+# 1. AUDITORIA COMISIONES
+# ==============================================================================
+def generar_reporte_comisiones(df, nombre_empresa, color_hex):
+    """Genera el Excel de comisiones con la identidad visual de la empresa."""
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df.to_excel(writer, index=False, sheet_name='Comisiones')
+        workbook = writer.book
+        worksheet = writer.sheets['Comisiones']
+        
+        # Formatos estándar de la herramienta
+        money_fmt = workbook.add_format({'num_format': '#,##0.00', 'border': 1})
+        header_fmt = workbook.add_format({
+            'bold': True, 
+            'fg_color': color_hex, 
+            'font_color': 'white', 
+            'border': 1,
+            'align': 'center'
+        })
+        
+        # Aplicar formatos
+        for col_num, value in enumerate(df.columns.values):
+            worksheet.write(0, col_num, value, header_fmt)
+            worksheet.set_column(col_num, col_num, 20)
+            
+        # Formatear columnas de dinero si existen
+        for i, col in enumerate(df.columns):
+            if 'VES' in col or 'Dólar' in col:
+                worksheet.set_column(i, i, 18, money_fmt)
+                
+    return output.getvalue()
+    
