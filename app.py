@@ -1269,57 +1269,88 @@ def render_debito_fiscal():
                 st.exception(e)
 
 def render_comisiones_bancarias():
-    st.title("💰 Conciliación de Comisiones Bancarias", anchor=False)
-    
-    if st.button("⬅️ Volver al Inicio"): 
+    # --- IDENTIDAD VISUAL CORPORATIVA (Basada en la propuesta original) ---
+    CONFIG_EMPRESAS = {
+        "MAYOR BEVAL, C.A": {"borde": "#28A745", "fondo": "#EAFAF1", "tag": "BEVAL"},
+        "FEBECA, C.A":      {"borde": "#2196F3", "fondo": "#E8F4FD", "tag": "FEBECA"},
+        "PRISMA, C.A":      {"borde": "#566573", "fondo": "#F8F9F9", "tag": "PRISMA"},
+        "FEBECA, C.A (QUINCALLA)": {"borde": "#FF00FF", "fondo": "#FDE9F9", "tag": "QUINCALLA"}
+    }
+
+    # Barra lateral: Asistente Virtual del Departamento
+    with st.sidebar:
+        st.title("🤖 Asistente de Comisiones")
+        if "messages_com" not in st.session_state:
+            st.session_state.messages_com = [{"role": "assistant", "content": "Bienvenido al módulo de Comisiones. Por favor, seleccione la empresa y cargue los archivos correspondientes."}]
+        
+        for m in st.session_state.messages_com:
+            with st.chat_message(m["role"]): st.markdown(m["content"])
+            
+        if prompt := st.chat_input("Consulte sobre este proceso..."):
+            st.session_state.messages_com.append({"role": "user", "content": prompt})
+            # Respuesta lógica basada en palabras clave
+            p = prompt.lower()
+            if "archivo" in p or "columna" in p:
+                resp = "El sistema requiere columnas: 'Asiento', 'Referencia' y 'Cuenta Contable'."
+            else:
+                resp = "Asegúrese de que el archivo del Diario (CG) sea formato .xlsx."
+            st.session_state.messages_com.append({"role": "assistant", "content": resp})
+            st.rerun()
+
+    # Cabecera Institucional
+    st.title("💰 Conciliación de Comisiones Bancarias")
+    if st.button("⬅️ Volver al Panel Principal"): 
         set_page('inicio')
         st.rerun()
 
-    # Diccionario de Colores de Eduardo (Integrado al ecosistema)
-    COLORES_CORP = {
-        "MAYOR BEVAL, C.A": "#28A745",
-        "FEBECA, C.A": "#2196F3",
-        "PRISMA, C.A": "#566573",
-        "FEBECA, C.A (QUINCALLA)": "#FF00FF"
-    }
+    # Selección de empresa y aplicación de estilos dinámicos
+    st.subheader("Configuración de Proceso", anchor=False)
+    casa_sel = st.selectbox("Empresa a procesar:", list(CONFIG_EMPRESAS.keys()), key="empresa_com")
+    tema = CONFIG_EMPRESAS[casa_sel]
 
-    casa_sel = st.selectbox("Seleccione la Empresa:", list(COLORES_CORP.keys()))
-    color_tema = COLORES_CORP[casa_sel]
+    # Inyección de Estilos (Mantiene los cuadros de colores del diseño original)
+    st.markdown(f"""
+        <style>
+        .header-box {{ background-color: {tema['borde']}; color: white; padding: 12px; border-radius: 10px 10px 0 0; font-weight: bold; text-align: center; font-size: 1.1rem; }}
+        [data-testid="stFileUploader"] {{ background-color: {tema['fondo']} !important; border: 2px solid {tema['borde']} !important; border-radius: 0 0 15px 15px !important; }}
+        div.stButton > button {{ background-color: {tema['borde']} !important; color: white !important; border-radius: 12px; height: 3.5em; font-weight: bold; width: 100%; border: none; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }}
+        </style>
+        """, unsafe_allow_html=True)
 
-    st.markdown(f"""<div style="border-left: 5px solid {color_tema}; padding-left: 15px;">
-        Analice las comisiones del mes cargando el reporte de Comisiones (CB) y el Diario (CG).
-        </div>""", unsafe_allow_html=True)
+    st.divider()
 
+    # Área de Carga de Archivos
     col1, col2 = st.columns(2)
     with col1:
-        f_cb = st.file_uploader(f"1. {casa_sel} Comisiones (CB)", type=['xlsx'])
+        st.markdown(f'<div class="header-box">Comisiones Tesorería (CB)</div>', unsafe_allow_html=True)
+        f_cb = st.file_uploader("Subir Reporte de Bancos", type=['xlsx'], key="com_cb", label_visibility="collapsed")
     with col2:
-        f_cg = st.file_uploader(f"2. {casa_sel} Diario (CG)", type=['xlsx'])
+        st.markdown(f'<div class="header-box">Transacciones Diario (CG)</div>', unsafe_allow_html=True)
+        f_cg = st.file_uploader("Subir Diario Contable", type=['xlsx'], key="com_cg", label_visibility="collapsed")
 
+    # Acción de Procesamiento
     if f_cb and f_cg:
-        # Eduardo usó un botón verde brillante si ambos archivos están cargados
-        if st.button(f"⚡ Iniciar Proceso - {casa_sel}", type="primary"):
+        if st.button(f"⚡ Iniciar Análisis de Comisiones - {tema['tag']}"):
             log = []
             try:
-                with st.spinner("Procesando comisiones..."):
+                with st.spinner("Analizando movimientos contables..."):
                     df_cg = pd.read_excel(f_cg)
-                    # Llamamos a la nueva lógica en logic.py
+                    # Lógica centralizada en logic.py
                     df_res = run_conciliation_comisiones_bancarias(df_cg, log)
                     
-                    st.success(f"✅ Análisis completado para {casa_sel}")
+                    st.success(f"✅ Proceso completado exitosamente para {casa_sel}")
                     st.dataframe(df_res, use_container_width=True)
                     
-                    # Generar Excel con el color corporativo
-                    excel_bin = generar_reporte_comisiones(df_res, casa_sel, color_tema)
-                    
+                    # Reporte Excel personalizado con el color de la empresa
+                    excel_bin = generar_reporte_comisiones(df_res, casa_sel, tema['borde'])
                     st.download_button(
-                        label=f"📥 Descargar Reporte {casa_sel}",
-                        data=excel_bin,
-                        file_name=f"Comisiones_{casa_sel}.xlsx",
+                        label=f"📥 Descargar Reporte Final ({tema['tag']})", 
+                        data=excel_bin, 
+                        file_name=f"Conciliacion_Comisiones_{tema['tag']}.xlsx",
                         use_container_width=True
                     )
             except Exception as e:
-                mostrar_error_amigable(e, "el proceso de Comisiones")
+                mostrar_error_amigable(e, "el módulo de Comisiones")
 
 # ==============================================================================
 # VI. ENRUTAMIENTO FINAL (ROUTER)
