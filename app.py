@@ -1411,6 +1411,78 @@ def render_comisiones_bancarias():
             except Exception as e:
                 mostrar_error_amigable(e, "el módulo de Comisiones")
 
+def render_locti():
+    st.title("⚖️ Cálculo Ley de Ciencia, Tecnología e Innovación (LOCTI)")
+    
+    if st.button("⬅️ Volver al Inicio"): 
+        set_page('inicio')
+        st.rerun()
+
+    # --- BARRA DE CONFIGURACIÓN ---
+    dict_filiales = {
+        "BEVAL, C.A.": "271", "FEBECA, C.A.": "004",
+        "SILLACA, C.A.": "071", "PRISMA SISTEMAS": "298"
+    }
+    
+    with st.container(border=True):
+        c1, c2, c3 = st.columns(3)
+        filial = c1.selectbox("🏢 Seleccione la Filial:", list(dict_filiales.keys()))
+        fecha_rep = c2.date_input("📅 Mes de Cierre:", value=pd.Timestamp.now())
+        usuario = c3.text_input("👤 Analista:", value=" ").upper()
+
+    # Estilos de Lusi
+    st.markdown("""
+        <style>
+        .box-lusi { padding: 15px; border-radius: 10px; color: white; font-weight: bold; text-align: center; margin-bottom: 10px; }
+        .v-blue { background-color: #003366; } .i-green { background-color: #2E7D32; } .r-red { background-color: #C62828; }
+        </style>
+    """, unsafe_allow_html=True)
+
+    st.subheader(f"📥 Balances de Comprobación: {filial}")
+    
+    col1, col2, col3 = st.columns(3)
+    f_v = col1.file_uploader("Subir Ventas", type=["xlsx"], key="lv", label_visibility="collapsed")
+    col1.markdown('<div class="box-lusi v-blue">Balance VENTAS (4.0)</div>', unsafe_allow_html=True)
+    
+    f_i = col2.file_uploader("Subir Ingresos", type=["xlsx"], key="li", label_visibility="collapsed")
+    col2.markdown('<div class="box-lusi i-green">Balance INGRESOS (6.1.1)</div>', unsafe_allow_html=True)
+    
+    f_r = col3.file_uploader("Subir Reserva", type=["xlsx"], key="lr", label_visibility="collapsed")
+    col3.markdown('<div class="box-lusi r-red">RESERVA ANTERIOR (7.1.3)</div>', unsafe_allow_html=True)
+
+    if f_v and f_i and f_r:
+        if st.button("🚀 Calcular Impuesto LOCTI", type="primary", use_container_width=True):
+            log = []
+            try:
+                res = procesar_calculo_locti(f_v, f_i, f_r, log)
+                
+                # Cuadro de resultados de Lusi
+                st.divider()
+                st.success(f"🎊 Cálculo finalizado para {filial}")
+                
+                # Resumen en pantalla
+                m1, m2, m3 = st.columns(3)
+                m1.metric("Base Imponible Mes", f"Bs. {res['base_mes']:,.2f}")
+                m2.metric("Aporte del Mes (0.5%)", f"Bs. {res['aporte_mes']:,.2f}")
+                m3.metric("Diferencia Centavos", f"Bs. {res['diferencia']:,.2f}")
+
+                # Preparar Meta-Data para Excel
+                meta = {
+                    "filial": filial, "usuario": usuario,
+                    "fecha_str": fecha_rep.strftime("%d/%m/%Y"),
+                    "mes_nombre": fecha_rep.strftime("%B %Y").upper(),
+                    "mes_corto": fecha_rep.strftime("%b.%y").upper()
+                }
+                
+                excel_bin = generar_reporte_excel_locti(res, meta)
+                st.download_button("📥 Descargar Reporte y Asiento LOCTI", excel_bin, f"LOCTI_{filial}_{meta['mes_corto']}.xlsx", use_container_width=True)
+
+                with st.expander("Ver Log de Auditoría"):
+                    for m in log: st.text(m)
+
+            except Exception as e:
+                st.error(f"Error procesando archivos: {e}")
+
 # ==============================================================================
 # VI. ENRUTAMIENTO FINAL (ROUTER)
 # ==============================================================================
