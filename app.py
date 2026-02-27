@@ -86,7 +86,8 @@ from utils import (
     generar_hoja_pendientes_dev_cofersa,
     cargar_datos_fondos_cofersa,
     generar_reporte_auditoria_comisiones,
-    generar_reporte_excel_locti
+    generar_reporte_excel_locti,
+    generar_cargador_softland_v2
 )
 
 # --- Bloque 4: Helpers de Interfaz ---
