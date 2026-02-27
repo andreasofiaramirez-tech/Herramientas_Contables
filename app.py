@@ -1343,7 +1343,13 @@ def render_comisiones_bancarias():
                     st.dataframe(df_res, use_container_width=True)
                     
                     # Reporte Excel personalizado con el color de la empresa
-                    excel_bin = generar_reporte_comisiones(df_res, casa_sel, tema['borde'])
+                    excel_bin = generar_reporte_auditoria_comisiones(
+                        df_res,      # El resultado de la auditoría
+                        df_cg_raw,   # El mayor original (subido por el usuario)
+                        df_cb_raw,   # El reporte de tesorería original (subido por el usuario)
+                        casa_sel, 
+                        tema['borde']
+                    )
                     st.download_button(
                         label=f"📥 Descargar Reporte Final ({tema['tag']})", 
                         data=excel_bin, 
