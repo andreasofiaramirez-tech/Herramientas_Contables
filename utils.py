@@ -3123,7 +3123,7 @@ def generar_reporte_auditoria_comisiones(df_res, df_cg_raw, df_cb_raw, nombre_em
 # ==============================================================================
 # 1. CALCULO LOCTI
 # ==============================================================================
-def generar_reporte_excel_locti(res, data_meta):
+def generar_reporte_excel_locti(res, df_asiento, data_meta):
     """
     Genera el archivo Excel LOCTI con la hoja de Cálculo y el Asiento Contable.
     """
