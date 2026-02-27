@@ -3224,9 +3224,10 @@ def generar_reporte_excel_locti(res, df_asiento, data_meta):
         ws2.merge_range(start_row, 5, start_row, 6, "MONTO BOLÍVARES", box_header)   # F9:G9
         ws2.merge_range(start_row, 7, start_row, 8, "MONTO DOLARES", box_header)     # H9:I9
         
-        headers = ["OFIC.", "CENTRO DE COSTO", "CTA.", "TITULO DE CUENTA", "", "DEBE (D)", "HABER (H)", "DEBE (D)", "HABER (H)"]
-        for i, h in enumerate(headers):
-            if h: ws2.write(start_row+1, i, h, box_header)
+        sub_headers = ["OFIC.", "CENTRO DE COSTO", "CTA.", "", "TITULO DE CUENTA", "DEBE (D)", "HABER (H)", "DEBE (D)", "HABER (H)"]
+        
+        for i, h in enumerate(sub_headers):
+            ws2.write(start_row + 1, i, h, box_header)
 
         # 3. DATOS DEL ASIENTO (LOCTI solo tiene 2 líneas: Gasto y Pasivo)
         row_idx = start_row + 2
