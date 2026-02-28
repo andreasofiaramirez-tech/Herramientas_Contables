@@ -3361,9 +3361,8 @@ def _validar_asiento(asiento_group):
             return "Incidencia: Diferencial Cambiario registrado en cuenta de Descuentos/NC."
         cuentas_presentes = set(asiento_group['Cuenta Contable Norm'])
         tiene_descuento = normalize_account('4.1.1.22.4.001') in cuentas_presentes
-        tiene_iva = normalize_account('2.1.3.04.1.001') in cuentas_presentes
-        if not (tiene_descuento and tiene_iva):
-            return "Incidencia: Asiento de N/C incompleto (Falta Descuento o IVA)."
+        if not (tiene_descuento):
+            return "Incidencia: Asiento de N/C incompleto (Falta cuenta de Descuento 4.1.1.22.4.001)."
 
     # GRUPO 10: TRASPASOS
     elif grupo.startswith("Grupo 10:"):
