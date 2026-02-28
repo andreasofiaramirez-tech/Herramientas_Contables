@@ -3096,7 +3096,8 @@ CUENTAS_CONOCIDAS = {normalize_account(acc) for acc in [
     '1.9.1.01.3.009', # Inv. Oficinas
     '7.1.3.01.1.001', # Deudores Incobrables
     '1.1.4.01.7.044', # CxC Varios ME
-    '2.1.2.05.1.005'  # Asientos por Clasificar (NUEVA)
+    '2.1.2.05.1.005',  # Asientos por Clasificar (NUEVA)
+    '1.1.4.01.6.005', #Cuentas por Cobrar - Varios en ME
 ]}
 
 CUENTAS_BANCO = {normalize_account(acc) for acc in [
@@ -3252,7 +3253,9 @@ def _get_base_classification(cuentas_del_asiento, referencia_completa, fuente_co
         return "Grupo 14: Inv. entre Oficinas"
 
     if normalize_account('7.1.3.01.1.001') in cuentas_del_asiento: return "Grupo 15: Deudores Incobrables"
-    if normalize_account('1.1.4.01.7.044') in cuentas_del_asiento: return "Grupo 16: Cuentas por Cobrar - Varios en ME"
+    if normalize_account('1.1.4.01.6.005') in cuentas_del_asiento:
+        if "TRANSPORTE" in referencia_completa:
+            return "Grupo 16: Cuentas por Cobrar - Varios en ME"
     if normalize_account('2.1.2.05.1.005') in cuentas_del_asiento: return "Grupo 17: Asientos por Clasificar"
     if normalize_account('7.1.3.06.1.998') in cuentas_del_asiento: return "Grupo 12: Perdida p/Venta o Retiro Activo ND"
     if normalize_account('7.1.3.45.1.997') in cuentas_del_asiento: return "Grupo 1: Acarreos y Fletes Recuperados"
