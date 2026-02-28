@@ -3168,6 +3168,10 @@ def _get_base_classification(cuentas_del_asiento, referencia_completa, fuente_co
             if referencia_limpia_palabras.intersection({'DESCUENTO', 'DESCUENTOS', 'DSCTO', 'DESC', 'DESTO'}): return "Grupo 3: N/C - Descuentos"
             return "Grupo 3: N/C - Otros"
 
+    # --- PRIORIDAD #: Cuentas por Cobrar - varios en ME (Grupo 12) ---
+    if "CARGO" in referencia_completa and "TRANSPORTE" in referencia_completa:
+        return "Grupo 16: Cuentas por Cobrar - Varios en ME"
+    
     # --- PRIORIDAD 2: Gastos de Ventas (Grupo 4) ---
     keywords_mercadeo = {'EXHIBIDOR', 'EXHIBIDORES', 'OBSEQUIO', 'OBSEQUIOS', 'MERCADEO', 'PUBLICIDAD', 'PROPAGANDA'}
     tiene_cuenta_gasto = normalize_account('7.1.3.19.1.012') in cuentas_del_asiento
@@ -3253,9 +3257,6 @@ def _get_base_classification(cuentas_del_asiento, referencia_completa, fuente_co
         return "Grupo 14: Inv. entre Oficinas"
 
     if normalize_account('7.1.3.01.1.001') in cuentas_del_asiento: return "Grupo 15: Deudores Incobrables"
-    if normalize_account('1.1.4.01.6.005') in cuentas_del_asiento:
-        if "CARGO" in referencia_completa and "TRANSPORTE" in referencia_completa:
-            return "Grupo 16: Cuentas por Cobrar - Varios en ME"
     if normalize_account('2.1.2.05.1.005') in cuentas_del_asiento: return "Grupo 17: Asientos por Clasificar"
     if normalize_account('7.1.3.06.1.998') in cuentas_del_asiento: return "Grupo 12: Perdida p/Venta o Retiro Activo ND"
     if normalize_account('7.1.3.45.1.997') in cuentas_del_asiento: return "Grupo 1: Acarreos y Fletes Recuperados"
@@ -3379,13 +3380,13 @@ def _validar_asiento(asiento_group):
     elif grupo.startswith("Grupo 16:"):
         ref_asiento = str(asiento_group['Referencia'].iloc[0]).upper()
         
-        # Si el concepto es de Transporte, validamos la cuenta específica
+        # Validación específica para el proceso de Transporte
         if "CARGO" in ref_asiento and "TRANSPORTE" in ref_asiento:
             cuentas_usadas = set(asiento_group['Cuenta Contable Norm'])
             cuenta_errada = normalize_account('1.1.4.01.6.005')
             
             if cuenta_errada in cuentas_usadas:
-                return "Incidencia: Cuenta CONTABLE ERRADA. Para 'Cargo a Transporte' se usó 1.1.4.01.6.005, la cuenta correcta es 1.1.4.01.7.044."
+                return "Incidencia: Cuenta CONTABLE ERRADA. Se usó 1.1.4.01.6.005 (Cias. Comerc). La cuenta correcta para Cargo a Transporte es 1.1.4.01.7.044 (Varios ME)."
         
         return "Conciliado"
     
