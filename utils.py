@@ -1459,7 +1459,8 @@ def generar_reporte_paquete_cc(df_analizado, nombre_casa):
             'Débito Dolar',             # 7
             'Crédito Dolar',            # 8
             'Débito VES',               # 9
-            'Crédito VES'               # 10
+            'Crédito VES',              # 10
+            'Estado'                    # 11
         ]
         
         df_analizado['Grupo Principal'] = df_analizado['Grupo'].apply(lambda x: x.split(':')[0].strip())
