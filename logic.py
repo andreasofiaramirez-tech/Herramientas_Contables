@@ -3378,16 +3378,23 @@ def _validar_asiento(asiento_group):
     
     # GRUPO 16: CXC VARIOS ME
     elif grupo.startswith("Grupo 16:"):
-        ref_asiento = str(asiento_group['Referencia'].iloc[0]).upper()
+        # 1. Unimos todas las referencias de las líneas del asiento para no perder el rastro del texto
+        texto_completo_asiento = " ".join(asiento_group['Referencia'].astype(str).upper())
         
-        # Validación específica para el proceso de Transporte
-        if "CARGO" in ref_asiento and "TRANSPORTE" in ref_asiento:
-            cuentas_usadas = set(asiento_group['Cuenta Contable Norm'])
-            cuenta_errada = normalize_account('1.1.4.01.6.005')
+        # 2. Si el concepto es efectivamente Cargo a Transporte
+        if "CARGO" in texto_completo_asiento and "TRANSPORTE" in texto_completo_asiento:
             
-            if cuenta_errada in cuentas_usadas:
-                return "Incidencia: Cuenta CONTABLE ERRADA. Se usó 1.1.4.01.6.005 (Cias. Comerc). La cuenta correcta para Cargo a Transporte es 1.1.4.01.7.044 (Varios ME)."
-        
+            # 3. Extraemos el set de cuentas que se usaron en este asiento (ya normalizadas)
+            cuentas_usadas = set(asiento_group['Cuenta Contable Norm'])
+            
+            # 4. Definimos el "ADN" de la cuenta errada y la cuenta correcta
+            adn_cuenta_errada = normalize_account('1.1.4.01.6.005')
+            
+            # 5. Si detectamos la cuenta errada en el asiento, disparamos la Incidencia
+            if adn_cuenta_errada in cuentas_usadas:
+                return "Incidencia: Cuenta CONTABLE ERRADA. Se usó 1.1.4.01.6.005 (Cias. Comerc). La cuenta correcta para este proceso es 1.1.4.01.7.044 (Varios ME)."
+
+        # Si no hay error de cuenta o no es un proceso de transporte, marcamos como conciliado
         return "Conciliado"
     
     # GRUPOS AUTOMÁTICOS (14, 15)
