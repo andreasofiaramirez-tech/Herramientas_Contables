@@ -3381,7 +3381,7 @@ def _validar_asiento(asiento_group):
         texto_completo_asiento = " ".join(asiento_group['Referencia'].astype(str).str.upper())
         
         # 1. Si el concepto es efectivamente Cargo a Transporte
-        if "CARGO" in texto_completo_asiento and "TRANSPORTE" in texto_completo_asiento:
+        if "CARGO" in texto_completo_asiento and "TRANSPORTE" in texto_completo_asiento and "CRUCE" in texto_completo_asiento:
             
             # 2. Extraemos el set de cuentas que se usaron en este asiento (ya normalizadas)
             cuentas_usadas = set(asiento_group['Cuenta Contable Norm'])
