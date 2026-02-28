@@ -3171,6 +3171,10 @@ def _get_base_classification(cuentas_del_asiento, referencia_completa, fuente_co
     # --- PRIORIDAD #: Cuentas por Cobrar - varios en ME (Grupo 12) ---
     if "CARGO" in referencia_completa and "TRANSPORTE" in referencia_completa:
         return "Grupo 16: Cuentas por Cobrar - Varios en ME"
+
+    # Detecta el proceso de Cruce de Cuentas / Facturas (NUEVA REGLA)
+    if "CRUCE" in referencia_completa and ("CUENTA" in referencia_completa or "FACT" in referencia_completa):
+        return "Grupo 16: Cuentas por Cobrar - Varios en ME"
     
     # --- PRIORIDAD 2: Gastos de Ventas (Grupo 4) ---
     keywords_mercadeo = {'EXHIBIDOR', 'EXHIBIDORES', 'OBSEQUIO', 'OBSEQUIOS', 'MERCADEO', 'PUBLICIDAD', 'PROPAGANDA'}
@@ -3377,23 +3381,23 @@ def _validar_asiento(asiento_group):
     
    # GRUPO 16: CXC VARIOS ME
     elif grupo.startswith("Grupo 16:"):
-        # CORRECCIÓN: Agregamos .str antes de .upper() para que Pandas procese el texto de la columna
-        texto_completo_asiento = " ".join(asiento_group['Referencia'].astype(str).str.upper())
+        texto_asiento = " ".join(asiento_group['Referencia'].astype(str).str.upper())
+        cuentas_usadas = set(asiento_group['Cuenta Contable Norm'])
         
-        # 1. Si el concepto es efectivamente Cargo a Transporte
-        if "CARGO" in texto_completo_asiento and "TRANSPORTE" in texto_completo_asiento and "CRUCE" in texto_completo_asiento:
-            
-            # 2. Extraemos el set de cuentas que se usaron en este asiento (ya normalizadas)
-            cuentas_usadas = set(asiento_group['Cuenta Contable Norm'])
-            
-            # 3. Definimos el "ADN" de la cuenta errada (114016005)
-            adn_cuenta_errada = normalize_account('1.1.4.01.6.005')
-            
-            # 4. Si detectamos la cuenta errada en el asiento, disparamos la Incidencia
-            if adn_cuenta_errada in cuentas_usadas:
-                return "Incidencia: Cuenta CONTABLE ERRADA. Se usó 1.1.4.01.6.005 (Cias. Comerc). La cuenta correcta para este proceso es 1.1.4.01.7.044 (Varios ME)."
+        # CASO A: Es un proceso de CARGO A TRANSPORTE
+        if "CARGO" in texto_asiento and "TRANSPORTE" in texto_asiento:
+            cuenta_errada = normalize_account('1.1.4.01.6.005')
+            if cuenta_errada in cuentas_usadas:
+                return "Incidencia: CUENTA ERRADA. Se usó 1.1.4.01.6.005 (Cias. Comerc). La correcta es 1.1.4.01.7.044 (Varios ME)."
+        
+        # CASO B: Es un proceso de CRUCE DE CUENTAS / FACTURAS
+        if "CRUCE" in texto_asiento:
+            # Verificamos que use la cuenta correcta de Varios ME
+            if normalize_account('1.1.4.01.7.044') in cuentas_usadas:
+                return "Conciliado"
+            else:
+                return "Incidencia: Cruce de cuentas sin cuenta 1.1.4.01.7.044."
 
-        # Si no hay error de cuenta o no es un proceso de transporte, marcamos como conciliado
         return "Conciliado"
     
     # GRUPOS AUTOMÁTICOS (14, 15)
