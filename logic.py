@@ -3254,8 +3254,8 @@ def _get_base_classification(cuentas_del_asiento, referencia_completa, fuente_co
 
     if normalize_account('7.1.3.01.1.001') in cuentas_del_asiento: return "Grupo 15: Deudores Incobrables"
     if normalize_account('1.1.4.01.6.005') in cuentas_del_asiento:
-        if "TRANSPORTE" in referencia_completa:
-            return "Grupo 16: Cuentas por Cobrar - Varios en ME"
+        if "CARGO" in referencia_completa and "TRANSPORTE" in referencia_completa:
+        return "Grupo 16: Cuentas por Cobrar - Varios en ME"
     if normalize_account('2.1.2.05.1.005') in cuentas_del_asiento: return "Grupo 17: Asientos por Clasificar"
     if normalize_account('7.1.3.06.1.998') in cuentas_del_asiento: return "Grupo 12: Perdida p/Venta o Retiro Activo ND"
     if normalize_account('7.1.3.45.1.997') in cuentas_del_asiento: return "Grupo 1: Acarreos y Fletes Recuperados"
@@ -3375,7 +3375,21 @@ def _validar_asiento(asiento_group):
     elif grupo.startswith("Grupo 17:"):
         return "Incidencia: Cuenta Transitoria. Verificar cruce en Mayor antes de mayorizar."
     
-    # GRUPOS AUTOMÁTICOS (14, 15, 16)
+    # GRUPO 16: CXC VARIOS ME
+    elif grupo.startswith("Grupo 16:"):
+        ref_asiento = str(asiento_group['Referencia'].iloc[0]).upper()
+        
+        # Si el concepto es de Transporte, validamos la cuenta específica
+        if "CARGO" in ref_asiento and "TRANSPORTE" in ref_asiento:
+            cuentas_usadas = set(asiento_group['Cuenta Contable Norm'])
+            cuenta_errada = normalize_account('1.1.4.01.6.005')
+            
+            if cuenta_errada in cuentas_usadas:
+                return "Incidencia: Cuenta CONTABLE ERRADA. Para 'Cargo a Transporte' se usó 1.1.4.01.6.005, la cuenta correcta es 1.1.4.01.7.044."
+        
+        return "Conciliado"
+    
+    # GRUPOS AUTOMÁTICOS (14, 15)
     elif grupo.startswith("Grupo 14:") or grupo.startswith("Grupo 15:") or grupo.startswith("Grupo 16:"):
         return "Conciliado"
 
