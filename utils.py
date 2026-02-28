@@ -1568,6 +1568,7 @@ def generar_reporte_paquete_cc(df_analizado, nombre_casa):
                     ws.write_number(current_row, 8, row_data.get('Crédito Dolar', 0), fmt_num)
                     ws.write_number(current_row, 9, row_data.get('Débito VES', 0), fmt_num)
                     ws.write_number(current_row, 10, row_data.get('Crédito VES', 0), fmt_num)
+                    ws.write(current_row, 11, row_data.get('Estado', ''), fmt_txt)
                     current_row += 1
                 if not df_subgrupo.empty:
                     # Ajuste de totales (Columna 6 es referencia, montos empiezan en 7/H)
