@@ -301,17 +301,20 @@ def _crear_formatos(workbook):
         'encabezado_empresa': workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'font_size': 14}),
         'encabezado_sub': workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'font_size': 11}),
         'header_tabla': workbook.add_format({'bold': True, 'text_wrap': True, 'valign': 'top', 'fg_color': '#D9EAD3', 'border': 1, 'align': 'center'}),
-        'colones': workbook.add_format({'num_format': '#,##0.00'}),    
+        'colones': workbook.add_format({'num_format': '#,##0.00'}), 
+        'bs': workbook.add_format({'num_format': '#,##0.00'}), 
         'usd': workbook.add_format({'num_format': '#,##0.00'}),
         'tasa': workbook.add_format({'num_format': '#,##0.0000'}),
         'fecha': workbook.add_format({'num_format': 'dd/mm/yyyy'}),
         'text': workbook.add_format({'align': 'left'}), 
         'total_label': workbook.add_format({'bold': True, 'align': 'right', 'top': 2}),
         'total_usd': workbook.add_format({'bold': True, 'num_format': '#,##0.00', 'top': 2, 'bottom': 1}),
+        'total_bs': workbook.add_format({'bold': True, 'num_format': '#,##0.00', 'top': 2}),
         'total_colones': workbook.add_format({'bold': True, 'num_format': '#,##0.00', 'top': 2}),
         'proveedor_header': workbook.add_format({'bold': True, 'fg_color': '#F2F2F2', 'border': 1}),
         'subtotal_label': workbook.add_format({'bold': True, 'align': 'right', 'top': 1}),
-        'subtotal_usd': workbook.add_format({'bold': True, 'num_format': '#,##0.00', 'top': 1})
+        'subtotal_usd': workbook.add_format({'bold': True, 'num_format': '#,##0.00', 'top': 1}),
+        'subtotal_bs': workbook.add_format({'bold': True, 'num_format': '#,##0.00', 'top': 1})
     }
 
 def _generar_hoja_pendientes(workbook, formatos, df_saldos, estrategia, casa, fecha_maxima):
