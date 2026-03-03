@@ -2636,35 +2636,53 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
 
     # --- 1. PROCESAR MAYOR CONTABLE ---
     try:
-        # Cargamos el archivo SIN ENCABEZADOS (Header=None) para inspeccionarlo manualmente
-        df_raw = pd.read_excel(file_mayor, header=None)
-        
+        # Importamos aquí por seguridad
+        import unicodedata
+
         def normalizar_texto(texto):
             if pd.isna(texto): return ""
-            return "".join(c for c in unicodedata.normalize('NFD', str(texto))
-                          if unicodedata.category(c) != 'Mn').upper().strip()
+            # Elimina tildes, espacios y caracteres invisibles
+            s = "".join(c for c in unicodedata.normalize('NFD', str(texto))
+                       if unicodedata.category(c) != 'Mn')
+            return s.upper().strip()
 
-        # BUSCAMOS LA FILA REAL DE ENCABEZADOS
-        fila_encabezado_idx = None
-        for i, row in df_raw.head(15).iterrows(): # Escaneamos las primeras 15 filas
-            valores_fila = [normalizar_texto(v) for v in row.values]
-            # Si en esta fila existen palabras clave de contabilidad, esta es la buena
-            if 'CUENTA' in str(valores_fila) or 'ASIENTO' in str(valores_fila):
-                fila_encabezado_idx = i
-                break
+        # Cargamos todas las hojas del Excel por si los datos no están en la primera
+        dict_hojas = pd.read_excel(file_mayor, sheet_name=None, header=None)
         
-        if fila_encabezado_idx is not None:
-            # Promovemos la fila encontrada como los nombres de las columnas
-            df_mayor = df_raw.iloc[fila_encabezado_idx + 1:].copy()
-            df_mayor.columns = [normalizar_texto(c) for c in df_raw.iloc[fila_encabezado_idx]]
-            log_messages.append(f"✅ Encabezado detectado en la fila física {fila_encabezado_idx + 1}")
-        else:
-            # Fallback: Si no detecta nada, usamos el método estándar pero normalizado
-            df_mayor = pd.read_excel(file_mayor)
-            df_mayor.columns = [normalizar_texto(c) for c in df_mayor.columns]
-            log_messages.append("⚠️ No se detectó fila de control, usando lectura estándar.")
+        df_mayor = None
+        fila_encabezado_idx = None
+        
+        # Palabras clave para identificar el encabezado
+        keywords_objetivo = {'CUENTA', 'ASIENTO', 'FECHA', 'DEBITO', 'CREDITO', 'CENTRO'}
 
-        # RADAR DE COLUMNAS (Usando los nombres ya normalizados sin tildes)
+        for nombre_hoja, df_raw in dict_hojas.items():
+            log_messages.append(f"🔎 Escaneando hoja: {nombre_hoja} ({len(df_raw.columns)} columnas detected)")
+            
+            # Buscamos la fila que tenga al menos 2 palabras clave de contabilidad
+            for i, row in df_raw.head(20).iterrows():
+                # Limpiamos cada celda de la fila para comparar
+                valores_fila = [normalizar_texto(v) for v in row.values]
+                
+                # Contamos cuántas palabras clave hay en esta fila
+                coincidencias = [palabra for palabra en valores_fila if any(k in palabra for k in keywords_objetivo)]
+                
+                if len(coincidencias) >= 2: # Si encontramos 2 o más, es el encabezado
+                    fila_encabezado_idx = i
+                    df_mayor = df_raw.iloc[fila_encabezado_idx + 1:].copy()
+                    df_mayor.columns = [normalizar_texto(c) for c in df_raw.iloc[fila_encabezado_idx]]
+                    log_messages.append(f"✅ Encabezado encontrado en hoja '{nombre_hoja}', fila {i+1}")
+                    break
+            
+            if df_mayor is not None: break
+
+        if df_mayor is None:
+            log_messages.append("❌ Error: No se detectó la tabla de datos en ninguna hoja del archivo.")
+            return None, None, None, None
+
+        # Resetear índice y limpiar columnas duplicadas (Unnamed)
+        df_mayor = df_mayor.loc[:, ~df_mayor.columns.str.contains('^UNNAMED')].reset_index(drop=True)
+
+        # RADAR DE COLUMNAS (Usando los nombres normalizados)
         col_cta = next((c for c in df_mayor.columns if 'CUENTA' in c), None)
         col_cc = next((c for c in df_mayor.columns if 'CENTRO' in c and 'COSTO' in c), None)
         col_deb = next((c for c in df_mayor.columns if 'DEBITO' in c), None)
@@ -2672,10 +2690,10 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
         col_fecha = next((c for c in df_mayor.columns if 'FECHA' in c), None)
         
         if not (col_cta and col_cc and col_deb and col_cre):
-            log_messages.append(f"❌ Error: No se hallaron columnas clave. Columnas leídas: {list(df_mayor.columns)}")
+            log_messages.append(f"❌ Error: Faltan columnas. Detectadas: {list(df_mayor.columns)}")
             return None, None, None, None
             
-        log_messages.append(f"✔️ Columnas vinculadas: {col_cta} | {col_cc} | {col_deb} | {col_cre}")
+        log_messages.append(f"✔️ Columnas vinculadas con éxito.")
 
         # --- CONTINUACIÓN DEL PROCESO (FECHA) ---
         if col_fecha:
