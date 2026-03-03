@@ -2637,18 +2637,31 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
     # --- 1. PROCESAR MAYOR CONTABLE ---
     try:
         df_mayor = pd.read_excel(file_mayor)
-        df_mayor.columns = [str(c).strip().upper() for c in df_mayor.columns]
         
+        # FUNCIÓN PARA BORRAR TILDES DE RAÍZ
+        def normalizar_texto(texto):
+            if pd.isna(texto): return ""
+            # Convierte DÉBITO a DEBITO, CRÉDITO a CREDITO, etc.
+            return "".join(c for c in unicodedata.normalize('NFD', str(texto))
+                          if unicodedata.category(c) != 'Mn').upper().strip()
+
+        # Normalizamos todos los nombres de las columnas del Excel
+        df_mayor.columns = [normalizar_texto(c) for c in df_mayor.columns]
+        
+        # Ahora el radar busca nombres "planos", imposibles de fallar
         col_cta = next((c for c in df_mayor.columns if 'CUENTA' in c), None)
         col_cc = next((c for c in df_mayor.columns if 'CENTRO' in c and 'COSTO' in c), None)
-        col_deb = next((c for c in df_mayor.columns if 'DÉBITO' in c or 'DEBITO' in c), None)
-        col_cre = next((c for c in df_mayor.columns if 'CRÉDITO' in c or 'CREDITO' in c), None)
+        col_deb = next((c for c in df_mayor.columns if 'DEBITO' in c), None) # Ya no necesita tilde
+        col_cre = next((c for c in df_mayor.columns if 'CREDITO' in c), None) # Ya no necesita tilde
         col_fecha = next((c for c in df_mayor.columns if 'FECHA' in c), None)
         
         if not (col_cta and col_cc and col_deb and col_cre):
-            log_messages.append("❌ Error: Faltan columnas críticas en el Mayor.")
+            # Log de diagnóstico para saber qué encontró exactamente
+            log_messages.append(f"❌ Error: Columnas no detectadas. Columnas en el archivo: {list(df_mayor.columns)}")
             return None, None, None, None
             
+        log_messages.append(f"✅ Columnas detectadas exitosamente: CTA:{col_cta}, CC:{col_cc}, DEB:{col_deb}, CRE:{col_cre}")
+
         if col_fecha:
             try:
                 fechas = pd.to_datetime(df_mayor[col_fecha], errors='coerce').dropna()
