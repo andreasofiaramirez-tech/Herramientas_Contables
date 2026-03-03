@@ -2636,41 +2636,59 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
 
     # --- 1. PROCESAR MAYOR CONTABLE ---
     try:
-        df_mayor = pd.read_excel(file_mayor)
+        # Cargamos el archivo SIN ENCABEZADOS (Header=None) para inspeccionarlo manualmente
+        df_raw = pd.read_excel(file_mayor, header=None)
         
-        # FUNCIÓN PARA BORRAR TILDES DE RAÍZ
         def normalizar_texto(texto):
             if pd.isna(texto): return ""
-            # Convierte DÉBITO a DEBITO, CRÉDITO a CREDITO, etc.
             return "".join(c for c in unicodedata.normalize('NFD', str(texto))
                           if unicodedata.category(c) != 'Mn').upper().strip()
 
-        # Normalizamos todos los nombres de las columnas del Excel
-        df_mayor.columns = [normalizar_texto(c) for c in df_mayor.columns]
+        # BUSCAMOS LA FILA REAL DE ENCABEZADOS
+        fila_encabezado_idx = None
+        for i, row in df_raw.head(15).iterrows(): # Escaneamos las primeras 15 filas
+            valores_fila = [normalizar_texto(v) for v in row.values]
+            # Si en esta fila existen palabras clave de contabilidad, esta es la buena
+            if 'CUENTA' in str(valores_fila) or 'ASIENTO' in str(valores_fila):
+                fila_encabezado_idx = i
+                break
         
-        # Ahora el radar busca nombres "planos", imposibles de fallar
+        if fila_encabezado_idx is not None:
+            # Promovemos la fila encontrada como los nombres de las columnas
+            df_mayor = df_raw.iloc[fila_encabezado_idx + 1:].copy()
+            df_mayor.columns = [normalizar_texto(c) for c in df_raw.iloc[fila_encabezado_idx]]
+            log_messages.append(f"✅ Encabezado detectado en la fila física {fila_encabezado_idx + 1}")
+        else:
+            # Fallback: Si no detecta nada, usamos el método estándar pero normalizado
+            df_mayor = pd.read_excel(file_mayor)
+            df_mayor.columns = [normalizar_texto(c) for c in df_mayor.columns]
+            log_messages.append("⚠️ No se detectó fila de control, usando lectura estándar.")
+
+        # RADAR DE COLUMNAS (Usando los nombres ya normalizados sin tildes)
         col_cta = next((c for c in df_mayor.columns if 'CUENTA' in c), None)
         col_cc = next((c for c in df_mayor.columns if 'CENTRO' in c and 'COSTO' in c), None)
-        col_deb = next((c for c in df_mayor.columns if 'DEBITO' in c), None) # Ya no necesita tilde
-        col_cre = next((c for c in df_mayor.columns if 'CREDITO' in c), None) # Ya no necesita tilde
+        col_deb = next((c for c in df_mayor.columns if 'DEBITO' in c), None)
+        col_cre = next((c for c in df_mayor.columns if 'CREDITO' in c), None)
         col_fecha = next((c for c in df_mayor.columns if 'FECHA' in c), None)
         
         if not (col_cta and col_cc and col_deb and col_cre):
-            # Log de diagnóstico para saber qué encontró exactamente
-            log_messages.append(f"❌ Error: Columnas no detectadas. Columnas en el archivo: {list(df_mayor.columns)}")
+            log_messages.append(f"❌ Error: No se hallaron columnas clave. Columnas leídas: {list(df_mayor.columns)}")
             return None, None, None, None
             
-        log_messages.append(f"✅ Columnas detectadas exitosamente: CTA:{col_cta}, CC:{col_cc}, DEB:{col_deb}, CRE:{col_cre}")
+        log_messages.append(f"✔️ Columnas vinculadas: {col_cta} | {col_cc} | {col_deb} | {col_cre}")
 
+        # --- CONTINUACIÓN DEL PROCESO (FECHA) ---
         if col_fecha:
             try:
-                fechas = pd.to_datetime(df_mayor[col_fecha], errors='coerce').dropna()
-                if not fechas.empty:
-                    mes_num = fechas.dt.month.mode()[0]
-                    year_num = fechas.dt.year.mode()[0]
+                # Convertimos la columna detectada a fecha
+                df_mayor[col_fecha] = pd.to_datetime(df_mayor[col_fecha], errors='coerce')
+                fechas_validas = df_mayor[col_fecha].dropna()
+                if not fechas_validas.empty:
+                    mes_num = fechas_validas.dt.month.mode()[0]
+                    year_num = fechas_validas.dt.year.mode()[0]
                     mes_detectado = nombres_meses[mes_num]
                     anio_detectado = str(year_num)
-                    log_messages.append(f"📅 Periodo detectado en Mayor: {mes_detectado} {anio_detectado}")
+                    log_messages.append(f"📅 Periodo: {mes_detectado} {anio_detectado}")
             except: pass
 
         cuentas_base = ['7.1.1.01.1.001', '7.1.1.09.1.003']
