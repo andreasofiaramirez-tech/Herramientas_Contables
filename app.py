@@ -1076,7 +1076,7 @@ def render_pensiones():
         empresa_sel = st.selectbox("Seleccione la Empresa:", EMPRESAS_NOMINA, key="empresa_pensiones")
 
     # 2. Carga de Archivos
-    c1, c2, c3 = st.columns([1.5, 1.5, 1])
+    c1, c2, c3 = st.columns([1.5, 1.5, 1.5])
     with c1:
         file_mayor = st.file_uploader("1. Mayor Contable (Excel)", type=['xlsx'], key="pen_mayor")
     with c2:
@@ -1084,6 +1084,7 @@ def render_pensiones():
     with c3:
         tasa = st.number_input("Tasa de Cambio", min_value=0.01, value=1.0, format="%.4f", key="pen_tasa")
         num_asiento = st.text_input("Número de Asiento (Cargador)", value="CG0000", key="pen_num_asiento")
+        analista = st.text_input("👤 Hecho por:", value="").upper()
 
     # 3. Botón de Acción
     if file_mayor and tasa > 0:
@@ -1149,17 +1150,15 @@ def render_pensiones():
                     except:
                         pass # Si falla, usa fecha de hoy
                     
-                    # --- NUEVO: NOMBRE DE ARCHIVO DINÁMICO ---
                     # Formato: Calculo_Pensiones_EMPRESA_MES.YY.xlsx
                     meses_abr = {1:"ENE", 2:"FEB", 3:"MAR", 4:"ABR", 5:"MAY", 6:"JUN", 7:"JUL", 8:"AGO", 9:"SEP", 10:"OCT", 11:"NOV", 12:"DIC"}
                     mes_txt = meses_abr.get(fecha_cierre.month, "MES")
                     anio_txt = str(fecha_cierre.year)[-2:]
-                    
                     nombre_archivo_final = f"Calculo_Pensiones_{empresa_sel}_{mes_txt}.{anio_txt}.xlsx"
                     # ------------------------------------------
                     
                     # Generar Reporte Excel
-                    excel_data = generar_reporte_pensiones(df_calc, df_base, df_asiento, dict_val, empresa_sel, tasa, fecha_cierre)
+                    excel_data = generar_reporte_pensiones(df_calc, df_base, df_asiento, dict_val, empresa_sel, tasa, fecha_cierre, analista, num_asiento)
 
                     cargador_bin = generar_cargador_asiento_pensiones(df_asiento, fecha_cierre)
     
