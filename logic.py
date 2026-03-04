@@ -4722,123 +4722,146 @@ def run_conciliation_comisiones_bancarias(df_cb_raw, df_cg_raw, empresa_sel, log
     mapeo_identidad = mapeos.get(empresa_sel, {})
     
     # --- 2. PROCESAMIENTO DEL REPORTE DE TESORERÍA (CB) ---
-    df_cb = df_cb_raw.copy()
-    header_found = False
-    for i in range(len(df_cb)):
-        row_values = [str(val).strip().upper() for val in df_cb.iloc[i].values]
-        if 'ASIENTO' in row_values:
-            df_cb.columns = [str(c).strip() for c in df_cb.iloc[i]]
-            df_cb = df_cb.iloc[i + 1:].reset_index(drop=True)
-            header_found = True
-            break
-            
-    if not header_found:
-        log_messages.append("❌ ERROR: No se detectó la cabecera en el reporte de Tesorería.")
+    def extraer_datos_posicional_cb(df_raw):
+        idx_row_header = -1
+        cols = {'asto': -1, 'bco': -1, 'monto': -1, 'concepto': -1}
+        
+        for i in range(min(15, len(df_raw))):
+            fila = [str(x).strip().upper() for x in df_raw.iloc[i].values]
+            if 'ASIENTO' in fila:
+                idx_row_header = i
+                cols['asto'] = fila.index('ASIENTO')
+                # Posiciones fijas según Imagen 2
+                cols['bco'] = 1      # Columna B
+                cols['monto'] = 9    # Columna J (Créditos)
+                cols['concepto'] = 7  # Columna H (Concepto)
+                break
+        
+        if idx_row_header == -1: return pd.DataFrame()
+
+        clean_data = []
+        for i in range(idx_row_header + 1, len(df_raw)):
+            row = df_raw.iloc[i]
+            asto_val = str(row.iloc[cols['asto']]).strip().upper()
+            if asto_val.startswith('CB'):
+                # Limpieza de montos para Tesorería
+                m_raw = str(row.iloc[cols['monto']]).replace('.', '').replace(',', '.')
+                clean_data.append({
+                    'Asiento': asto_val,
+                    'Banco_CB': str(row.iloc[cols['bco']]).strip(),
+                    'Monto_CB': pd.to_numeric(m_raw, errors='coerce') or 0.0,
+                    'Concepto': str(row.iloc[cols['concepto']]).strip()
+                })
+        return pd.DataFrame(clean_data)
+    
+    # --- 3. RADAR PARA MAYOR DE CONTABILIDAD (Imagen 1) ---
+    def extraer_datos_posicional_cg(df_raw):
+        idx_row_header = -1
+        # En CG necesitamos: Asiento, Cuenta Contable, Crédito VES, Crédito Dólar
+        cols = {'asto': -1, 'cta': -1, 'ves': -1, 'usd': -1, 'deb_v': -1, 'deb_u': -1}
+        
+        for i in range(min(10, len(df_raw))):
+            fila = [str(x).strip().upper() for x in df_raw.iloc[i].values]
+            if 'ASIENTO' in fila:
+                idx_row_header = i
+                cols['asto'] = fila.index('ASIENTO')
+                # Posiciones basadas en la Imagen 1
+                cols['cta'] = 2   # Columna C (Cuenta Contable)
+                cols['ves'] = 7   # Columna H (Crédito VES)
+                cols['usd'] = 9   # Columna J (Crédito Dólar)
+                cols['deb_v'] = 6 # Columna G (Débito VES)
+                cols['deb_u'] = 8 # Columna I (Débito Dólar)
+                break
+        
+        if idx_row_header == -1: return pd.DataFrame()
+
+        clean_data = []
+        for i in range(idx_row_header + 1, len(df_raw)):
+            row = df_raw.iloc[i]
+            asto_val = str(row.iloc[cols['asto']]).strip().upper()
+            if asto_val != 'NAN' and asto_val != '':
+                clean_data.append({
+                    'Asiento': asto_val,
+                    'Cta': str(row.iloc[cols['cta']]).strip(),
+                    'Cred_VES': pd.to_numeric(str(row.iloc[cols['ves']]).replace(',', '.'), errors='coerce') or 0.0,
+                    'Cred_USD': pd.to_numeric(str(row.iloc[cols['usd']]).replace(',', '.'), errors='coerce') or 0.0,
+                    'Deb_VES': pd.to_numeric(str(row.iloc[cols['deb_v']]).replace(',', '.'), errors='coerce') or 0.0,
+                    'Deb_USD': pd.to_numeric(str(row.iloc[cols['deb_u']]).replace(',', '.'), errors='coerce') or 0.0
+                })
+        return pd.DataFrame(clean_data)
+
+    # --- 4. EJECUCIÓN DE LIMPIEZA ---
+    df_cb_clean = extraer_datos_posicional_cb(df_cb_raw)
+    df_cg_clean = extraer_datos_posicional_cg(df_cg_raw)
+
+    if df_cb_clean.empty or df_cg_clean.empty:
+        log_messages.append("❌ ERROR: No se pudieron extraer datos de uno de los archivos. Verifique el formato.")
         return pd.DataFrame()
 
-    df_cb = df_cb[df_cb['Asiento'].notna()]
-    df_cb['Asiento'] = df_cb['Asiento'].astype(str).str.strip().str.upper()
-    df_cb = df_cb[df_cb['Asiento'].str.contains('CB', na=False)]
-    df_cb['Créditos'] = pd.to_numeric(df_cb['Créditos'], errors='coerce').fillna(0)
-    
-    # --- 3. PREPARACIÓN DEL MAYOR (CG) ---
-    df_cg = df_cg_raw.copy()
-    df_cg['Asiento'] = df_cg['Asiento'].astype(str).str.strip().str.upper()
-    for col in ['Débito VES', 'Crédito VES', 'Débito Dólar', 'Crédito Dólar']:
-        if col in df_cg.columns:
-            df_cg[col] = pd.to_numeric(df_cg[col], errors='coerce').fillna(0)
-
-    # --- 4. AUDITORÍA ASIENTO POR ASIENTO ---
+    # --- 5. AUDITORÍA CRUZADA ---
     resultados = []
-    
-    # Nombres de columnas autoexplicativos
-    COL_MONTO_STATUS = "Monto Coincide (CB vs CG)"
-    COL_BANCO_STATUS = "Cuenta de Banco Correcta"
-    COL_GASTO_STATUS = "Cuenta Gasto Correcta (7.1.3.50 / 6.1.1.12)"
-    COL_CUADRADO_STATUS = "Asiento Cuadrado (Debe = Haber)"
-
-    for banco_cb, grupo_cb in df_cb.groupby('Cuenta Bancaria'):
-        config_banco = mapeo_identidad.get(str(banco_cb).strip(), {})
-        cuenta_contable_esperada = config_banco.get('cta', 'SIN_DICCIONARIO')
+    for _, fila_cb in df_cb_clean.iterrows():
+        asiento_id = fila_cb['Asiento']
+        # Buscar cuenta contable esperada
+        config_banco = mapeo_identidad.get(fila_cb['Banco_CB'], {})
+        cta_esperada = config_banco.get('cta', 'NO_MAP')
         es_usd = config_banco.get('moneda', 'VES') == 'USD'
         
-        for _, fila_cb in grupo_cb.iterrows():
-            asiento_id = fila_cb['Asiento']
-            monto_cb = float(fila_cb['Créditos'])
-            concepto_cb = fila_cb.get('Concepto', 'Sin Concepto')
-            
-            asto_cg = df_cg[df_cg['Asiento'] == asiento_id]
-            
-            check_monto, check_banco, check_contra, check_cuadrado = "❌ No coincide", "❌ Incorrecta", "❌ Incorrecta", "❌ Descuadrado"
-            monto_cg_banco = 0
-            obs = []
+        # Filtrar Mayor por Asiento
+        asto_cg = df_cg_clean[df_cg_clean['Asiento'] == asiento_id]
+        
+        check_monto, check_banco, check_contra, check_cuadrado = "❌ No coincide", "❌ Incorrecta", "❌ Incorrecta", "❌ Descuadrado"
+        monto_cg_final = 0
+        obs = []
 
-            if asto_cg.empty:
-                obs.append("El asiento no existe en el Mayor de Contabilidad")
+        if asto_cg.empty:
+            obs.append("Asiento no hallado en Mayor de Contabilidad")
+        else:
+            col_monto_asto = 'Cred_USD' if es_usd else 'Cred_VES'
+            
+            # Identidad del Banco
+            lineas_banco_real = asto_cg[asto_cg['Cta'] == cta_esperada]
+            if not lineas_banco_real.empty:
+                check_banco = "✅ Correcta"
+                monto_cg_final = lineas_banco_real[col_monto_asto].sum()
             else:
-                col_monto_asto = 'Crédito Dólar' if es_usd else 'Crédito VES'
-                
-                # VALIDACIÓN 1: Identidad del Banco (Punto 2 Mejorado)
-                # Buscamos líneas que usen la cuenta contable que el diccionario dice que corresponde al código CB
-                lineas_banco_real = asto_cg[asto_cg['Cuenta Contable'].astype(str).str.strip() == cuenta_contable_esperada]
-                
-                if not lineas_banco_real.empty:
-                    check_banco = "✅ Correcta"
-                    monto_cg_banco = lineas_banco_real[col_monto_asto].sum()
-                else:
-                    # Si no usó la correcta, buscamos qué cuenta de banco usó para informar el error
-                    lineas_cualquier_banco = asto_cg[asto_cg['Cuenta Contable'].astype(str).str.startswith(('1.1.1.02', '1.1.1.03'))]
-                    if not lineas_cualquier_banco.empty:
-                        cta_usada = lineas_cualquier_banco['Cuenta Contable'].iloc[0]
-                        check_banco = f"❌ Error: Se usó {cta_usada}"
-                        obs.append(f"Se esperaba la cuenta {cuenta_contable_esperada}")
-                        monto_cg_banco = lineas_cualquier_banco[col_monto_asto].sum()
-                    else:
-                        check_banco = "❌ No se halló cuenta de Banco"
+                # Si falló la específica, buscamos cualquier banco para informar
+                any_banco = asto_cg[asto_cg['Cta'].str.startswith(('1.1.1.02', '1.1.1.03'))]
+                if not any_banco.empty:
+                    check_banco = f"❌ Error: Usó {any_banco['Cta'].iloc[0]}"
+                    monto_cg_final = any_banco[col_monto_asto].sum()
+            
+            # Monto
+            if abs(round(fila_cb['Monto_CB'], 2) - round(monto_cg_final, 2)) <= 0.01:
+                check_monto = "✅ Monto Correcto"
+            else:
+                obs.append(f"Dif: CB {fila_cb['Monto_CB']:.2f} vs CG {monto_cg_final:.2f}")
 
-                # VALIDACIÓN 2: Monto (Punto 1)
-                if abs(round(monto_cb, 2) - round(monto_cg_banco, 2)) <= 0.01:
-                    check_monto = "✅ Monto Correcto"
-                else:
-                    obs.append(f"Dif. Monto: Tesorería {monto_cb:,.2f} vs Contabilidad {monto_cg_banco:,.2f}")
+            # Gasto
+            cta_gasto = '7.1.3.50.1.002' if es_usd else '7.1.3.50.1.001'
+            if asto_cg['Cta'].str.contains(cta_gasto).any() or asto_cg['Cta'].str.contains('6.1.1.12.1.001').any():
+                check_contra = "✅ Cuenta Correcta"
+            
+            # Cuadre
+            sum_debs = asto_cg['Deb_VES'].sum() + asto_cg['Deb_USD'].sum()
+            sum_creds = asto_cg['Cred_VES'].sum() + asto_cg['Cred_USD'].sum()
+            if abs(sum_debs - sum_creds) < 0.1:
+                check_cuadrado = "✅ Cuadrado"
 
-                # VALIDACIÓN 3: Contrapartida (Punto 3)
-                cta_gasto_prefijo = '7.1.3.50.1.002' if es_usd else '7.1.3.50.1.001'
-                tiene_gasto = asto_cg['Cuenta Contable'].astype(str).str.contains(cta_gasto_prefijo).any()
-                tiene_cambio = asto_cg['Cuenta Contable'].astype(str).str.contains('6.1.1.12.1.001').any()
-                
-                if tiene_gasto or tiene_cambio:
-                    check_contra = "✅ Cuenta Correcta"
-                else:
-                    obs.append(f"Falta Cta Gasto {cta_gasto_prefijo}")
-
-                # VALIDACIÓN 4: Cuadre
-                total_debe = asto_cg['Débito VES'].sum() + asto_cg['Débito Dólar'].sum()
-                total_haber = asto_cg['Crédito VES'].sum() + asto_cg['Crédito Dólar'].sum()
-                if abs(total_debe - total_haber) < 0.1:
-                    check_cuadrado = "✅ Cuadrado"
-                else:
-                    obs.append("Asiento descuadrado")
-
-            resultados.append({
-                'Banco (Reporte CB)': banco_cb,
-                'Moneda': 'USD' if es_usd else 'VES',
-                'Asiento': asiento_id,
-                'Concepto Reportado (CB)': concepto_cb,
-                'Monto en Tesorería (CB)': monto_cb,
-                'Monto en Contabilidad (CG)': monto_cg_banco,
-                COL_MONTO_STATUS: check_monto,
-                COL_BANCO_STATUS: check_banco,  # Nueva Columna de Identidad
-                COL_GASTO_STATUS: check_contra,
-                COL_CUADRADO_STATUS: check_cuadrado,
-                'Hallazgos / Observaciones': " | ".join(obs)
-            })
+        resultados.append({
+            'Banco': fila_cb['Banco_CB'],
+            'Moneda': 'USD' if es_usd else 'VES',
+            'Asiento': asiento_id,
+            'Concepto (CB)': fila_cb['Concepto'],
+            'Monto CB': fila_cb['Monto_CB'],
+            'Monto CG': monto_cg_final,
+            'Monto Coincide (CB vs CG)': check_monto,
+            'Cuenta de Banco Correcta': check_banco,
+            'Cuenta Gasto Correcta (7.1.3.50 / 6.1.1.12)': check_contra,
+            'Asiento Cuadrado (Debe = Haber)': check_cuadrado,
+            'Hallazgos / Observaciones': " | ".join(obs)
+        })
 
     df_final = pd.DataFrame(resultados)
-
-    # Ordenar: Errores de Monto o Banco primero
-    if not df_final.empty:
-        df_final['sort_helper'] = df_final.apply(lambda x: 0 if ("❌" in x[COL_MONTO_STATUS] or "❌" in x[COL_BANCO_STATUS]) else 1, axis=1)
-        df_final = df_final.sort_values(by=['sort_helper', 'Banco (Reporte CB)', 'Asiento']).drop(columns=['sort_helper'])
-
+    log_messages.append(f"✔️ Auditoría procesada exitosamente.")
     return df_final
