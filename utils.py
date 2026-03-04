@@ -2078,7 +2078,6 @@ def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, resumen_validaci
             ws3.write(start_row+1, 0, "OFIC.", box_header)
             ws3.write(start_row+1, 1, "CENTRO DE COSTO", box_header)
             ws3.write(start_row+1, 2, "CTA.", box_header)
-            ws3.merge_range(start_row+1, 3, start_row+1, 5, "", box_header)
             ws3.write(start_row+1, 6, "DEBE (D)", box_header)
             ws3.write(start_row+1, 7, "HABER (H)", box_header)
             ws3.write(start_row+1, 8, "DEBE (D)", box_header)
