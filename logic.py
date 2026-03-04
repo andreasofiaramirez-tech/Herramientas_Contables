@@ -4715,7 +4715,7 @@ def run_conciliation_comisiones_bancarias(df_cb_raw, df_cg_raw, empresa_sel, log
         "PRISMA, C.A": MAPEO_CB_CG_PRISMA,
         "MAYOR BEVAL, C.A": MAPEO_CB_CG_BEVAL,
         "FEBECA, C.A": MAPEO_CB_CG_FEBECA,
-        "FEBECA, C.A (QUINCALLA)": MAPEO_CB_CG_FEBECA, # Usa el mismo que FEBECA
+        "FEBECA, C.A (QUINCALLA)": MAPEO_CB_CG_SILLACA, 
         "SILLACA, C.A": MAPEO_CB_CG_SILLACA
     }
     # Obtenemos el diccionario específico para la empresa seleccionada
@@ -4737,12 +4737,13 @@ def run_conciliation_comisiones_bancarias(df_cb_raw, df_cg_raw, empresa_sel, log
         return pd.DataFrame()
 
     df_cb = df_cb[df_cb['Asiento'].notna()]
-    df_cb = df_cb[df_cb['Asiento'].astype(str).str.contains('CB', na=False, case=False)]
-    df_cb = df_cb[~df_cb['Asiento'].astype(str).str.upper().str.contains('TOTAL', na=False)]
+    df_cb['Asiento'] = df_cb['Asiento'].astype(str).str.strip().str.upper()
+    df_cb = df_cb[df_cb['Asiento'].str.contains('CB', na=False)]
     df_cb['Créditos'] = pd.to_numeric(df_cb['Créditos'], errors='coerce').fillna(0)
-
+    
     # --- 3. PREPARACIÓN DEL MAYOR (CG) ---
     df_cg = df_cg_raw.copy()
+    df_cg['Asiento'] = df_cg['Asiento'].astype(str).str.strip().str.upper()
     for col in ['Débito VES', 'Crédito VES', 'Débito Dólar', 'Crédito Dólar']:
         if col in df_cg.columns:
             df_cg[col] = pd.to_numeric(df_cg[col], errors='coerce').fillna(0)
@@ -4757,13 +4758,12 @@ def run_conciliation_comisiones_bancarias(df_cb_raw, df_cg_raw, empresa_sel, log
     COL_CUADRADO_STATUS = "Asiento Cuadrado (Debe = Haber)"
 
     for banco_cb, grupo_cb in df_cb.groupby('Cuenta Bancaria'):
-        # Obtenemos la cuenta contable esperada desde el diccionario maestro
         config_banco = mapeo_identidad.get(str(banco_cb).strip(), {})
         cuenta_contable_esperada = config_banco.get('cta', 'SIN_DICCIONARIO')
         es_usd = config_banco.get('moneda', 'VES') == 'USD'
         
         for _, fila_cb in grupo_cb.iterrows():
-            asiento_id = str(fila_cb['Asiento']).strip()
+            asiento_id = fila_cb['Asiento']
             monto_cb = float(fila_cb['Créditos'])
             concepto_cb = fila_cb.get('Concepto', 'Sin Concepto')
             
