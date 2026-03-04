@@ -4719,56 +4719,70 @@ def run_conciliation_comisiones_bancarias(df_cb_raw, df_cg_raw, empresa_sel, log
     }
     mapeo_identidad = mapeos.get(empresa_sel, {})
 
-    # --- FUNCIÓN DE RADAR INTELIGENTE ---
-    def extraer_datos_dinamicos(df_raw, keywords_ancla, mapa_columnas_objetivo, es_reporte_cb=True):
-        """
-        Busca los encabezados en cualquier fila/columna y mapea las posiciones.
-        """
-        clean_data = []
-        indices_mapeados = {}
-        header_encontrado = False
+    # --- FUNCIÓN DE LIMPIEZA DE MONTOS ULTRA-ROBUSTA ---
+    def limpiar_monto_contable(val):
+        if pd.isna(val) or val == '': return 0.0
+        if isinstance(val, (int, float)): return float(val)
+        # Si es texto, limpiamos formato latino (1.234,56 -> 1234.56)
+        s = str(val).strip().replace(' ', '')
+        # Detectar si tiene puntos de miles y coma decimal
+        if '.' in s and ',' in s:
+            if s.rfind('.') < s.rfind(','): # Caso 1.234,56
+                s = s.replace('.', '').replace(',', '.')
+            else: # Caso 1,234.56
+                s = s.replace(',', '')
+        elif ',' in s: # Caso 31,50
+            s = s.replace(',', '.')
+        
+        return pd.to_numeric(re.sub(r'[^\d.-]', '', s), errors='coerce') or 0.0
+
+    # --- RADAR DE EXTRACCIÓN DINÁMICA ---
+    def extraer_con_radar(df_raw, nombres_clave, es_cb=True):
+        datos_limpios = []
+        mapa_cols = {}
+        header_visto = False
 
         for i in range(len(df_raw)):
-            # Limpiamos la fila actual para buscar el "Ancla" (ASIENTO)
-            fila_actual = [str(x).strip().upper() for x in df_raw.iloc[i].values]
+            fila_lista = [str(x).strip().upper() for x in df_raw.iloc[i].values]
             
-            # Si encontramos el ancla, mapeamos las posiciones de las columnas
-            if any(ancla in fila_actual for ancla in keywords_ancla):
-                header_encontrado = True
-                for nombre_interno, posibles_nombres in mapa_columnas_objetivo.items():
-                    for idx, valor_celda in enumerate(fila_actual):
-                        if any(n in valor_celda for n in posibles_nombres):
-                            indices_mapeados[nombre_interno] = idx
+            # BUSCAR EL ENCABEZADO (ANCLA: ASIENTO)
+            if 'ASIENTO' in fila_lista:
+                header_visto = True
+                # Identificamos en qué columna quedó cada campo
+                for clave_interna, terminos_busqueda in nombres_clave.items():
+                    for idx, celda in enumerate(fila_lista):
+                        if any(t in celda for t in terminos_busqueda):
+                            mapa_cols[clave_interna] = idx
                             break
-                continue # Saltamos a la siguiente fila para empezar a leer datos
+                continue
 
-            # Si ya encontramos el header, empezamos a extraer hasta ver un "TOTAL" o fila vacía
-            if header_encontrado:
-                val_asto = str(df_raw.iloc[i, indices_mapeados.get('asiento', 0)]).strip().upper()
+            # SI YA VIMOS EL HEADER, PROCESAMOS LA DATA
+            if header_visto:
+                idx_asiento = mapa_cols.get('asiento', 0)
+                val_asiento = str(df_raw.iloc[i, idx_asiento]).strip().upper()
+
+                # Criterio de parada o salto:
+                if val_asiento in ['NAN', '', 'TOTAL', 'TOTALES']: continue
                 
-                # Si la fila es un total o está vacía, no reseteamos el header pero dejamos de leer esta sección
-                if 'TOTAL' in val_asto or val_asto in ['NAN', '']:
+                # Filtro específico para Tesorería (CB)
+                if es_cb and not val_asiento.startswith('CB'): continue
+
+                # Extracción segura de la fila
+                try:
+                    registro = {}
+                    for campo, idx in mapa_cols.items():
+                        raw_val = df_raw.iloc[i, idx]
+                        if campo in ['cre_v', 'cre_u', 'deb_v', 'deb_u', 'monto_cb']:
+                            registro[campo] = limpiar_monto_contable(raw_val)
+                        else:
+                            registro[campo] = str(raw_val).strip()
+                    
+                    registro['asiento_key'] = val_asiento
+                    datos_limpios.append(registro)
+                except:
                     continue
-                
-                # Solo procesamos si el valor parece un asiento real (CB... o lo que corresponda)
-                if (es_reporte_cb and val_asto.startswith('CB')) or (not es_reporte_cb):
-                    try:
-                        row_dict = {}
-                        for campo, idx in indices_mapeados.items():
-                            val = df_raw.iloc[i, idx]
-                            # Limpieza específica para montos
-                            if campo in ['deb_v', 'cre_v', 'deb_u', 'cre_u', 'monto_cb']:
-                                val = str(val).replace('.', '').replace(',', '.')
-                                val = pd.to_numeric(val, errors='coerce') or 0.0
-                            row_dict[campo] = val
-                        
-                        # Normalizar el asiento para el cruce
-                        row_dict['asiento_key'] = str(row_dict.get('asiento', '')).strip().upper()
-                        clean_data.append(row_dict)
-                    except:
-                        continue
         
-        return pd.DataFrame(clean_data)
+        return pd.DataFrame(datos_limpios)
 
     # --- CONFIGURACIÓN DE RADAR PARA CADA ARCHIVO ---
     
