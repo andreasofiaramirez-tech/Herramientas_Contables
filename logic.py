@@ -4719,74 +4719,63 @@ def run_conciliation_comisiones_bancarias(df_cb_raw, df_cg_raw, empresa_sel, log
     }
     mapeo_identidad = mapeos.get(empresa_sel, {})
 
-    # --- FUNCIÓN DE LIMPIEZA DE MONTOS ULTRA-ROBUSTA ---
+    # --- FUNCIÓN INTERNA: LIMPIEZA DE MONTOS ---
     def limpiar_monto_contable(val):
-        if pd.isna(val) or val == '': return 0.0
+        if pd.isna(val) or str(val).strip() in ['', '-']: return 0.0
         if isinstance(val, (int, float)): return float(val)
-        # Si es texto, limpiamos formato latino (1.234,56 -> 1234.56)
         s = str(val).strip().replace(' ', '')
-        # Detectar si tiene puntos de miles y coma decimal
+        # Manejo de formato latino: 1.234,56 -> 1234.56
         if '.' in s and ',' in s:
-            if s.rfind('.') < s.rfind(','): # Caso 1.234,56
-                s = s.replace('.', '').replace(',', '.')
-            else: # Caso 1,234.56
-                s = s.replace(',', '')
-        elif ',' in s: # Caso 31,50
-            s = s.replace(',', '.')
-        
+            if s.rfind('.') < s.rfind(','): s = s.replace('.', '').replace(',', '.')
+            else: s = s.replace(',', '')
+        elif ',' in s: s = s.replace(',', '.')
         return pd.to_numeric(re.sub(r'[^\d.-]', '', s), errors='coerce') or 0.0
 
-    # --- RADAR DE EXTRACCIÓN DINÁMICA ---
-    def extraer_con_radar(df_raw, nombres_clave, es_cb=True):
-        datos_limpios = []
-        mapa_cols = {}
-        header_visto = False
+    # --- FUNCIÓN INTERNA: EL RADAR (Corregido y sincronizado) ---
+    def extraer_datos_dinamicos(df_raw, keywords_ancla, mapa_columnas_objetivo, es_cb=True):
+        clean_data = []
+        indices_mapeados = {}
+        header_encontrado = False
 
         for i in range(len(df_raw)):
-            fila_lista = [str(x).strip().upper() for x in df_raw.iloc[i].values]
+            # Normalizamos la fila para la búsqueda
+            fila_raw = [str(x).strip().upper() for x in df_raw.iloc[i].values]
             
-            # BUSCAR EL ENCABEZADO (ANCLA: ASIENTO)
-            if 'ASIENTO' in fila_lista:
-                header_visto = True
-                # Identificamos en qué columna quedó cada campo
-                for clave_interna, terminos_busqueda in nombres_clave.items():
-                    for idx, celda in enumerate(fila_lista):
-                        if any(t in celda for t in terminos_busqueda):
-                            mapa_cols[clave_interna] = idx
-                            break
-                continue
+            # 1. BUSCAR ENCABEZADO
+            if not header_encontrado:
+                if any(ancla in fila_raw for ancla in keywords_ancla):
+                    header_encontrado = True
+                    for campo, terminos in mapa_columnas_objetivo.items():
+                        for idx, valor_celda in enumerate(fila_raw):
+                            if any(t in valor_celda for t in terminos):
+                                indices_mapeados[campo] = idx
+                                break
+                    continue
 
-            # SI YA VIMOS EL HEADER, PROCESAMOS LA DATA
-            if header_visto:
-                idx_asiento = mapa_cols.get('asiento', 0)
-                val_asiento = str(df_raw.iloc[i, idx_asiento]).strip().upper()
+            # 2. PROCESAR DATOS
+            if header_encontrado:
+                idx_asiento = indices_mapeados.get('asiento', 0)
+                val_asto = str(df_raw.iloc[i, idx_asiento]).strip().upper()
 
-                # Criterio de parada o salto:
-                if val_asiento in ['NAN', '', 'TOTAL', 'TOTALES']: continue
-                
-                # Filtro específico para Tesorería (CB)
-                if es_cb and not val_asiento.startswith('CB'): continue
+                if val_asto in ['NAN', '', 'TOTAL', 'TOTALES']: continue
+                if es_cb and not val_asto.startswith('CB'): continue
 
-                # Extracción segura de la fila
                 try:
                     registro = {}
-                    for campo, idx in mapa_cols.items():
+                    for campo, idx in indices_mapeados.items():
                         raw_val = df_raw.iloc[i, idx]
-                        if campo in ['cre_v', 'cre_u', 'deb_v', 'deb_u', 'monto_cb']:
+                        if campo in ['monto_cb', 'cre_v', 'cre_u', 'deb_v', 'deb_u']:
                             registro[campo] = limpiar_monto_contable(raw_val)
                         else:
                             registro[campo] = str(raw_val).strip()
                     
-                    registro['asiento_key'] = val_asiento
-                    datos_limpios.append(registro)
-                except:
-                    continue
+                    registro['asiento_key'] = val_asto
+                    clean_data.append(registro)
+                except: continue
         
-        return pd.DataFrame(datos_limpios)
+        return pd.DataFrame(clean_data)
 
-    # --- CONFIGURACIÓN DE RADAR PARA CADA ARCHIVO ---
-    
-    # Radar para Tesorería (Imagen A)
+    # --- CONFIGURACIÓN DE RADARES ---
     config_cb = {
         'asiento': ['ASIENTO'],
         'banco': ['CUENTA', 'BANCARIA'],
@@ -4794,88 +4783,88 @@ def run_conciliation_comisiones_bancarias(df_cb_raw, df_cg_raw, empresa_sel, log
         'concepto': ['CONCEPTO', 'REFERENCIA']
     }
     
-    # Radar para Contabilidad (Imagen B)
     config_cg = {
         'asiento': ['ASIENTO'],
         'cta': ['CUENTA', 'CONTABLE'],
-        'deb_v': ['DEBITO VES', 'DEBITO LOCAL'],
         'cre_v': ['CREDITO VES', 'CREDITO LOCAL'],
-        'deb_u': ['DEBITO DOLAR', 'DEBITO ME'],
-        'cre_u': ['CREDITO DOLAR', 'CREDITO ME']
+        'cre_u': ['CREDITO DOLAR', 'CREDITO ME'],
+        'deb_v': ['DEBITO VES', 'DEBITO LOCAL'],
+        'deb_u': ['DEBITO DOLAR', 'DEBITO ME']
     }
 
-    # --- EJECUCIÓN DEL RADAR ---
-    df_cb_clean = extraer_datos_dinamicos(df_cb_raw, ['ASIENTO'], config_cb, es_reporte_cb=True)
-    df_cg_clean = extraer_datos_dinamicos(df_cg_raw, ['ASIENTO'], config_cg, es_reporte_cb=False)
+    # EJECUTAR RADARES
+    df_cb = extraer_datos_dinamicos(df_cb_raw, ['ASIENTO'], config_cb, es_cb=True)
+    df_cg = extraer_datos_dinamicos(df_cg_raw, ['ASIENTO'], config_cg, es_cb=False)
 
-    if df_cb_clean.empty or df_cg_clean.empty:
-        log_messages.append("❌ ERROR: El radar no pudo localizar los datos. Verifique que la columna 'ASIENTO' exista.")
+    if df_cb.empty:
+        log_messages.append("❌ ERROR: El radar no encontró datos en el reporte de Tesorería (CB).")
+        return pd.DataFrame()
+    if df_cg.empty:
+        log_messages.append("❌ ERROR: El radar no encontró datos en el Mayor de Contabilidad (CG).")
         return pd.DataFrame()
 
     # --- AUDITORÍA CRUZADA ---
     resultados = []
-    for _, fila_cb in df_cb_clean.iterrows():
-        asiento_id = fila_cb['asiento_key']
-        banco_id = str(fila_cb.get('banco', '')).strip()
+    for _, fila_cb in df_cb.iterrows():
+        asiento = fila_cb['asiento_key']
+        banco_id = fila_cb['banco']
         
-        # Obtener configuración del diccionario
-        config_banco = mapeo_identidad.get(banco_id, {})
-        cta_esperada = config_banco.get('cta', 'NO_MAP')
-        es_usd = config_banco.get('moneda', 'VES') == 'USD'
+        # Obtener datos del diccionario de identidad
+        info_bco = mapeo_identidad.get(banco_id, {})
+        cta_esperada = info_bco.get('cta', 'NO_MAP')
+        es_usd = info_bco.get('moneda', 'VES') == 'USD'
         
-        asto_cg = df_cg_clean[df_cg_clean['asiento_key'] == asiento_id]
+        asto_cg = df_cg[df_cg['asiento_key'] == asiento]
         
-        check_monto, check_banco, check_contra, check_cuadrado = "❌ No coincide", "❌ Incorrecta", "❌ Incorrecta", "❌ Descuadrado"
-        monto_cg_final = 0
-        obs = []
+        c_monto, c_banco, c_gasto, c_cuadre = "❌ No coincide", "❌ Incorrecta", "❌ Incorrecta", "❌ Descuadrado"
+        monto_cg_banco = 0.0
+        hallazgos = []
 
         if asto_cg.empty:
-            obs.append("Asiento no hallado en Mayor")
+            hallazgos.append("Asiento no hallado en Contabilidad")
         else:
-            col_monto_asto = 'cre_u' if es_usd else 'cre_v'
+            col_credito = 'cre_u' if es_usd else 'cre_v'
             
-            # 1. Identidad
-            lineas_banco = asto_cg[asto_cg['cta'].astype(str).str.strip() == cta_esperada]
-            if not lineas_banco.empty:
-                check_banco = "✅ Correcta"
-                monto_cg_final = lineas_banco[col_monto_asto].sum()
+            # 1. Banco e Identidad
+            lineas_bco = asto_cg[asto_cg['cta'].astype(str).str.strip() == cta_esperada]
+            if not lineas_bco.empty:
+                c_banco = "✅ Correcta"
+                monto_cg_banco = lineas_bco[col_credito].sum()
             else:
-                any_bco = asto_cg[asto_cg['cta'].astype(str).str.startswith(('1.1.1.02', '1.1.1.03'))]
+                any_bco = asto_cg[asto_cg['cta'].str.startswith(('1.1.1.02', '1.1.1.03'))]
                 if not any_bco.empty:
-                    check_banco = f"❌ Error: Usó {any_bco['cta'].iloc[0]}"
-                    monto_cg_final = any_bco[col_monto_asto].sum()
+                    c_banco = f"❌ Error: Usó {any_bco['cta'].iloc[0]}"
+                    monto_cg_banco = any_bco[col_credito].sum()
 
             # 2. Monto
-            if abs(round(fila_cb['monto_cb'], 2) - round(monto_cg_final, 2)) <= 0.01:
-                check_monto = "✅ Monto Correcto"
+            if abs(round(fila_cb['monto_cb'], 2) - round(monto_cg_banco, 2)) <= 0.01:
+                c_monto = "✅ Monto Correcto"
             else:
-                obs.append(f"Dif: CB {fila_cb['monto_cb']:.2f} vs CG {monto_cg_final:.2f}")
+                hallazgos.append(f"Dif: CB {fila_cb['monto_cb']:.2f} vs CG {monto_cg_banco:.2f}")
 
-            # 3. Gasto (Contrapartida)
+            # 3. Contrapartida (Gasto)
             cta_gasto = '7.1.3.50.1.002' if es_usd else '7.1.3.50.1.001'
             if asto_cg['cta'].str.contains(cta_gasto).any() or asto_cg['cta'].str.contains('6.1.1.12.1.001').any():
-                check_contra = "✅ Cuenta Correcta"
+                c_gasto = "✅ Cuenta Correcta"
             
             # 4. Cuadrante
             sum_debs = asto_cg['deb_v'].sum() + asto_cg['deb_u'].sum()
             sum_creds = asto_cg['cre_v'].sum() + asto_cg['cre_u'].sum()
             if abs(sum_debs - sum_creds) < 0.1:
-                check_cuadrado = "✅ Cuadrado"
+                c_cuadre = "✅ Cuadrado"
 
         resultados.append({
             'Banco (Reporte CB)': banco_id,
             'Moneda': 'USD' if es_usd else 'VES',
-            'Asiento': asiento_id,
-            'Concepto (CB)': fila_cb.get('concepto', ''),
-            'Monto CB': fila_cb['monto_cb'],
-            'Monto CG': monto_cg_final,
-            'Monto Coincide': check_monto,
-            'Banco Correcto': check_banco,
-            'Cuenta Gasto Correcta': check_contra,
-            'Asiento Cuadrado': check_cuadrado,
-            'Observaciones': " | ".join(obs)
+            'Asiento': asiento,
+            'Concepto Reportado (CB)': fila_cb.get('concepto', ''),
+            'Monto en Tesorería (CB)': fila_cb['monto_cb'],
+            'Monto en Contabilidad (CG)': monto_cg_banco,
+            'Monto Coincide (CB vs CG)': c_monto,
+            'Cuenta de Banco Correcta': c_banco,
+            'Cuenta Gasto Correcta (7.1.3.50 / 6.1.1.12)': c_gasto,
+            'Asiento Cuadrado (Debe = Haber)': c_cuadre,
+            'Hallazgos / Observaciones': " | ".join(hallazgos)
         })
 
     return pd.DataFrame(resultados)
-    log_messages.append(f"✔️ Auditoría procesada exitosamente.")
-    return df_final
