@@ -430,7 +430,7 @@ Vaya a la hoja **"Listado Correlativo"**. Verá los asientos en orden numérico.
 # -----------------------------------------------------------------------------
 # GUÍA PARA PENSIONES
 # -----------------------------------------------------------------------------
-GUIA_PENSIONES = 
+GUIA_PENSIONES = """
 ### 🛡️ Manual de Usuario: Cálculo Ley Protección de Pensiones (9%)
 
 Esta herramienta automatiza el cálculo del aporte del 9%, genera el asiento contable listo para firmar y audita las cifras contra el reporte de RRHH.
