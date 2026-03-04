@@ -2141,8 +2141,6 @@ def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, resumen_validaci
             ws3.merge_range(row_idx, 8, row_idx, 9, "Revisado por:", top_line)
             ws3.merge_range(row_idx+1, 0, row_idx+1, 2, analista, fmt_input)
             
-            ws3.merge_range(row_idx+1, 0, row_idx+1, 2, "", fmt_input) 
-            
             box_corner = workbook.add_format({'top': 1, 'left':1, 'right':1, 'font_size': 9})
             ws3.write(row_idx, 8, "Lugar y Fecha:", box_corner)
             fecha_str = fecha_cierre.strftime('%d/%m/%Y') if fecha_cierre else ""
