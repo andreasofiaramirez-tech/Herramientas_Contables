@@ -4719,73 +4719,97 @@ def run_conciliation_comisiones_bancarias(df_cb_raw, df_cg_raw, empresa_sel, log
     }
     mapeo_identidad = mapeos.get(empresa_sel, {})
 
-    # --- FUNCIÓN INTERNA: LIMPIEZA DE MONTOS ---
-    def limpiar_monto_contable(val):
-        if pd.isna(val) or str(val).strip() in ['', '-']: return 0.0
+    # --- FUNCIÓN: QUITAR TILDES Y NORMALIZAR ---
+    def normalizar_cadena(texto):
+        if pd.isna(texto): return ""
+        # Convierte "Créditos" -> "CREDITOS"
+        s = "".join(c for c in unicodedata.normalize('NFD', str(texto))
+                   if unicodedata.category(c) != 'Mn')
+        return s.upper().strip()
+
+    # --- FUNCIÓN: LIMPIAR MONTOS ---
+    def limpiar_monto_pro(val):
+        if pd.isna(val) or str(val).strip() in ['', '-', 'None']: return 0.0
         if isinstance(val, (int, float)): return float(val)
         s = str(val).strip().replace(' ', '')
-        # Manejo de formato latino: 1.234,56 -> 1234.56
-        if '.' in s and ',' in s:
+        # Caso latino: 1.234,56
+        if ',' in s and '.' in s:
             if s.rfind('.') < s.rfind(','): s = s.replace('.', '').replace(',', '.')
             else: s = s.replace(',', '')
         elif ',' in s: s = s.replace(',', '.')
         return pd.to_numeric(re.sub(r'[^\d.-]', '', s), errors='coerce') or 0.0
 
-    # --- FUNCIÓN INTERNA: EL RADAR (Corregido y sincronizado) ---
-    def extraer_datos_dinamicos(df_raw, keywords_ancla, mapa_columnas_objetivo, es_cb=True):
-        clean_data = []
+    # --- FUNCIÓN: RADAR DINÁMICO MEJORADO ---
+    def procesar_archivo_con_radar(df_original, config_busqueda, es_cb=True):
+        df_work = df_original.copy()
+        
+        # Si pandas ya tomó la primera fila como header, la bajamos a los datos 
+        # para que el radar no se pierda nada
+        if 'ASIENTO' not in [normalizar_cadena(c) for c in df_work.columns]:
+            # Convertir headers a una fila de datos y resetear
+            df_work.loc[-1] = df_work.columns
+            df_work.index = df_work.index + 1
+            df_work = df_work.sort_index()
+            df_work.columns = range(df_work.shape[1])
+
         indices_mapeados = {}
+        data_final = []
         header_encontrado = False
 
-        for i in range(len(df_raw)):
-            # Normalizamos la fila para la búsqueda
-            fila_raw = [str(x).strip().upper() for x in df_raw.iloc[i].values]
+        for i in range(len(df_work)):
+            # Normalizamos toda la fila (quitar tildes, mayúsculas)
+            fila_valores = [normalizar_cadena(v) for v in df_work.iloc[i].values]
             
-            # 1. BUSCAR ENCABEZADO
+            # 1. ¿ES ESTA LA FILA DE ENCABEZADOS?
             if not header_encontrado:
-                if any(ancla in fila_raw for ancla in keywords_ancla):
+                if 'ASIENTO' in fila_valores:
                     header_encontrado = True
-                    for campo, terminos in mapa_columnas_objetivo.items():
-                        for idx, valor_celda in enumerate(fila_raw):
-                            if any(t in valor_celda for t in terminos):
-                                indices_mapeados[campo] = idx
+                    # Mapeamos cada campo de nuestra configuración
+                    for campo_interno, terminos_busqueda in config_busqueda.items():
+                        for idx, valor_col in enumerate(fila_valores):
+                            # Buscamos si alguno de nuestros términos está en la columna
+                            if any(t in valor_col for t in terminos_busqueda):
+                                indices_mapeados[campo_interno] = idx
                                 break
-                    continue
+                    continue # Saltamos la fila del header
 
-            # 2. PROCESAR DATOS
+            # 2. EXTRAER DATOS SI YA ENCONTRAMOS EL HEADER
             if header_encontrado:
-                idx_asiento = indices_mapeados.get('asiento', 0)
-                val_asto = str(df_raw.iloc[i, idx_asiento]).strip().upper()
-
-                if val_asto in ['NAN', '', 'TOTAL', 'TOTALES']: continue
-                if es_cb and not val_asto.startswith('CB'): continue
-
-                try:
-                    registro = {}
-                    for campo, idx in indices_mapeados.items():
-                        raw_val = df_raw.iloc[i, idx]
-                        if campo in ['monto_cb', 'cre_v', 'cre_u', 'deb_v', 'deb_u']:
-                            registro[campo] = limpiar_monto_contable(raw_val)
-                        else:
-                            registro[campo] = str(raw_val).strip()
-                    
-                    registro['asiento_key'] = val_asto
-                    clean_data.append(registro)
-                except: continue
+                idx_asiento = indices_mapeados.get('asiento')
+                if idx_asiento is None: continue
+                
+                asiento_raw = str(df_work.iloc[i, idx_asiento]).strip().upper()
+                
+                # Filtros de exclusión
+                if asiento_raw in ['NAN', '', 'TOTAL', 'TOTALES']: continue
+                if es_cb and 'CB' not in asiento_raw: continue
+                
+                # Si llegamos aquí, es una fila de datos válida
+                registro = {}
+                for campo, idx in indices_mapeados.items():
+                    val_original = df_work.iloc[i, idx]
+                    if campo in ['cre_v', 'cre_u', 'deb_v', 'deb_u', 'monto_cb']:
+                        registro[campo] = limpiar_monto_pro(val_original)
+                    else:
+                        registro[campo] = str(val_original).strip()
+                
+                # Crear llave de cruce limpia (sin espacios)
+                registro['asiento_key'] = asiento_raw.replace(" ", "")
+                data_final.append(registro)
         
-        return pd.DataFrame(clean_data)
+        return pd.DataFrame(data_final)
 
-    # --- CONFIGURACIÓN DE RADARES ---
+    # --- CONFIGURACIÓN DE RADARES (Sin tildes) ---
     config_cb = {
         'asiento': ['ASIENTO'],
-        'banco': ['CUENTA', 'BANCARIA'],
-        'monto_cb': ['CREDITO', 'MONTO'],
+        'banco': ['CUENTA BANCARIA', 'BANCO'],
+        'monto_cb': ['CREDITO'],
         'concepto': ['CONCEPTO', 'REFERENCIA']
     }
     
     config_cg = {
         'asiento': ['ASIENTO'],
-        'cta': ['CUENTA', 'CONTABLE'],
+        'cta': ['CUENTA CONTABLE', 'CUENTA'],
         'cre_v': ['CREDITO VES', 'CREDITO LOCAL'],
         'cre_u': ['CREDITO DOLAR', 'CREDITO ME'],
         'deb_v': ['DEBITO VES', 'DEBITO LOCAL'],
@@ -4793,14 +4817,12 @@ def run_conciliation_comisiones_bancarias(df_cb_raw, df_cg_raw, empresa_sel, log
     }
 
     # EJECUTAR RADARES
-    df_cb = extraer_datos_dinamicos(df_cb_raw, ['ASIENTO'], config_cb, es_cb=True)
-    df_cg = extraer_datos_dinamicos(df_cg_raw, ['ASIENTO'], config_cg, es_cb=False)
+    df_cb = procesar_archivo_con_radar(df_cb_raw, config_cb, es_cb=True)
+    df_cg = procesar_archivo_con_radar(df_cg_raw, config_cg, es_cb=False)
 
-    if df_cb.empty:
-        log_messages.append("❌ ERROR: El radar no encontró datos en el reporte de Tesorería (CB).")
-        return pd.DataFrame()
-    if df_cg.empty:
-        log_messages.append("❌ ERROR: El radar no encontró datos en el Mayor de Contabilidad (CG).")
+    if df_cb.empty or df_cg.empty:
+        log_messages.append(f"⚠️ Alerta: CB tiene {len(df_cb)} filas, CG tiene {len(df_cg)} filas.")
+        log_messages.append("❌ El radar no pudo sincronizar los archivos. Verifique que ambos tengan la columna 'Asiento'.")
         return pd.DataFrame()
 
     # --- AUDITORÍA CRUZADA ---
@@ -4809,40 +4831,41 @@ def run_conciliation_comisiones_bancarias(df_cb_raw, df_cg_raw, empresa_sel, log
         asiento = fila_cb['asiento_key']
         banco_id = fila_cb['banco']
         
-        # Obtener datos del diccionario de identidad
-        info_bco = mapeo_identidad.get(banco_id, {})
-        cta_esperada = info_bco.get('cta', 'NO_MAP')
-        es_usd = info_bco.get('moneda', 'VES') == 'USD'
+        # Buscar en diccionario
+        config_bco = mapeo_identidad.get(banco_id, {})
+        cta_esperada = config_bco.get('cta', 'NO_MAP')
+        es_usd = config_bco.get('moneda', 'VES') == 'USD'
         
+        # Cruce exacto
         asto_cg = df_cg[df_cg['asiento_key'] == asiento]
         
         c_monto, c_banco, c_gasto, c_cuadre = "❌ No coincide", "❌ Incorrecta", "❌ Incorrecta", "❌ Descuadrado"
-        monto_cg_banco = 0.0
-        hallazgos = []
+        monto_cg_final = 0.0
+        obs = []
 
         if asto_cg.empty:
-            hallazgos.append("Asiento no hallado en Contabilidad")
+            obs.append("Asiento no hallado en el Mayor (CG)")
         else:
             col_credito = 'cre_u' if es_usd else 'cre_v'
             
-            # 1. Banco e Identidad
+            # 1. Identidad de Cuenta Bancaria
             lineas_bco = asto_cg[asto_cg['cta'].astype(str).str.strip() == cta_esperada]
             if not lineas_bco.empty:
                 c_banco = "✅ Correcta"
-                monto_cg_banco = lineas_bco[col_credito].sum()
+                monto_cg_final = lineas_bco[col_credito].sum()
             else:
-                any_bco = asto_cg[asto_cg['cta'].str.startswith(('1.1.1.02', '1.1.1.03'))]
+                any_bco = asto_cg[asto_cg['cta'].astype(str).str.startswith(('1.1.1.02', '1.1.1.03'))]
                 if not any_bco.empty:
-                    c_banco = f"❌ Error: Usó {any_bco['cta'].iloc[0]}"
-                    monto_cg_banco = any_bco[col_credito].sum()
+                    c_banco = f"❌ Error: Se usó {any_bco['cta'].iloc[0]}"
+                    monto_cg_final = any_bco[col_credito].sum()
 
             # 2. Monto
-            if abs(round(fila_cb['monto_cb'], 2) - round(monto_cg_banco, 2)) <= 0.01:
+            if abs(round(fila_cb['monto_cb'], 2) - round(monto_cg_final, 2)) <= 0.01:
                 c_monto = "✅ Monto Correcto"
             else:
-                hallazgos.append(f"Dif: CB {fila_cb['monto_cb']:.2f} vs CG {monto_cg_banco:.2f}")
+                obs.append(f"Dif: CB {fila_cb['monto_cb']:.2f} vs CG {monto_cg_final:.2f}")
 
-            # 3. Contrapartida (Gasto)
+            # 3. Gasto (Contrapartida)
             cta_gasto = '7.1.3.50.1.002' if es_usd else '7.1.3.50.1.001'
             if asto_cg['cta'].str.contains(cta_gasto).any() or asto_cg['cta'].str.contains('6.1.1.12.1.001').any():
                 c_gasto = "✅ Cuenta Correcta"
@@ -4859,12 +4882,12 @@ def run_conciliation_comisiones_bancarias(df_cb_raw, df_cg_raw, empresa_sel, log
             'Asiento': asiento,
             'Concepto Reportado (CB)': fila_cb.get('concepto', ''),
             'Monto en Tesorería (CB)': fila_cb['monto_cb'],
-            'Monto en Contabilidad (CG)': monto_cg_banco,
+            'Monto en Contabilidad (CG)': monto_cg_final,
             'Monto Coincide (CB vs CG)': c_monto,
             'Cuenta de Banco Correcta': c_banco,
             'Cuenta Gasto Correcta (7.1.3.50 / 6.1.1.12)': c_gasto,
             'Asiento Cuadrado (Debe = Haber)': c_cuadre,
-            'Hallazgos / Observaciones': " | ".join(hallazgos)
+            'Hallazgos / Observaciones': " | ".join(obs)
         })
 
     return pd.DataFrame(resultados)
