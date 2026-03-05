@@ -1060,134 +1060,115 @@ def render_retenciones():
 
 
 def render_pensiones():
-    st.title("🛡️ Cálculo Ley Protección Pensiones (9%)", anchor=False)
-    
-    with st.expander("📖 Guía de Uso"):
-        st.markdown(GUIA_PENSIONES)
+    st.title("⚖️ Cálculo Ley Protección Pensiones (9%)", anchor=False)
+
+    # --- 1. ESTILOS CSS PARA REPLICAR LOCTI ---
+    st.markdown("""
+        <style>
+        .stContainer {
+            background-color: #1a1c24;
+            border-radius: 15px;
+            padding: 20px;
+            border: 1px solid #333;
+        }
+        .card-header {
+            padding: 10px;
+            border-radius: 10px 10px 0 0;
+            font-weight: bold;
+            text-align: center;
+            color: white;
+            margin-bottom: -10px;
+        }
+        .purple-header { background-color: #4b0082; }
+        .green-header { background-color: #1e5631; }
+        .red-header { background-color: #8b0000; }
+        
+        div[data-testid="stExpander"] {
+            border: none !important;
+            background-color: transparent !important;
+        }
+        </style>
+    """, unsafe_allow_html=True)
 
     if st.button("⬅️ Volver al Inicio", key="back_pen"):
         set_page('inicio')
         st.rerun()
+
+    # --- 2. SECCIÓN DE PARÁMETROS (Contenedor Superior) ---
+    with st.container(border=True):
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            EMPRESAS_NOMINA = ["FEBECA", "BEVAL", "PRISMA", "QUINCALLA"]
+            empresa_sel = st.selectbox("🏢 Seleccione la Filial:", EMPRESAS_NOMINA)
+        with c2:
+            tasa = st.number_input("💵 Tasa de Cambio:", min_value=0.01, value=1.0, format="%.4f")
+        with c3:
+            num_asiento = st.text_input("🔢 N° Asiento:", value="CG0000")
         
-    # 1. Configuración de Empresa
-    EMPRESAS_NOMINA = ["FEBECA", "BEVAL", "PRISMA", "QUINCALLA"]
-    col_emp, _ = st.columns([1, 1])
-    with col_emp:
-        empresa_sel = st.selectbox("Seleccione la Empresa:", EMPRESAS_NOMINA, key="empresa_pensiones")
+        st.text_input("👤 Hecho por:", placeholder="Nombre del analista")
 
-    # 2. Carga de Archivos
-    c1, c2, c3 = st.columns([1.5, 1.5, 1.5])
-    with c1:
-        file_mayor = st.file_uploader("1. Mayor Contable (Excel)", type=['xlsx'], key="pen_mayor")
-    with c2:
-        file_nomina = st.file_uploader("2. Resumen Nómina (Validación)", type=['xlsx'], key="pen_nom")
-    with c3:
-        tasa = st.number_input("Tasa de Cambio", min_value=0.01, value=1.0, format="%.4f", key="pen_tasa")
-        num_asiento = st.text_input("Número de Asiento (Cargador)", value="CG0000", key="pen_num_asiento")
-        analista = st.text_input("👤 Hecho por:", value="").upper()
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.subheader(f"📥 Carga de Archivos: {empresa_sel}", anchor=False)
 
-    # 3. Botón de Acción
+    # --- 3. SECCIÓN DE CARGA (Tarjetas de Colores) ---
+    col_file1, col_file2 = st.columns(2)
+
+    with col_file1:
+        st.markdown('<div class="card-header purple-header">📊 Mayor Contable</div>', unsafe_allow_html=True)
+        with st.container(border=True):
+            file_mayor = st.file_uploader("Subir Mayor Analítico", type=['xlsx'], key="pen_mayor", label_visibility="collapsed")
+        st.caption("📍 Debe contener las cuentas 7.1.1.01 y 7.1.1.09")
+
+    with col_file2:
+        st.markdown('<div class="card-header green-header">💰 Resumen de Nómina</div>', unsafe_allow_html=True)
+        with st.container(border=True):
+            file_nomina = st.file_uploader("Subir Resumen RRHH", type=['xlsx'], key="pen_nom", label_visibility="collapsed")
+        st.caption("📍 Pestaña debe coincidir con el Mes/Año")
+
+    st.divider()
+
+    # --- 4. BOTÓN DE PROCESO Y LÓGICA ---
     if file_mayor and tasa > 0:
-        if st.button("Calcular Impuesto", type="primary", use_container_width=True, key="btn_calc_pen"):
+        if st.button("🚀 Calcular Impuesto y Generar Asiento", type="primary", use_container_width=True):
             log = []
             try:
                 from logic import procesar_calculo_pensiones
-                from utils import generar_reporte_pensiones
+                from utils import generar_reporte_pensiones, generar_cargador_asiento_pensiones
                 
-                with st.spinner("Procesando mayor contable y cruzando con nómina..."):
-                    # Ejecutar lógica principal
+                with st.spinner("Analizando bases imponibles..."):
+                    # Ejecutar lógica (No se toca)
                     df_calc, df_base, df_asiento, dict_val = procesar_calculo_pensiones(file_mayor, file_nomina, tasa, empresa_sel, log, num_asiento)
                 
                 if df_asiento is not None and not df_asiento.empty:
-                    # Mostrar resultados en pantalla
-                    total_pagar = df_asiento['Crédito VES'].sum()
+                    st.success("✅ Cálculo finalizado satisfactoriamente.")
                     
-                    # Alertas de Validación
-                    if dict_val.get('estado') == 'OK':
-                        st.success(f"✅ Cálculo exitoso para {empresa_sel}. Total a Pagar: Bs. {total_pagar:,.2f}")
-                    else:
-                        st.warning(
-                            f"⚠️ Atención: Descuadres detectados (Ver Hoja 1).\n"
-                            f"• Dif. Salarios: {dict_val.get('dif_salario', 0):,.2f}\n"
-                            f"• Dif. Tickets: {dict_val.get('dif_ticket', 0):,.2f}\n"
-                            f"• Dif. Impuesto: {dict_val.get('dif_imp', 0):,.2f}"
-                        )
+                    # Alertas de Auditoría (Estilo LOCTI)
+                    if dict_val.get('estado') != 'OK':
+                        st.error(f"⚠️ Descuadre detectado: {dict_val.get('dif_base_total'):,.2f} Bs.")
                     
-                    st.subheader("Vista Previa del Asiento")
+                    if dict_val.get('tiene_cc_genericos'):
+                        st.warning(f"🚨 Centros de costo .00 detectados: {dict_val.get('lista_cc_genericos')}")
 
-                    # --- MEJORA VISUAL EN PANTALLA ---
-                    # 1. Ordenar columnas
-                    cols_orden = ['Centro Costo', 'Cuenta Contable', 'Descripción', 'Débito VES', 'Crédito VES', 'Débito USD', 'Crédito USD', 'Tasa']
-                    df_view = df_asiento[cols_orden].copy()
+                    # Descargas
+                    c_down1, c_down2 = st.columns(2)
+                    fecha_cierre_dt = pd.to_datetime(mes_cierre)
                     
-                    # 2. Fila de Totales
-                    totales = {
-                        'Centro Costo': 'TOTALES', 'Cuenta Contable': '', 'Descripción': '',
-                        'Débito VES': df_view['Débito VES'].sum(), 'Crédito VES': df_view['Crédito VES'].sum(),
-                        'Débito USD': df_view['Débito USD'].sum(), 'Crédito USD': df_view['Crédito USD'].sum(), 'Tasa': ''
-                    }
-                    df_view = pd.concat([df_view, pd.DataFrame([totales])], ignore_index=True)
+                    with c_down1:
+                        cargador_bin = generar_cargador_asiento_pensiones(df_asiento, fecha_cierre_dt)
+                        st.download_button("📥 Descargar Cargador Softland", cargador_bin, f"CARGADOR_{num_asiento}.xlsx", use_container_width=True)
                     
-                    # 3. Formato Venezolano (1.000,00)
-                    def fmt_ve(x):
-                        if isinstance(x, (float, int)):
-                            return "{:,.2f}".format(x).replace(",", "X").replace(".", ",").replace("X", ".")
-                        return x
+                    with c_down2:
+                        excel_data = generar_reporte_pensiones(df_calc, df_base, df_asiento, dict_val, empresa_sel, tasa, fecha_cierre_dt)
+                        st.download_button("📊 Descargar Memoria de Cálculo", excel_data, f"PENSIONES_{empresa_sel}.xlsx", use_container_width=True)
 
-                    for col in ['Débito VES', 'Crédito VES', 'Débito USD', 'Crédito USD', 'Tasa']:
-                        df_view[col] = df_view[col].apply(fmt_ve)
-
-                    st.dataframe(df_view, use_container_width=True, hide_index=True)
-                    # ---------------------------------
-                    
-                    # --- PREPARACIÓN PARA EXCEL ---
-                    fecha_cierre = pd.Timestamp.today()
-                    try:
-                        if 'FECHA' in df_base.columns:
-                            # Tomamos la primera fecha válida y calculamos el último día de ese mes
-                            primera_fecha = pd.to_datetime(df_base['FECHA'].iloc[0])
-                            fecha_cierre = primera_fecha + pd.offsets.MonthEnd(0)
-                    except:
-                        pass # Si falla, usa fecha de hoy
-                    
-                    # Formato: Calculo_Pensiones_EMPRESA_MES.YY.xlsx
-                    meses_abr = {1:"ENE", 2:"FEB", 3:"MAR", 4:"ABR", 5:"MAY", 6:"JUN", 7:"JUL", 8:"AGO", 9:"SEP", 10:"OCT", 11:"NOV", 12:"DIC"}
-                    mes_txt = meses_abr.get(fecha_cierre.month, "MES")
-                    anio_txt = str(fecha_cierre.year)[-2:]
-                    nombre_archivo_final = f"Calculo_Pensiones_{empresa_sel}_{mes_txt}.{anio_txt}.xlsx"
-                    # ------------------------------------------
-                    
-                    # Generar Reporte Excel
-                    excel_data = generar_reporte_pensiones(df_calc, df_base, df_asiento, dict_val, empresa_sel, tasa, fecha_cierre)
-
-                    cargador_bin = generar_cargador_asiento_pensiones(df_asiento, fecha_cierre)
-    
-                    st.divider()
-                    st.subheader("🚀 Generación de Cargador")
-                    st.download_button(
-                        label="⬇️ Descargar Cargador para el Sistema (.xlsx)",
-                        data=cargador_bin,
-                        file_name=f"CARGADOR_{num_asiento}.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        use_container_width=True
-                    )
-                    
-                    st.download_button(
-                        "⬇️ Descargar Reporte Completo (Excel)",
-                        excel_data,
-                        file_name=nombre_archivo_final, # <--- CAMBIO AQUÍ
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        use_container_width=True
-                    )
-                else:
-                    st.error("No se pudo generar el cálculo. Por favor revisa el log.")
-
-                # Mostrar Log
-                with st.expander("Ver Log de Proceso"):
-                    st.write(log)
-
+                    # Vista previa
+                    with st.expander("🔍 Ver Asiento Generado"):
+                        st.dataframe(df_asiento, use_container_width=True)
+                
             except Exception as e:
-                mostrar_error_amigable(e, "el Cálculo de Pensiones")
+                st.error(f"❌ Error en el proceso: {str(e)}")
+    else:
+        st.info("💡 Por favor, cargue el Mayor Contable para habilitar el cálculo.", icon="💡")
 
 def render_debito_fiscal():
     st.title("📑 Verificación de Débito Fiscal (Bs.)", anchor=False)
