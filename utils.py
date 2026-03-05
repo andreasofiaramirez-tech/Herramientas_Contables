@@ -1823,7 +1823,7 @@ def generar_reporte_auditoria_txt(df_audit):
             
     return output.getvalue()
 
-def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, resumen_validacion, nombre_empresa, tasa_cambio, fecha_cierre):
+def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, resumen_validacion, nombre_empresa, tasa_cambio, fecha_cierre,analista):
     """
     Genera Excel Profesional de Pensiones.
     Hoja 1: Dos tablas comparativas (Por Cuenta y Por Centro de Costo) + Validación.
