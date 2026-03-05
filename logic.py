@@ -3665,9 +3665,11 @@ NOMBRES_CUENTAS_OFICIALES = {
     '1.1.1.02.1.005': 'Banesco, C.A. Banco Universal',
     '1.1.1.02.1.006': 'Banco Provincial S.A. Banco Universal',
     '1.1.1.02.1.008': 'Banco Bicentenario, Banco Universal',
+    '1.1.1.02.1.007': 'Banesco, C.A. Banco Universal'
     '1.1.1.02.1.009': 'Banco Mercantil C.A. Banco Universal',
     '1.1.1.02.1.010': 'Banco del Caribe C.A. Banco Universal',
     '1.1.1.02.1.015': 'Banco Exterior S.A. Banco Universal',
+    '1.1.1.02.1.016': 'Banco de Venezuela, S.A.',
     '1.1.1.02.1.018': 'Banco Nacional de Cdto.C.A. Bco.Univer.',
     '1.1.1.02.1.019': 'Banco Caroní, C.A. Banco Universal',
     '1.1.1.02.1.021': 'Bancamiga Banco Universal, C.A.',
@@ -4130,16 +4132,23 @@ def extraer_saldos_cg(archivo, log_messages):
                         if cuenta in NOMBRES_CUENTAS_OFICIALES:
                             descripcion = NOMBRES_CUENTAS_OFICIALES[cuenta]
                         else:
-                            # Fallback: Cortar string entre cuenta y primer número/palabra clave
-                            # Buscamos índice donde termina la cuenta
-                            idx_cuenta = line.find(cuenta) + len(cuenta)
+                            # --- ESTAS SON LAS LÍNEAS A CORREGIR ---
+                            # Buscamos dónde termina el número de cuenta
+                            idx_inicio_nombre = line.find(cuenta) + len(cuenta)
                             
-                            # Buscamos índice donde empieza "Deudor" o el primer número
-                            match_deudor = re.search(r'\s(DEUDOR|ACREEDOR)\s', line, re.IGNORECASE)
+                            # Buscamos la posición del primer número que parezca un monto (dinero)
+                            # Este regex busca el primer patrón de moneda (ej: 1.234,56) en el resto de la línea
+                            match_primer_monto = re.search(r'\s\(?-?[\d]{1,3}(?:[.,\s]\d{3})*[.,]\d{2}\)?', line[idx_inicio_nombre:])
                             
-                            if match_deudor:
-                                idx_fin = match_deudor.start()
-                                descripcion = line[idx_cuenta:idx_fin].strip()
+                            if match_primer_monto:
+                                # El nombre es todo lo que está antes del primer número encontrado
+                                idx_fin_nombre = match_primer_monto.start()
+                                descripcion = line[idx_inicio_nombre : idx_inicio_nombre + idx_fin_nombre].strip()
+                                
+                                # Limpieza de "ruido" contable que pueda quedar al final del nombre
+                                for basura in ['DEUDOR', 'ACREEDOR', 'SDO', 'SALDO']:
+                                    descripcion = descripcion.replace(basura, '')
+                                descripcion = descripcion.strip()
                             else:
                                 descripcion = "NOMBRE NO DETECTADO"
 
@@ -4291,7 +4300,18 @@ def run_cuadre_cb_cg(file_cb, file_cg, nombre_empresa, log_messages):
         info_cg = info_cg_full.get(clave_cg, {'inicial':0, 'debitos':0, 'creditos':0, 'final':0})
         
         saldo_cg_final = info_cg.get('final', 0)
-        desc_cg = info_cg_full.get('descripcion', NOMBRES_CUENTAS_OFICIALES.get(cuenta_cg, 'NO DEFINIDO'))
+        desc_cg = info_cg_full.get('descripcion', 'NOMBRE NO DETECTADO')
+        
+        # 2. MEJORA: Si CG no tiene nombre o dice 'NOMBRE NO DETECTADO', 
+        # buscamos el nombre en la data de Tesorería (CB)
+        if desc_cg == 'NOMBRE NO DETECTADO' or not desc_cg:
+            # Tomamos el nombre del primer código CB asociado a esta cuenta
+            primer_codigo_cb = codigos_cb_lista[0]
+            desc_cg = data_cb.get(primer_codigo_cb, {}).get('nombre', 'NOMBRE NO DETECTADO')
+
+        # 3. Si aún así no hay nombre, buscamos en el diccionario maestro
+        if desc_cg == 'NOMBRE NO DETECTADO':
+            desc_cg = NOMBRES_CUENTAS_OFICIALES.get(cuenta_cg, 'NOMBRE NO DETECTADO')
         
         # Cálculo de diferencia
         diferencia = round(s_cb_fin - saldo_cg_final, 2)
