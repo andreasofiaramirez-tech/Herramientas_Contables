@@ -1823,7 +1823,7 @@ def generar_reporte_auditoria_txt(df_audit):
             
     return output.getvalue()
 
-def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, resumen_validacion, nombre_empresa, tasa_cambio, fecha_cierre, analista, num_asiento):
+def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, resumen_validacion, nombre_empresa, tasa_cambio, fecha_cierre):
     """
     Genera Excel Profesional de Pensiones.
     Hoja 1: Dos tablas comparativas (Por Cuenta y Por Centro de Costo) + Validación.
@@ -2014,6 +2014,9 @@ def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, resumen_validaci
         if df_base is not None:
             cols_drop = ['CC_Agrupado', 'Monto_Deb', 'Monto_Cre', 'Base_Neta']
             df_clean = df_base.drop(columns=cols_drop, errors='ignore')
+            
+            # --- CORRECCIÓN FECHA: Convertir a Texto Corto ---
+            # Buscamos la columna de fecha (puede llamarse FECHA, Fecha, etc.)
             col_fecha = next((c for c in df_clean.columns if 'FECHA' in c.upper()), None)
             
             if col_fecha:
@@ -2021,6 +2024,7 @@ def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, resumen_validaci
                 df_clean[col_fecha] = pd.to_datetime(df_clean[col_fecha], errors='coerce').dt.strftime('%d/%m/%Y')
                 # Rellenamos NaT con vacío
                 df_clean[col_fecha] = df_clean[col_fecha].fillna('')
+            # -------------------------------------------------
 
             df_clean.to_excel(writer, sheet_name='2. Detalle Mayor', index=False)
             
@@ -2067,7 +2071,7 @@ def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, resumen_validaci
             ws3.write('G4', "Operación No.: _______", workbook.add_format({'align': 'right', 'valign': 'vcenter'}))
             ws3.write('H4', fecha_cierre if fecha_cierre else "DD/MM/AAAA", fmt_date_calc)
             ws3.write('G5', "Comprob. N°.: _______", workbook.add_format({'align': 'right', 'valign': 'vcenter'}))
-            ws3.write('H5', num_asiento, fmt_input)
+            ws3.write('H5', "", fmt_input)
 
             start_row = 8
             ws3.merge_range(start_row, 0, start_row, 2, "NUMERO DE CUENTA", box_header)
@@ -2078,6 +2082,7 @@ def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, resumen_validaci
             ws3.write(start_row+1, 0, "OFIC.", box_header)
             ws3.write(start_row+1, 1, "CENTRO DE COSTO", box_header)
             ws3.write(start_row+1, 2, "CTA.", box_header)
+            ws3.merge_range(start_row+1, 3, start_row+1, 5, "", box_header)
             ws3.write(start_row+1, 6, "DEBE (D)", box_header)
             ws3.write(start_row+1, 7, "HABER (H)", box_header)
             ws3.write(start_row+1, 8, "DEBE (D)", box_header)
@@ -2139,7 +2144,8 @@ def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, resumen_validaci
             ws3.merge_range(row_idx, 3, row_idx, 4, "Aprobado por:", top_line)
             ws3.merge_range(row_idx, 6, row_idx, 7, "Procesado por:", top_line)
             ws3.merge_range(row_idx, 8, row_idx, 9, "Revisado por:", top_line)
-            ws3.merge_range(row_idx+1, 0, row_idx+1, 2, analista, fmt_input)
+            
+            ws3.merge_range(row_idx+1, 0, row_idx+1, 2, "", fmt_input) 
             
             box_corner = workbook.add_format({'top': 1, 'left':1, 'right':1, 'font_size': 9})
             ws3.write(row_idx, 8, "Lugar y Fecha:", box_corner)
@@ -2153,7 +2159,7 @@ def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, resumen_validaci
             ws3.set_column('D:F', 15); ws3.set_column('G:J', 18)
 
     return output.getvalue()
-
+    
 def generar_cargador_asiento_pensiones(df_asiento, fecha_asiento):
     import datetime
     output = BytesIO()
