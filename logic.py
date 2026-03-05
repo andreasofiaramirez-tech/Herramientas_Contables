@@ -2864,14 +2864,15 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
 # ------------------------------------------------------------------------------
 
 def normalizar_doc_fiscal(texto):
-    """Extrae el número de documento limpiando letras y símbolos, preservando ceros."""
+    """Extrae el número de documento y ELIMINA ceros a la izquierda para match universal."""
     if pd.isna(texto) or str(texto).strip() == "": return ""
-    # Eliminamos símbolos comunes de Softland
+    # Limpiamos símbolos
     t_clean = str(texto).replace('#', '').replace('-', '').strip()
     nums = re.findall(r'\d+', t_clean)
     if nums:
-        # Retornamos el último bloque de números como texto (mantiene ceros)
-        return str(nums[-1])
+        # Convertimos a entero y luego a string para BORRAR ceros a la izquierda
+        # Ejemplo: "03368446" -> 3368446 -> "3368446"
+        return str(int(nums[-1]))
     return ""
 
 def preparar_datos_softland_debito(df_diario, df_mayor, tag_casa):
@@ -2962,7 +2963,7 @@ def run_conciliation_debito_fiscal(df_soft_total, df_imprenta_logica, tolerancia
         return None
 
     col_rif = find_col(['RIF', 'NIT', 'CEDULA'], df_imp)
-    col_fact = find_col(['N DE FACTURA', 'NUMERO DE FACTURA', 'FACTURA'], df_imp)
+    col_fact = find_col(['N DE FACTUR', 'NUMERO DE FACTURA', 'FACTURA', 'N° FACTURA'], df_imp)
     col_nd = find_col(['NOTA DE DEBITO', 'N/D'], df_imp)
     col_nc = find_col(['NOTA DE CREDITO', 'N/C'], df_imp)
     col_iva = find_col(['IMPUESTO IVA G', 'IVA G', 'MONTO IVA', 'IVA RETENIDO'], df_imp)
