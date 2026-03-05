@@ -1180,23 +1180,29 @@ def render_pensiones():
 
 def render_debito_fiscal():
     st.title("📑 Verificación de Débito Fiscal (Bs.)", anchor=False)
+    
+    # Botón para regresar al inicio
     if st.button("⬅️ Volver al Inicio"): 
         set_page('inicio')
         st.rerun()
 
+    # Guía de uso (Cargada desde guides.py)
     with st.expander("📖 Guía de Uso: Preparación y Reglas de Negocio", expanded=False):
-        st.markdown(GUIA_DEBITO_FISCAL) # <--- Aquí usas la constante de guides.py
+        st.markdown(GUIA_DEBITO_FISCAL)
     
     st.info("Cruce de auditoría: Softland (Diario + Mayor) vs Libro de Ventas (Imprenta)")
     
+    # --- SECCIÓN DE PARÁMETROS ---
     col_a, col_b = st.columns(2)
     with col_a:
-        casa_sel = st.selectbox("Empresa:", ["FEBECA (FB + SC)", "BEVAL", "PRISMA"])
-        tolerancia = st.number_input("Margen de Tolerancia en Bs.:", min_value=0.0, value=50.0)
+        casa_sel = st.selectbox("Seleccione la Empresa:", ["FEBECA (FB + SC)", "BEVAL", "PRISMA"])
+    with col_b:
+        tolerancia = st.number_input("Margen de Tolerancia en Bs.:", min_value=0.0, value=50.0, help="Diferencias menores a este monto se marcarán como OK.")
 
     st.divider()
 
-    # --- SECCIÓN DE CARGA ---
+    # --- SECCIÓN DE CARGA DE ARCHIVOS ---
+    # Caso 1: Consolidado Febeca + Sillaca (Requiere 4 archivos de Softland)
     if "FEBECA" in casa_sel:
         st.subheader("📁 Archivos Softland: Febeca + Sillaca")
         c1, c2 = st.columns(2)
@@ -1210,8 +1216,10 @@ def render_debito_fiscal():
             f_sc_m = st.file_uploader("Transacciones Mayor (SC)", type=['xlsx'], key="sc_m")
         
         st.subheader("📄 Libro de Ventas")
-        f_imp = st.file_uploader("Archivo de Imprenta", type=['xlsx'], key="imp_f")
+        f_imp = st.file_uploader("Archivo de Imprenta (Excel)", type=['xlsx'], key="imp_f")
         ready = all([f_fb_d, f_fb_m, f_sc_d, f_sc_m, f_imp])
+
+    # Caso 2: Otras filiales (Solo requiere 2 archivos de Softland)
     else:
         st.subheader(f"📁 Archivos Softland: {casa_sel}")
         c1, c2 = st.columns(2)
@@ -1219,46 +1227,67 @@ def render_debito_fiscal():
             f_d = st.file_uploader("Transacciones del Diario", type=['xlsx'], key="std_d")
             f_m = st.file_uploader("Transacciones del Mayor", type=['xlsx'], key="std_m")
         with c2:
+            st.subheader("📄 Libro de Ventas")
             f_imp = st.file_uploader("Libro de Ventas (Imprenta)", type=['xlsx'], key="std_i")
         ready = all([f_d, f_m, f_imp])
 
-    # --- SECCIÓN DE PROCESAMIENTO (CORRECCIÓN DE INDENTACIÓN) ---
+    # --- PROCESAMIENTO ---
     if ready:
         if st.button("▶️ Ejecutar Verificación Cruzada", type="primary", use_container_width=True):
             log = []
             try:
-                with st.spinner("Procesando datos..."):
-                    from logic import preparar_datos_softland_debito, run_conciliation_debito_fiscal
-                    from utils import generar_reporte_debito_fiscal
-
-                    # 1. Cargar Softland
+                with st.spinner("Procesando auditoría..."):
+                    # 1. Cargamos y preparamos los datos de Softland
                     if "FEBECA" in casa_sel:
+                        # Preparamos Febeca y Sillaca por separado y luego unimos
                         soft_fb = preparar_datos_softland_debito(pd.read_excel(f_fb_d), pd.read_excel(f_fb_m), "FB")
                         soft_sc = preparar_datos_softland_debito(pd.read_excel(f_sc_d), pd.read_excel(f_sc_m), "SC")
                         soft_total = pd.concat([soft_fb, soft_sc], ignore_index=True)
                     else:
+                        # Preparación normal para Beval o Prisma
                         soft_total = preparar_datos_softland_debito(pd.read_excel(f_d), pd.read_excel(f_m), casa_sel[:2].upper())
 
-                    # 2. Cargar Imprenta (Dos versiones)
+                    # 2. Cargamos el archivo de Imprenta
+                    # Raw para la hoja de copia fiel y Logic con el header en fila 8 (index 7)
                     df_imp_raw = pd.read_excel(f_imp, header=None)
-                    df_imp_logic = pd.read_excel(f_imp, header=7) # Para la lógica (Fila 8)
+                    df_imp_logic = pd.read_excel(f_imp, header=7)
                     df_imp_logic.dropna(how='all', inplace=True)
 
-                    # 3. Lógica y Reporte
-                    df_res = run_conciliation_debito_fiscal(soft_total, df_imp_logic, tolerancia, log)
+                    # 3. DETERMINACIÓN DINÁMICA DE EXCLUSIÓN (MEJORA SOLICITADA)
+                    # Si es BEVAL, obviamos Beval. Si es FEBECA, obviamos Febeca.
+                    if "FEBECA" in casa_sel:
+                        tag_obviar = "FEBECA"
+                    elif "BEVAL" in casa_sel:
+                        tag_obviar = "BEVAL"
+                    elif "PRISMA" in casa_sel:
+                        tag_obviar = "PRISMA"
+                    else:
+                        tag_obviar = ""
+
+                    # 4. Ejecutamos la lógica de conciliación con el tag dinámico
+                    df_res = run_conciliation_debito_fiscal(soft_total, df_imp_logic, tolerancia, log, tag_obviar)
+                    
+                    # 5. Generamos el reporte Excel
                     excel_bin = generar_reporte_debito_fiscal(df_res, soft_total, df_imp_raw)
                     
-                    st.success("Auditoría finalizada.")
+                    # --- RESULTADOS ---
+                    st.success(f"✅ Auditoría finalizada. Se han identificado las discrepancias excluyendo registros de '{tag_obviar}'.")
+                    
                     st.download_button(
-                        label="⬇️ Descargar Reporte de Auditoría",
+                        label="⬇️ Descargar Reporte de Auditoría (Excel)",
                         data=excel_bin,
                         file_name=f"Auditoria_Fiscal_{casa_sel}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         use_container_width=True
                     )
-                    with st.expander("Ver Log"): st.write(log)
+                    
+                    # Mostramos el log por si hay advertencias de columnas
+                    with st.expander("Ver Log de Proceso"):
+                        for m in log:
+                            st.text(m)
+
             except Exception as e:
-                st.error(f"Error detectado: {str(e)}")
-                st.exception(e)
+                mostrar_error_amigable(e, "la Verificación de Débito Fiscal")
 
 # Función para que el bot analice los resultados
 def asistente_contable_inteligente(pregunta, df=None):
