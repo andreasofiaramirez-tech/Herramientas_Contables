@@ -1165,7 +1165,7 @@ def render_pensiones():
                     res2.metric("Impuesto a Pagar (9%)", f"Bs. {dict_val['imp_calc']:,.2f}")
 
                     # Botones de descarga
-                    excel_data = generar_reporte_pensiones(df_calc, df_base, df_asiento, dict_val, empresa_sel, tasa, mes_cierre)
+                    excel_data = generar_reporte_pensiones(df_calc, df_base, df_asiento, dict_val, empresa_sel, tasa, mes_cierre, hecho_por, num_asiento)
                     cargador_bin = generar_cargador_asiento_pensiones(df_asiento, mes_cierre)
 
                     d1, d2 = st.columns(2)
