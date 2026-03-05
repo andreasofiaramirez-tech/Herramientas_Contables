@@ -1103,16 +1103,15 @@ def render_pensiones():
     # --- 3. SECCIÓN DE PARÁMETROS (BOX SUPERIOR) ---
     with st.container():
         st.markdown('<div class="pensiones-container">', unsafe_allow_html=True)
-        c1, c2, c3, c4 = st.columns(4)
+        # Reducimos a 3 columnas ya que eliminamos el calendario
+        c1, c2, c3 = st.columns(3)
         
         with c1:
             EMPRESAS_NOMINA = ["FEBECA, C.A.", "MAYOR BEVAL, C.A.", "PRISMA, C.A.", "SILLACA, C.A."]
             empresa_sel = st.selectbox("🏢 Seleccione la Filial:", EMPRESAS_NOMINA, key="empresa_pensiones")
         with c2:
-            mes_cierre = st.date_input("🗓️ Mes de Cierre:", value=pd.Timestamp.now(), key="pen_mes")
-        with c3:
             tasa = st.number_input("💵 Tasa de Cambio (BCV):", min_value=0.01, value=1.0, format="%.4f", key="pen_tasa")
-        with c4:
+        with c3:
             num_asiento = st.text_input("🔢 Nº Asiento:", value="CG0000", key="pen_num_asiento")
         
         _, c_center, _ = st.columns([1, 2, 1])
