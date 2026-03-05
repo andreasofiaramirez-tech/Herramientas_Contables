@@ -1106,7 +1106,7 @@ def render_pensiones():
         with c3:
             num_asiento = st.text_input("🔢 N° Asiento:", value="CG0000")
         
-        st.text_input("👤 Hecho por:", placeholder="Nombre del analista")
+        analista_nombre = st.text_input("👤 Hecho por:", placeholder="Nombre del analista")
 
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader(f"📥 Carga de Balances: {empresa_sel}", anchor=False)
@@ -1161,7 +1161,7 @@ def render_pensiones():
                         st.download_button("📥 Descargar Cargador Softland", cargador_bin, f"CARGADOR_{num_asiento}.xlsx", use_container_width=True)
                     
                     with c_down2:
-                        excel_data = generar_reporte_pensiones(df_calc, df_base, df_asiento, dict_val, empresa_sel, tasa, fecha_proceso)
+                        excel_data = generar_reporte_pensiones(df_calc, df_base, df_asiento, dict_val, empresa_sel, tasa, fecha_proceso, analista_nombre)
                         st.download_button("📊 Descargar Memoria de Cálculo", excel_data, f"PENSIONES_{empresa_sel}.xlsx", use_container_width=True)
 
                     # Vista previa para control del usuario
