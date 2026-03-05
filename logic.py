@@ -2682,18 +2682,18 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
             return None, None, None, None
 
         # --- CONTINUACIÓN DEL PROCESO (FECHA) ---
-        if col_fecha:
-            try:
-                # Convertimos la columna detectada a fecha
-                df_mayor[col_fecha] = pd.to_datetime(df_mayor[col_fecha], errors='coerce')
-                fechas_validas = df_mayor[col_fecha].dropna()
-                if not fechas_validas.empty:
-                    mes_num = fechas_validas.dt.month.mode()[0]
-                    year_num = fechas_validas.dt.year.mode()[0]
-                    mes_detectado = nombres_meses[mes_num]
-                    anio_detectado = str(year_num)
-                    log_messages.append(f"📅 Periodo: {mes_detectado} {anio_detectado}")
-            except: pass
+        # 1. DETECCIÓN AUTOMÁTICA DE PERIODO DESDE EL MAYOR
+        fechas = pd.to_datetime(df_mayor[col_fecha], errors='coerce').dropna()
+        if not fechas.empty:
+            mes_num = fechas.dt.month.mode()[0]
+            year_num = fechas.dt.year.mode()[0]
+            mes_detectado = nombres_meses[mes_num] # Ej: ENERO
+            anio_detectado = str(year_num)
+            # Creamos el objeto fecha de cierre real (último día del mes)
+            fecha_cierre_detectada = pd.Timestamp(year=year_num, month=mes_num, day=1) + pd.offsets.MonthEnd(0)
+        else:
+            # Fallback si no hay fechas
+            fecha_cierre_detectada = pd.Timestamp.now()
 
         cuentas_base = ['7.1.1.01.1.001', '7.1.1.09.1.003']
         df_filtrado = df_mayor[df_mayor[col_cta].astype(str).str.strip().isin(cuentas_base)].copy()
