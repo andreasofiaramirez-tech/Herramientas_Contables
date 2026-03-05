@@ -2864,16 +2864,22 @@ def procesar_calculo_pensiones(file_mayor, file_nomina, tasa_cambio, nombre_empr
 # ------------------------------------------------------------------------------
 
 def normalizar_doc_fiscal(texto):
-    """Extrae el número de documento limpiando letras y ceros a la izquierda."""
+    """Extrae el número de documento limpiando letras y símbolos, preservando ceros."""
     if pd.isna(texto) or str(texto).strip() == "": return ""
-    nums = re.findall(r'\d+', str(texto))
+    # Eliminamos símbolos comunes de Softland
+    t_clean = str(texto).replace('#', '').replace('-', '').strip()
+    nums = re.findall(r'\d+', t_clean)
     if nums:
-        # Retorna el último bloque numérico como entero para quitar ceros (ej: 000501 -> 501)
-        return str(int(nums[-1]))
+        # Retornamos el último bloque de números como texto (mantiene ceros)
+        return str(nums[-1])
     return ""
 
 def preparar_datos_softland_debito(df_diario, df_mayor, tag_casa):
-    """Mantiene columnas originales y agrega metadatos. NIT normalizado solo a números."""
+    """
+    Consolida Diario y Mayor agregando metadatos. 
+    Mantiene la integridad de los ceros a la izquierda en NIT y Documentos.
+    """
+    # 1. Unificar fuentes de Softland
     df_soft = pd.concat([df_diario, df_mayor], ignore_index=True)
     
     def normalizar_header(t):
@@ -2881,7 +2887,8 @@ def preparar_datos_softland_debito(df_diario, df_mayor, tag_casa):
         return ''.join(c for c in unicodedata.normalize('NFD', str(t))
                       if unicodedata.category(c) != 'Mn').upper().strip()
 
-    col_deb, col_cre, col_rif, col_ref, col_fue, col_nom = None, None, None, None, None, None
+    # 2. Radar de Columnas: Identificar nombres originales del Excel
+    col_deb, col_cre, col_rif, col_ref, col_fue, col_nom = [None]*6
     for c in df_soft.columns:
         c_norm = normalizar_header(c)
         if any(k in c_norm for k in ['DEBITO BOLIVAR', 'DEBITO LOCAL', 'DEBITO VES']): col_deb = c
@@ -2891,10 +2898,29 @@ def preparar_datos_softland_debito(df_diario, df_mayor, tag_casa):
         elif 'FUENTE' in c_norm: col_fue = c
         elif any(k in c_norm for k in ['NOMBRE', 'RAZON SOCIAL', 'DESCRIPCION NIT', 'CLIENTE']): col_nom = c
 
+    # --- SUB-FUNCIÓN 1: LIMPIEZA DE NIT PRESERVANDO CEROS ---
+    def limpiar_nit_preservando_ceros(val):
+        if pd.isna(val) or str(val).strip() == "": return "0"
+        # Quitamos decimales si Excel lo leyó como número (ej: 471010.0 -> 471010)
+        s_val = str(val).split('.')[0]
+        # Dejamos solo los dígitos, manteniendo la cadena de texto con sus ceros
+        solo_numeros = re.sub(r'[^0-9]', '', s_val)
+        return solo_numeros if solo_numeros else "0"
+
+    # --- SUB-FUNCIÓN 2: EXTRACCIÓN DE DOCUMENTO PRESERVANDO CEROS ---
     def extraer_doc_softland(row):
-        doc_fuente = normalizar_doc_fiscal(row.get(col_fue, ""))
-        if doc_fuente != "": return doc_fuente
-        return normalizar_doc_fiscal(row.get(col_ref, ""))
+        # Intentamos primero con Fuente, luego con Referencia
+        for campo in [col_fue, col_ref]:
+            texto = row.get(campo, "")
+            if pd.isna(texto) or str(texto).strip() == "": continue
+            
+            # Limpiamos símbolos comunes que Softland añade al número
+            t_clean = str(texto).replace('#', '').replace('-', '').strip()
+            nums = re.findall(r'\d+', t_clean)
+            if nums:
+                # Retornamos el último bloque numérico como texto para mantener ceros
+                return str(nums[-1])
+        return ""
 
     def detectar_tipo_softland(row):
         texto = (str(row.get(col_fue, "")) + " " + str(row.get(col_ref, ""))).upper()
@@ -2902,62 +2928,98 @@ def preparar_datos_softland_debito(df_diario, df_mayor, tag_casa):
         if "N/D" in texto or "ND" in texto: return "N/D"
         return "FACTURA"
 
+    # 3. Aplicar Transformaciones
     df_soft['CASA'] = tag_casa 
     df_soft['_Doc_Norm'] = df_soft.apply(extraer_doc_softland, axis=1)
     df_soft['_Tipo'] = df_soft.apply(detectar_tipo_softland, axis=1)
-    df_soft['_NIT_Norm'] = df_soft[col_rif].astype(str).str.replace(r'[^0-9]', '', regex=True) if col_rif else "0"
+    
+    # Aplicamos la limpieza técnica de NIT solicitada
+    df_soft['_NIT_Norm'] = df_soft[col_rif].apply(limpiar_nit_preservando_ceros) if col_rif else "0"
+    
     df_soft['_Nombre_Soft'] = df_soft[col_nom].fillna("SIN NOMBRE") if col_nom else "NOMBRE NO DETECTADO"
+    
+    # 4. Cálculo de montos de IVA
     val_deb = pd.to_numeric(df_soft[col_deb], errors='coerce').fillna(0) if col_deb else 0
     val_cre = pd.to_numeric(df_soft[col_cre], errors='coerce').fillna(0) if col_cre else 0
+    # Usamos valor absoluto del neto porque buscamos la magnitud del impuesto
     df_soft['_Monto_Bs_Soft'] = abs(val_deb - val_cre)
+    
     return df_soft
 
 def run_conciliation_debito_fiscal(df_soft_total, df_imprenta_logica, tolerancia_bs, log_messages, nombre_a_obviar="FEBECA"):
-    """Cruce N-a-N con NIT numérico, filtro exentos y exclusión de FEBECA/Totales."""
-    log_messages.append("\n--- INICIANDO AUDITORÍA DE DÉBITO FISCAL ---")
+    """
+    Realiza el cruce N-a-N entre Softland e Imprenta.
+    Mantiene integridad de ceros a la izquierda y aplica exclusión dinámica.
+    """
+    log_messages.append(f"\n--- INICIANDO AUDITORÍA DE DÉBITO FISCAL (Excluyendo: {nombre_a_obviar}) ---")
     
     df_imp = df_imprenta_logica.copy()
+    
+    # --- 1. RADAR DE COLUMNAS PARA IMPRENTA ---
     def find_col(keywords, df):
         for c in df.columns:
             if any(k in str(c).upper() for k in keywords): return c
         return None
 
-    col_rif = find_col(['RIF'], df_imp)
-    col_fact = find_col(['N DE FACTURA'], df_imp)
-    col_nd = find_col(['NOTA DE DEBITO'], df_imp)
-    col_nc = find_col(['NOTA DE CREDITO'], df_imp)
-    col_iva = find_col(['IMPUESTO IVA G'], df_imp)
-    col_nom_imp = find_col(['NOMBRE O RAZON SOCIAL', 'NOMBRE', 'RAZON SOCIAL'], df_imp)
+    col_rif = find_col(['RIF', 'NIT', 'CEDULA'], df_imp)
+    col_fact = find_col(['N DE FACTURA', 'NUMERO DE FACTURA', 'FACTURA'], df_imp)
+    col_nd = find_col(['NOTA DE DEBITO', 'N/D'], df_imp)
+    col_nc = find_col(['NOTA DE CREDITO', 'N/C'], df_imp)
+    col_iva = find_col(['IMPUESTO IVA G', 'IVA G', 'MONTO IVA', 'IVA RETENIDO'], df_imp)
+    col_nom_imp = find_col(['NOMBRE O RAZON SOCIAL', 'NOMBRE', 'RAZON SOCIAL', 'CLIENTE'], df_imp)
 
-    # Filtro Anti-Totales/Resúmenes
-    if col_rif:
-        df_imp = df_imp[df_imp[col_rif].notna()]
-        mask_totales = df_imp.astype(str).apply(lambda x: x.str.contains('TOTALES', case=False, na=False)).any(axis=1)
-        df_imp = df_imp[~mask_totales]
+    # --- 2. SUB-FUNCIONES DE LIMPIEZA TÉCNICA ---
+    def limpiar_nit_preservando_ceros(val):
+        if pd.isna(val) or str(val).strip() == "": return "0"
+        # Quitamos decimales de Excel (.0)
+        s_val = str(val).split('.')[0]
+        # Solo dígitos manteniendo la cadena de texto (preserva ceros)
+        solo_numeros = re.sub(r'[^0-9]', '', s_val)
+        return solo_numeros if solo_numeros else "0"
 
     def identificar_tipo_y_doc_imp(row):
+        # Prioridad: N/C, luego N/D, luego Factura
         if pd.notna(row.get(col_nc)) and str(row.get(col_nc)).strip() != "":
             return normalizar_doc_fiscal(row.get(col_nc)), "N/C"
         if pd.notna(row.get(col_nd)) and str(row.get(col_nd)).strip() != "":
             return normalizar_doc_fiscal(row.get(col_nd)), "N/D"
+        
         val_f = str(row.get(col_fact, "")).strip()
-        if val_f == "" or val_f == "nan": return "", "RESUMEN"
+        if val_f == "" or val_f.lower() == "nan": return "", "RESUMEN"
         return normalizar_doc_fiscal(val_f), "FACTURA"
 
+    # --- 3. PREPARACIÓN DE DATA IMPRENTA ---
+    # Filtro Anti-Totales y filas en verde del libro
+    if col_rif:
+        df_imp = df_imp[df_imp[col_rif].notna()]
+        mask_totales = df_imp.astype(str).apply(lambda x: x.str.contains('TOTALES|RESUMEN', case=False, na=False)).any(axis=1)
+        df_imp = df_imp[~mask_totales]
+
+    # Aplicar identificación de Doc y Tipo (Preservando ceros)
     df_imp[['_Doc_Norm', '_Tipo']] = df_imp.apply(identificar_tipo_y_doc_imp, axis=1, result_type='expand')
     df_imp = df_imp[df_imp['_Doc_Norm'] != ""]
-    df_imp['_NIT_Norm'] = df_imp[col_rif].astype(str).str.replace(r'[^0-9]', '', regex=True) if col_rif else "0"
+    
+    # Limpieza de NIT (Preservando ceros)
+    df_imp['_NIT_Norm'] = df_imp[col_rif].apply(limpiar_nit_preservando_ceros) if col_rif else "0"
+    
+    # Montos y Nombres
     df_imp['_Monto_Imprenta'] = pd.to_numeric(df_imp[col_iva], errors='coerce').fillna(0).abs()
     df_imp['_Nombre_Imp'] = df_imp[col_nom_imp].fillna("SIN NOMBRE") if col_nom_imp else "NOMBRE NO DETECTADO"
+
+    # FILTRO DE EXCLUSIÓN DINÁMICO (Imprenta)
     df_imp = df_imp[~df_imp['_Nombre_Imp'].str.upper().str.contains(nombre_a_obviar.upper(), na=False)]
 
-    soft_grouped = df_soft_total.groupby(['_NIT_Norm', '_Doc_Norm', 'CASA', '_Tipo'], as_index=False).agg({
+    # --- 4. PREPARACIÓN DE DATA SOFTLAND (AGREGACIÓN) ---
+    # Excluimos de Softland antes de agrupar
+    soft_total_fil = df_soft_total[~df_soft_total['_Nombre_Soft'].str.upper().str.contains(nombre_a_obviar.upper(), na=False)].copy()
+
+    # Agrupamos Softland porque un documento puede tener varias líneas contables
+    soft_grouped = soft_total_fil.groupby(['_NIT_Norm', '_Doc_Norm', 'CASA', '_Tipo'], as_index=False).agg({
         '_Monto_Bs_Soft': 'sum',
         '_Nombre_Soft': 'first'
     })
-    soft_grouped = soft_grouped[~soft_grouped['_Nombre_Soft'].str.upper().str.contains(nombre_a_obviar.upper(), na=False)]
 
-    # Cruce por NIT numérico + Documento numérico
+    # --- 5. CRUCE MAESTRO (OUTER JOIN) ---
     merged = pd.merge(
         soft_grouped, 
         df_imp[['_NIT_Norm', '_Doc_Norm', '_Monto_Imprenta', '_Tipo', '_Nombre_Imp']], 
@@ -2967,21 +3029,35 @@ def run_conciliation_debito_fiscal(df_soft_total, df_imprenta_logica, tolerancia
         suffixes=('_soft', '_imp')
     )
 
-    def clasificar(row):
+    # --- 6. LÓGICA DE CLASIFICACIÓN DE ESTADO ---
+    def clasificar_resultado(row):
         tipo_final = row['_Tipo_imp'] if pd.notna(row['_Tipo_imp']) else row['_Tipo_soft']
         nombre_final = row['_Nombre_Imp'] if pd.notna(row['_Nombre_Imp']) else row['_Nombre_Soft']
         m_s = float(row['_Monto_Bs_Soft']) if pd.notna(row['_Monto_Bs_Soft']) else 0.0
         m_i = float(row['_Monto_Imprenta']) if pd.notna(row['_Monto_Imprenta']) else 0.0
         
+        # 1. Ambos en cero (Filtro de exentos)
         if m_i <= 0.001 and m_s <= 0.001: return "OK", tipo_final, nombre_final
-        if row['_merge'] == 'left_only': return "NO APARECE EN LIBRO DE VENTAS", tipo_final, nombre_final
-        if row['_merge'] == 'right_only': return "NO APARECE EN CONTABILIDAD", tipo_final, nombre_final
         
+        # 2. Solo en Softland
+        if row['_merge'] == 'left_only': 
+            return "NO APARECE EN LIBRO DE VENTAS", tipo_final, nombre_final
+        
+        # 3. Solo en Imprenta
+        if row['_merge'] == 'right_only': 
+            return "NO APARECE EN CONTABILIDAD", tipo_final, nombre_final
+        
+        # 4. En ambos pero con diferencia
         dif = abs(m_s - m_i)
-        if dif > tolerancia_bs: return f"DIFERENCIA DE MONTO (Bs. {dif:,.2f})", tipo_final, nombre_final
+        if dif > tolerancia_bs: 
+            return f"DIFERENCIA DE MONTO (Bs. {dif:,.2f})", tipo_final, nombre_final
+        
         return "OK", tipo_final, nombre_final
 
-    merged[['Estado', '_Tipo_Final', '_Nombre_Final']] = merged.apply(clasificar, axis=1, result_type='expand')
+    # Aplicar Veredicto
+    merged[['Estado', '_Tipo_Final', '_Nombre_Final']] = merged.apply(clasificar_resultado, axis=1, result_type='expand')
+    
+    log_messages.append(f"✔️ Auditoría finalizada con éxito.")
     return merged
 
 # ------------------------------------------------------------------------------
