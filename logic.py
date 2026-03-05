@@ -2912,7 +2912,7 @@ def preparar_datos_softland_debito(df_diario, df_mayor, tag_casa):
     df_soft['_Monto_Bs_Soft'] = abs(val_deb - val_cre)
     return df_soft
 
-def run_conciliation_debito_fiscal(df_soft_total, df_imprenta_logica, tolerancia_bs, log_messages):
+def run_conciliation_debito_fiscal(df_soft_total, df_imprenta_logica, tolerancia_bs, log_messages, nombre_a_obviar="FEBECA"):
     """Cruce N-a-N con NIT numérico, filtro exentos y exclusión de FEBECA/Totales."""
     log_messages.append("\n--- INICIANDO AUDITORÍA DE DÉBITO FISCAL ---")
     
@@ -2949,13 +2949,13 @@ def run_conciliation_debito_fiscal(df_soft_total, df_imprenta_logica, tolerancia
     df_imp['_NIT_Norm'] = df_imp[col_rif].astype(str).str.replace(r'[^0-9]', '', regex=True) if col_rif else "0"
     df_imp['_Monto_Imprenta'] = pd.to_numeric(df_imp[col_iva], errors='coerce').fillna(0).abs()
     df_imp['_Nombre_Imp'] = df_imp[col_nom_imp].fillna("SIN NOMBRE") if col_nom_imp else "NOMBRE NO DETECTADO"
-    df_imp = df_imp[~df_imp['_Nombre_Imp'].str.upper().str.contains("FEBECA", na=False)]
+    df_imp = df_imp[~df_imp['_Nombre_Imp'].str.upper().str.contains(nombre_a_obviar.upper(), na=False)]
 
     soft_grouped = df_soft_total.groupby(['_NIT_Norm', '_Doc_Norm', 'CASA', '_Tipo'], as_index=False).agg({
         '_Monto_Bs_Soft': 'sum',
         '_Nombre_Soft': 'first'
     })
-    soft_grouped = soft_grouped[~soft_grouped['_Nombre_Soft'].str.upper().str.contains("FEBECA", na=False)]
+    soft_grouped = soft_grouped[~soft_grouped['_Nombre_Soft'].str.upper().str.contains(nombre_a_obviar.upper(), na=False)]
 
     # Cruce por NIT numérico + Documento numérico
     merged = pd.merge(
