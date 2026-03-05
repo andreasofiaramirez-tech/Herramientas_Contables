@@ -4259,48 +4259,57 @@ def run_cuadre_cb_cg(file_cb, file_cg, nombre_empresa, log_messages):
 
     resultados = []
 
-    # 4. Cruce
+    # 4. Cruce (AGRUPADO POR CUENTA CONTABLE)
+    # Primero: Agrupamos el mapeo por cuenta contable para identificar duplicados
+    mapeo_agrupado = {}
     for codigo_cb, config in mapeo_actual.items():
-        cb_mapeados.add(codigo_cb)
-        cg_mapeados.add(config['cta'])
+        cta = config['cta']
+        if cta not in mapeo_agrupado:
+            mapeo_agrupado[cta] = {'cb_codes': [], 'moneda': config['moneda']}
+        mapeo_agrupado[cta]['cb_codes'].append(codigo_cb)
+
+    for cuenta_cg, info_mapa in mapeo_agrupado.items():
+        cg_mapeados.add(cuenta_cg)
+        codigos_cb_lista = info_mapa['cb_codes']
+        moneda = info_mapa['moneda']
         
-        cuenta_cg = config['cta']
-        moneda = config['moneda']
+        # Agregamos los códigos CB al set de mapeados
+        for c in codigos_cb_lista: cb_mapeados.add(c)
         
-        info_cb = data_cb.get(codigo_cb, {'inicial':0, 'debitos':0, 'creditos':0, 'final':0, 'nombre':'NO ENCONTRADO'})
-        saldo_cb_individual = info_cb.get('final', 0)
-        
+        # Consolidamos los montos de Tesorería para todos los códigos asociados a esta cuenta
+        s_cb_ini = 0.0; s_cb_deb = 0.0; s_cb_cre = 0.0; s_cb_fin = 0.0
+        for c_cb in codigos_cb_lista:
+            info_cb = data_cb.get(c_cb, {'inicial':0, 'debitos':0, 'creditos':0, 'final':0})
+            s_cb_ini += info_cb.get('inicial', 0)
+            s_cb_deb += info_cb.get('debitos', 0)
+            s_cb_cre += info_cb.get('creditos', 0)
+            s_cb_fin += info_cb.get('final', 0)
+
+        # Obtenemos los datos de Contabilidad (CG) - Una sola vez por cuenta
         clave_cg = 'VES' if moneda == 'VES' else 'USD'
         info_cg_full = data_cg.get(cuenta_cg, {})
         info_cg = info_cg_full.get(clave_cg, {'inicial':0, 'debitos':0, 'creditos':0, 'final':0})
-        saldo_cg_total_real = info_cg.get('final', 0)
+        
+        saldo_cg_final = info_cg.get('final', 0)
         desc_cg = info_cg_full.get('descripcion', NOMBRES_CUENTAS_OFICIALES.get(cuenta_cg, 'NO DEFINIDO'))
         
-        saldo_cb_grupo_total = suma_cb_por_cuenta.get(cuenta_cg, 0.0)
-        diferencia_grupo = round(saldo_cb_grupo_total - saldo_cg_total_real, 2)
-        
-        if diferencia_grupo == 0:
-            estado = "OK"
-            diferencia_visual = 0.0
-            saldo_cg_visual = saldo_cb_individual 
-        else:
-            estado = "DESCUADRE"
-            diferencia_visual = diferencia_grupo 
-            saldo_cg_visual = saldo_cg_total_real
-            
-        #if saldo_cb_individual == 0 and saldo_cg_total_real == 0 and info_cb.get('debitos', 0) == 0 and diferencia_grupo == 0:
-            #continue
+        # Cálculo de diferencia
+        diferencia = round(s_cb_fin - saldo_cg_final, 2)
+        estado = "OK" if abs(diferencia) <= 0.01 else "DESCUADRE"
+
+        # Construimos el identificador de CB con el separador /
+        cb_display_name = " / ".join(codigos_cb_lista)
 
         resultados.append({
             'Moneda': moneda,
-            'Banco (Tesorería)': codigo_cb, 
+            'Banco (Tesorería)': cb_display_name, 
             'Cuenta Contable': cuenta_cg,
             'Descripción': desc_cg,
-            'Saldo Final CB': saldo_cb_individual,
-            'Saldo Final CG': saldo_cg_visual,
-            'Diferencia': diferencia_visual,
+            'Saldo Final CB': s_cb_fin,
+            'Saldo Final CG': saldo_cg_final,
+            'Diferencia': diferencia,
             'Estado': estado,
-            'CB Inicial': info_cb.get('inicial', 0), 'CB Débitos': info_cb.get('debitos', 0), 'CB Créditos': info_cb.get('creditos', 0),
+            'CB Inicial': s_cb_ini, 'CB Débitos': s_cb_deb, 'CB Créditos': s_cb_cre,
             'CG Inicial': info_cg.get('inicial', 0), 'CG Débitos': info_cg.get('debitos', 0), 'CG Créditos': info_cg.get('creditos', 0)
         })
 
