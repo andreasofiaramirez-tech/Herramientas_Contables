@@ -3665,7 +3665,7 @@ NOMBRES_CUENTAS_OFICIALES = {
     '1.1.1.02.1.005': 'Banesco, C.A. Banco Universal',
     '1.1.1.02.1.006': 'Banco Provincial S.A. Banco Universal',
     '1.1.1.02.1.008': 'Banco Bicentenario, Banco Universal',
-    '1.1.1.02.1.007': 'Banesco, C.A. Banco Universal'
+    '1.1.1.02.1.007': 'Banesco, C.A. Banco Universal',
     '1.1.1.02.1.009': 'Banco Mercantil C.A. Banco Universal',
     '1.1.1.02.1.010': 'Banco del Caribe C.A. Banco Universal',
     '1.1.1.02.1.015': 'Banco Exterior S.A. Banco Universal',
