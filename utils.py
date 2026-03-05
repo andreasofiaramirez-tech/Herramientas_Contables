@@ -2071,7 +2071,7 @@ def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, resumen_validaci
             ws3.write('G4', "Operación No.: _______", workbook.add_format({'align': 'right', 'valign': 'vcenter'}))
             ws3.write('H4', fecha_cierre if fecha_cierre else "DD/MM/AAAA", fmt_date_calc)
             ws3.write('G5', "Comprob. N°.: _______", workbook.add_format({'align': 'right', 'valign': 'vcenter'}))
-            ws3.write('H5', "", fmt_input)
+            ws3.write('H5', df_asiento['Asiento'].iloc[0] if not df_asiento.empty else "", fmt_input)
 
             start_row = 8
             ws3.merge_range(start_row, 0, start_row, 2, "NUMERO DE CUENTA", box_header)
@@ -2144,8 +2144,10 @@ def generar_reporte_pensiones(df_agrupado, df_base, df_asiento, resumen_validaci
             ws3.merge_range(row_idx, 3, row_idx, 4, "Aprobado por:", top_line)
             ws3.merge_range(row_idx, 6, row_idx, 7, "Procesado por:", top_line)
             ws3.merge_range(row_idx, 8, row_idx, 9, "Revisado por:", top_line)
+
             
-            ws3.merge_range(row_idx+1, 0, row_idx+1, 2, "", fmt_input) 
+            ws3.merge_range(24, 0, 24, 2, analista, fmt_input)
+            
             
             box_corner = workbook.add_format({'top': 1, 'left':1, 'right':1, 'font_size': 9})
             ws3.write(row_idx, 8, "Lugar y Fecha:", box_corner)
