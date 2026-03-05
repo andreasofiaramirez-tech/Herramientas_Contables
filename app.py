@@ -1158,7 +1158,7 @@ def render_pensiones():
                     # ------------------------------------------
                     
                     # Generar Reporte Excel
-                    excel_data = generar_reporte_pensiones(df_calc, df_base, df_asiento, dict_val, empresa_sel, tasa, fecha_cierre, analista, num_asiento)
+                    excel_data = generar_reporte_pensiones(df_calc, df_base, df_asiento, dict_val, empresa_sel, tasa, fecha_cierre)
 
                     cargador_bin = generar_cargador_asiento_pensiones(df_asiento, fecha_cierre)
     
