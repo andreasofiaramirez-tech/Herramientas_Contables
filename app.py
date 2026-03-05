@@ -1062,7 +1062,7 @@ def render_retenciones():
 def render_pensiones():
     st.title("⚖️ Cálculo Ley Protección Pensiones (9%)", anchor=False)
 
-    # --- 1. ESTILOS CSS PARA REPLICAR LOCTI ---
+    # --- 1. ESTILOS CSS PARA REPLICAR LOCTI (DARK PREMIUM) ---
     st.markdown("""
         <style>
         .stContainer {
@@ -1081,11 +1081,12 @@ def render_pensiones():
         }
         .purple-header { background-color: #4b0082; }
         .green-header { background-color: #1e5631; }
-        .red-header { background-color: #8b0000; }
         
-        div[data-testid="stExpander"] {
-            border: none !important;
-            background-color: transparent !important;
+        /* Ajuste para que los file uploaders se vean como en la imagen */
+        div[data-testid="stFileUploader"] {
+            background-color: #1a1c24 !important;
+            border: 1px solid #333 !important;
+            border-radius: 0 0 15px 15px !important;
         }
         </style>
     """, unsafe_allow_html=True)
@@ -1094,7 +1095,7 @@ def render_pensiones():
         set_page('inicio')
         st.rerun()
 
-    # --- 2. SECCIÓN DE PARÁMETROS (Contenedor Superior) ---
+    # --- 2. SECCIÓN DE PARÁMETROS (3 Columnas - Fecha Eliminada) ---
     with st.container(border=True):
         c1, c2, c3 = st.columns(3)
         with c1:
@@ -1108,67 +1109,69 @@ def render_pensiones():
         st.text_input("👤 Hecho por:", placeholder="Nombre del analista")
 
     st.markdown("<br>", unsafe_allow_html=True)
-    st.subheader(f"📥 Carga de Archivos: {empresa_sel}", anchor=False)
+    st.subheader(f"📥 Carga de Balances: {empresa_sel}", anchor=False)
 
     # --- 3. SECCIÓN DE CARGA (Tarjetas de Colores) ---
     col_file1, col_file2 = st.columns(2)
 
     with col_file1:
-        st.markdown('<div class="card-header purple-header">📊 Mayor Contable</div>', unsafe_allow_html=True)
+        st.markdown('<div class="card-header purple-header">📊 Balance VENTAS / MAYOR</div>', unsafe_allow_html=True)
         with st.container(border=True):
             file_mayor = st.file_uploader("Subir Mayor Analítico", type=['xlsx'], key="pen_mayor", label_visibility="collapsed")
         st.caption("📍 Debe contener las cuentas 7.1.1.01 y 7.1.1.09")
 
     with col_file2:
-        st.markdown('<div class="card-header green-header">💰 Resumen de Nómina</div>', unsafe_allow_html=True)
+        st.markdown('<div class="card-header green-header">💰 Balance INGRESOS / NÓMINA</div>', unsafe_allow_html=True)
         with st.container(border=True):
             file_nomina = st.file_uploader("Subir Resumen RRHH", type=['xlsx'], key="pen_nom", label_visibility="collapsed")
-        st.caption("📍 Pestaña debe coincidir con el Mes/Año")
+        st.caption("📍 La pestaña debe coincidir con el Mes/Año del cálculo")
 
     st.divider()
 
-    # --- 4. BOTÓN DE PROCESO Y LÓGICA ---
+    # --- 4. BOTÓN DE PROCESO ---
     if file_mayor and tasa > 0:
         if st.button("🚀 Calcular Impuesto y Generar Asiento", type="primary", use_container_width=True):
             log = []
             try:
                 from logic import procesar_calculo_pensiones
                 from utils import generar_reporte_pensiones, generar_cargador_asiento_pensiones
+                import datetime
                 
                 with st.spinner("Analizando bases imponibles..."):
-                    # Ejecutar lógica (No se toca)
                     df_calc, df_base, df_asiento, dict_val = procesar_calculo_pensiones(file_mayor, file_nomina, tasa, empresa_sel, log, num_asiento)
                 
                 if df_asiento is not None and not df_asiento.empty:
+                    # Determinamos la fecha automáticamente para no pedirla en la interfaz
+                    # Si el proceso detectó una fecha en el mayor, la usamos, sino usamos hoy
+                    fecha_proceso = pd.Timestamp.now()
+                    
                     st.success("✅ Cálculo finalizado satisfactoriamente.")
                     
                     # Alertas de Auditoría (Estilo LOCTI)
                     if dict_val.get('estado') != 'OK':
-                        st.error(f"⚠️ Descuadre detectado: {dict_val.get('dif_base_total'):,.2f} Bs.")
+                        st.error(f"⚠️ Descuadre detectado contra nómina: {dict_val.get('dif_base_total'):,.2f} Bs.")
                     
                     if dict_val.get('tiene_cc_genericos'):
                         st.warning(f"🚨 Centros de costo .00 detectados: {dict_val.get('lista_cc_genericos')}")
 
-                    # Descargas
+                    # Bloque de Descargas
                     c_down1, c_down2 = st.columns(2)
-                    fecha_cierre_dt = pd.to_datetime(mes_cierre)
-                    
                     with c_down1:
-                        cargador_bin = generar_cargador_asiento_pensiones(df_asiento, fecha_cierre_dt)
+                        cargador_bin = generar_cargador_asiento_pensiones(df_asiento, fecha_proceso)
                         st.download_button("📥 Descargar Cargador Softland", cargador_bin, f"CARGADOR_{num_asiento}.xlsx", use_container_width=True)
                     
                     with c_down2:
-                        excel_data = generar_reporte_pensiones(df_calc, df_base, df_asiento, dict_val, empresa_sel, tasa, fecha_cierre_dt)
+                        excel_data = generar_reporte_pensiones(df_calc, df_base, df_asiento, dict_val, empresa_sel, tasa, fecha_proceso)
                         st.download_button("📊 Descargar Memoria de Cálculo", excel_data, f"PENSIONES_{empresa_sel}.xlsx", use_container_width=True)
 
-                    # Vista previa
-                    with st.expander("🔍 Ver Asiento Generado"):
+                    # Vista previa para control del usuario
+                    with st.expander("🔍 Ver Vista Previa del Asiento"):
                         st.dataframe(df_asiento, use_container_width=True)
                 
             except Exception as e:
                 st.error(f"❌ Error en el proceso: {str(e)}")
     else:
-        st.info("💡 Por favor, cargue el Mayor Contable para habilitar el cálculo.", icon="💡")
+        st.info("💡 Por favor, cargue los archivos necesarios para habilitar el cálculo.")
 
 def render_debito_fiscal():
     st.title("📑 Verificación de Débito Fiscal (Bs.)", anchor=False)
