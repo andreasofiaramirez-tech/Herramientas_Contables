@@ -1594,13 +1594,12 @@ def render_locti():
 
 def render_apartados_liberaciones():
 
-    col_t1, col_t2 = st.columns([8, 2])
-    with col_t1:
-        st.title("📆 Gestión de Liberaciones y Apartados", anchor=False)
-    with col_t2:
-        if st.button("⬅️ Volver al Inicio", key="back_apt_lib"):
-            set_page('inicio')
-            st.rerun()
+    # --- 1. CABECERA E IDENTIDAD VISUAL ---
+    st.title("📆 Gestión de Liberaciones y Apartados", anchor=False)
+    
+    if st.button("⬅️ Volver al Inicio"): 
+        set_page('inicio')
+        st.rerun()
     
     # --- 1. ESTILOS CSS (DARK PREMIUM) ---
     st.markdown("""
