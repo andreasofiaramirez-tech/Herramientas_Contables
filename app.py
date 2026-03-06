@@ -1643,9 +1643,9 @@ def render_apartados_liberaciones():
         # Tercera Fila: Códigos de Asiento
         row3_col1, row3_col2 = st.columns(2)
         with row3_col1:
-            num_asiento_lib = st.text_input("🔢 N° Asiento Liberaciones:", value="REV000")
+            num_asiento_lib = st.text_input("🔢 N° Asiento Liberaciones:", value="CG000")
         with row3_col2:
-            num_asiento_apt = st.text_input("🔢 N° Asiento Apartados:", value="APT000")
+            num_asiento_apt = st.text_input("🔢 N° Asiento Apartados:", value="CG000")
 
     st.markdown("<br>", unsafe_allow_html=True)
 
