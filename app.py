@@ -1677,7 +1677,7 @@ def main():
         'cofersa_fondos': render_cofersa_fondos,
         'debito_fiscal': render_debito_fiscal,
         'locti': render_locti,
-        'apartados_liberaciones': render_apartados_liberaciones
+        'apartados': render_apartados_liberaciones
     }
     
     current_page = st.session_state.get('page', 'inicio')
