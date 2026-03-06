@@ -4947,3 +4947,64 @@ def run_conciliation_comisiones_bancarias(df_cb_raw, df_cg_raw, empresa_sel, log
         df_final = df_final.sort_values(by=['sort_helper', 'Banco (Reporte CB)', 'Asiento']).drop(columns=['sort_helper'])
 
     return df_final
+
+# ==============================================================================
+# MÓDULO: APARTADOS Y LIBERACIONES (VERSION HIBRIDA V1)
+# ==============================================================================
+
+def extraer_periodo(texto):
+    """Extrae ENE.26, FEB.26, etc."""
+    if pd.isna(texto): return ""
+    match = re.search(r'(ENE|FEB|MAR|ABR|MAY|JUN|JUL|AGO|SEP|OCT|NOV|DIC)\.\d{2}', str(texto).upper())
+    return match.group(0) if match else ""
+
+def parsear_balance_softland(df_raw):
+    """Convierte el reporte jerárquico de Softland en una lista plana usable."""
+    movs = []
+    cta_actual = ""
+    for i in range(len(df_raw)):
+        fila = df_raw.iloc[i]
+        col0 = str(fila[0]).strip()
+        # Si la fila empieza por número, es una Cuenta
+        if re.match(r'^\d', col0) and "." in col0:
+            cta_actual = col0
+        # Si tiene una barra '/', es un movimiento (Fecha)
+        elif "/" in col0 and cta_actual:
+            movs.append({
+                'Cuenta': cta_actual,
+                'Centro_Costo': str(fila[2]).strip(),
+                'Referencia': str(fila[3]).upper(),
+                'Monto_VES': pd.to_numeric(str(fila[9]).replace('.','').replace(',','.'), errors='coerce') or 0.0,
+                'Periodo_Ref': extraer_periodo(fila[3])
+            })
+    return pd.DataFrame(movs)
+
+def conciliar_ciclo_apartados(df_maestro, df_balance_procesado):
+    """Cruza lo apartado el mes pasado vs lo que llegó en el balance actual."""
+    propuesta = []
+    for _, ap in df_maestro.iterrows():
+        # Regla de Oro: Nombre Parcial + CC + Periodo
+        periodo_buscado = extraer_periodo(ap['Descripcion'])
+        palabra_clave = str(ap['Descripcion']).split()[0].upper()
+        
+        match = df_balance_procesado[
+            (df_balance_procesado['Centro_Costo'] == str(ap['CC'])) &
+            (df_balance_procesado['Referencia'].str.contains(palabra_clave, na=False)) &
+            (df_balance_procesado['Periodo_Ref'] == periodo_buscado)
+        ]
+        
+        hallado = not match.empty
+        monto_real = match['Monto_VES'].sum() if hallado else 0
+        
+        propuesta.append({
+            'Cuenta': ap['Cuenta'],
+            'CC': ap['CC'],
+            'Descripcion': ap['Descripcion'],
+            'Monto_Original_BS': ap['Monto_BS'],
+            'Tasa_Original': ap.get('Tasa', 1.0),
+            'Monto_USD': ap.get('Monto_USD', 0.0),
+            'Monto_Real_Encontrado': monto_real,
+            'Estado': "🔍 SUGERIDO" if hallado else "⏳ PENDIENTE",
+            'Liberar': hallado
+        })
+    return pd.DataFrame(propuesta)
