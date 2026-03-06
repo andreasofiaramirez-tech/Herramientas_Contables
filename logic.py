@@ -4949,32 +4949,39 @@ def run_conciliation_comisiones_bancarias(df_cb_raw, df_cg_raw, empresa_sel, log
     return df_final
 
 # ==============================================================================
-# MÓDULO: APARTADOS Y LIBERACIONES (VERSION HIBRIDA V1)
+# MÓDULO: APARTADOS Y LIBERACIONES
 # ==============================================================================
 
 def extraer_periodo(texto):
-    """Extrae ENE.26, FEB.26, etc."""
+    """Busca patrones como ENE.26, FEB.26, etc."""
     if pd.isna(texto): return ""
     match = re.search(r'(ENE|FEB|MAR|ABR|MAY|JUN|JUL|AGO|SEP|OCT|NOV|DIC)\.\d{2}', str(texto).upper())
     return match.group(0) if match else ""
 
 def parsear_balance_softland(df_raw):
-    """Convierte el reporte jerárquico de Softland en una lista plana usable."""
+    """
+    Convierte el balance jerárquico de Softland en una lista plana usable.
+    Identifica la cuenta contable y asocia los movimientos que vienen debajo.
+    """
     movs = []
     cta_actual = ""
     for i in range(len(df_raw)):
         fila = df_raw.iloc[i]
         col0 = str(fila[0]).strip()
-        # Si la fila empieza por número, es una Cuenta
-        if re.match(r'^\d', col0) and "." in col0:
+        
+        # 1. Si la fila empieza por número y tiene puntos, es una Cuenta Contable
+        if re.match(r'^\d+\.', col0):
             cta_actual = col0
-        # Si tiene una barra '/', es un movimiento (Fecha)
-        elif "/" in col0 and cta_actual:
+            continue
+            
+        # 2. Si tiene una barra '/', es un movimiento (Fecha)
+        if "/" in col0 and cta_actual:
             movs.append({
                 'Cuenta': cta_actual,
                 'Centro_Costo': str(fila[2]).strip(),
                 'Referencia': str(fila[3]).upper(),
                 'Monto_VES': pd.to_numeric(str(fila[9]).replace('.','').replace(',','.'), errors='coerce') or 0.0,
+                'Monto_USD': pd.to_numeric(str(fila[10]).replace('.','').replace(',','.'), errors='coerce') or 0.0,
                 'Periodo_Ref': extraer_periodo(fila[3])
             })
     return pd.DataFrame(movs)
@@ -4982,13 +4989,14 @@ def parsear_balance_softland(df_raw):
 def conciliar_ciclo_apartados(df_maestro, df_balance_procesado):
     """Cruza lo apartado el mes pasado vs lo que llegó en el balance actual."""
     propuesta = []
-    for _, ap in df_maestro.iterrows():
-        # Regla de Oro: Nombre Parcial + CC + Periodo
+    for idx, ap in df_maestro.iterrows():
+        # Regla: Nombre (primera palabra) + Centro de Costo + Periodo (ENE.26)
         periodo_buscado = extraer_periodo(ap['Descripcion'])
         palabra_clave = str(ap['Descripcion']).split()[0].upper()
         
+        # Filtramos en el balance real
         match = df_balance_procesado[
-            (df_balance_procesado['Centro_Costo'] == str(ap['CC'])) &
+            (df_balance_procesado['Centro_Costo'] == str(ap['CC']).strip()) &
             (df_balance_procesado['Referencia'].str.contains(palabra_clave, na=False)) &
             (df_balance_procesado['Periodo_Ref'] == periodo_buscado)
         ]
@@ -4997,12 +5005,14 @@ def conciliar_ciclo_apartados(df_maestro, df_balance_procesado):
         monto_real = match['Monto_VES'].sum() if hallado else 0
         
         propuesta.append({
+            'ID': idx,
             'Cuenta': ap['Cuenta'],
             'CC': ap['CC'],
             'Descripcion': ap['Descripcion'],
             'Monto_Original_BS': ap['Monto_BS'],
             'Tasa_Original': ap.get('Tasa', 1.0),
             'Monto_USD': ap.get('Monto_USD', 0.0),
+            'Moneda': ap.get('Moneda', 'BS'),
             'Monto_Real_Encontrado': monto_real,
             'Estado': "🔍 SUGERIDO" if hallado else "⏳ PENDIENTE",
             'Liberar': hallado
@@ -5010,33 +5020,27 @@ def conciliar_ciclo_apartados(df_maestro, df_balance_procesado):
     return pd.DataFrame(propuesta)
 
 def preparar_asiento_softland(df_datos, tipo="NUEVO", tasa_bcv=1.0, num_asiento="CG001"):
-    """
-    Crea las líneas para el cargador de Softland.
-    tipo: 'NUEVO' (Apartado) o 'REVERSO' (Liberación)
-    """
-    asiento_lineas = []
-    
-    for i, row in df_datos.iterrows():
-        cta_gasto = str(row['Cuenta']).strip()
-        # Lógica de contrapartida (Cuenta 2)
-        # Si es ME ($), termina en 6.900. Si es BS, termina en 1.900
+    """Crea la partida doble contable para el cargador."""
+    lineas = []
+    for _, row in df_datos.iterrows():
+        cta_g = str(row['Cuenta']).strip()
         moneda = row.get('Moneda', 'BS')
-        cta_pasivo = '2.1.2.09.6.900' if moneda == 'USD' else '2.1.2.09.1.900'
+        # Contrapartidas según moneda
+        cta_p = '2.1.2.09.6.900' if moneda == 'USD' else '2.1.2.09.1.900'
         
         m_usd = float(row.get('Monto_USD', 0))
-        # Para reversos usamos la tasa original, para nuevos la tasa ingresada
         tasa = float(row.get('Tasa_Original', tasa_bcv))
-        m_bs = round(m_usd * tasa, 2) if moneda == 'USD' else float(row['Monto_BS'])
-        
+        m_bs = round(m_usd * tasa, 2) if moneda == 'USD' else float(row.get('Monto_Original_BS', 0))
+
         if tipo == "NUEVO":
             # APARTADO: Gasto (D) vs Pasivo (H)
-            asiento_lineas.append({'Nit': 'ND', 'CC': f"{row['CC']}01", 'Cta': cta_gasto, 'Desc': f"APARTADO {row['Descripcion']}", 'Deb_BS': m_bs, 'Cre_BS': 0, 'Deb_USD': m_usd, 'Cre_USD': 0})
-            asiento_lineas.append({'Nit': 'ND', 'CC': '00.00.000.00', 'Cta': cta_pasivo, 'Desc': f"PROVISION {row['Descripcion']}", 'Deb_BS': 0, 'Cre_BS': m_bs, 'Deb_USD': 0, 'Cre_USD': m_usd})
+            lineas.append({'CC': f"{row['CC']}01", 'Cta': cta_g, 'Desc': f"APARTADO {row['Descripcion']}", 'D_BS': m_bs, 'C_BS': 0, 'D_USD': m_usd, 'C_USD': 0})
+            lineas.append({'CC': '00.00.000.00', 'Cta': cta_p, 'Desc': f"PROVISION {row['Descripcion']}", 'D_BS': 0, 'C_BS': m_bs, 'D_USD': 0, 'C_USD': m_usd})
         else:
             # REVERSO: Pasivo (D) vs Gasto (H)
-            asiento_lineas.append({'Nit': 'ND', 'CC': '00.00.000.00', 'Cta': cta_pasivo, 'Desc': f"REVERSO PROV {row['Descripcion']}", 'Deb_BS': m_bs, 'Cre_BS': 0, 'Deb_USD': m_usd, 'Cre_USD': 0})
-            asiento_lineas.append({'Nit': 'ND', 'CC': f"{row['CC']}01", 'Cta': cta_gasto, 'Desc': f"LIBERACION {row['Descripcion']}", 'Deb_BS': 0, 'Cre_BS': m_bs, 'Deb_USD': 0, 'Cre_USD': m_usd})
-
-    df_asiento = pd.DataFrame(asiento_lineas)
-    df_asiento['Asiento'] = num_asiento
-    return df_asiento
+            lineas.append({'CC': '00.00.000.00', 'Cta': cta_p, 'Desc': f"REVERSO PROV {row['Descripcion']}", 'D_BS': m_bs, 'C_BS': 0, 'D_USD': m_usd, 'C_USD': 0})
+            lineas.append({'CC': f"{row['CC']}01", 'Cta': cta_g, 'Desc': f"LIBERACION {row['Descripcion']}", 'D_BS': 0, 'C_BS': m_bs, 'D_USD': 0, 'C_USD': m_usd})
+            
+    df_as = pd.DataFrame(lineas)
+    df_as['Asiento'] = num_asiento
+    return df_as
