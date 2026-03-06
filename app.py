@@ -1705,9 +1705,6 @@ def render_apartados_liberaciones():
 
             # C. Ejecución de la IA (Logic)
             with st.spinner("La IA está analizando el balance para sugerir liberaciones..."):
-                from logic import parsear_balance_softland, conciliar_ciclo_apartados
-                from utils import (generar_reporte_visual_liberaciones, generar_reporte_maestro_apartados, 
-                                   preparar_asiento_softland, generar_excel_cargador_softland)
                 
                 df_movs_real = parsear_balance_softland(df_b_raw)
                 df_propuesta = conciliar_ciclo_apartados(df_m, df_movs_real)
