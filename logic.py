@@ -5008,3 +5008,35 @@ def conciliar_ciclo_apartados(df_maestro, df_balance_procesado):
             'Liberar': hallado
         })
     return pd.DataFrame(propuesta)
+
+def preparar_asiento_softland(df_datos, tipo="NUEVO", tasa_bcv=1.0, num_asiento="CG001"):
+    """
+    Crea las líneas para el cargador de Softland.
+    tipo: 'NUEVO' (Apartado) o 'REVERSO' (Liberación)
+    """
+    asiento_lineas = []
+    
+    for i, row in df_datos.iterrows():
+        cta_gasto = str(row['Cuenta']).strip()
+        # Lógica de contrapartida (Cuenta 2)
+        # Si es ME ($), termina en 6.900. Si es BS, termina en 1.900
+        moneda = row.get('Moneda', 'BS')
+        cta_pasivo = '2.1.2.09.6.900' if moneda == 'USD' else '2.1.2.09.1.900'
+        
+        m_usd = float(row.get('Monto_USD', 0))
+        # Para reversos usamos la tasa original, para nuevos la tasa ingresada
+        tasa = float(row.get('Tasa_Original', tasa_bcv))
+        m_bs = round(m_usd * tasa, 2) if moneda == 'USD' else float(row['Monto_BS'])
+        
+        if tipo == "NUEVO":
+            # APARTADO: Gasto (D) vs Pasivo (H)
+            asiento_lineas.append({'Nit': 'ND', 'CC': f"{row['CC']}01", 'Cta': cta_gasto, 'Desc': f"APARTADO {row['Descripcion']}", 'Deb_BS': m_bs, 'Cre_BS': 0, 'Deb_USD': m_usd, 'Cre_USD': 0})
+            asiento_lineas.append({'Nit': 'ND', 'CC': '00.00.000.00', 'Cta': cta_pasivo, 'Desc': f"PROVISION {row['Descripcion']}", 'Deb_BS': 0, 'Cre_BS': m_bs, 'Deb_USD': 0, 'Cre_USD': m_usd})
+        else:
+            # REVERSO: Pasivo (D) vs Gasto (H)
+            asiento_lineas.append({'Nit': 'ND', 'CC': '00.00.000.00', 'Cta': cta_pasivo, 'Desc': f"REVERSO PROV {row['Descripcion']}", 'Deb_BS': m_bs, 'Cre_BS': 0, 'Deb_USD': m_usd, 'Cre_USD': 0})
+            asiento_lineas.append({'Nit': 'ND', 'CC': f"{row['CC']}01", 'Cta': cta_gasto, 'Desc': f"LIBERACION {row['Descripcion']}", 'Deb_BS': 0, 'Cre_BS': m_bs, 'Deb_USD': 0, 'Cre_USD': m_usd})
+
+    df_asiento = pd.DataFrame(asiento_lineas)
+    df_asiento['Asiento'] = num_asiento
+    return df_asiento
