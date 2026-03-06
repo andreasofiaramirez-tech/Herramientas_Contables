@@ -396,8 +396,8 @@ def render_inicio():
         st.button("🏦 Auditoría Comisiones", on_click=set_page, args=['comisiones'], use_container_width=True)
 
     with c2:
-        st.subheader("⚖️ Cierres Mensuales") # <--- NUEVA SECCIÓN
-        st.button("⚖️ Cuadre CB - CG", on_click=set_page, args=['cuadre'], use_container_width=True)
+        st.subheader("📑 Cierres Mensuales") # <--- NUEVA SECCIÓN
+        st.button("🏦 Cuadre CB - CG", on_click=set_page, args=['cuadre'], use_container_width=True)
         st.button("📉 Ajustes al Balance USD", on_click=set_page, args=['ajustes_usd'], use_container_width=True)
         st.button("📑 Liberaciones y Apartados", on_click=set_page, args=['apartados'], use_container_width=True)
 
@@ -406,7 +406,7 @@ def render_inicio():
         st.button("🛡️ Cálculo Pensiones (9%)", on_click=set_page, args=['pensiones'], use_container_width=True)
         st.button("⚖️ Verificación Débito Fiscal", on_click=set_page, args=['debito_fiscal'], use_container_width=True)
         st.button("🧾 Relación Retenciones", on_click=set_page, args=['retenciones'], use_container_width=True)
-        st.button("🖨️ Gestión Imprenta (TXT)", on_click=set_page, args=['imprenta'], use_container_width=True)
+
 
     st.divider()
     st.subheader("COFERSA", anchor=False)
