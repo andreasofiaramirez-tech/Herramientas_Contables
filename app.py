@@ -399,7 +399,7 @@ def render_inicio():
         st.subheader("📑 Cierres Mensuales") # <--- NUEVA SECCIÓN
         st.button("🏦 Cuadre CB - CG", on_click=set_page, args=['cuadre'], use_container_width=True)
         st.button("📉 Ajustes al Balance USD", on_click=set_page, args=['ajustes_usd'], use_container_width=True)
-        st.button("📑 Liberaciones y Apartados", on_click=set_page, args=['apartados'], use_container_width=True)
+        st.button("📆 Liberaciones y Apartados", on_click=set_page, args=['apartados'], use_container_width=True)
 
     with c3:
         st.subheader("⚙️ Procesos Fiscales")
