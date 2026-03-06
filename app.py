@@ -1575,6 +1575,8 @@ def render_locti():
     else:
         st.info("💡 Por favor, cargue los tres balances de comprobación para habilitar el cálculo.")
 
+
+
 # ==============================================================================
 # VI. ENRUTAMIENTO FINAL (ROUTER)
 # ==============================================================================
