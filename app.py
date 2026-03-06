@@ -1665,9 +1665,26 @@ def render_apartados_liberaciones():
 
     # --- 4. PROCESAMIENTO Y LÓGICA ---
     if f_maestro and f_balance:
-        # 1. Leemos el archivo maestro completo para ver sus pestañas
-        xls_maestro = pd.ExcelFile(f_maestro)
-        hojas_disponibles = xls_maestro.sheet_names
+        # 1. Identificar dónde empieza la tabla en el Maestro (buscando la palabra CTA)
+        df_m_raw = pd.read_excel(f_maestro, sheet_name=0, header=None)
+        header_row_m = 0
+        for i in range(len(df_m_raw)):
+            if "CTA" in [str(x).upper() for x in df_m_raw.iloc[i].values]:
+                header_row_m = i
+                break
+        
+        # Volvemos a leer con el header correcto
+        df_m = pd.read_excel(f_maestro, sheet_name=0, header=header_row_m)
+        df_b_raw = pd.read_excel(f_balance, header=None)
+
+        with st.spinner("Analizando balance contra apartados..."):
+            df_movs_real = parsear_balance_softland(df_b_raw)
+            
+            # Verificación de seguridad para el log
+            if df_movs_real.empty:
+                st.warning("⚠️ No se detectaron movimientos de gastos en el Balance. Revise el formato del archivo.")
+            
+            df_propuesta = conciliar_ciclo_apartados(df_m, df_movs_real)
         
         # 2. Buscamos las hojas que siguen el patrón MES.xx
         hojas_mes = [h for h in hojas_disponibles if "." in h and len(h) == 6]
