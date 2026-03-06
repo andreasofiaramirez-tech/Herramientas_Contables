@@ -1577,6 +1577,190 @@ def render_locti():
 
 
 
+
+
+def render_apartados_liberaciones():
+    st.title("⚖️ Gestión de Apartados y Liberaciones")
+
+    # --- 1. ESTILOS CSS (ESTÉTICA LOCTI / DARK PREMIUM) ---
+    st.markdown("""
+        <style>
+        .stContainer {
+            background-color: #1a1c24;
+            border-radius: 15px;
+            padding: 20px;
+            border: 1px solid #333;
+        }
+        .card-header {
+            padding: 10px;
+            border-radius: 10px 10px 0 0;
+            font-weight: bold;
+            text-align: center;
+            color: white;
+            margin-bottom: -10px;
+        }
+        .purple-header { background-color: #4b0082; }
+        .green-header { background-color: #1e5631; }
+        
+        div[data-testid="stFileUploader"] {
+            background-color: #1a1c24 !important;
+            border: 1px solid #333 !important;
+            border-radius: 0 0 15px 15px !important;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
+    if st.button("⬅️ Volver al Inicio", key="back_apt"):
+        set_page('inicio')
+        st.rerun()
+
+    # --- 2. PANEL DE PARÁMETROS SUPERIOR ---
+    with st.container(border=True):
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            EMPRESAS = ["FEBECA", "BEVAL", "PRISMA", "QUINCALLA"]
+            empresa_sel = st.selectbox("🏢 Seleccione la Filial:", EMPRESAS)
+        with c2:
+            tasa_bcv = st.number_input("💵 Tasa BCV Cierre:", min_value=0.01, value=1.0, format="%.4f")
+        with c3:
+            num_asiento = st.text_input("🔢 N° Asiento base:", value="CG000")
+        
+        analista_nombre = st.text_input("👤 Hecho por:", placeholder="Nombre del analista que procesa")
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # --- 3. CARGA DE ARCHIVOS ---
+    col_f1, col_f2 = st.columns(2)
+    with col_f1:
+        st.markdown('<div class="card-header purple-header">📂 Maestro Apartados (Mes Pasado)</div>', unsafe_allow_html=True)
+        with st.container(border=True):
+            f_maestro = st.file_uploader("Subir Maestro", type=['xlsx'], key="up_maestro", label_visibility="collapsed")
+        st.caption("📍 El archivo con la 'Portada' y el 'Histórico'.")
+
+    with col_f2:
+        st.markdown('<div class="card-header green-header">📄 Balance Analítico (Mes Actual)</div>', unsafe_allow_html=True)
+        with st.container(border=True):
+            f_balance = st.file_uploader("Subir Balance", type=['xlsx'], key="up_balance", label_visibility="collapsed")
+        st.caption("📍 Reporte de Softland con las cuentas 7 detalladas.")
+
+    # --- 4. LÓGICA DE PROCESAMIENTO ---
+    if f_maestro and f_balance:
+        # Carga inicial (Usamos caché interno o variables de sesión para no repetir el proceso)
+        df_m = pd.read_excel(f_maestro) 
+        df_b_raw = pd.read_excel(f_balance, header=None)
+
+        with st.spinner("Analizando balance contra apartados pendientes..."):
+            from logic import parsear_balance_softland, conciliar_ciclo_apartados
+            from utils import (generar_reporte_visual_liberaciones, generar_reporte_maestro_apartados, 
+                               preparar_asiento_softland, generar_excel_cargador_softland)
+            
+            # Aplanamos el balance jerárquico de Softland
+            df_movs_real = parsear_balance_softland(df_b_raw)
+            # Buscamos coincidencias [Nombre + CC + Periodo]
+            df_propuesta = conciliar_ciclo_apartados(df_m, df_movs_real)
+
+        st.divider()
+        st.subheader("🔍 Fase 1: Liberaciones (Reversos)", anchor=False)
+        st.write("Seleccione los apartados que ya tienen factura real en el balance:")
+
+        # EDITOR DINÁMICO (CARRITO DE COMPRAS)
+        df_editado = st.data_editor(
+            df_propuesta,
+            column_config={
+                "Liberar": st.column_config.CheckboxColumn("¿LIBERAR?", default=False),
+                "Estado": st.column_config.TextColumn("Sugerencia IA"),
+                "Monto_Original_BS": st.column_config.NumberColumn("Apartado (Bs)", format="%.2f"),
+                "Monto_Real_Encontrado": st.column_config.NumberColumn("Encontrado (Bs)", format="%.2f"),
+            },
+            disabled=["Cuenta", "CC", "Descripcion", "Monto_Original_BS", "Monto_Real_Encontrado", "Estado"],
+            hide_index=True,
+            use_container_width=True,
+            key="editor_liberaciones"
+        )
+
+        st.divider()
+        st.subheader("➕ Fase 2: Nuevos Apartados del Mes", anchor=False)
+        
+        # Guardamos nuevos apartados en la sesión para que no se borren al tocar el editor
+        if 'lista_nuevos' not in st.session_state:
+            st.session_state.lista_nuevos = []
+
+        with st.expander("Abrir Formulario de Nuevo Apartado"):
+            with st.form("form_nuevo_gasto"):
+                c_n1, c_n2 = st.columns(2)
+                n_cta = c_n1.text_input("Cuenta (7.x.x)")
+                n_cc = c_n2.text_input("Centro de Costo (xx.xx.xxx)")
+                n_desc = st.text_input("Proveedor / Concepto / Periodo (Ej: MOVISTAR FEB.26)")
+                
+                c_n3, c_n4 = st.columns(2)
+                n_monto = c_n3.number_input("Monto:", min_value=0.0)
+                n_moneda = c_n4.radio("Moneda:", ["BS", "USD"], horizontal=True)
+                
+                if st.form_submit_button("Añadir a la lista de este mes"):
+                    st.session_state.lista_nuevos.append({
+                        'Cuenta': n_cta, 'CC': n_cc, 'Descripcion': n_desc,
+                        'Monto_USD': n_monto if n_moneda == 'USD' else 0,
+                        'Monto_BS': n_monto if n_moneda == 'BS' else 0,
+                        'Moneda': n_moneda, 'Tasa_Original': tasa_bcv
+                    })
+        
+        if st.session_state.lista_nuevos:
+            st.write("**Partidas a apartar este mes:**")
+            st.dataframe(pd.DataFrame(st.session_state.lista_nuevos), use_container_width=True)
+            if st.button("🗑️ Limpiar lista de nuevos"):
+                st.session_state.lista_nuevos = []
+                st.rerun()
+
+        st.divider()
+
+        # --- 5. EJECUCIÓN FINAL Y DESCARGAS ---
+        if st.button("🚀 PROCESAR CIERRE: GENERAR REPORTES Y CARGADORES", type="primary", use_container_width=True):
+            fecha_cierre = pd.Timestamp.now()
+            
+            # A. Procesar Liberaciones
+            df_reversar = df_editado[df_editado['Liberar'] == True]
+            
+            # B. Procesar Nuevos
+            df_nuevos_data = pd.DataFrame(st.session_state.lista_nuevos)
+
+            st.success("✅ Documentos listos para descargar")
+            
+            col_down1, col_down2 = st.columns(2)
+            
+            # Bloque de Descargas de Reportes
+            with col_down1:
+                st.write("**📊 Reportes de Gestión**")
+                # 1. Reporte de Liberaciones (Resaltado en verde)
+                bin_lib = generar_reporte_visual_liberaciones(df_editado, empresa_sel, fecha_cierre)
+                st.download_button("📊 Reporte Liberaciones (Soporte)", bin_lib, f"LIBERACIONES_{empresa_sel}.xlsx", use_container_width=True)
+                
+                # 2. Nueva Portada (Apartados vigentes)
+                # Aquí se uniría lo que no se liberó + lo nuevo
+                df_maestro_nuevo = pd.concat([df_editado[df_editado['Liberar']==False], df_nuevos_data], ignore_index=True)
+                bin_portada = generar_reporte_maestro_apartados(df_maestro_nuevo, df_nuevos_data, fecha_cierre)
+                st.download_button("📂 Nueva Portada Maestro (Proximo Mes)", bin_portada, f"MAESTRO_NUEVO_{empresa_sel}.xlsx", use_container_width=True)
+
+            # Bloque de Descargas de Cargadores (Softland)
+            with col_down2:
+                st.write("**📥 Cargadores para Softland**")
+                # 1. Cargador Reversos
+                if not df_reversar.empty:
+                    df_as_rev = preparar_asiento_softland(df_reversar, "REVERSO", tasa_bcv, f"{num_asiento}R")
+                    bin_as_rev = generar_excel_cargador_softland(df_as_rev, fecha_cierre)
+                    st.download_button("📥 Cargador REVERSOS (Liberación)", bin_as_rev, "CARGADOR_REVERSOS.xlsx", use_container_width=True)
+                
+                # 2. Cargador Nuevos
+                if not df_nuevos_data.empty:
+                    df_as_new = preparar_asiento_softland(df_nuevos_data, "NUEVO", tasa_bcv, f"{num_asiento}A")
+                    bin_as_new = generar_excel_cargador_softland(df_as_new, fecha_cierre)
+                    st.download_button("📥 Cargador APARTADOS (Nuevos)", bin_as_new, "CARGADOR_NUEVOS.xlsx", use_container_width=True)
+
+    else:
+        st.info("💡 Para comenzar, cargue el maestro del mes anterior y el balance analítico del mes actual.")
+
+
+
+
 # ==============================================================================
 # VI. ENRUTAMIENTO FINAL (ROUTER)
 # ==============================================================================
