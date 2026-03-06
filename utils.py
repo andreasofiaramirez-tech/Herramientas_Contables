@@ -3362,4 +3362,45 @@ def generar_cargador_softland_v2(df_asiento, fecha_asiento):
 
     return output.getvalue()
 
-
+def generar_reporte_maestro_apartados(df_final, df_nuevos, fecha_cierre):
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        workbook = writer.book
+        # Formatos visuales (Igual a las fotos)
+        fmt_total = workbook.add_format({'bold': True, 'bg_color': '#FFFF00', 'border': 1, 'num_format': '#,##0.00'})
+        fmt_header = workbook.add_format({'bold': True, 'bg_color': '#D9EAD3', 'border': 1, 'align': 'center'})
+        fmt_num = workbook.add_format({'num_format': '#,##0.00', 'border': 1})
+        
+        ws = workbook.add_worksheet('PORTADA_MENSUAL')
+        ws.hide_gridlines(2)
+        
+        # Encabezado (Punto solicitado)
+        ws.merge_range('A1:E1', "RESUMEN DE GASTOS ESTIMADOS POR PAGAR", workbook.add_format({'bold':True, 'font_size':14}))
+        
+        row = 3
+        # Agrupamos por moneda para crear los bloques BS y ME
+        for moneda in ['BS', 'USD']:
+            ws.write(row, 0, f"--- GASTOS EN {moneda} ---", workbook.add_format({'bold': True, 'italic': True}))
+            row += 1
+            ws.write_row(row, 0, ['CUENTA', 'CENTRO COSTO', 'DESCRIPCION', 'MONTO $', 'TASA', 'TOTAL BS'], fmt_header)
+            row += 1
+            
+            # Filtramos datos de esa moneda
+            subset = df_final[df_final['Moneda'] == moneda]
+            for cta, grupo in subset.groupby('Cuenta'):
+                for _, r in grupo.iterrows():
+                    ws.write(row, 0, r['Cuenta'])
+                    ws.write(row, 1, r['CC'])
+                    ws.write(row, 2, r['Descripcion'])
+                    ws.write(row, 3, r['Monto_USD'], fmt_num)
+                    ws.write(row, 4, r['Tasa_Original'], fmt_num)
+                    ws.write(row, 5, r['Monto_BS'], fmt_num)
+                    row += 1
+                # Fila Amarilla de Total por Cuenta
+                ws.write(row, 2, f"TOTAL CUENTA {cta}", fmt_total)
+                ws.write(row, 5, grupo['Monto_BS'].sum(), fmt_total)
+                row += 2
+        
+        ws.set_column('A:B', 15); ws.set_column('C:C', 50); ws.set_column('D:F', 18)
+        
+    return output.getvalue()
