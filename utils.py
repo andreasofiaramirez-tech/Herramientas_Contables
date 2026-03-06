@@ -3367,138 +3367,86 @@ def generar_cargador_softland_v2(df_asiento, fecha_asiento):
 # 1. APARTADOS Y LIBERACIONES
 # ==============================================================================
 
-def generar_reporte_maestro_apartados(df_final, df_nuevos, fecha_cierre):
+def generar_reporte_maestro_apartados(df_final, fecha_cierre):
+    """Genera la Portada con filas amarillas de totales."""
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         workbook = writer.book
-        # Formatos visuales (Igual a las fotos)
         fmt_total = workbook.add_format({'bold': True, 'bg_color': '#FFFF00', 'border': 1, 'num_format': '#,##0.00'})
         fmt_header = workbook.add_format({'bold': True, 'bg_color': '#D9EAD3', 'border': 1, 'align': 'center'})
         fmt_num = workbook.add_format({'num_format': '#,##0.00', 'border': 1})
         
-        ws = workbook.add_worksheet('PORTADA_MENSUAL')
-        ws.hide_gridlines(2)
-        
-        # Encabezado (Punto solicitado)
-        ws.merge_range('A1:E1', "RESUMEN DE GASTOS ESTIMADOS POR PAGAR", workbook.add_format({'bold':True, 'font_size':14}))
+        ws = workbook.add_worksheet('PORTADA_MAESTRO')
+        ws.merge_range('A1:F1', "RESUMEN DE GASTOS ESTIMADOS POR PAGAR", workbook.add_format({'bold':True, 'font_size':14}))
         
         row = 3
-        # Agrupamos por moneda para crear los bloques BS y ME
         for moneda in ['BS', 'USD']:
-            ws.write(row, 0, f"--- GASTOS EN {moneda} ---", workbook.add_format({'bold': True, 'italic': True}))
+            ws.write(row, 0, f"--- GASTOS EN {moneda} ---", workbook.add_format({'bold': True}))
             row += 1
-            ws.write_row(row, 0, ['CUENTA', 'CENTRO COSTO', 'DESCRIPCION', 'MONTO $', 'TASA', 'TOTAL BS'], fmt_header)
+            ws.write_row(row, 0, ['CUENTA', 'CC', 'DESCRIPCION', 'MONTO $', 'TASA', 'TOTAL BS'], fmt_header)
             row += 1
-            
-            # Filtramos datos de esa moneda
             subset = df_final[df_final['Moneda'] == moneda]
             for cta, grupo in subset.groupby('Cuenta'):
                 for _, r in grupo.iterrows():
                     ws.write(row, 0, r['Cuenta'])
                     ws.write(row, 1, r['CC'])
                     ws.write(row, 2, r['Descripcion'])
-                    ws.write(row, 3, r['Monto_USD'], fmt_num)
-                    ws.write(row, 4, r['Tasa_Original'], fmt_num)
-                    ws.write(row, 5, r['Monto_BS'], fmt_num)
+                    ws.write_number(row, 3, r.get('Monto_USD', 0), fmt_num)
+                    ws.write_number(row, 4, r.get('Tasa_Original', 1), fmt_num)
+                    ws.write_number(row, 5, r.get('Monto_BS', 0), fmt_num)
                     row += 1
-                # Fila Amarilla de Total por Cuenta
                 ws.write(row, 2, f"TOTAL CUENTA {cta}", fmt_total)
-                ws.write(row, 5, grupo['Monto_BS'].sum(), fmt_total)
+                ws.write_number(row, 5, grupo['Monto_BS'].sum(), fmt_total)
                 row += 2
-        
-        ws.set_column('A:B', 15); ws.set_column('C:C', 50); ws.set_column('D:F', 18)
-        
+        ws.set_column('C:C', 50); ws.set_column('A:F', 15)
     return output.getvalue()
 
-def generar_excel_cargador_softland(df_asiento, fecha_asiento):
-    """Genera el Excel compatible con el cargador dinámico de Softland."""
+def generar_reporte_visual_liberaciones(df_propuesta, empresa, fecha, analista):
+    """Genera el reporte soporte resaltando liberaciones en verde."""
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         workbook = writer.book
-        num_fmt = workbook.add_format({'num_format': '0.0000'}) # 4 decimales para USD
-
-        # --- HOJA 1: Asiento ---
-        ws1 = workbook.add_worksheet("Asiento")
-        ws1.write_row(0, 0, ["Asiento", "Paquete", "Tipo Asiento", "Fecha", "Contabilidad"])
-        ws1.write_row(1, 0, [df_asiento['Asiento'].iloc[0], "CG", "CG", fecha_asiento.strftime('%d/%m/%Y'), "A"])
-
-        # --- HOJA 2: ND ---
-        ws2 = workbook.add_worksheet("ND")
-        headers_nd = ["Asiento", "Consecutivo", "Nit", "Centro De Costo", "Cuenta Contable", "Fuente", "Referencia", "Débito Local", "Débito Dólar", "Crédito Local", "Crédito Dólar"]
-        ws2.write_row(0, 0, headers_nd)
-
-        for i, row in df_asiento.iterrows():
-            r = i + 1
-            ws2.write(r, 0, row['Asiento'])
-            ws2.write(r, 1, r)
-            ws2.write(r, 2, row['Nit'])
-            ws2.write(r, 3, row['CC'])
-            ws2.write(r, 4, row['Cta'])
-            ws2.write(r, 5, "APARTADOS")
-            ws2.write(r, 6, row['Desc'][:40]) # Softland limita a 40 caracteres
-            # Montos (Si es 0, dejamos vacío)
-            ws2.write_number(r, 7, row['Deb_BS'], num_fmt) if row['Deb_BS'] > 0 else ws2.write(r, 7, "")
-            ws2.write_number(r, 8, row['Deb_USD'], num_fmt) if row['Deb_USD'] > 0 else ws2.write(r, 8, "")
-            ws2.write_number(r, 9, row['Cre_BS'], num_fmt) if row['Cre_BS'] > 0 else ws2.write(r, 9, "")
-            ws2.write_number(r, 10, row['Cre_USD'], num_fmt) if row['Cre_USD'] > 0 else ws2.write(r, 10, "")
-
-        ws1.set_column('A:E', 15)
-        ws2.set_column('A:G', 20)
-    return output.getvalue()
-
-def generar_reporte_visual_liberaciones(df_maestro_con_seleccion, nombre_empresa, fecha_cierre):
-    """
-    Toma el maestro del mes anterior y resalta las filas marcadas para liberar.
-    Mantiene la estética de la Portada original.
-    """
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        workbook = writer.book
-        # --- FORMATOS ---
-        fmt_total = workbook.add_format({'bold': True, 'bg_color': '#FFFF00', 'border': 1, 'num_format': '#,##0.00'})
-        fmt_header = workbook.add_format({'bold': True, 'bg_color': '#D9EAD3', 'border': 1, 'align': 'center'})
+        fmt_green = workbook.add_format({'bg_color': '#C6EFCE', 'font_color': '#006100', 'border': 1})
+        fmt_num_green = workbook.add_format({'bg_color': '#C6EFCE', 'font_color': '#006100', 'border': 1, 'num_format': '#,##0.00'})
         fmt_num = workbook.add_format({'num_format': '#,##0.00', 'border': 1})
-        # Formato de Resaltado para Liberaciones (Verde Suave)
-        fmt_resaltado = workbook.add_format({'bg_color': '#C6EFCE', 'font_color': '#006100', 'border': 1})
-        fmt_resaltado_num = workbook.add_format({'bg_color': '#C6EFCE', 'font_color': '#006100', 'border': 1, 'num_format': '#,##0.00'})
+        
+        ws = workbook.add_worksheet('LIBERACIONES')
+        ws.write('A1', f"SOPORTE DE LIBERACIONES - {empresa}", workbook.add_format({'bold':True}))
+        ws.write('A2', f"Analista: {analista} | Fecha: {fecha.strftime('%d/%m/%Y')}")
+        
+        headers = ['CUENTA', 'CC', 'DESCRIPCION', 'MONTO $', 'MONTO BS', 'ESTADO']
+        ws.write_row(4, 0, headers, workbook.add_format({'bold':True, 'border':1}))
+        
+        row = 5
+        for _, r in df_propuesta.iterrows():
+            estilo = fmt_green if r['Liberar'] else None
+            estilo_n = fmt_num_green if r['Liberar'] else fmt_num
+            ws.write(row, 0, r['Cuenta'], estilo)
+            ws.write(row, 1, r['CC'], estilo)
+            ws.write(row, 2, r['Descripcion'], estilo)
+            ws.write_number(row, 3, r['Monto_USD'], estilo_n)
+            ws.write_number(row, 4, r['Monto_Original_BS'], estilo_n)
+            ws.write(row, 5, "LIBERADO ✅" if r['Liberar'] else "PENDIENTE", estilo)
+            row += 1
+        ws.set_column('C:C', 50); ws.set_column('A:F', 15)
+    return output.getvalue()
 
-        ws = workbook.add_worksheet('LIBERACIONES_DEL_MES')
-        ws.hide_gridlines(2)
+def generar_excel_cargador_softland(df_asiento, fecha):
+    """Genera el cargador oficial de dos pestañas para Softland."""
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        ws1 = writer.book.add_worksheet("Asiento")
+        ws1.write_row(0, 0, ["Asiento", "Paquete", "Tipo Asiento", "Fecha", "Contabilidad"])
+        ws1.write_row(1, 0, [df_asiento['Asiento'].iloc[0], "CG", "CG", fecha.strftime('%d/%m/%Y'), "A"])
         
-        # Encabezados
-        ws.merge_range('A1:F1', f"{nombre_empresa} - REPORTE DE LIBERACIONES", workbook.add_format({'bold':True, 'font_size':14}))
-        ws.write('A2', f"PERIODO DE CORTE: {fecha_cierre.strftime('%d/%m/%Y')}")
-        
-        row = 4
-        # Procesamos por bloques de moneda
-        for moneda in ['BS', 'USD']:
-            ws.write(row, 0, f"--- PARTIDAS EN {moneda} ---", workbook.add_format({'bold': True, 'italic': True}))
-            row += 1
-            ws.write_row(row, 0, ['CUENTA', 'CC', 'DESCRIPCION', 'MONTO $', 'TASA', 'TOTAL BS', 'ESTADO'], fmt_header)
-            row += 1
-            
-            subset = df_maestro_con_seleccion[df_maestro_con_seleccion['Moneda'] == moneda]
-            
-            for cta, grupo in subset.groupby('Cuenta'):
-                for _, r in grupo.iterrows():
-                    # Si la fila fue seleccionada para liberar, usamos el formato resaltado
-                    estilo = fmt_resaltado if r['Liberar'] else None
-                    estilo_n = fmt_resaltado_num if r['Liberar'] else fmt_num
-                    
-                    ws.write(row, 0, r['Cuenta'], estilo)
-                    ws.write(row, 1, r['CC'], estilo)
-                    ws.write(row, 2, r['Descripcion'], estilo)
-                    ws.write_number(row, 3, r['Monto_USD'], estilo_n)
-                    ws.write_number(row, 4, r['Tasa_Original'], estilo_n)
-                    ws.write_number(row, 5, r['Monto_BS'], estilo_n)
-                    ws.write(row, 6, "LIBERAR ✅" if r['Liberar'] else "MANTENER ⏳", estilo)
-                    row += 1
-                
-                # Fila de Total de la Cuenta
-                ws.write(row, 2, f"SUB-TOTAL CUENTA {cta}", fmt_total)
-                ws.write(row, 5, grupo['Monto_BS'].sum(), fmt_total)
-                row += 2
-        
-        ws.set_column('A:B', 15); ws.set_column('C:C', 50); ws.set_column('D:F', 18); ws.set_column('G:G', 15)
-        
+        ws2 = writer.book.add_worksheet("ND")
+        ws2.write_row(0, 0, ["Asiento", "Consecutivo", "Nit", "Centro De Costo", "Cuenta Contable", "Fuente", "Referencia", "Débito Local", "Débito Dólar", "Crédito Local", "Crédito Dólar"])
+        for i, r in df_asiento.iterrows():
+            row = i + 1
+            ws2.write(row, 0, r['Asiento']); ws2.write(row, 1, row); ws2.write(row, 2, "ND"); ws2.write(row, 3, r['CC'])
+            ws2.write(row, 4, r['Cta']); ws2.write(row, 5, "APARTADOS"); ws2.write(row, 6, r['Desc'][:40])
+            if r['D_BS']>0: ws2.write_number(row, 7, r['D_BS'])
+            if r['D_USD']>0: ws2.write_number(row, 8, r['D_USD'])
+            if r['C_BS']>0: ws2.write_number(row, 9, r['C_BS'])
+            if r['C_USD']>0: ws2.write_number(row, 10, r['C_USD'])
     return output.getvalue()
