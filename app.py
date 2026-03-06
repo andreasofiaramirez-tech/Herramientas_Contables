@@ -1593,15 +1593,15 @@ def render_locti():
 
 
 def render_apartados_liberaciones():
-
-    # --- 1. CABECERA E IDENTIDAD VISUAL ---
-    st.title("📆 Gestión de Liberaciones y Apartados", anchor=False)
+    # --- ENCABEZADO Y BOTÓN VOLVER ---
+    st.title("📆 Gestión de Apartados y Liberaciones"")
     
     if st.button("⬅️ Volver al Inicio"): 
         set_page('inicio')
         st.rerun()
-    
-    # --- 1. ESTILOS CSS (DARK PREMIUM) ---
+        
+
+    # --- 1. ESTILOS CSS (DARK PREMIUM - ESTILO LOCTI) ---
     st.markdown("""
         <style>
         .stContainer {
@@ -1620,142 +1620,187 @@ def render_apartados_liberaciones():
         }
         .purple-header { background-color: #4b0082; }
         .green-header { background-color: #1e5631; }
+        
+        div[data-testid="stFileUploader"] {
+            background-color: #1a1c24 !important;
+            border: 1px solid #333 !important;
+            border-radius: 0 0 15px 15px !important;
+        }
         </style>
     """, unsafe_allow_html=True)
 
-    # --- 2. PANEL DE PARÁMETROS (ESTRUCTURA CORREGIDA) ---
+    # --- 2. PANEL DE PARÁMETROS SUPERIOR ---
     with st.container(border=True):
-        # Primera Fila: Filial y Analista
-        row1_col1, row1_col2 = st.columns(2)
-        with row1_col1:
-            EMPRESAS = ["FEBECA", "BEVAL", "PRISMA", "QUINCALLA"]
-            empresa_sel = st.selectbox("🏢 Seleccione la Filial:", EMPRESAS)
-        with row1_col2:
+        # Fila 1: Filial y Analista
+        r1_c1, r1_c2 = st.columns(2)
+        with r1_c1:
+            empresa_sel = st.selectbox("🏢 Seleccione la Filial:", ["FEBECA", "BEVAL", "PRISMA", "QUINCALLA"])
+        with r1_c2:
             analista_nombre = st.text_input("👤 Hecho por:", placeholder="Nombre del analista que procesa")
 
-        # Segunda Fila: Tasas de Cambio
-        row2_col1, row2_col2 = st.columns(2)
-        with row2_col1:
+        # Fila 2: Tasas de Cambio
+        r2_c1, r2_c2 = st.columns(2)
+        with r2_c1:
             tasa_bcv = st.number_input("💵 Tasa BCV (Gastos en USD):", min_value=0.01, value=1.0, format="%.4f")
-        with row2_col2:
+        with r2_c2:
             tasa_corp = st.number_input("📈 Tasa Corp. (Gastos en Bs):", min_value=0.01, value=1.0, format="%.4f")
 
-        # Tercera Fila: Códigos de Asiento
-        row3_col1, row3_col2 = st.columns(2)
-        with row3_col1:
+        # Fila 3: Códigos de Asiento (Prefijo CG solicitado)
+        r3_c1, r3_c2 = st.columns(2)
+        with r3_c1:
             num_asiento_lib = st.text_input("🔢 N° Asiento Liberaciones:", value="CG000")
-        with row3_col2:
+        with r3_c2:
             num_asiento_apt = st.text_input("🔢 N° Asiento Apartados:", value="CG000")
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # --- 3. SECCIÓN DE CARGA DE ARCHIVOS ---
+    # --- 3. CARGA DE ARCHIVOS (MAESTRO Y BALANCE) ---
     col_f1, col_f2 = st.columns(2)
     with col_f1:
         st.markdown('<div class="card-header purple-header">📂 Maestro Anterior</div>', unsafe_allow_html=True)
         with st.container(border=True):
             f_maestro = st.file_uploader("Subir Maestro", type=['xlsx', 'xls'], key="up_maestro", label_visibility="collapsed")
-        st.caption("📍 El archivo con la 'Portada' y el 'Histórico' del mes pasado.")
+        st.caption("📍 El archivo con las pestañas MES.XX y el Histórico.")
 
     with col_f2:
         st.markdown('<div class="card-header green-header">📄 Balance Analítico</div>', unsafe_allow_html=True)
         with st.container(border=True):
             f_balance = st.file_uploader("Subir Balance", type=['xlsx', 'xls'], key="up_balance", label_visibility="collapsed")
-        st.caption("📍 Reporte de Softland (Cuentas 7) para buscar facturas llegadas.")
+        st.caption("📍 Reporte de Softland con las cuentas 7 detalladas.")
 
-    # --- 4. PROCESAMIENTO Y LÓGICA ---
+    # --- 4. LÓGICA DE PROCESAMIENTO ---
     if f_maestro and f_balance:
-        # 1. Identificar dónde empieza la tabla en el Maestro (buscando la palabra CTA)
-        df_m_raw = pd.read_excel(f_maestro, sheet_name=0, header=None)
-        header_row_m = 0
-        for i in range(len(df_m_raw)):
-            if "CTA" in [str(x).upper() for x in df_m_raw.iloc[i].values]:
-                header_row_m = i
-                break
-        
-        # Volvemos a leer con el header correcto
-        df_m = pd.read_excel(f_maestro, sheet_name=0, header=header_row_m)
-        df_b_raw = pd.read_excel(f_balance, header=None)
-
-        with st.spinner("Analizando balance contra apartados..."):
-            df_movs_real = parsear_balance_softland(df_b_raw)
+        try:
+            # A. Identificación de pestañas del Maestro
+            xls_maestro = pd.ExcelFile(f_maestro)
+            hojas_disponibles = xls_maestro.sheet_names
             
-            # Verificación de seguridad para el log
-            if df_movs_real.empty:
-                st.warning("⚠️ No se detectaron movimientos de gastos en el Balance. Revise el formato del archivo.")
+            # Radar flexible para buscar pestañas con un punto (ENE.26, etc)
+            hojas_mes = [h.strip() for h in hojas_disponibles if "." in h]
+            if not hojas_mes: hojas_mes = hojas_disponibles
+
+            with st.container(border=True):
+                st.write("📂 **Configuración de Pestañas Detectadas**")
+                c_m1, c_m2 = st.columns(2)
+                with c_m1:
+                    mes_anterior_sel = st.selectbox("Seleccione la Portada del mes pasado:", hojas_mes)
+                with c_m2:
+                    hoja_hist_name = next((h for h in hojas_disponibles if "APARTADO" in h.upper()), "APARTADO VALENCIA")
+                    st.info(f"Hoja histórica detectada: `{hoja_hist_name}`")
+
+            # B. Carga de datos con detección de encabezado automática
+            nombre_real_hoja = hojas_disponibles[hojas_mes.index(mes_anterior_sel)]
+            df_temp_m = pd.read_excel(f_maestro, sheet_name=nombre_real_hoja, header=None)
+            h_row_m = 0
+            for i in range(min(20, len(df_temp_m))):
+                fila_titles = [str(x).upper() for x in df_temp_m.iloc[i].values]
+                if "CTA" in fila_titles or "CUENTA" in fila_titles:
+                    h_row_m = i
+                    break
             
-            df_propuesta = conciliar_ciclo_apartados(df_m, df_movs_real)
-        
-        # 2. Buscamos las hojas que siguen el patrón MES.xx
-        hojas_mes = [h for h in hojas_disponibles if "." in h and len(h) == 6]
-        
-        with st.container(border=True):
-            st.write("📂 **Configuración del Maestro**")
-            # El usuario elige qué mes es el "Anterior" para comparar
-            mes_anterior_sel = st.selectbox("Seleccione la pestaña del mes pasado:", hojas_mes)
-            # Identificamos la hoja de histórico (Apartado Valencia...)
-            hoja_hist_name = next((h for h in hojas_disponibles if "APARTADO VALENCIA" in h.upper()), None)
+            df_m = pd.read_excel(f_maestro, sheet_name=nombre_real_hoja, header=h_row_m)
+            df_b_raw = pd.read_excel(f_balance, header=None)
 
-        # 3. Cargamos la data específica del mes seleccionado
-        df_m = pd.read_excel(f_maestro, sheet_name=mes_anterior_sel)
-        df_b_raw = pd.read_excel(f_balance, header=None)
-        
-        # Guardamos el archivo original en la sesión para poder copiar sus hojas viejas después
-        st.session_state.xls_maestro_original = xls_maestro
-
-        with st.spinner("Analizando balance contra apartados pendientes..."):
-            
-            df_movs_real = parsear_balance_softland(df_b_raw)
-            df_propuesta = conciliar_ciclo_apartados(df_m, df_movs_real)
-
-        st.divider()
-        st.subheader("🔍 Fase 1: Selección de Liberaciones", anchor=False)
-        
-        df_editado = st.data_editor(
-            df_propuesta,
-            column_config={
-                "Liberar": st.column_config.CheckboxColumn("¿LIBERAR?", default=False),
-                "Monto_Original_BS": st.column_config.NumberColumn("Apartado (Bs)", format="%.2f"),
-                "Monto_Real_Encontrado": st.column_config.NumberColumn("Encontrado (Bs)", format="%.2f"),
-            },
-            disabled=["Cuenta", "CC", "Descripcion", "Monto_Original_BS", "Monto_Real_Encontrado", "Estado"],
-            hide_index=True,
-            use_container_width=True,
-            key="editor_liberaciones"
-        )
-
-        # (Aquí iría la sección de Fase 2: Nuevos Apartados que ya definimos)
-        # ...
-
-        # --- 5. BOTÓN DE CIERRE Y DESCARGAS ---
-        st.divider()
-        if st.button("🚀 PROCESAR CIERRE: GENERAR REPORTES Y CARGADORES", type="primary", use_container_width=True):
-            fecha_cierre = pd.Timestamp.now()
-            
-            st.success("✅ Documentos generados correctamente")
-            
-            col_down1, col_down2 = st.columns(2)
-            
-            with col_down1:
-                st.write("**📊 Soporte de Gestión**")
-                bin_lib = generar_reporte_visual_liberaciones(df_editado, empresa_sel, fecha_cierre, analista_nombre)
-                st.download_button("📊 Reporte Liberaciones (Soporte)", bin_lib, f"LIBERACIONES_{empresa_sel}.xlsx", use_container_width=True)
-
-            with col_down2:
-                st.write("**📥 Cargadores Softland**")
+            # C. Ejecución de la IA (Logic)
+            with st.spinner("La IA está analizando el balance para sugerir liberaciones..."):
+                from logic import parsear_balance_softland, conciliar_ciclo_apartados
+                from utils import (generar_reporte_visual_liberaciones, generar_reporte_maestro_apartados, 
+                                   preparar_asiento_softland, generar_excel_cargador_softland)
                 
-                # 1. Cargador para Liberaciones (Usa num_asiento_lib)
-                df_reversar = df_editado[df_editado['Liberar'] == True]
-                if not df_reversar.empty:
-                    df_as_rev = preparar_asiento_softland(df_reversar, "REVERSO", tasa_bcv, num_asiento_lib)
-                    bin_as_rev = generar_excel_cargador_softland(df_as_rev, fecha_cierre)
-                    st.download_button("📥 Cargador REVERSOS", bin_as_rev, f"CARGADOR_{num_asiento_lib}.xlsx", use_container_width=True)
+                df_movs_real = parsear_balance_softland(df_b_raw)
+                df_propuesta = conciliar_ciclo_apartados(df_m, df_movs_real)
 
-            # 3. Cargador Nuevos
-            if st.session_state.nuevos:
-                df_new = pd.DataFrame(st.session_state.nuevos)
-                bin_as_new = generar_excel_cargador_softland(preparar_asiento_softland(df_new, "NUEVO", tasa_bcv, f"{num_asiento}A"), fecha)
-                st.download_button("📥 Cargador APARTADOS", bin_as_new, "CARGADOR_NEW.xlsx")
+            # --- VISTA: CARRITO DE LIBERACIONES ---
+            st.divider()
+            st.subheader("🛒 Fase 1: Selección de Liberaciones", anchor=False)
+            st.write("Marque las partidas que ya llegaron en el balance para generar el reverso:")
+            
+            df_editado = st.data_editor(
+                df_propuesta,
+                column_config={
+                    "Liberar": st.column_config.CheckboxColumn("¿LIBERAR?", default=False),
+                    "Estado": st.column_config.TextColumn("Sugerencia IA"),
+                    "Monto_Original_BS": st.column_config.NumberColumn("Apartado (Bs)", format="%.2f"),
+                    "Monto_Real_Encontrado": st.column_config.NumberColumn("Encontrado (Bs)", format="%.2f"),
+                },
+                disabled=["Cuenta", "CC", "Descripcion", "Monto_Original_BS", "Monto_Real_Encontrado", "Estado"],
+                hide_index=True, use_container_width=True, key="editor_liberaciones"
+            )
+
+            # --- VISTA: NUEVOS APARTADOS ---
+            st.divider()
+            st.subheader("➕ Fase 2: Nuevos Apartados del Mes", anchor=False)
+            if 'lista_nuevos' not in st.session_state: st.session_state.lista_nuevos = []
+
+            with st.expander("Abrir Formulario de Registro"):
+                with st.form("nuevo_gasto_form"):
+                    c_n1, c_n2 = st.columns(2)
+                    n_cta = c_n1.text_input("Cuenta Contable (7.x.x)")
+                    n_cc = c_n2.text_input("Centro de Costo (xx.xx.xxx)")
+                    n_desc = st.text_input("Descripción y Periodo (Ej: MOVISTAR FEB.26)")
+                    
+                    c_n3, c_n4 = st.columns(2)
+                    n_monto = c_n3.number_input("Monto:", min_value=0.0)
+                    n_moneda = c_n4.radio("Moneda:", ["BS", "USD"], horizontal=True)
+                    
+                    if st.form_submit_button("Añadir a la lista"):
+                        st.session_state.lista_nuevos.append({
+                            'Cuenta': n_cta, 'CC': n_cc, 'Descripcion': n_desc,
+                            'Monto_USD': n_monto if n_moneda == 'USD' else 0,
+                            'Monto_BS': n_monto if n_moneda == 'BS' else 0,
+                            'Moneda': n_moneda, 'Tasa_Original': tasa_bcv if n_moneda == 'USD' else tasa_corp
+                        })
+                        st.rerun()
+
+            if st.session_state.lista_nuevos:
+                st.write("**Partidas nuevas para apartar:**")
+                st.dataframe(pd.DataFrame(st.session_state.lista_nuevos), use_container_width=True)
+                if st.button("🗑️ Limpiar lista de nuevos"):
+                    st.session_state.lista_nuevos = []
+                    st.rerun()
+
+            # --- BOTÓN DE CIERRE Y GENERACIÓN ---
+            st.divider()
+            if st.button("🚀 PROCESAR CIERRE: GENERAR TODO", type="primary", use_container_width=True):
+                fecha_cierre_hoy = pd.Timestamp.now()
+                st.success("✅ Documentos generados satisfactoriamente.")
+                
+                col_d1, col_d2 = st.columns(2)
+                
+                with col_d1:
+                    st.write("**📊 Soporte de Gestión**")
+                    # 1. Reporte Verde (Liberaciones)
+                    bin_lib = generar_reporte_visual_liberaciones(df_editado, empresa_sel, fecha_cierre_hoy, analista_nombre)
+                    st.download_button("📊 Descargar Soporte Liberaciones (Verde)", bin_lib, f"SOPORTE_LIB_{empresa_sel}.xlsx", use_container_width=True)
+                    
+                    # 2. Maestro Actualizado (Pestaña nueva + Histórico)
+                    df_nuevos_final = pd.DataFrame(st.session_state.lista_nuevos)
+                    df_maestro_proximo = pd.concat([df_editado[df_editado['Liberar']==False], df_nuevos_final], ignore_index=True)
+                    # El nombre de la hoja será el mes actual (ej: MAR.26)
+                    mes_actual_nombre = f"{fecha_cierre_hoy.strftime('%b').upper()}.{fecha_cierre_hoy.strftime('%y')}"
+                    bin_maestro = generar_reporte_maestro_apartados(xls_maestro, df_maestro_proximo, mes_actual_nombre, hoja_hist_name, empresa_sel, fecha_cierre_hoy)
+                    st.download_button("📂 Descargar Nuevo Maestro (Amarillo)", bin_maestro, f"MAESTRO_NUEVO_{empresa_sel}.xlsx", use_container_width=True)
+
+                with col_d2:
+                    st.write("**📥 Cargadores para Softland**")
+                    # 3. Cargador REVERSOS
+                    df_reversar = df_editado[df_editado['Liberar'] == True]
+                    if not df_reversar.empty:
+                        as_rev = preparar_asiento_softland(df_reversar, "REVERSO", tasa_bcv, num_asiento_lib)
+                        bin_as_rev = generar_excel_cargador_softland(as_rev, fecha_cierre_hoy)
+                        st.download_button("📥 Descargar Cargador REVERSOS", bin_as_rev, f"CARGADOR_REV_{num_asiento_lib}.xlsx", use_container_width=True)
+                    
+                    # 4. Cargador APARTADOS
+                    if not df_nuevos_final.empty:
+                        as_new = preparar_asiento_softland(df_nuevos_final, "NUEVO", tasa_bcv, num_asiento_apt)
+                        bin_as_new = generar_excel_cargador_softland(as_new, fecha_cierre_hoy)
+                        st.download_button("📥 Descargar Cargador APARTADOS", bin_as_new, f"CARGADOR_APT_{num_asiento_apt}.xlsx", use_container_width=True)
+
+        except Exception as e:
+            st.error(f"❌ Error en la lectura del archivo: {str(e)}")
+            st.info("💡 Asegúrese de subir el Maestro correcto con su estructura de portadas.")
+    else:
+        st.info("💡 Por favor, cargue el Maestro del mes pasado y el Balance del mes actual para habilitar el análisis.")
 
 
 # ==============================================================================
