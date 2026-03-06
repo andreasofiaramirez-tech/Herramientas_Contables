@@ -1665,9 +1665,26 @@ def render_apartados_liberaciones():
 
     # --- 4. PROCESAMIENTO Y LÓGICA ---
     if f_maestro and f_balance:
-        # (Se mantienen tus lecturas de dataframes)
-        df_m = pd.read_excel(f_maestro)
+        # 1. Leemos el archivo maestro completo para ver sus pestañas
+        xls_maestro = pd.ExcelFile(f_maestro)
+        hojas_disponibles = xls_maestro.sheet_names
+        
+        # 2. Buscamos las hojas que siguen el patrón MES.xx
+        hojas_mes = [h for h in hojas_disponibles if "." in h and len(h) == 6]
+        
+        with st.container(border=True):
+            st.write("📂 **Configuración del Maestro**")
+            # El usuario elige qué mes es el "Anterior" para comparar
+            mes_anterior_sel = st.selectbox("Seleccione la pestaña del mes pasado:", hojas_mes)
+            # Identificamos la hoja de histórico (Apartado Valencia...)
+            hoja_hist_name = next((h for h in hojas_disponibles if "APARTADO VALENCIA" in h.upper()), None)
+
+        # 3. Cargamos la data específica del mes seleccionado
+        df_m = pd.read_excel(f_maestro, sheet_name=mes_anterior_sel)
         df_b_raw = pd.read_excel(f_balance, header=None)
+        
+        # Guardamos el archivo original en la sesión para poder copiar sus hojas viejas después
+        st.session_state.xls_maestro_original = xls_maestro
 
         with st.spinner("Analizando balance contra apartados pendientes..."):
             from logic import parsear_balance_softland, conciliar_ciclo_apartados
