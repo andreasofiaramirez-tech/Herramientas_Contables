@@ -3362,6 +3362,11 @@ def generar_cargador_softland_v2(df_asiento, fecha_asiento):
 
     return output.getvalue()
 
+
+# ==============================================================================
+# 1. APARTADOS Y LIBERACIONES
+# ==============================================================================
+
 def generar_reporte_maestro_apartados(df_final, df_nuevos, fecha_cierre):
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
@@ -3403,4 +3408,40 @@ def generar_reporte_maestro_apartados(df_final, df_nuevos, fecha_cierre):
         
         ws.set_column('A:B', 15); ws.set_column('C:C', 50); ws.set_column('D:F', 18)
         
+    return output.getvalue()
+
+def generar_excel_cargador_softland(df_asiento, fecha_asiento):
+    """Genera el Excel compatible con el cargador dinámico de Softland."""
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        workbook = writer.book
+        num_fmt = workbook.add_format({'num_format': '0.0000'}) # 4 decimales para USD
+
+        # --- HOJA 1: Asiento ---
+        ws1 = workbook.add_worksheet("Asiento")
+        ws1.write_row(0, 0, ["Asiento", "Paquete", "Tipo Asiento", "Fecha", "Contabilidad"])
+        ws1.write_row(1, 0, [df_asiento['Asiento'].iloc[0], "CG", "CG", fecha_asiento.strftime('%d/%m/%Y'), "A"])
+
+        # --- HOJA 2: ND ---
+        ws2 = workbook.add_worksheet("ND")
+        headers_nd = ["Asiento", "Consecutivo", "Nit", "Centro De Costo", "Cuenta Contable", "Fuente", "Referencia", "Débito Local", "Débito Dólar", "Crédito Local", "Crédito Dólar"]
+        ws2.write_row(0, 0, headers_nd)
+
+        for i, row in df_asiento.iterrows():
+            r = i + 1
+            ws2.write(r, 0, row['Asiento'])
+            ws2.write(r, 1, r)
+            ws2.write(r, 2, row['Nit'])
+            ws2.write(r, 3, row['CC'])
+            ws2.write(r, 4, row['Cta'])
+            ws2.write(r, 5, "APARTADOS")
+            ws2.write(r, 6, row['Desc'][:40]) # Softland limita a 40 caracteres
+            # Montos (Si es 0, dejamos vacío)
+            ws2.write_number(r, 7, row['Deb_BS'], num_fmt) if row['Deb_BS'] > 0 else ws2.write(r, 7, "")
+            ws2.write_number(r, 8, row['Deb_USD'], num_fmt) if row['Deb_USD'] > 0 else ws2.write(r, 8, "")
+            ws2.write_number(r, 9, row['Cre_BS'], num_fmt) if row['Cre_BS'] > 0 else ws2.write(r, 9, "")
+            ws2.write_number(r, 10, row['Cre_USD'], num_fmt) if row['Cre_USD'] > 0 else ws2.write(r, 10, "")
+
+        ws1.set_column('A:E', 15)
+        ws2.set_column('A:G', 20)
     return output.getvalue()
