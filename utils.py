@@ -3367,38 +3367,110 @@ def generar_cargador_softland_v2(df_asiento, fecha_asiento):
 # 1. APARTADOS Y LIBERACIONES
 # ==============================================================================
 
-def generar_reporte_maestro_apartados(df_final, fecha_cierre):
-    """Genera la Portada con filas amarillas de totales."""
+def generar_reporte_maestro_apartados(xls_original, df_maestro_nuevo, nombre_nuevo_mes, nombre_hoja_hist, nombre_empresa, fecha_cierre):
+    """
+    Crea el nuevo archivo Maestro:
+    1. Clona las pestañas de meses anteriores.
+    2. Crea la nueva pestaña (MES.xx) con el formato visual de Portada (Amarillos/Verdes).
+    3. Actualiza la Hoja de Trabajo Histórica agregando la columna del nuevo mes.
+    """
     output = BytesIO()
+    
+    # Lista de todas las hojas que ya existen en el archivo del usuario
+    hojas_originales = xls_original.sheet_names
+    
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         workbook = writer.book
-        fmt_total = workbook.add_format({'bold': True, 'bg_color': '#FFFF00', 'border': 1, 'num_format': '#,##0.00'})
+        
+        # --- 1. DEFINICIÓN DE FORMATOS VISUALES ---
+        fmt_empresa = workbook.add_format({'bold': True, 'align': 'center', 'font_size': 14})
+        fmt_subtitulo = workbook.add_format({'bold': True, 'align': 'center', 'font_size': 11})
         fmt_header = workbook.add_format({'bold': True, 'bg_color': '#D9EAD3', 'border': 1, 'align': 'center'})
-        fmt_num = workbook.add_format({'num_format': '#,##0.00', 'border': 1})
+        fmt_num = workbook.add_format({'num_format': '#,##0.02', 'border': 1})
+        fmt_tasa = workbook.add_format({'num_format': '#,##0.0000', 'border': 1})
+        # El formato amarillo para los subtotales de cuenta
+        fmt_total_cuenta = workbook.add_format({'bold': True, 'bg_color': '#FFFF00', 'border': 1, 'num_format': '#,##0.02'})
+        fmt_texto = workbook.add_format({'border': 1})
+
+        # --- 2. COPIAR PESTAÑAS DE MESES PASADOS ---
+        # Esto garantiza que el archivo mantenga su historia (ENE.26, DIC.25, etc.)
+        for nombre_h in hojas_originales:
+            # No copiamos la hoja histórica todavía porque la vamos a actualizar en el paso 4
+            if nombre_h != nombre_hoja_hist and nombre_h != nombre_nuevo_mes:
+                try:
+                    df_temp = pd.read_excel(xls_original, sheet_name=nombre_h)
+                    df_temp.to_excel(writer, sheet_name=nombre_h, index=False)
+                except:
+                    continue
+
+        # --- 3. CREAR LA NUEVA PORTADA (MES ACTUAL) ---
+        ws = workbook.add_worksheet(nombre_nuevo_mes)
+        ws.hide_gridlines(2) # Fondo blanco
         
-        ws = workbook.add_worksheet('PORTADA_MAESTRO')
-        ws.merge_range('A1:F1', "RESUMEN DE GASTOS ESTIMADOS POR PAGAR", workbook.add_format({'bold':True, 'font_size':14}))
-        
-        row = 3
+        # Títulos de la Portada
+        ws.merge_range('A1:F1', nombre_empresa, fmt_empresa)
+        ws.merge_range('A2:F2', f"RESUMEN DE GASTOS ESTIMADOS POR PAGAR", fmt_subtitulo)
+        ws.merge_range('A3:F3', f"PERIODO: {nombre_nuevo_mes}", fmt_subtitulo)
+
+        row_ptr = 5
+        # Dividimos por moneda para crear los bloques visuales
         for moneda in ['BS', 'USD']:
-            ws.write(row, 0, f"--- GASTOS EN {moneda} ---", workbook.add_format({'bold': True}))
-            row += 1
-            ws.write_row(row, 0, ['CUENTA', 'CC', 'DESCRIPCION', 'MONTO $', 'TASA', 'TOTAL BS'], fmt_header)
-            row += 1
-            subset = df_final[df_final['Moneda'] == moneda]
-            for cta, grupo in subset.groupby('Cuenta'):
-                for _, r in grupo.iterrows():
-                    ws.write(row, 0, r['Cuenta'])
-                    ws.write(row, 1, r['CC'])
-                    ws.write(row, 2, r['Descripcion'])
-                    ws.write_number(row, 3, r.get('Monto_USD', 0), fmt_num)
-                    ws.write_number(row, 4, r.get('Tasa_Original', 1), fmt_num)
-                    ws.write_number(row, 5, r.get('Monto_BS', 0), fmt_num)
-                    row += 1
-                ws.write(row, 2, f"TOTAL CUENTA {cta}", fmt_total)
-                ws.write_number(row, 5, grupo['Monto_BS'].sum(), fmt_total)
-                row += 2
-        ws.set_column('C:C', 50); ws.set_column('A:F', 15)
+            label_moneda = "GASTOS EN BS 212.09.1900" if moneda == 'BS' else "GASTOS EN ME ($) 212.09.6900"
+            ws.merge_range(row_ptr, 0, row_ptr, 5, f"--- {label_moneda} ---", workbook.add_format({'bold': True, 'italic': True, 'bg_color': '#F2F2F2'}))
+            row_ptr += 1
+            
+            headers = ['CTA', 'CENTRO COSTO', 'DESCRIPCION', 'MONTO $', 'TASA', 'TOTAL BS']
+            ws.write_row(row_ptr, 0, headers, fmt_header)
+            row_ptr += 1
+            
+            # Filtramos los apartados de esta moneda
+            df_bloque = df_maestro_nuevo[df_maestro_nuevo['Moneda'] == moneda].copy()
+            
+            if not df_bloque.empty:
+                # Agrupamos por cuenta para insertar el subtotal amarillo
+                for cta, grupo in df_bloque.groupby('Cuenta'):
+                    for _, r in grupo.iterrows():
+                        ws.write(row_ptr, 0, str(r['Cuenta']), fmt_texto)
+                        ws.write(row_ptr, 1, str(r['CC']), fmt_texto)
+                        ws.write(row_ptr, 2, str(r['Descripcion']), fmt_texto)
+                        ws.write_number(row_ptr, 3, float(r.get('Monto_USD', 0)), fmt_num)
+                        ws.write_number(row_ptr, 4, float(r.get('Tasa_Original', 1)), fmt_tasa)
+                        ws.write_number(row_ptr, 5, float(r.get('Monto_BS', 0)), fmt_num)
+                        row_ptr += 1
+                    
+                    # FILA AMARILLA DE TOTAL CUENTA
+                    ws.write(row_ptr, 1, "", fmt_total_cuenta)
+                    ws.write(row_ptr, 2, f"TOTAL CUENTA {cta}", fmt_total_cuenta)
+                    ws.write(row_ptr, 3, grupo['Monto_USD'].sum(), fmt_total_cuenta)
+                    ws.write(row_ptr, 4, "", fmt_total_cuenta)
+                    ws.write(row_ptr, 5, grupo['Monto_BS'].sum(), fmt_total_cuenta)
+                    row_ptr += 2 # Espacio entre cuentas
+            
+            row_ptr += 1 # Espacio entre bloques de moneda
+
+        # Ajuste de anchos para la Portada
+        ws.set_column('A:B', 12); ws.set_column('C:C', 50); ws.set_column('D:F', 18)
+
+        # --- 4. ACTUALIZAR LA HOJA DE TRABAJO (MATRIZ HISTÓRICA) ---
+        if nombre_hoja_hist in hojas_originales:
+            df_hist = pd.read_excel(xls_original, sheet_name=nombre_hoja_hist)
+            
+            # Buscamos si el gasto ya existe en la matriz para poner el monto en la nueva columna
+            # Si no existe, se añade una fila nueva.
+            df_mapping = df_maestro_nuevo.set_index(['Cuenta', 'Descripcion'])['Monto_BS'].to_dict()
+            
+            # Añadimos la columna del nuevo mes a la derecha
+            df_hist[nombre_nuevo_mes] = df_hist.apply(
+                lambda x: df_mapping.get((x['CUENTA'], x['DESCRIPCION']), 0), axis=1
+            )
+            
+            # Guardamos la hoja histórica actualizada
+            df_hist.to_excel(writer, sheet_name=nombre_hoja_hist, index=False)
+            
+            # Formatear la hoja histórica
+            ws_h = writer.sheets[nombre_hoja_hist]
+            ws_h.set_column('A:B', 15); ws_h.set_column('C:Z', 18)
+
     return output.getvalue()
 
 def generar_reporte_visual_liberaciones(df_propuesta, empresa, fecha, analista):
