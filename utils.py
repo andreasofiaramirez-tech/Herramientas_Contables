@@ -3445,3 +3445,60 @@ def generar_excel_cargador_softland(df_asiento, fecha_asiento):
         ws1.set_column('A:E', 15)
         ws2.set_column('A:G', 20)
     return output.getvalue()
+
+def generar_reporte_visual_liberaciones(df_maestro_con_seleccion, nombre_empresa, fecha_cierre):
+    """
+    Toma el maestro del mes anterior y resalta las filas marcadas para liberar.
+    Mantiene la estética de la Portada original.
+    """
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        workbook = writer.book
+        # --- FORMATOS ---
+        fmt_total = workbook.add_format({'bold': True, 'bg_color': '#FFFF00', 'border': 1, 'num_format': '#,##0.00'})
+        fmt_header = workbook.add_format({'bold': True, 'bg_color': '#D9EAD3', 'border': 1, 'align': 'center'})
+        fmt_num = workbook.add_format({'num_format': '#,##0.00', 'border': 1})
+        # Formato de Resaltado para Liberaciones (Verde Suave)
+        fmt_resaltado = workbook.add_format({'bg_color': '#C6EFCE', 'font_color': '#006100', 'border': 1})
+        fmt_resaltado_num = workbook.add_format({'bg_color': '#C6EFCE', 'font_color': '#006100', 'border': 1, 'num_format': '#,##0.00'})
+
+        ws = workbook.add_worksheet('LIBERACIONES_DEL_MES')
+        ws.hide_gridlines(2)
+        
+        # Encabezados
+        ws.merge_range('A1:F1', f"{nombre_empresa} - REPORTE DE LIBERACIONES", workbook.add_format({'bold':True, 'font_size':14}))
+        ws.write('A2', f"PERIODO DE CORTE: {fecha_cierre.strftime('%d/%m/%Y')}")
+        
+        row = 4
+        # Procesamos por bloques de moneda
+        for moneda in ['BS', 'USD']:
+            ws.write(row, 0, f"--- PARTIDAS EN {moneda} ---", workbook.add_format({'bold': True, 'italic': True}))
+            row += 1
+            ws.write_row(row, 0, ['CUENTA', 'CC', 'DESCRIPCION', 'MONTO $', 'TASA', 'TOTAL BS', 'ESTADO'], fmt_header)
+            row += 1
+            
+            subset = df_maestro_con_seleccion[df_maestro_con_seleccion['Moneda'] == moneda]
+            
+            for cta, grupo in subset.groupby('Cuenta'):
+                for _, r in grupo.iterrows():
+                    # Si la fila fue seleccionada para liberar, usamos el formato resaltado
+                    estilo = fmt_resaltado if r['Liberar'] else None
+                    estilo_n = fmt_resaltado_num if r['Liberar'] else fmt_num
+                    
+                    ws.write(row, 0, r['Cuenta'], estilo)
+                    ws.write(row, 1, r['CC'], estilo)
+                    ws.write(row, 2, r['Descripcion'], estilo)
+                    ws.write_number(row, 3, r['Monto_USD'], estilo_n)
+                    ws.write_number(row, 4, r['Tasa_Original'], estilo_n)
+                    ws.write_number(row, 5, r['Monto_BS'], estilo_n)
+                    ws.write(row, 6, "LIBERAR ✅" if r['Liberar'] else "MANTENER ⏳", estilo)
+                    row += 1
+                
+                # Fila de Total de la Cuenta
+                ws.write(row, 2, f"SUB-TOTAL CUENTA {cta}", fmt_total)
+                ws.write(row, 5, grupo['Monto_BS'].sum(), fmt_total)
+                row += 2
+        
+        ws.set_column('A:B', 15); ws.set_column('C:C', 50); ws.set_column('D:F', 18); ws.set_column('G:G', 15)
+        
+    return output.getvalue()
