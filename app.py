@@ -61,6 +61,11 @@ from logic import (
     procesar_ajustes_balance_usd,
     run_conciliation_comisiones_bancarias,
     procesar_calculo_locti,
+
+    parsear_balance_softland, 
+    conciliar_ciclo_apartados, 
+    preparar_asiento_softland,
+
     # Helpers
     run_cuadre_cb_cg,
     validar_coincidencia_empresa,
@@ -87,7 +92,10 @@ from utils import (
     cargar_datos_fondos_cofersa,
     generar_reporte_auditoria_comisiones,
     generar_reporte_excel_locti,
-    generar_cargador_softland_v2
+    generar_cargador_softland_v2,
+    generar_reporte_visual_liberaciones, 
+    generar_reporte_maestro_apartados, 
+    generar_excel_cargador_softland
 )
 
 # --- Bloque 4: Helpers de Interfaz ---
