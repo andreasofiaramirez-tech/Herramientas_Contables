@@ -4967,96 +4967,87 @@ def obtener_datos_historicos(xls_maestro, nombre_hoja_hist):
 
 def parsear_balance_softland(df_raw):
     """
-    Convierte el balance jerárquico de Softland en una lista plana usable.
-    Identifica la cuenta contable y asocia los movimientos que vienen debajo.
+    V5: Parser ultra-robusto. 
+    Detecta fechas reales de Excel y asegura la estructura de salida.
     """
     movs = []
     cta_actual = ""
+    # Definimos columnas base para que nunca falten
+    columnas_base = ['Cuenta', 'Centro_Costo', 'Referencia', 'Monto_VES', 'Monto_USD', 'Periodo_Ref']
+    
     for i in range(len(df_raw)):
         fila = df_raw.iloc[i]
         col0 = str(fila[0]).strip()
         
-        # 1. Si la fila empieza por número y tiene puntos, es una Cuenta Contable
-        if re.match(r'^\d+\.', col0):
+        # 1. Detectar Cuenta Contable (Ej: 7.1.3.01...)
+        if re.match(r'^\d', col0) and "." in col0:
             cta_actual = col0
             continue
             
-        # 2. Si tiene una barra '/', es un movimiento (Fecha)
-        if "/" in col0 and cta_actual:
+        # 2. Detectar Movimiento (Si la col 0 es una fecha válida)
+        fecha_dt = pd.to_datetime(fila[0], errors='coerce')
+        if cta_actual and pd.notna(fecha_dt):
             movs.append({
                 'Cuenta': cta_actual,
                 'Centro_Costo': str(fila[2]).strip(),
-                'Referencia': str(fila[3]).upper(),
+                'Referencia': str(fila[3]).upper() if pd.notna(fila[3]) else "",
                 'Monto_VES': pd.to_numeric(str(fila[9]).replace('.','').replace(',','.'), errors='coerce') or 0.0,
                 'Monto_USD': pd.to_numeric(str(fila[10]).replace('.','').replace(',','.'), errors='coerce') or 0.0,
                 'Periodo_Ref': extraer_periodo(fila[3])
             })
+    
+    # Si no hay datos, devolvemos un DF con columnas vacías para evitar KeyError
+    if not movs:
+        return pd.DataFrame(columns=columnas_base)
+        
     return pd.DataFrame(movs)
 
 def conciliar_ciclo_apartados(df_maestro, df_balance_procesado):
-    """
-    V4: Lógica con detección dinámica de bloques (1900, 6900, 8900).
-    Extrae moneda y cuenta de pasivo del encabezado de la columna.
-    """
+    """V5: Lógica con Radar de Columnas y validación de seguridad."""
     propuesta = []
     
-    # 1. Identificar las columnas críticas por posición o palabras clave
-    # Usualmente: Col A = CTA, Col B = DESCRIPCION/BLOQUE, Col I/J = MONTOS
-    cols = df_maestro.columns.tolist()
-    
-    col_cta = next((c for c in cols if "CTA" in str(c).upper() or "A" == str(c)), cols[0])
-    # Buscamos la columna que contiene "GTOS.REGULARES"
-    col_desc_dinamica = next((c for c in cols if "GTOS" in str(c).upper()), cols[1])
-    
-    # Extraer información del encabezado (Ej: "GTOS.REGULARES ME ($) 212.09.6900")
-    header_info = str(col_desc_dinamica).upper()
-    es_me = "ME" in header_info or "$" in header_info
-    moneda_bloque = "USD" if es_me else "BS"
-    
-    # Intentamos extraer la cuenta 2 del encabezado (los últimos 11-13 caracteres)
-    match_cta2 = re.search(r'2\.\d+\.\d+\.\d+', header_info)
-    cta_pasivo_bloque = match_cta2.group(0) if match_cta2 else ("2.1.2.09.6.900" if es_me else "2.1.2.09.1.900")
+    # Validar si el balance llegó vacío
+    if df_balance_procesado.empty:
+        # Si no hay nada en el balance, devolvemos el maestro como PENDIENTE
+        for idx, ap in df_maestro.iterrows():
+            propuesta.append({
+                'ID': idx, 'Cuenta': 'N/A', 'CC': 'N/A', 'Descripcion': 'Cargue Balance Válido',
+                'Monto_Original_BS': 0, 'Estado': "⚠️ BALANCE VACÍO", 'Liberar': False
+            })
+        return pd.DataFrame(propuesta)
 
-    # Identificar columnas de montos (Suelen ser las últimas)
-    col_monto_bs = next((c for c in cols if "TOTAL" in str(c).upper() or "J" == str(c)), cols[-1])
-    col_tasa = next((c for c in cols if "TASA" in str(c).upper() or "G" == str(c)), None)
-    col_monto_usd = next((c for c in cols if "MENS" in str(c).upper() or "$" in str(c) or "E" == str(c)), None)
+    # Identificar columnas del maestro (Radar)
+    cols = df_maestro.columns.tolist()
+    col_cta = next((c for c in cols if "CTA" in str(c).upper()), cols[0])
+    col_desc_dinamica = next((c for c in cols if "GTOS" in str(c).upper()), cols[1])
+    col_monto_bs = next((c for c in cols if "TOTAL" in str(c).upper()), cols[-1])
+    col_cc = next((c for c in cols if "CC" in str(c).upper()), None)
 
     for idx, ap in df_maestro.iterrows():
-        # Filtro: Ignorar filas vacías, títulos o totales amarillos
         desc_raw = str(ap[col_desc_dinamica]).upper()
         if pd.isna(ap[col_cta]) or "TOTAL" in desc_raw or "GTOS" in desc_raw or desc_raw == "NAN":
             continue
 
         periodo_buscado = extraer_periodo(desc_raw)
-        # Palabra clave para el balance (ej: MOVISTAR)
-        palabra_clave = desc_raw.split()[0]
+        # Tomamos la primera palabra significativa (evitamos artículos cortos)
+        palabras = [p for p in desc_raw.split() if len(p) > 3]
+        palabra_clave = palabras[0] if palabras else desc_raw.split()[0]
         
-        # BUSQUEDA EN EL BALANCE
+        # BUSQUEDA EN EL BALANCE (Usamos la columna 'Referencia' que ahora garantizamos que existe)
         match = df_balance_procesado[
             (df_balance_procesado['Referencia'].str.contains(palabra_clave, na=False)) &
             (df_balance_procesado['Periodo_Ref'] == periodo_buscado)
         ]
         
-        # Filtro por Centro de Costo (Col D/E en el maestro)
-        col_cc = next((c for c in cols if "CC" in str(c).upper() or "D" == str(c) or "E" == str(c)), None)
-        if col_cc:
-            cc_val = str(ap[col_cc]).strip()
-            match = match[match['Centro_Costo'] == cc_val]
-        
         hallado = not match.empty
         monto_real = match['Monto_VES'].sum() if hallado else 0
         
         propuesta.append({
-            'ID_Original': idx,
+            'ID': idx,
             'Cuenta': ap[col_cta],
             'CC': ap[col_cc] if col_cc else "00.00.000.00",
             'Descripcion': ap[col_desc_dinamica],
             'Monto_Original_BS': ap[col_monto_bs],
-            'Tasa_Original': ap[col_tasa] if col_tasa else 1.0,
-            'Monto_USD': ap[col_monto_usd] if col_monto_usd else 0.0,
-            'Moneda': moneda_bloque,
-            'Cta_Pasivo': cta_pasivo_bloque, # Guardamos la cuenta 2 para el cargador
             'Monto_Real_Encontrado': monto_real,
             'Estado': "🔍 SUGERIDO" if hallado else "⏳ PENDIENTE",
             'Liberar': hallado
