@@ -4958,6 +4958,13 @@ def extraer_periodo(texto):
     match = re.search(r'(ENE|FEB|MAR|ABR|MAY|JUN|JUL|AGO|SEP|OCT|NOV|DIC)\.\d{2}', str(texto).upper())
     return match.group(0) if match else ""
 
+def obtener_datos_historicos(xls_maestro, nombre_hoja_hist):
+    """Lee la matriz analítica y devuelve el acumulado por proveedor/cuenta."""
+    if not nombre_hoja_hist: return None
+    df_hist = pd.read_excel(xls_maestro, sheet_name=nombre_hoja_hist)
+    # Limpieza de la matriz histórica para que la IA la entienda
+    return df_hist
+
 def parsear_balance_softland(df_raw):
     """
     Convierte el balance jerárquico de Softland en una lista plana usable.
