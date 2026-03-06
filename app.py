@@ -1654,13 +1654,13 @@ def render_apartados_liberaciones():
     with col_f1:
         st.markdown('<div class="card-header purple-header">📂 Maestro Anterior</div>', unsafe_allow_html=True)
         with st.container(border=True):
-            f_maestro = st.file_uploader("M", type=['xlsx'], key="up_maestro", label_visibility="collapsed")
+            f_maestro = st.file_uploader("Subir Maestro", type=['xlsx', 'xls'], key="up_maestro", label_visibility="collapsed")
         st.caption("📍 El archivo con la 'Portada' y el 'Histórico' del mes pasado.")
 
     with col_f2:
         st.markdown('<div class="card-header green-header">📄 Balance Analítico</div>', unsafe_allow_html=True)
         with st.container(border=True):
-            f_balance = st.file_uploader("B", type=['xlsx'], key="up_balance", label_visibility="collapsed")
+            f_balance = st.file_uploader("Subir Balance", type=['xlsx', 'xls'], key="up_balance", label_visibility="collapsed")
         st.caption("📍 Reporte de Softland (Cuentas 7) para buscar facturas llegadas.")
 
     # --- 4. PROCESAMIENTO Y LÓGICA ---
