@@ -4994,36 +4994,74 @@ def parsear_balance_softland(df_raw):
     return pd.DataFrame(movs)
 
 def conciliar_ciclo_apartados(df_maestro, df_balance_procesado):
-    """Cruza lo apartado el mes pasado vs lo que llegó en el balance actual."""
+    """
+    V4: Lógica con detección dinámica de bloques (1900, 6900, 8900).
+    Extrae moneda y cuenta de pasivo del encabezado de la columna.
+    """
     propuesta = []
+    
+    # 1. Identificar las columnas críticas por posición o palabras clave
+    # Usualmente: Col A = CTA, Col B = DESCRIPCION/BLOQUE, Col I/J = MONTOS
+    cols = df_maestro.columns.tolist()
+    
+    col_cta = next((c for c in cols if "CTA" in str(c).upper() or "A" == str(c)), cols[0])
+    # Buscamos la columna que contiene "GTOS.REGULARES"
+    col_desc_dinamica = next((c for c in cols if "GTOS" in str(c).upper()), cols[1])
+    
+    # Extraer información del encabezado (Ej: "GTOS.REGULARES ME ($) 212.09.6900")
+    header_info = str(col_desc_dinamica).upper()
+    es_me = "ME" in header_info or "$" in header_info
+    moneda_bloque = "USD" if es_me else "BS"
+    
+    # Intentamos extraer la cuenta 2 del encabezado (los últimos 11-13 caracteres)
+    match_cta2 = re.search(r'2\.\d+\.\d+\.\d+', header_info)
+    cta_pasivo_bloque = match_cta2.group(0) if match_cta2 else ("2.1.2.09.6.900" if es_me else "2.1.2.09.1.900")
+
+    # Identificar columnas de montos (Suelen ser las últimas)
+    col_monto_bs = next((c for c in cols if "TOTAL" in str(c).upper() or "J" == str(c)), cols[-1])
+    col_tasa = next((c for c in cols if "TASA" in str(c).upper() or "G" == str(c)), None)
+    col_monto_usd = next((c for c in cols if "MENS" in str(c).upper() or "$" in str(c) or "E" == str(c)), None)
+
     for idx, ap in df_maestro.iterrows():
-        # Regla: Nombre (primera palabra) + Centro de Costo + Periodo (ENE.26)
-        periodo_buscado = extraer_periodo(ap['Descripcion'])
-        palabra_clave = str(ap['Descripcion']).split()[0].upper()
+        # Filtro: Ignorar filas vacías, títulos o totales amarillos
+        desc_raw = str(ap[col_desc_dinamica]).upper()
+        if pd.isna(ap[col_cta]) or "TOTAL" in desc_raw or "GTOS" in desc_raw or desc_raw == "NAN":
+            continue
+
+        periodo_buscado = extraer_periodo(desc_raw)
+        # Palabra clave para el balance (ej: MOVISTAR)
+        palabra_clave = desc_raw.split()[0]
         
-        # Filtramos en el balance real
+        # BUSQUEDA EN EL BALANCE
         match = df_balance_procesado[
-            (df_balance_procesado['Centro_Costo'] == str(ap['CC']).strip()) &
             (df_balance_procesado['Referencia'].str.contains(palabra_clave, na=False)) &
             (df_balance_procesado['Periodo_Ref'] == periodo_buscado)
         ]
+        
+        # Filtro por Centro de Costo (Col D/E en el maestro)
+        col_cc = next((c for c in cols if "CC" in str(c).upper() or "D" == str(c) or "E" == str(c)), None)
+        if col_cc:
+            cc_val = str(ap[col_cc]).strip()
+            match = match[match['Centro_Costo'] == cc_val]
         
         hallado = not match.empty
         monto_real = match['Monto_VES'].sum() if hallado else 0
         
         propuesta.append({
-            'ID': idx,
-            'Cuenta': ap['Cuenta'],
-            'CC': ap['CC'],
-            'Descripcion': ap['Descripcion'],
-            'Monto_Original_BS': ap['Monto_BS'],
-            'Tasa_Original': ap.get('Tasa', 1.0),
-            'Monto_USD': ap.get('Monto_USD', 0.0),
-            'Moneda': ap.get('Moneda', 'BS'),
+            'ID_Original': idx,
+            'Cuenta': ap[col_cta],
+            'CC': ap[col_cc] if col_cc else "00.00.000.00",
+            'Descripcion': ap[col_desc_dinamica],
+            'Monto_Original_BS': ap[col_monto_bs],
+            'Tasa_Original': ap[col_tasa] if col_tasa else 1.0,
+            'Monto_USD': ap[col_monto_usd] if col_monto_usd else 0.0,
+            'Moneda': moneda_bloque,
+            'Cta_Pasivo': cta_pasivo_bloque, # Guardamos la cuenta 2 para el cargador
             'Monto_Real_Encontrado': monto_real,
             'Estado': "🔍 SUGERIDO" if hallado else "⏳ PENDIENTE",
             'Liberar': hallado
         })
+        
     return pd.DataFrame(propuesta)
 
 def preparar_asiento_softland(df_datos, tipo="NUEVO", tasa_bcv=1.0, num_asiento="CG001"):
