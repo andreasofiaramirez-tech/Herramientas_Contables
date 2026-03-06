@@ -5003,54 +5003,90 @@ def parsear_balance_softland(df_raw):
     return pd.DataFrame(movs)
 
 def conciliar_ciclo_apartados(df_maestro, df_balance_procesado):
-    """V5: Lógica con Radar de Columnas y validación de seguridad."""
+    """
+    V6: Motor de Conciliación Inteligente.
+    1. Identifica bloques de gastos por el nombre de la columna.
+    2. Filtra el balance real por 'Cuenta Madre' (Jerarquía).
+    3. Cruza usando Triple Llave: [Palabra Clave + CC + Periodo MES.XX].
+    """
     propuesta = []
     
-    # Validar si el balance llegó vacío
-    if df_balance_procesado.empty:
-        # Si no hay nada en el balance, devolvemos el maestro como PENDIENTE
-        for idx, ap in df_maestro.iterrows():
-            propuesta.append({
-                'ID': idx, 'Cuenta': 'N/A', 'CC': 'N/A', 'Descripcion': 'Cargue Balance Válido',
-                'Monto_Original_BS': 0, 'Estado': "⚠️ BALANCE VACÍO", 'Liberar': False
-            })
-        return pd.DataFrame(propuesta)
-
-    # Identificar columnas del maestro (Radar)
+    # --- 1. CONFIGURACIÓN DEL RADAR DE COLUMNAS ---
+    # Limpiamos nombres de columnas del maestro para evitar errores de espacios
+    df_maestro.columns = [str(c).strip() for c in df_maestro.columns]
     cols = df_maestro.columns.tolist()
-    col_cta = next((c for c in cols if "CTA" in str(c).upper()), cols[0])
-    col_desc_dinamica = next((c for c in cols if "GTOS" in str(c).upper()), cols[1])
-    col_monto_bs = next((c for c in cols if "TOTAL" in str(c).upper()), cols[-1])
-    col_cc = next((c for c in cols if "CC" in str(c).upper()), None)
+    
+    # Identificamos columnas críticas por palabras clave
+    col_cta = next((c for c in cols if "CTA" in c.upper()), cols[0])
+    col_cc = next((c for c in cols if "CC" in c.upper() or "COSTO" in c.upper()), None)
+    # Buscamos la columna que describe el bloque (ej: 'GTOS.REGULARES BS 212.09.1900')
+    col_desc_dinamica = next((c for c in cols if "GTOS" in c.upper()), cols[1])
+    
+    # --- 2. EXTRACCIÓN DE METADATOS DEL ENCABEZADO ---
+    header_info = str(col_desc_dinamica).upper()
+    es_me = "ME" in header_info or "$" in header_info
+    moneda_bloque = "USD" if es_me else "BS"
+    
+    # Extraemos la cuenta de pasivo (Cuenta 2) del título de la columna usando Regex
+    match_cta2 = re.search(r'2\.\d+\.\d+\.\d+', header_info)
+    cta_pasivo_bloque = match_cta2.group(0) if match_cta2 else ("2.1.2.09.6.900" if es_me else "2.1.2.09.1.900")
 
+    # Identificamos columnas de montos (Radar de montos)
+    col_monto_bs = next((c for c in cols if "TOTAL" in c.upper()), cols[-1])
+    col_tasa = next((c for c in cols if "TASA" in c.upper()), None)
+    col_monto_usd = next((c for c in cols if "MENS" in c.upper() or "$" in c), None)
+
+    # --- 3. BUCLE DE AUDITORÍA LÍNEA POR LÍNEA ---
     for idx, ap in df_maestro.iterrows():
         desc_raw = str(ap[col_desc_dinamica]).upper()
-        if pd.isna(ap[col_cta]) or "TOTAL" in desc_raw or "GTOS" in desc_raw or desc_raw == "NAN":
+        
+        # Filtro de Seguridad: Ignorar filas de títulos, totales o vacías
+        if pd.isna(ap[col_cta]) or "TOTAL" in desc_raw or "GTOS" in desc_raw or desc_raw in ["NAN", ""]:
             continue
 
-        periodo_buscado = extraer_periodo(desc_raw)
-        # Tomamos la primera palabra significativa (evitamos artículos cortos)
+        # A. DETERMINAR CUENTA MADRE (Jerarquía sugerida)
+        # Si el apartado es 7.1.3.30.3.900, la cuenta madre es 7.1.3.30
+        cta_full = str(ap[col_cta]).strip()
+        segmentos_cta = cta_full.split('.')
+        # Tomamos los primeros 4 segmentos para asegurar el "cajón" de gasto correcto
+        cta_madre = ".".join(segmentos_cta[:4]) if len(segmentos_cta) >= 4 else cta_full
+
+        # B. EXTRAER PERIODO Y PALABRA CLAVE
+        periodo_buscado = extraer_periodo(desc_raw) # Busca ENE.26
+        # Palabra clave: tomamos la primera palabra de más de 3 letras (ej: MOVISTAR)
         palabras = [p for p in desc_raw.split() if len(p) > 3]
         palabra_clave = palabras[0] if palabras else desc_raw.split()[0]
         
-        # BUSQUEDA EN EL BALANCE (Usamos la columna 'Referencia' que ahora garantizamos que existe)
+        # C. EL CRUCE QUIRÚRGICO EN EL BALANCE ANALÍTICO
+        # Aplicamos el filtro de 3 llaves + Cuenta Madre
         match = df_balance_procesado[
+            (df_balance_procesado['Cuenta'].str.startswith(cta_madre)) & 
             (df_balance_procesado['Referencia'].str.contains(palabra_clave, na=False)) &
             (df_balance_procesado['Periodo_Ref'] == periodo_buscado)
         ]
         
+        # Si el maestro tiene Centro de Costo, aplicamos la 4ta llave por seguridad
+        if col_cc and pd.notna(ap[col_cc]):
+            cc_maestro = str(ap[col_cc]).strip()
+            match = match[match['Centro_Costo'] == cc_maestro]
+        
         hallado = not match.empty
         monto_real = match['Monto_VES'].sum() if hallado else 0
         
+        # D. CONSTRUIR RESULTADO PARA LA INTERFAZ (CARRITO DE COMPRAS)
         propuesta.append({
-            'ID': idx,
-            'Cuenta': ap[col_cta],
+            'ID_Interno': idx,
+            'Cuenta': cta_full,
             'CC': ap[col_cc] if col_cc else "00.00.000.00",
             'Descripcion': ap[col_desc_dinamica],
-            'Monto_Original_BS': ap[col_monto_bs],
+            'Moneda': moneda_bloque,
+            'Monto_USD': float(ap[col_monto_usd]) if col_monto_usd and pd.notna(ap[col_monto_usd]) else 0.0,
+            'Tasa_Original': float(ap[col_tasa]) if col_tasa and pd.notna(ap[col_tasa]) else 1.0,
+            'Monto_Original_BS': float(ap[col_monto_bs]) if pd.notna(ap[col_monto_bs]) else 0.0,
+            'Cta_Pasivo_Origen': cta_pasivo_bloque,
             'Monto_Real_Encontrado': monto_real,
             'Estado': "🔍 SUGERIDO" if hallado else "⏳ PENDIENTE",
-            'Liberar': hallado
+            'Liberar': hallado # Se marca el checkbox automáticamente si hay match
         })
         
     return pd.DataFrame(propuesta)
