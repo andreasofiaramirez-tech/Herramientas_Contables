@@ -387,21 +387,26 @@ def render_inicio():
     st.subheader("Grupo Mayoreo", anchor=False)
     st.markdown("Seleccione una herramienta para comenzar:")
 
-    c1, c2 = st.columns(2, gap="medium")
+    c1, c2, c3 = st.columns(3, gap="medium")
+    
     with c1:
         st.subheader("📊 Análisis y Conciliación")
         st.button("📄 Especificaciones", on_click=set_page, args=['especificaciones'], use_container_width=True)
         st.button("📦 Análisis Paquete CC", on_click=set_page, args=['paquete_cc'], use_container_width=True)
-        st.button("⚖️ Cuadre CB - CG", on_click=set_page, args=['cuadre'], use_container_width=True)
-        st.button("💰 Comisiones Bancarias", on_click=set_page, args=['comisiones'], use_container_width=True)
-        st.button("📉 Ajustes al Balance USD", on_click=set_page, args=['ajustes_usd'], use_container_width=True)
+        st.button("🏦 Auditoría Comisiones", on_click=set_page, args=['comisiones'], use_container_width=True)
 
     with c2:
-        st.subheader("⚙️ Procesos Fiscales y Nómina")
+        st.subheader("⚖️ Cierres Mensuales") # <--- NUEVA SECCIÓN
+        st.button("⚖️ Cuadre CB - CG", on_click=set_page, args=['cuadre'], use_container_width=True)
+        st.button("📉 Ajustes al Balance USD", on_click=set_page, args=['ajustes_usd'], use_container_width=True)
+        st.button("📑 Liberaciones y Apartados", on_click=set_page, args=['apartados'], use_container_width=True)
+
+    with c3:
+        st.subheader("⚙️ Procesos Fiscales")
         st.button("🛡️ Cálculo Pensiones (9%)", on_click=set_page, args=['pensiones'], use_container_width=True)
-        st.button("⚖️ Cálculo LOCTI (0.5%)", on_click=set_page, args=['locti'], use_container_width=True)
-        st.button("📑 Verificación Débito Fiscal", on_click=set_page, args=['debito_fiscal'], use_container_width=True)
+        st.button("⚖️ Verificación Débito Fiscal", on_click=set_page, args=['debito_fiscal'], use_container_width=True)
         st.button("🧾 Relación Retenciones", on_click=set_page, args=['retenciones'], use_container_width=True)
+        st.button("🖨️ Gestión Imprenta (TXT)", on_click=set_page, args=['imprenta'], use_container_width=True)
 
     st.divider()
     st.subheader("COFERSA", anchor=False)
