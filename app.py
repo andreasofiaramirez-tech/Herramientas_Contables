@@ -1594,11 +1594,11 @@ def render_locti():
 
 def render_apartados_liberaciones():
     # --- ENCABEZADO Y BOTÓN VOLVER ---
-    st.title("📆 Gestión de Apartados y Liberaciones"")
+st.title("📆 Gestión de Apartados y Liberaciones"")
     
-        if st.button("⬅️ Volver al Inicio"): 
-            set_page('inicio')
-            st.rerun()
+    if st.button("⬅️ Volver al Inicio"): 
+        set_page('inicio')
+        st.rerun()
         
 
     # --- 1. ESTILOS CSS (DARK PREMIUM - ESTILO LOCTI) ---
