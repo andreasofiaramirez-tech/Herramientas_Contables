@@ -4662,7 +4662,7 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
 
     # --- 1. AJUSTE DE BANCOS (Punto 1) ---
     if f_bancos:
-        df_bancos_rep = pd.read_excel(f_bancos, header=7) # Según tu imagen de conciliación
+        df_bancos_rep = pd.read_excel(f_bancos, header=7, engine=None)
         # Limpieza de nombres de columnas (radar para encontrar 'Saldo en Bancos' y 'Saldo en Libros')
         df_bancos_rep.columns = [str(c).upper() for c in df_bancos_rep.columns]
         
