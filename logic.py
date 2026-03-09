@@ -4667,12 +4667,24 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
     Versión Optimizada: Ajusta Bancos, Saldos Contrarios, Viajes y Haberes.
     """
     log.append("--- INICIANDO CÁLCULO DE AJUSTES (USD) ---")
-    
+    # --- 0. INICIALIZACIÓN DE VARIABLES ---
     asientos = [] 
     resumen_ajustes = [] 
     datos_cg = extraer_saldos_cg_ajustes(f_balance, log) # Función mejorada abajo
     val_activo_ajuste = 0.0
     val_pasivo_ajuste = 0.0
+    df_balance_raw = pd.DataFrame() # <-- Aseguramos que sea un DataFrame vacío, no None
+    df_bancos_rep = pd.DataFrame() 
+
+    # --- PASO 0: CAPTURA DE BALANCE ORIGINAL ---
+    if f_balance:
+        try:
+            f_balance.seek(0)
+            # Intentamos leer el excel original para la hoja 4 del reporte
+            df_balance_raw = pd.read_excel(f_balance, header=None, engine=None)
+            f_balance.seek(0)
+        except: 
+            df_balance_raw = pd.DataFrame()
 
     # --- 1. AJUSTE DE BANCOS (Punto 1) ---
     if f_bancos:
@@ -4768,12 +4780,18 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
                 resumen_ajustes.append({'Cuenta': cta, 'Origen': 'Saldo Contrario', 'Ajuste USD': monto})
 
     # Compilación final del asiento con Tasa BCV para el reporte
-    df_asiento = pd.DataFrame(asientos)
-    if not df_asiento.empty:
-        df_asiento['Débito VES'] = (df_asiento['DebeUSD'] * tasa_bcv).round(2)
-        df_asiento['Crédito VES'] = (df_asiento['HaberUSD'] * tasa_bcv).round(2)
+    df_asiento_final = pd.DataFrame(asientos)
+    if not df_asiento_final.empty:
+        df_asiento_final['Débito VES'] = (df_asiento_final['DebeUSD'] * tasa_bcv).round(2)
+        df_asiento_final['Crédito VES'] = (df_asiento_final['HaberUSD'] * tasa_bcv).round(2)
     
-    return pd.DataFrame(resumen_ajustes), None, df_asiento, None, {'tasa_bcv': tasa_bcv}
+    return (
+        pd.DataFrame(resumen_ajustes), # df_res
+        df_bancos_rep,                # df_banc (Ahora devuelve la data, no None)
+        df_asiento_final,             # df_asiento
+        df_balance_raw,               # df_raw (Ahora devuelve la data, no None)
+        {'tasa_bcv': tasa_bcv, 'tasa_corp': tasa_corp} # val_data
+    )
 
 # ------------------------------------------------------------------------------
 # 6.4. AUDITORIA DE COMISIONES (CREACION DE EDUARDO)
