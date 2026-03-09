@@ -4421,33 +4421,35 @@ def run_cuadre_cb_cg(file_cb, file_cg, nombre_empresa, log_messages, mapeo_manua
     
     sobrantes_cb = cb_encontrados - cb_mapeados
     for cod in sobrantes_cb:
-        info = data_cb[cod]
-        if info['final'] != 0 or info['debitos'] != 0:
-            huerfanos.append({
-                'Origen': 'TESORERÍA (CB)',
-                'Código/Cuenta': cod,
-                'Descripción/Nombre': info.get('nombre', 'Desconocido'),
-                'Saldo Final': info['final'],
-                'Mensaje': 'Código en reporte CB pero no en diccionario.'
-            })
-            
+        if cod not in mapeo_actual:
+            info = data_cb[cod]
+            if info['final'] != 0 or info['debitos'] != 0:
+                huerfanos.append({
+                    'Origen': 'TESORERÍA (CB)',
+                    'Código/Cuenta': cod,
+                    'Descripción/Nombre': info.get('nombre', 'Desconocido'),
+                    'Saldo Final': info['final'],
+                    'Mensaje': 'Código en reporte CB pero no en diccionario.'
+                })
+    # 2. Limpiamos las cuentas CG: Si ya fueron usadas en el cruce, NO son huérfanas    
     sobrantes_cg = cg_encontrados - cg_mapeados
     for cta in sobrantes_cg:
-        es_banco = (cta.startswith('1.1.1.02') or cta.startswith('1.1.1.03') or cta.startswith('1.1.1.06'))
-        es_agrupadora = cta.endswith('.000')
-        
-        if es_banco and not es_agrupadora:
-            info = data_cg[cta]
-            s_ves = info['VES']['final']
-            s_usd = info['USD']['final']
-            if s_ves != 0 or s_usd != 0:
-                huerfanos.append({
-                    'Origen': 'CONTABILIDAD (CG)',
-                    'Código/Cuenta': cta,
-                    'Descripción/Nombre': info.get('descripcion', 'Desconocido'),
-                    'Saldo Final': f"Bs: {s_ves} | $: {s_usd}",
-                    'Mensaje': 'Cuenta contable con saldo, no mapeada.'
-                })
+        if cta not in [v['cta'] for v in mapeo_actual.values()]:
+            es_banco = (cta.startswith('1.1.1.02') or cta.startswith('1.1.1.03') or cta.startswith('1.1.1.06'))
+            es_agrupadora = cta.endswith('.000')
+            
+            if es_banco and not es_agrupadora:
+                info = data_cg[cta]
+                s_ves = info['VES']['final']
+                s_usd = info['USD']['final']
+                if s_ves != 0 or s_usd != 0:
+                    huerfanos.append({
+                        'Origen': 'CONTABILIDAD (CG)',
+                        'Código/Cuenta': cta,
+                        'Descripción/Nombre': info.get('descripcion', 'Desconocido'),
+                        'Saldo Final': f"Bs: {s_ves} | $: {s_usd}",
+                        'Mensaje': 'Cuenta contable con saldo, no mapeada.'
+                    })
 
     return pd.DataFrame(resultados), pd.DataFrame(huerfanos)
 
