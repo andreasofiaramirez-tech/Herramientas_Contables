@@ -761,9 +761,9 @@ def render_cuadre():
     # --- CARGA DE ARCHIVOS ---
     col1, col2 = st.columns(2)
     with col1:
-        file_cb = st.file_uploader("1. Reporte Tesorería (CB)", type=['pdf', 'xlsx', 'xls'])
+        file_cb = st.file_uploader("1. Reporte Tesorería (CB)", type=['pdf', 'xlsx'])
     with col2:
-        file_cg = st.file_uploader("2. Balance Contable (CG)", type=['pdf', 'xlsx', 'xls'])
+        file_cg = st.file_uploader("2. Balance Contable (CG)", type=['pdf', 'xlsx'])
         
     # --- BOTÓN DE ACCIÓN ---
     if file_cb and file_cg:
@@ -875,13 +875,13 @@ def render_ajustes_usd():
     col1, col2 = st.columns(2)
     
     with col1:
-        f_cb = st.file_uploader("1. Conciliación Tesorería (Excel)", type=['xlsx'], key="adj_cb")
-        f_cg = st.file_uploader("2. Balance Comprobación (PDF/Excel)", type=['pdf', 'xlsx'], key="adj_cg")
-        f_hab = st.file_uploader("5. Reporte Haberes (Excel)", type=['xlsx'], key="adj_hab")
+        f_cb = st.file_uploader("1. Conciliación Tesorería (Excel)", type=['xlsx', 'xls'], key="adj_cb")
+        f_cg = st.file_uploader("2. Balance Comprobación (PDF/Excel)", type=['pdf', 'xlsx', 'xls'], key="adj_cg")
+        f_hab = st.file_uploader("5. Reporte Haberes (Excel)", type=['xlsx', 'xls'], key="adj_hab")
         
     with col2:
-        f_v_me = st.file_uploader("3. Auxiliar Viajes ME (Excel)", type=['xlsx'], key="adj_v_me")
-        f_v_bs = st.file_uploader("4. Auxiliar Viajes Bs (Excel)", type=['xlsx'], key="adj_v_bs")
+        f_v_me = st.file_uploader("3. Auxiliar Viajes ME (Excel)", type=['xlsx', 'xls'], key="adj_v_me")
+        f_v_bs = st.file_uploader("4. Auxiliar Viajes Bs (Excel)", type=['xlsx', 'xls'], key="adj_v_bs")
         
     # --- SECCIÓN 2: PARÁMETROS ---
     st.subheader("2. Parámetros de Cálculo", anchor=False)
