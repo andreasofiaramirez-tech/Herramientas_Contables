@@ -822,14 +822,28 @@ def render_cuadre():
                     edited = st.data_editor(df_edit, key="editor_cuadre", hide_index=True, use_container_width=True,
                                           column_config={"Moneda": st.column_config.SelectboxColumn(options=["VES", "USD", "EUR"])})
                     
-                    if st.button("🔄 Actualizar y Volver a Calcular"):
-                        for _, row in edited.iterrows():
-                            if row['Cuenta Contable (Escribir)']:
-                                st.session_state.mapeo_manual[row['Código CB']] = {
-                                    "cta": row['Cuenta Contable (Escribir)'],
-                                    "moneda": row['Moneda']
-                                }
-                        st.rerun() # Esto hace que se vuelva a ejecutar todo con los nuevos datos
+                    if st.button("🔄 Actualizar y volver a Carcular", type="primary", use_container_width=True):
+                    for _, row in edited.iterrows():
+                        # Solo agregamos si el usuario escribió algo en el campo de cuenta
+                        if row['Cuenta Contable (Escribir)'].strip():
+                            st.session_state.mapeo_manual[row['Código CB']] = {
+                                "cta": row['Cuenta Contable (Escribir)'].strip(),
+                                "moneda": row['Moneda']
+                            }
+                    
+                    # RE-CALCULAR INMEDIATAMENTE
+                    log_new = []
+                    df_res_new, df_huerfanos_new = run_cuadre_cb_cg(
+                        file_cb, file_cg, empresa_sel, log_new, st.session_state.mapeo_manual
+                    )
+                    
+                    # Actualizamos la sesión con los datos limpios
+                    st.session_state.res_cuadre = df_res_new
+                    st.session_state.huerfanos_cuadre = df_huerfanos_new
+                    st.session_state.log_cuadre = log_new
+                    
+                    st.success("✅ Reporte actualizado. Los huérfanos mapeados se han movido al resumen general.")
+                    st.rerun()
 
         st.subheader("Resumen de Saldos", anchor=False)
         cols_pantalla = ['Moneda', 'Banco (Tesorería)', 'Cuenta Contable', 'Descripción', 'Saldo Final CB', 'Saldo Final CG', 'Diferencia', 'Estado']
