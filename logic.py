@@ -4533,17 +4533,30 @@ MAPEO_SALDOS_CONTRARIOS = {
 
 # 2. FUNCIONES DE LECTURA AUXILIAR
 def leer_saldo_haberes_negativos(file_haberes):
-    """Busca la fila 'Total de Saldos Negativos:' y extrae el monto."""
+    """
+    Busca en el PDF de Haberes el monto de 'Total de Saldos Negativos:'.
+    """
+    if not file_haberes: return 0.0
+    
     try:
-        df = pd.read_excel(file_haberes)
-        for col in df.columns:
-            fila_match = df[df[col].astype(str).str.contains("Total de Saldos Negativos", na=False, case=False)]
-            if not fila_match.empty:
-                val_crudo = fila_match.iloc[0, -1] 
-                if isinstance(val_crudo, (int, float)): return abs(float(val_crudo))
-                val_limpio = str(val_crudo).replace('.', '').replace(',', '.')
-                return abs(float(val_limpio))
-    except: pass
+        with pdfplumber.open(file_haberes) as pdf:
+            for page in pdf.pages:
+                text = page.extract_text()
+                if not text: continue
+                
+                for line in text.split('\n'):
+                    if "Total de Saldos Negativos:" in line:
+                        # Extraemos la parte numérica después de los dos puntos
+                        partes = line.split(":")
+                        if len(partes) > 1:
+                            monto_str = partes[1].strip()
+                            # Limpieza de formato: "14.355,40" -> 14355.40
+                            monto_str = monto_str.replace('.', '').replace(',', '.')
+                            # Quitamos cualquier otro caracter no numérico (como espacios o $)
+                            monto_str = "".join(c for c in monto_str if c.isdigit() or c == '.')
+                            return abs(float(monto_str))
+    except Exception as e:
+        print(f"Error leyendo PDF de Haberes: {e}")
     return 0.0
 
 def leer_saldo_viajes(file_obj, columna_busqueda):
@@ -4662,36 +4675,72 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
 
     # --- 1. AJUSTE DE BANCOS (Punto 1) ---
     if f_bancos:
-        df_bancos_rep = pd.read_excel(f_bancos, header=7, engine=None)
-        # Limpieza de nombres de columnas (radar para encontrar 'Saldo en Bancos' y 'Saldo en Libros')
-        df_bancos_rep.columns = [str(c).upper() for c in df_bancos_rep.columns]
-        
-        for _, row in df_bancos_rep.iterrows():
-            cta_contable = str(row.get('CUENTA CONTABLE', '')).strip()
-            if not cta_contable or cta_contable == 'nan': continue
-            
-            # Determinamos si el banco es Exterior (E) o Local (L) basado en la cuenta
-            es_me = ".6." in cta_contable or cta_contable.startswith('1.1.1.03')
-            
-            # El ajuste es: (Saldo en Bancos - Saldo en Libros) en USD
-            # Si es local, dividimos la diferencia en Bs entre la Tasa Corp
-            s_libros = float(row.get('SALDO EN LIBROS', 0))
-            s_bancos = float(row.get('SALDO EN BANCOS', 0))
-            dif_bs = s_bancos - s_libros
-            
-            if es_me:
-                # En bancos ME la diferencia suele ser por partidas en tránsito ya en USD
-                ajuste_usd = dif_bs 
-            else:
-                # En bancos locales, la diferencia en Bs se ajusta a valor USD de reporte
-                ajuste_usd = dif_bs / tasa_corp if tasa_corp > 0 else 0
+    # Usamos engine=None para que detecte si es .xls o .xlsx
+    df_bancos_rep = pd.read_excel(f_bancos, header=7, engine=None)
+    df_bancos_rep.columns = [str(c).upper().strip() for c in df_bancos_rep.columns]
+    
+    def limpiar_monto_latino(val):
+        if pd.isna(val) or isinstance(val, (pd.Timestamp, datetime.date)): 
+            return 0.0
+        if isinstance(val, (int, float)): 
+            return float(val)
+        try:
+            t = str(val).strip()
+            # Si el número viene como "1.234,56", lo convertimos a "1234.56"
+            if ',' in t and '.' in t:
+                t = t.replace('.', '').replace(',', '.')
+            elif ',' in t:
+                t = t.replace(',', '.')
+            return float(t)
+        except:
+            return 0.0
 
-            if abs(ajuste_usd) > 0.01:
-                val_activo_ajuste += ajuste_usd
-                resumen_ajustes.append({'Cuenta': cta_contable, 'Origen': 'Bancos', 'Ajuste USD': ajuste_usd})
-                # Asiento: Banco vs Deudores Comerciales (Cuenta puente para cuadre de tesorería)
-                asientos.append({'Cuenta': cta_contable, 'DebeUSD': ajuste_usd if ajuste_usd > 0 else 0, 'HaberUSD': abs(ajuste_usd) if ajuste_usd < 0 else 0})
-                asientos.append({'Cuenta': '1.1.3.01.1.001', 'DebeUSD': abs(ajuste_usd) if ajuste_usd < 0 else 0, 'HaberUSD': ajuste_usd if ajuste_usd > 0 else 0})
+    for _, row in df_bancos_rep.iterrows():
+        # Tomamos la cuenta contable
+        cta_contable = str(row.get('CUENTA CONTABLE', '')).strip()
+        
+        # Filtro: Si la celda está vacía o no empieza por "1.", saltamos (así ignoramos las firmas)
+        if not cta_contable or not cta_contable.startswith('1.'):
+            continue
+            
+        # Determinamos si el banco es Exterior (E) o Local (L)
+        es_me = ".6." in cta_contable or cta_contable.startswith('1.1.1.03')
+        
+        # Extraemos montos usando la limpieza para formato con comas
+        s_libros = limpiar_monto_latino(row.get('SALDO EN LIBROS'))
+        s_bancos = limpiar_monto_latino(row.get('SALDO EN BANCOS'))
+        
+        dif_bs = s_bancos - s_libros
+        
+        # Lógica de conversión a USD para el ajuste
+        if es_me:
+            ajuste_usd = dif_bs # En dólares el reporte ya viene en la moneda base
+        else:
+            ajuste_usd = dif_bs / tasa_corp if tasa_corp > 0 else 0
+
+        if abs(ajuste_usd) > 0.01:
+            val_activo_ajuste += ajuste_usd
+            resumen_ajustes.append({
+                'Cuenta': cta_contable, 
+                'Descripción': str(row.get('DESCRIPCIÓN', 'Banco')),
+                'Origen': 'Bancos', 
+                'Ajuste USD': ajuste_usd
+            })
+            
+            # Asiento: Banco vs Deudores Comerciales (1.1.3.01.1.001)
+            # Si el banco tiene más dinero que libros (ajuste > 0), el banco va al DEBE.
+            asientos.append({
+                'Cuenta': cta_contable, 
+                'Desc': f"Ajuste Conciliación {cta_contable}",
+                'DebeUSD': ajuste_usd if ajuste_usd > 0 else 0, 
+                'HaberUSD': abs(ajuste_usd) if ajuste_usd < 0 else 0
+            })
+            asientos.append({
+                'Cuenta': '1.1.3.01.1.001', 
+                'Desc': 'Ajuste por Diferencia en Libros',
+                'DebeUSD': abs(ajuste_usd) if ajuste_usd < 0 else 0, 
+                'HaberUSD': ajuste_usd if ajuste_usd > 0 else 0
+            })
 
     # --- 2. AJUSTE VIAJES Y HABERES (Punto 3 y 4) ---
     # (Se mantiene lógica de comparación de auxiliares vs balance)
