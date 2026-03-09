@@ -2360,12 +2360,12 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
         # ==========================================
         # HOJA 4: DATA (ORIGINAL)
         # ==========================================
-        if df_balance_raw is not None and not df_balance_raw.empty:
-            ws4 = workbook.add_worksheet('4. DATA (Original)')
-            for r_idx, row in enumerate(df_balance_raw.values):
-                for c_idx, val in enumerate(row):
-                    if pd.notna(val): ws4.write(r_idx, c_idx, val)
-            ws4.set_column('A:Z', 15)
+    if df_balance_raw is not None and not df_balance_raw.empty:
+        ws4 = workbook.add_worksheet('4. DATA (Original)')
+        for r_idx, row in enumerate(df_balance_raw.values):
+            for c_idx, val in enumerate(row):
+                if pd.notna(val): ws4.write(r_idx, c_idx, val)
+        ws4.set_column('A:Z', 15)
 
     return output.getvalue()
     
