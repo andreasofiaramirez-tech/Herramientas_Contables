@@ -822,7 +822,7 @@ def render_cuadre():
                     edited = st.data_editor(df_edit, key="editor_cuadre", hide_index=True, use_container_width=True,
                                           column_config={"Moneda": st.column_config.SelectboxColumn(options=["VES", "USD", "EUR"])})
                     
-                    if st.button("🔄 Actualizar y volver a Carcular", type="primary", use_container_width=True):
+                    if st.button("🔄 Actualizar y volver a Calcular", type="primary", use_container_width=True):
                         for _, row in edited.iterrows():
                             # Solo agregamos si el usuario escribió algo en el campo de cuenta
                             if row['Cuenta Contable (Escribir)'].strip():
