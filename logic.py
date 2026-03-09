@@ -4691,26 +4691,33 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
         # Leemos el reporte de tesorería
         df_bancos_rep = pd.read_excel(f_bancos, header=7, engine=None)
         
-        # 1. ELIMINAR COLUMNAS BASURA 'UNNAMED' (Requerimiento 2)
-        # Esto quita la columna A vacía que genera Softland/Excel al exportar
+        # 1. ELIMINAR COLUMNAS BASURA 'UNNAMED'
         df_bancos_rep = df_bancos_rep.loc[:, ~df_bancos_rep.columns.str.contains('^Unnamed', case=False, na=False)]
         
-        # Normalizamos nombres de columnas para el radar
+        # Normalizamos nombres de columnas
         df_bancos_rep.columns = [str(c).upper().strip() for c in df_bancos_rep.columns]
         
         lista_datos_hoja_2 = []
-        fila_excel_hoja_2 = 5 # Iniciamos en 5 porque utils escribe datos desde esa fila
+        fila_excel_hoja_2 = 5 
 
         for _, row in df_bancos_rep.iterrows():
+            # Extraemos la cuenta y la descripción para validar
             cta_contable = str(row.get('CUENTA CONTABLE', '')).strip()
+            descripcion = str(row.get('DESCRIPCIÓN', '')).strip().upper()
             
-            # 2. FILTRO ANTI-FIRMAS (Requerimiento 3)
-            # Solo procesamos filas donde la cuenta empiece por "1." (Activos/Bancos)
-            # Esto ignora automáticamente las filas rojas de "Elaborado por", etc.
-            if not cta_contable or not cta_contable.startswith('1.'):
+            # --- FILTRO DE EXCLUSIÓN REFORZADO (Para eliminar las filas rojas) ---
+            # 1. Si la cuenta está vacía o es un "nan" de texto, saltar.
+            # 2. Si la cuenta es "0" o "0.0" (así lee Pandas las celdas con 0,00), saltar.
+            # 3. Si no empieza por "1.", saltar.
+            # 4. Si la descripción dice "ELABORADO POR" o está vacía, saltar.
+            if not cta_contable or cta_contable.lower() in ['nan', '0', '0.0', '0,00', '']:
+                continue
+            if not cta_contable.startswith('1.'):
+                continue
+            if not descripcion or descripcion in ['0', '0.0', 'NAN'] or 'ELABORADO POR' in descripcion:
                 continue
                 
-            # Función de limpieza de montos latinos (Ya validada anteriormente)
+            # Función de limpieza de montos latinos
             def limpiar_monto_latino(val):
                 if pd.isna(val) or isinstance(val, (pd.Timestamp, datetime.datetime, datetime.date)): 
                     return 0.0
@@ -4727,11 +4734,10 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
             s_bancos = limpiar_monto_latino(row.get('SALDO EN BANCOS'))
             dif_bs = s_bancos - s_libros
             
-            # Identificación de moneda para aplicar Tasa Corp
             es_me = ".6." in cta_contable or cta_contable.startswith('1.1.1.03')
             ajuste_usd = dif_bs if es_me else (dif_bs / tasa_corp if tasa_corp > 0 else 0)
 
-            # 3. LÓGICA DE TRAZABILIDAD (Mantenemos el vínculo para la Hoja 1)
+            # LÓGICA DE TRAZABILIDAD
             if abs(ajuste_usd) > 0.001:
                 val_activo_ajuste += ajuste_usd
                 resumen_ajustes.append({
@@ -4739,10 +4745,9 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
                     'Descripción': str(row.get('DESCRIPCIÓN', 'Banco')),
                     'Origen': 'Bancos', 
                     'Ajuste USD': ajuste_usd,
-                    'Fila_Referencia': fila_excel_hoja_2 # Clave para la fórmula en Hoja 1
+                    'Fila_Referencia': fila_excel_hoja_2
                 })
                 
-                # Partida doble para el asiento contable
                 asientos.append({
                     'Cuenta': cta_contable, 
                     'Desc': f"Ajuste Conciliación {cta_contable}",
@@ -4756,26 +4761,26 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
                     'HaberUSD': ajuste_usd if ajuste_usd > 0 else 0
                 })
 
-            # 4. PREPARACIÓN DE DATA PARA HOJA 2 (Requerimiento 2 y 4)
-            # Creamos un diccionario con el orden original del reporte
+            # PREPARACIÓN DE DATA PARA HOJA 2
             fila_limpia = row.to_dict()
 
-            # REFORZAR FORMATO DE FECHA SIN HORA (Requerimiento 4)
+            # Formato de Fecha sin hora
             for col_fecha in ['FECHA INICIAL', 'FECHA FINAL']:
-                if col_fecha in fila_limpia and pd.notna(fila_limpia[col_fecha]):
-                    try:
-                        # Convertimos a objeto date (YYYY-MM-DD) para que Excel no muestre 00:00:00
-                        fila_limpia[col_fecha] = pd.to_datetime(fila_limpia[col_fecha]).date()
-                    except:
-                        pass
+                if col_fecha in fila_limpia:
+                    val_f = fila_limpia[col_fecha]
+                    # Solo convertimos si NO es un cero o basura para evitar el 01/01/1970
+                    if pd.notna(val_f) and str(val_f).strip() not in ['0', '0.0', '0,00']:
+                        try:
+                            fila_limpia[col_fecha] = pd.to_datetime(val_f).date()
+                        except:
+                            fila_limpia[col_fecha] = None
+                    else:
+                        fila_limpia[col_fecha] = None
 
-            # Agregamos la columna de cálculo al final (Requerimiento 2 part 2)
             fila_limpia['AJUSTE USD'] = ajuste_usd
-            
             lista_datos_hoja_2.append(fila_limpia)
             fila_excel_hoja_2 += 1
 
-        # Convertimos la lista limpia en el DataFrame final para el reporte
         df_bancos_final = pd.DataFrame(lista_datos_hoja_2)
 
     # --- 2. AJUSTE VIAJES Y HABERES (Punto 3 y 4) ---
