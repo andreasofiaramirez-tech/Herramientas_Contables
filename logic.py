@@ -4688,41 +4688,34 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
 
     # --- 1. AJUSTE DE BANCOS (Punto 1) ---
     if f_bancos:
-        # Leemos el reporte de tesorería
         df_bancos_rep = pd.read_excel(f_bancos, header=7, engine=None)
         
-        # 1. ELIMINAR COLUMNAS BASURA 'UNNAMED'
+        # Eliminamos columnas 'Unnamed'
         df_bancos_rep = df_bancos_rep.loc[:, ~df_bancos_rep.columns.str.contains('^Unnamed', case=False, na=False)]
-        
-        # Normalizamos nombres de columnas
         df_bancos_rep.columns = [str(c).upper().strip() for c in df_bancos_rep.columns]
         
         lista_datos_hoja_2 = []
-        fila_excel_hoja_2 = 5 
+        fila_excel_hoja_2 = 5 # Los datos en la Hoja 2 empiezan en la fila 5
 
         for _, row in df_bancos_rep.iterrows():
-            # Extraemos la cuenta y la descripción para validar
-            cta_contable = str(row.get('CUENTA CONTABLE', '')).strip()
-            descripcion = str(row.get('DESCRIPCIÓN', '')).strip().upper()
+            # Extraemos y limpiamos los valores clave
+            cta_raw = str(row.get('CUENTA CONTABLE', '')).strip()
+            desc_raw = str(row.get('DESCRIPCIÓN', '')).strip().upper()
             
-            # --- FILTRO DE EXCLUSIÓN REFORZADO (Para eliminar las filas rojas) ---
-            # 1. Si la cuenta está vacía o es un "nan" de texto, saltar.
-            # 2. Si la cuenta es "0" o "0.0" (así lee Pandas las celdas con 0,00), saltar.
-            # 3. Si no empieza por "1.", saltar.
-            # 4. Si la descripción dice "ELABORADO POR" o está vacía, saltar.
-            if not cta_contable or cta_contable.lower() in ['nan', '0', '0.0', '0,00', '']:
+            # --- FILTRO NUCLEAR ANTI-FILAS ROJAS ---
+            # Saltamos si la cuenta: está vacía, es 'nan', es '0', '0.0' o no empieza con '1.'
+            if not cta_raw or cta_raw.lower() in ['nan', '0', '0.0', '0,00', '']:
                 continue
-            if not cta_contable.startswith('1.'):
+            if not cta_raw.startswith('1.'):
                 continue
-            if not descripcion or descripcion in ['0', '0.0', 'NAN'] or 'ELABORADO POR' in descripcion:
+            # Saltamos si la descripción parece una firma o está vacía
+            if not desc_raw or desc_raw in ['0', '0.0', 'NAN'] or 'ELABORADO' in desc_raw or 'REVISADO' in desc_raw:
                 continue
                 
-            # Función de limpieza de montos latinos
             def limpiar_monto_latino(val):
                 if pd.isna(val) or isinstance(val, (pd.Timestamp, datetime.datetime, datetime.date)): 
                     return 0.0
-                if isinstance(val, (int, float)): 
-                    return float(val)
+                if isinstance(val, (int, float)): return float(val)
                 try:
                     t = str(val).strip()
                     if ',' in t and '.' in t: t = t.replace('.', '').replace(',', '.')
@@ -4734,48 +4727,31 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
             s_bancos = limpiar_monto_latino(row.get('SALDO EN BANCOS'))
             dif_bs = s_bancos - s_libros
             
-            es_me = ".6." in cta_contable or cta_contable.startswith('1.1.1.03')
+            es_me = ".6." in cta_raw or cta_raw.startswith('1.1.1.03')
             ajuste_usd = dif_bs if es_me else (dif_bs / tasa_corp if tasa_corp > 0 else 0)
 
-            # LÓGICA DE TRAZABILIDAD
+            # TRAZABILIDAD PARA HOJA 1
             if abs(ajuste_usd) > 0.001:
                 val_activo_ajuste += ajuste_usd
                 resumen_ajustes.append({
-                    'Cuenta': cta_contable, 
+                    'Cuenta': cta_raw, 
                     'Descripción': str(row.get('DESCRIPCIÓN', 'Banco')),
                     'Origen': 'Bancos', 
                     'Ajuste USD': ajuste_usd,
                     'Fila_Referencia': fila_excel_hoja_2
                 })
                 
-                asientos.append({
-                    'Cuenta': cta_contable, 
-                    'Desc': f"Ajuste Conciliación {cta_contable}",
-                    'DebeUSD': ajuste_usd if ajuste_usd > 0 else 0, 
-                    'HaberUSD': abs(ajuste_usd) if ajuste_usd < 0 else 0
-                })
-                asientos.append({
-                    'Cuenta': '1.1.3.01.1.001', 
-                    'Desc': f"Cruce Ajuste Bancos - {cta_contable}",
-                    'DebeUSD': abs(ajuste_usd) if ajuste_usd < 0 else 0, 
-                    'HaberUSD': ajuste_usd if ajuste_usd > 0 else 0
-                })
+                asientos.append({'Cuenta': cta_raw, 'Desc': f"Ajuste {cta_raw}", 'DebeUSD': ajuste_usd if ajuste_usd > 0 else 0, 'HaberUSD': abs(ajuste_usd) if ajuste_usd < 0 else 0})
+                asientos.append({'Cuenta': '1.1.3.01.1.001', 'Desc': f"Cruce {cta_raw}", 'DebeUSD': abs(ajuste_usd) if ajuste_usd < 0 else 0, 'HaberUSD': ajuste_usd if ajuste_usd > 0 else 0})
 
-            # PREPARACIÓN DE DATA PARA HOJA 2
+            # PREPARACIÓN DE DATA HOJA 2
             fila_limpia = row.to_dict()
-
-            # Formato de Fecha sin hora
-            for col_fecha in ['FECHA INICIAL', 'FECHA FINAL']:
-                if col_fecha in fila_limpia:
-                    val_f = fila_limpia[col_fecha]
-                    # Solo convertimos si NO es un cero o basura para evitar el 01/01/1970
-                    if pd.notna(val_f) and str(val_f).strip() not in ['0', '0.0', '0,00']:
-                        try:
-                            fila_limpia[col_fecha] = pd.to_datetime(val_f).date()
-                        except:
-                            fila_limpia[col_fecha] = None
-                    else:
-                        fila_limpia[col_fecha] = None
+            for col_f in ['FECHA INICIAL', 'FECHA FINAL']:
+                val_fecha = fila_limpia.get(col_f)
+                if pd.notna(val_fecha) and str(val_fecha).strip() not in ['0', '0.0', '0,00']:
+                    try: fila_limpia[col_f] = pd.to_datetime(val_fecha).date()
+                    except: fila_limpia[col_f] = None
+                else: fila_limpia[col_f] = None
 
             fila_limpia['AJUSTE USD'] = ajuste_usd
             lista_datos_hoja_2.append(fila_limpia)
