@@ -823,13 +823,13 @@ def render_cuadre():
                                           column_config={"Moneda": st.column_config.SelectboxColumn(options=["VES", "USD", "EUR"])})
                     
                     if st.button("🔄 Actualizar y volver a Carcular", type="primary", use_container_width=True):
-                    for _, row in edited.iterrows():
-                        # Solo agregamos si el usuario escribió algo en el campo de cuenta
-                        if row['Cuenta Contable (Escribir)'].strip():
-                            st.session_state.mapeo_manual[row['Código CB']] = {
-                                "cta": row['Cuenta Contable (Escribir)'].strip(),
-                                "moneda": row['Moneda']
-                            }
+                        for _, row in edited.iterrows():
+                            # Solo agregamos si el usuario escribió algo en el campo de cuenta
+                            if row['Cuenta Contable (Escribir)'].strip():
+                                st.session_state.mapeo_manual[row['Código CB']] = {
+                                    "cta": row['Cuenta Contable (Escribir)'].strip(),
+                                    "moneda": row['Moneda']
+                                }
                     
                     # RE-CALCULAR INMEDIATAMENTE
                     log_new = []
