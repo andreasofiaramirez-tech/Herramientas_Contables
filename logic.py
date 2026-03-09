@@ -4303,17 +4303,17 @@ def run_cuadre_cb_cg(file_cb, file_cg, nombre_empresa, log_messages, mapeo_manua
     empresa_upper = str(nombre_empresa).upper()
     
     if "PRISMA" in empresa_upper:
-        mapeo_actual = MAPEO_CB_CG_PRISMA
+        mapeo_base = MAPEO_CB_CG_PRISMA
         log_messages.append(f"🏢 Configuración activa: PRISMA")
     elif "SILLACA" in empresa_upper or "QUINCALLA" in empresa_upper:
-        mapeo_actual = MAPEO_CB_CG_SILLACA
+        mapeo_base = MAPEO_CB_CG_SILLACA
         log_messages.append(f"🏢 Configuración activa: SILLACA / QUINCALLA")
     elif "FEBECA" in empresa_upper:
         # Aplica tanto para Febeca C.A. como Febeca Quincalla
-        mapeo_actual = MAPEO_CB_CG_FEBECA
+        mapeo_base = MAPEO_CB_CG_FEBECA
         log_messages.append(f"🏢 Configuración activa: FEBECA")
     else:
-        mapeo_actual = MAPEO_CB_CG_BEVAL
+        mapeo_base = MAPEO_CB_CG_BEVAL
         log_messages.append(f"🏢 Configuración activa: BEVAL")
 
     if mapeo_manual:
