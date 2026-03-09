@@ -4600,7 +4600,7 @@ def extraer_saldos_cg_ajustes(archivo, log_messages):
         return {}
 
     # --- PROCESAMIENTO PDF (Respaldo) ---
-    elif nombre_archivo.endswith('.pdf'):
+elif nombre_archivo.endswith('.pdf'):
         # Reutilizamos la lógica de extracción de PDF existente pero simplificando la salida
         # para que coincida con la estructura {'VES': float, 'USD': float}
         raw_data = extraer_saldos_cg(archivo, log_messages) # Llamamos a la función vieja
