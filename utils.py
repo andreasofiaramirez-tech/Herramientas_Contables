@@ -2194,6 +2194,16 @@ def generar_cargador_asiento_pensiones(df_asiento, fecha_asiento):
 
 def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_raw, nombre_empresa, validacion_data):
     output = BytesIO()
+
+    # --- FUNCIÓN DE LIMPIEZA INTERNA (Evita errores de NAN/INF) ---
+    def clean_num(val):
+        try:
+            if pd.isna(val) or np.isinf(val): 
+                return 0.0
+            return float(val)
+        except:
+            return 0.0
+            
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         workbook = writer.book
         
