@@ -2194,66 +2194,72 @@ def generar_cargador_asiento_pensiones(df_asiento, fecha_asiento):
 
 def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_raw, nombre_empresa, validacion_data):
     output = BytesIO()
-
-    # --- FUNCIÓN DE LIMPIEZA INTERNA (Evita errores de NAN/INF) ---
+    
+    # Función de limpieza interna para montos
     def clean_num(val):
         try:
-            if pd.isna(val) or np.isinf(val): 
-                return 0.0
+            if pd.isna(val) or np.isinf(val): return 0.0
             return float(val)
-        except:
-            return 0.0
-            
+        except: return 0.0
+
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         workbook = writer.book
         
-        # --- ESTILOS ---
+        # --- DEFINICIÓN DE ESTILOS ---
         fmt_header_raw = workbook.add_format({'bold': False, 'font_size': 10})
-        header_clean = workbook.add_format({'bold': True, 'border': 1, 'align': 'center', 'valign': 'vcenter','bg_color': '#FFFFFF', 'text_wrap': True})
+        header_clean = workbook.add_format({'bold': True, 'border': 1, 'align': 'center', 'valign': 'vcenter','bg_color': '#D9EAD3', 'text_wrap': True})
         main_title = workbook.add_format({'bold': True, 'font_size': 14, 'align': 'center', 'valign': 'vcenter'})
         fmt_text = workbook.add_format({'border': 1, 'valign': 'vcenter'})
         fmt_money = workbook.add_format({'num_format': '#,##0.00', 'border': 1})
         fmt_money_bold = workbook.add_format({'num_format': '#,##0.00', 'border': 1, 'bold': True, 'bg_color': '#F2F2F2'})
         fmt_rate = workbook.add_format({'num_format': '#,##0.0000', 'border': 1})
-        box_val = workbook.add_format({'num_format': '#,##0.00', 'border': 1, 'bold': True, 'align': 'center'})
+        
+        # Estilo para el Resumen (Activo/Pasivo)
+        fmt_summary_label = workbook.add_format({'bold': True, 'border': 1, 'bg_color': '#F2F2F2', 'align': 'left'})
+        fmt_summary_val = workbook.add_format({'bold': True, 'border': 1, 'num_format': '#,##0.00', 'align': 'right'})
 
         # ============================================================
         # HOJA 1: AJUSTES
         # ============================================================
-
         ws1 = workbook.add_worksheet('1. Ajustes')
         ws1.hide_gridlines(2)
         
-        # 1. ENCABEZADO (Solo Columnas A y B)
+        # 1. ENCABEZADO ORIGINAL (Solo Columnas A y B)
         if df_balance_raw is not None and not df_balance_raw.empty:
             for r_idx in range(min(6, len(df_balance_raw))):
                 for c_idx in [0, 1]:
                     val = df_balance_raw.iloc[r_idx, c_idx]
                     if pd.notna(val): ws1.write(r_idx, c_idx, val, fmt_header_raw)
 
-        # 2. PRE-PROCESAMIENTO DE MAPAS PARA FÓRMULAS
-        # Mapa para link a Hoja 2
+        # 2. PRE-PROCESAMIENTO DE MAPAS
         mapa_filas_bancos = {
             str(r['Cuenta']): r['Fila_Referencia'] 
             for r in df_resumen.to_dict('records') 
             if r.get('Origen') == 'Bancos' and 'Fila_Referencia' in r
         }
-        # Mapa para montos estáticos (Viajes, Haberes, etc.)
         mapa_ajustes_otros = df_resumen.set_index('Cuenta')['Ajuste USD'].to_dict()
 
-        # 3. ESCRITURA DE DATOS Y CÁLCULO DE TOTALES PARA EL CUADRO
+        # 3. CABECERAS DE TABLA (RE-ORDENADAS SEGÚN SOLICITUD)
+        # Eliminamos N° y la columna en blanco. Agregamos Bs.
         ws1.write(5, 3, "Moneda Local", header_clean) 
         ws1.write(5, 4, "Moneda Dólar", header_clean) 
 
         headers_r7 = [
-            'Cuenta', 'Descripción', 'Saldo Norm', 'Balance Final', 
-            'Balance Final', 'AJUSTE', 'SALDO AJUSTADO', 'N°', 'ACT O PA', '', 'TASA'
+            'Cuenta',               # A
+            'Descripción',          # B
+            'Saldo Norm',           # C
+            'Balance Final (Bs)',   # D
+            'Balance Final ($)',    # E
+            'AJUSTE ($)',           # F
+            'SALDO AJUSTADO ($)',   # G
+            'ACT O PA',             # H (Usado para el SUMIF)
+            'TASA',                 # I
+            'Bs.'                   # J (Nuevo: Valor del cargador)
         ]
         ws1.write_row(6, 0, headers_r7, header_clean)
 
         current_row = 7 
         if df_balance_raw is not None and not df_balance_raw.empty:
-            # Localizamos inicio de datos
             start_idx = 0
             for i, row in df_balance_raw.iterrows():
                 if any('CUENTA' in str(v).upper() for v in row.values):
@@ -2266,7 +2272,6 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
                     if not (cuenta_str.startswith('1.') or cuenta_str.startswith('2.')): continue
                     if cuenta_str.endswith('.000'): continue 
                     
-                    # Coordenadas Excel
                     excel_row = current_row + 1 
                     saldo_bs = clean_num(row_data[6])
                     saldo_usd = clean_num(row_data[11])
@@ -2277,35 +2282,43 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
                     ws1.write_number(current_row, 3, saldo_bs, fmt_money)
                     ws1.write_number(current_row, 4, saldo_usd, fmt_money)
 
-                    # --- COLUMNA F: AJUSTE (VINCULADO O ESTÁTICO) ---
+                    # --- COLUMNA F: AJUSTE ---
                     if cuenta_str in mapa_filas_bancos:
                         fila_bco = mapa_filas_bancos[cuenta_str]
-                        # El Ajuste USD en Hoja 2 está en la columna L (índice 11)
-                        formula_bco = f"='2. Detalle Bancos'!$L${fila_bco}"
-                        ws1.write_formula(current_row, 5, formula_bco, fmt_money_bold)
+                        ws1.write_formula(current_row, 5, f"='2. Detalle Bancos'!$L${fila_bco}", fmt_money_bold)
                     else:
                         monto = mapa_ajustes_otros.get(cuenta_str, 0.0)
                         ws1.write_number(current_row, 5, monto, fmt_money if abs(monto) > 0 else fmt_text)
 
-                    # --- COLUMNA G: SALDO AJUSTADO (FÓRMULA) ---
-                    # Saldo $ (E) + Ajuste (F)
+                    # --- COLUMNA G: SALDO AJUSTADO ---
                     ws1.write_formula(current_row, 6, f"=E{excel_row}+F{excel_row}", fmt_money_bold)
 
-                    # --- COLUMNAS H, I, J (METADATOS) ---
-                    ws1.write(current_row, 7, "", fmt_text) # N°
-                    ws1.write(current_row, 8, "1" if cuenta_str.startswith('1.') else "2", fmt_text) # ACT O PA
-                    ws1.write(current_row, 9, "", fmt_text)
+                    # --- COLUMNA H: ACT O PA (1 o 2) ---
+                    ws1.write(current_row, 7, "1" if cuenta_str.startswith('1.') else "2", fmt_text)
 
-                    # --- COLUMNA K: TASA (FÓRMULA) ---
-                    # ABS(Balance Bs / Saldo Ajustado $)
-                    formula_tasa = f"=IF(ABS(G{excel_row})>0.01, ABS(D{excel_row}/G{excel_row}), 0)"
-                    ws1.write_formula(current_row, 10, formula_tasa, fmt_rate)
+                    # --- COLUMNA I: TASA ---
+                    ws1.write_formula(current_row, 8, f"=IF(ABS(G{excel_row})>0.01, ABS(D{excel_row}/G{excel_row}), 0)", fmt_rate)
+
+                    # --- COLUMNA J: Bs. (Ajuste $ * Tasa BCV de la Hoja 2) ---
+                    # Fórmula: Ajuste (F) * Tasa BCV ('2. Detalle Bancos'!$H$1)
+                    ws1.write_formula(current_row, 9, f"=F{excel_row}*'2. Detalle Bancos'!$H$1", fmt_money)
 
                     current_row += 1
                 except: continue
 
+        # --- 4. AGREGAR RESUMEN ACTIVO/PASIVO (Superior Derecha) ---
+        # Fila 2 (index 1) y Fila 3 (index 2) en columnas I y J
+        last_data_row = current_row # Para el rango del SUMIF
+        
+        ws1.write('I2', 'Activo', fmt_summary_label)
+        ws1.write_formula('J2', f'=SUMIF(H8:H{last_data_row}, "1", F8:F{last_data_row})', fmt_summary_val)
+        
+        ws1.write('I3', 'Pasivo', fmt_summary_label)
+        ws1.write_formula('J3', f'=SUMIF(H8:H{last_data_row}, "2", F8:F{last_data_row})', fmt_summary_val)
+
+        # Ajuste de anchos Hoja 1
         ws1.set_column('A:A', 15); ws1.set_column('B:B', 45); ws1.set_column('D:G', 18)
-        ws1.set_column('I:K', 12)
+        ws1.set_column('H:H', 10); ws1.set_column('I:J', 18)
         
         # ==========================================
         # HOJA 2: DETALLE BANCOS
