@@ -4294,7 +4294,7 @@ def validar_coincidencia_empresa(file_obj, nombre_empresa_sel):
              
         return False, f"El archivo **'{file_obj.name}'** no parece corresponder a **{keyword}**. No se encontró el nombre de la empresa en el encabezado."
         
-def run_cuadre_cb_cg(file_cb, file_cg, nombre_empresa, log_messages):
+def run_cuadre_cb_cg(file_cb, file_cg, nombre_empresa, log_messages, mapeo_adicional=None):
     """
     Función Principal: Cruza Tesorería vs Contabilidad.
     Soporta: BEVAL, FEBECA, PRISMA, SILLACA.
@@ -4315,6 +4315,13 @@ def run_cuadre_cb_cg(file_cb, file_cg, nombre_empresa, log_messages):
     else:
         mapeo_actual = MAPEO_CB_CG_BEVAL
         log_messages.append(f"🏢 Configuración activa: BEVAL")
+
+    if mapeo_adicional:
+        # Fusionamos el mapeo base con lo que el usuario escribió en pantalla
+        mapeo_base.update(mapeo_adicional)
+        log_messages.append("🛠️ Se han integrado mapeos manuales definidos por el usuario.")
+
+    mapeo_actual = mapeo_base
 
     # 2. Extracción
     raw_cb = extraer_saldos_cb(file_cb, log_messages)
