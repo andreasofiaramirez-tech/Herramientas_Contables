@@ -4681,13 +4681,14 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
         df_bancos_rep.columns = [str(c).upper().strip() for c in df_bancos_rep.columns]
     
     def limpiar_monto_latino(val):
-        if pd.isna(val) or isinstance(val, (pd.Timestamp, datetime.date)): 
+    # Verificamos si es nulo o si es cualquier tipo de objeto de fecha (Pandas o Python puro)
+        if pd.isna(val) or isinstance(val, (pd.Timestamp, datetime.datetime, datetime.date)): 
             return 0.0
         if isinstance(val, (int, float)): 
             return float(val)
         try:
             t = str(val).strip()
-            # Si el número viene como "1.234,56", lo convertimos a "1234.56"
+            # Limpieza de formato venezolano: "1.234,56" -> "1234.56"
             if ',' in t and '.' in t:
                 t = t.replace('.', '').replace(',', '.')
             elif ',' in t:
