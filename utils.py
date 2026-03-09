@@ -2365,7 +2365,7 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
         
         ws2.set_column('A:A', 18); ws2.set_column('B:B', 40); ws2.set_column('C:D', 25)
         ws2.set_column('F:G', 12); ws2.set_column('H:K', 18)
-        ws2.set_column('L:M', 35); ws2.set_column('N:N', 18)
+        ws2.set_column('L:M', 20); ws2.set_column('N:N', 18)
 
         # ==========================================
         # HOJA 3: ASIENTO CONTABLE
