@@ -2306,62 +2306,35 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
                 except: continue
 
         # --- 4. CUADRO DE AUDITORÍA SUPERIOR (I2:J4) ---
-        last_data_row = current_row # Fila donde terminan los datos
-        
-        # Fila 2: Activo
+        # Si current_row es 7 significa que no hubo datos, evitamos SUMIF de rango negativo
+        final_data_row = max(current_row, 8) 
         ws1.write('I2', 'Activo', fmt_summary_label)
-        ws1.write_formula('J2', f'=SUMIF(H8:H{last_data_row}, "1", F8:F{last_data_row})', fmt_summary_val)
-        
-        # Fila 3: Pasivo
+        ws1.write_formula('J2', f'=SUMIF(H8:H{final_data_row}, "1", F8:F{final_data_row})', fmt_summary_val)
         ws1.write('I3', 'Pasivo', fmt_summary_label)
-        ws1.write_formula('J3', f'=SUMIF(H8:H{last_data_row}, "2", F8:F{last_data_row})', fmt_summary_val)
-        
-        # Fila 4: Diferencia (Debe dar Cero si está cuadrado)
+        ws1.write_formula('J3', f'=SUMIF(H8:H{final_data_row}, "2", F8:F{final_data_row})', fmt_summary_val)
         ws1.write('I4', 'Dif.', fmt_summary_label)
         ws1.write_formula('J4', '=ABS(J2)-ABS(J3)', fmt_summary_val)
 
-        # Ajuste de anchos
-        ws1.set_column('A:A', 15); ws1.set_column('B:B', 45); ws1.set_column('D:G', 18)
-        ws1.set_column('H:H', 10); ws1.set_column('I:J', 18)
+        ws1.set_column('A:A', 15); ws1.set_column('B:B', 45); ws1.set_column('D:G', 18); ws1.set_column('I:J', 18)
         
         # ==========================================
         # HOJA 2: DETALLE BANCOS
         # ==========================================
         ws2 = workbook.add_worksheet('2. Detalle Bancos')
         ws2.hide_gridlines(2)
-        
         ws2.write(0, 6, "TASA BCV (CIERRE):", workbook.add_format({'bold':True, 'align':'right'}))
         ws2.write_number(0, 7, clean_num(validacion_data.get('tasa_bcv', 0)), fmt_rate)
         
         if df_bancos is not None and not df_bancos.empty:
             ws2.write_row(3, 0, df_bancos.columns, header_clean)
-            
-            r_idx = 4
-            for r_data in df_bancos.itertuples(index=False):
-                for c_idx, value in enumerate(r_data):
-                    col_name = df_bancos.columns[c_idx]
-                    
-                    # --- CORRECCIÓN DE FECHA ---
-                    if 'FECHA' in col_name:
-                        if pd.notna(value):
-                            try:
-                                # Convertimos a datetime estándar de Python
-                                d = pd.to_datetime(value).to_pydatetime()
-                                # Usamos write() genérico en lugar de write_datetime()
-                                ws2.write(r_idx, c_idx, d, fmt_date)
-                            except:
-                                ws2.write(r_idx, c_idx, str(value), fmt_text)
-                        else:
-                            ws2.write(r_idx, c_idx, "", fmt_text)
-                    
-                    # --- NÚMEROS ---
-                    elif isinstance(value, (int, float)):
-                        ws2.write_number(r_idx, c_idx, clean_num(value), fmt_money)
-                    
-                    # --- TEXTO ---
-                    else:
-                        ws2.write(r_idx, c_idx, str(value) if pd.notna(value) else "", fmt_text)
-                r_idx += 1
+            for r_idx, r_data in enumerate(df_bancos.itertuples(index=False), 4):
+                for c_idx, val in enumerate(r_data):
+                    col_n = df_bancos.columns[c_idx]
+                    if 'FECHA' in col_n and pd.notna(val):
+                        try: ws2.write(r_idx, c_idx, pd.to_datetime(val).to_pydatetime(), fmt_date)
+                        except: ws2.write(r_idx, c_idx, str(val), fmt_text)
+                    elif isinstance(val, (int, float)): ws2.write_number(r_idx, c_idx, clean_num(val), fmt_money)
+                    else: ws2.write(r_idx, c_idx, str(val) if pd.notna(val) else "", fmt_text)
         
         ws2.set_column('A:A', 18); ws2.set_column('B:B', 40); 
         ws2.set_column('C:C', 25); ws2.set_column('D:D', 10);
