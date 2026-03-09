@@ -877,7 +877,7 @@ def render_ajustes_usd():
     with col1:
         f_cb = st.file_uploader("1. Conciliación Tesorería (Excel)", type=['xlsx', 'xls'], key="adj_cb")
         f_cg = st.file_uploader("2. Balance Comprobación (PDF/Excel)", type=['pdf', 'xlsx', 'xls'], key="adj_cg")
-        f_hab = st.file_uploader("5. Reporte Haberes (Excel)", type=['xlsx', 'xls'], key="adj_hab")
+        f_hab = st.file_uploader("5. Reporte Haberes (PDF)", type=['PDF'], key="adj_hab")
         
     with col2:
         f_v_me = st.file_uploader("3. Auxiliar Viajes ME (Excel)", type=['xlsx', 'xls'], key="adj_v_me")
