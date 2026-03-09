@@ -761,9 +761,9 @@ def render_cuadre():
     # --- CARGA DE ARCHIVOS ---
     col1, col2 = st.columns(2)
     with col1:
-        file_cb = st.file_uploader("1. Reporte Tesorería (CB)", type=['pdf', 'xlsx'])
+        file_cb = st.file_uploader("1. Reporte Tesorería (CB)", type=['pdf', 'xlsx', 'xls'])
     with col2:
-        file_cg = st.file_uploader("2. Balance Contable (CG)", type=['pdf', 'xlsx'])
+        file_cg = st.file_uploader("2. Balance Contable (CG)", type=['pdf', 'xlsx', 'xls'])
         
     # --- BOTÓN DE ACCIÓN ---
     if file_cb and file_cg:
