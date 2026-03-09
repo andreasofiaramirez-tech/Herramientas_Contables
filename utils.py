@@ -2288,21 +2288,21 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
                         ws1.write_formula(current_row, 5, f"='2. Detalle Bancos'!$L${mapa_filas_bancos[cuenta_str]}", fmt_money_bold)
                         else:
                             m = mapa_ajustes_otros.get(cuenta_str, 0.0)
-                    ws1.write_number(current_row, 5, m, fmt_money if abs(m) > 0 else fmt_text)
+                            ws1.write_number(current_row, 5, m, fmt_money if abs(m) > 0 else fmt_text)
 
                     # --- COLUMNA G: SALDO AJUSTADO ---
-                    ws1.write_formula(current_row, 6, f"=E{excel_row}+F{excel_row}", fmt_money_bold)
+                            ws1.write_formula(current_row, 6, f"=E{excel_row}+F{excel_row}", fmt_money_bold)
 
                     # --- COLUMNA H: ACT O PA ---
-                    ws1.write(current_row, 7, "1" if cuenta_str.startswith('1.') else "2", fmt_text)
+                            ws1.write(current_row, 7, "1" if cuenta_str.startswith('1.') else "2", fmt_text)
 
                     # --- COLUMNA I: TASA ---
-                    ws1.write_formula(current_row, 8, f"=IF(ABS(G{excel_row})>0.01, ABS(D{excel_row}/G{excel_row}), 0)", fmt_rate)
+                            ws1.write_formula(current_row, 8, f"=IF(ABS(G{excel_row})>0.01, ABS(D{excel_row}/G{excel_row}), 0)", fmt_rate)
 
                     # --- COLUMNA J: Bs. (Ajuste $ * Tasa BCV) ---
-                    ws1.write_formula(current_row, 9, f"=F{excel_row}*'2. Detalle Bancos'!$H$1", fmt_money)
+                            ws1.write_formula(current_row, 9, f"=F{excel_row}*'2. Detalle Bancos'!$H$1", fmt_money)
 
-                    current_row += 1
+                            current_row += 1
                 except: continue
 
         # --- 4. CUADRO DE AUDITORÍA SUPERIOR (I2:J4) ---
