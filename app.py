@@ -79,8 +79,6 @@ from utils import (
     generar_excel_saldos_abiertos,
     generar_reporte_paquete_cc,
     generar_reporte_cuadre,
-    generar_reporte_auditoria_txt,
-    generar_archivo_txt,
     generar_reporte_pensiones,
     generar_cargador_asiento_pensiones,
     generar_reporte_ajustes_usd,
