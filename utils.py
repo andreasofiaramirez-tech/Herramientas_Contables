@@ -2260,17 +2260,18 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
 
         current_row = 7 
         if df_balance_raw is not None and not df_balance_raw.empty:
-            start_idx = 0
-            for i, row in df_balance_raw.iterrows():
-                if any('CUENTA' in str(v).upper() for v in row.values):
-                    start_idx = i + 1; break
-            
-            for i in range(start_idx, len(df_balance_raw)):
-                row_data = df_balance_raw.iloc[i]
-                try:
-                    cuenta_str = str(row_data[0]).strip()
-                    if not (cuenta_str.startswith('1.') or cuenta_str.startswith('2.')): continue
-                    if cuenta_str.endswith('.000'): continue 
+            # Buscamos la fila donde empieza la data (fila después de los encabezados)
+            for i in range(len(df_balance_raw)):
+                row_raw = df_balance_raw.iloc[i]
+                
+                # --- FILTRO POR COLUMNA B (índice 1) ---
+                # Softland pone la cuenta en la Col B. Si no hay un patrón "numero.numero", saltamos.
+                cuenta_str = str(row_raw[1]).strip() # Columna B
+                
+                if not cuenta_str or not cuenta_str.startswith(('1.', '2.')):
+                    continue
+                if cuenta_str.endswith('.000'): # Ignorar cuentas de grupo
+                    continue
                     
                     excel_row = current_row + 1 
                     saldo_bs = clean_num(row_data[6])
@@ -2284,11 +2285,10 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
 
                     # --- COLUMNA F: AJUSTE ---
                     if cuenta_str in mapa_filas_bancos:
-                        fila_bco = mapa_filas_bancos[cuenta_str]
-                        ws1.write_formula(current_row, 5, f"='2. Detalle Bancos'!$L${fila_bco}", fmt_money_bold)
-                    else:
-                        monto = mapa_ajustes_otros.get(cuenta_str, 0.0)
-                        ws1.write_number(current_row, 5, monto, fmt_money if abs(monto) > 0.001 else fmt_text)
+                    ws1.write_formula(current_row, 5, f"='2. Detalle Bancos'!$L${mapa_filas_bancos[cuenta_str]}", fmt_money_bold)
+                else:
+                    m = mapa_ajustes_otros.get(cuenta_str, 0.0)
+                    ws1.write_number(current_row, 5, m, fmt_money if abs(m) > 0 else fmt_text)
 
                     # --- COLUMNA G: SALDO AJUSTADO ---
                     ws1.write_formula(current_row, 6, f"=E{excel_row}+F{excel_row}", fmt_money_bold)
@@ -2307,15 +2307,18 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
 
         # --- 4. CUADRO DE AUDITORÍA SUPERIOR (I2:J4) ---
         # Si current_row es 7 significa que no hubo datos, evitamos SUMIF de rango negativo
-        final_data_row = max(current_row, 8) 
+        final_row = current_row if current_row > 7 else 8
+        
         ws1.write('I2', 'Activo', fmt_summary_label)
-        ws1.write_formula('J2', f'=SUMIF(H8:H{final_data_row}, "1", F8:F{final_data_row})', fmt_summary_val)
+        ws1.write_formula('J2', f'=SUMIF(H8:H{final_row}, "1", F8:F{final_row})', fmt_summary_val)
+        
         ws1.write('I3', 'Pasivo', fmt_summary_label)
-        ws1.write_formula('J3', f'=SUMIF(H8:H{final_data_row}, "2", F8:F{final_data_row})', fmt_summary_val)
+        ws1.write_formula('J3', f'=SUMIF(H8:H{final_row}, "2", F8:F{final_row})', fmt_summary_val)
+        
         ws1.write('I4', 'Dif.', fmt_summary_label)
         ws1.write_formula('J4', '=ABS(J2)-ABS(J3)', fmt_summary_val)
 
-        ws1.set_column('A:A', 15); ws1.set_column('B:B', 45); ws1.set_column('D:G', 18); ws1.set_column('I:J', 18)
+        ws1.set_column('A:B', 15); ws1.set_column('B:B', 45); ws1.set_column('D:G', 18); ws1.set_column('I:J', 18)
         
         # ==========================================
         # HOJA 2: DETALLE BANCOS
