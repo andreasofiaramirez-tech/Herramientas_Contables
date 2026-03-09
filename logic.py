@@ -3835,7 +3835,7 @@ MAPEO_CB_CG_BEVAL = {
 MAPEO_CB_CG_FEBECA = {
     "0102EU": {"cta": "1.1.1.02.6.213", "moneda": "EUR"},
     "0102E":  {"cta": "1.1.1.02.6.003", "moneda": "USD"},
-    "0102L":  {"cta": "1.1.1.02.1.016", "moneda": "VES"},
+    #"0102L":  {"cta": "1.1.1.02.1.016", "moneda": "VES"},
     "0104L":  {"cta": "1.1.1.02.1.112", "moneda": "VES"},
     "0104LP": {"cta": "1.1.1.02.1.116", "moneda": "VES"}, 
     "0105E":  {"cta": "1.1.1.02.6.001", "moneda": "USD"},
