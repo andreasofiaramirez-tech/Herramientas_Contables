@@ -14,6 +14,7 @@ import xlsxwriter
 from difflib import SequenceMatcher  # Necesario para la detección de errores de tipeo
 from utils import generar_reporte_retenciones
 import bisect
+import datetime
 
 # --- Tolerancias Generales (Mayoreo) ---
 TOLERANCIA_MAX_BS = 2.00      # Margen permitido en Bolívares
