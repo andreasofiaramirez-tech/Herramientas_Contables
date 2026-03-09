@@ -767,61 +767,82 @@ def render_cuadre():
         
     # --- BOTÓN DE ACCIÓN ---
     if file_cb and file_cg:
+        # Inicializamos la memoria manual si no existe
+        if 'mapeo_manual' not in st.session_state:
+            st.session_state.mapeo_manual = {}
+
         if st.button("Comparar Saldos", type="primary", use_container_width=True):
             log = []
             try:
-                # Importamos funciones necesarias (incluyendo la nueva validación)
-                from logic import run_cuadre_cb_cg, validar_coincidencia_empresa
-                from utils import generar_reporte_cuadre
-                
-                # --- FASE 0: VALIDACIÓN DE SEGURIDAD ---
-                # 1. Verificar archivo Tesorería
+                # --- SE MANTIENE TU VALIDACIÓN DE SEGURIDAD ---
                 es_valido_cb, msg_cb = validar_coincidencia_empresa(file_cb, empresa_sel)
                 if not es_valido_cb:
                     st.error(f"⛔ ALERTA DE SEGURIDAD (Tesorería): {msg_cb}")
-                    st.warning("Por favor verifique que seleccionó la empresa correcta en el menú.")
-                    st.stop() # Detiene la ejecución aquí para proteger los datos
+                    st.stop()
                 
-                # 2. Verificar archivo Contabilidad
                 es_valido_cg, msg_cg = validar_coincidencia_empresa(file_cg, empresa_sel)
                 if not es_valido_cg:
                     st.error(f"⛔ ALERTA DE SEGURIDAD (Contabilidad): {msg_cg}")
-                    st.warning("Por favor verifique que seleccionó la empresa correcta en el menú.")
-                    st.stop() # Detiene la ejecución aquí
+                    st.stop()
+                # ----------------------------------------------
 
-                # --- FASE 1: PROCESAMIENTO ---
                 with st.spinner("Analizando y cruzando saldos..."):
-                    df_res, df_huerfanos = run_cuadre_cb_cg(file_cb, file_cg, empresa_sel, log)
-                
-                # --- FASE 2: MOSTRAR RESULTADOS EN PANTALLA ---
-                st.subheader("Resumen de Saldos", anchor=False)
-                
-                # Mostramos solo columnas clave para no saturar la vista
-                cols_pantalla = ['Moneda', 'Banco (Tesorería)', 'Cuenta Contable', 'Descripción', 'Saldo Final CB', 'Saldo Final CG', 'Diferencia', 'Estado']
-                st.dataframe(df_res[cols_pantalla], use_container_width=True)
-                
-                # Si hay cuentas huérfanas (no configuradas), mostramos alerta
-                if not df_huerfanos.empty:
-                    st.error(f"⚠️ ATENCIÓN: Se detectaron {len(df_huerfanos)} cuentas con saldo que NO están configuradas. Revisa la 3ra pestaña del Excel.")
-                    st.dataframe(df_huerfanos, use_container_width=True)
-                
-                # --- FASE 3: GENERAR EXCEL ---
-                excel_data = generar_reporte_cuadre(df_res, df_huerfanos, empresa_sel)
-                
-                st.download_button(
-                    label="⬇️ Descargar Reporte Completo (Excel)",
-                    data=excel_data,
-                    file_name=f"Cuadre_CB_CG_{empresa_sel}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True
-                )
-                
-                # Log técnico al final
-                with st.expander("Ver Log de Extracción"):
-                    st.write(log)
+                    # Llamamos a la lógica enviando también el mapeo_manual
+                    df_res, df_huerfanos = run_cuadre_cb_cg(
+                        file_cb, file_cg, empresa_sel, log, st.session_state.mapeo_manual
+                    )
                     
+                    # Guardamos en sesión para que la tabla no desaparezca
+                    st.session_state.res_cuadre = df_res
+                    st.session_state.huerfanos_cuadre = df_huerfanos
+                    st.session_state.log_cuadre = log
+
             except Exception as e:
                 mostrar_error_amigable(e, "el Cuadre CB-CG")
+
+    # --- MOSTRAR RESULTADOS (Fuera del botón para que no se borren) ---
+    if 'res_cuadre' in st.session_state:
+        df_res = st.session_state.res_cuadre
+        df_huerfanos = st.session_state.huerfanos_cuadre
+        
+        # SI HAY HUÉRFANOS, MOSTRAMOS EL EDITOR PARA QUE EL USUARIO LOS ARREGLE
+        if not df_huerfanos.empty:
+            cb_orphans = df_huerfanos[df_huerfanos['Origen'] == 'TESORERÍA (CB)']
+            if not cb_orphans.empty:
+                st.warning("⚠️ Hay bancos en Tesorería que no están en el diccionario.")
+                with st.expander("🛠️ ASIGNAR CUENTAS MANUALMENTE", expanded=True):
+                    # Creamos tabla para editar
+                    df_edit = pd.DataFrame({
+                        'Código CB': cb_orphans['Código/Cuenta'],
+                        'Nombre': cb_orphans['Descripción/Nombre'],
+                        'Cuenta Contable (Escribir)': '',
+                        'Moneda': 'VES'
+                    })
+                    
+                    edited = st.data_editor(df_edit, key="editor_cuadre", hide_index=True, use_container_width=True,
+                                          column_config={"Moneda": st.column_config.SelectboxColumn(options=["VES", "USD", "EUR"])})
+                    
+                    if st.button("🔄 Actualizar y Volver a Calcular"):
+                        for _, row in edited.iterrows():
+                            if row['Cuenta Contable (Escribir)']:
+                                st.session_state.mapeo_manual[row['Código CB']] = {
+                                    "cta": row['Cuenta Contable (Escribir)'],
+                                    "moneda": row['Moneda']
+                                }
+                        st.rerun() # Esto hace que se vuelva a ejecutar todo con los nuevos datos
+
+        st.subheader("Resumen de Saldos", anchor=False)
+        cols_pantalla = ['Moneda', 'Banco (Tesorería)', 'Cuenta Contable', 'Descripción', 'Saldo Final CB', 'Saldo Final CG', 'Diferencia', 'Estado']
+        st.dataframe(df_res[cols_pantalla], use_container_width=True)
+        
+        # Mantenemos tu alerta de cuentas huérfanas original si aún quedan
+        if not df_huerfanos.empty:
+            st.error(f"⚠️ ATENCIÓN: Quedan {len(df_huerfanos)} cuentas sin configurar.")
+
+        # --- GENERACIÓN DE EXCEL (Tu lógica original) ---
+        excel_data = generar_reporte_cuadre(df_res, df_huerfanos, empresa_sel)
+        st.download_button(label="⬇️ Descargar Reporte Final (Excel)", data=excel_data,
+                         file_name=f"Cuadre_CB_CG_{empresa_sel}.xlsx", use_container_width=True)
 
 def render_ajustes_usd():
     st.title("📉 Ajustes al Balance en USD", anchor=False)
