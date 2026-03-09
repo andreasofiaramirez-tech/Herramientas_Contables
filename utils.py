@@ -2260,49 +2260,66 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
 
         current_row = 7 
         if df_balance_raw is not None and not df_balance_raw.empty:
-            # Buscamos la fila donde empieza la data (fila después de los encabezados)
-            for i in range(len(df_balance_raw)):
+            for r_idx in range(min(6, len(df_balance_raw))):
+                for c_idx in [0, 1]:
+                    val = df_balance_raw.iloc[r_idx, c_idx]
+                    if pd.notna(val): ws1.write(r_idx, c_idx, val, fmt_header_raw)
+
+        # 2. MAPAS PARA VINCULACIÓN
+        mapa_filas_bancos = {
+            str(r['Cuenta']): r['Fila_Referencia'] 
+            for r in df_resumen.to_dict('records') 
+            if r.get('Origen') == 'Bancos' and 'Fila_Referencia' in r
+        }
+        mapa_ajustes_otros = df_resumen.set_index('Cuenta')['Ajuste USD'].to_dict()
+
+        # 3. CABECERAS DE TABLA
+        headers_r7 = ['Cuenta', 'Descripción', 'Saldo Norm', 'Balance Final (Bs)', 'Balance Final ($)', 'AJUSTE ($)', 'SALDO AJUSTADO ($)', 'ACT O PA', 'TASA', 'Bs.']
+        ws1.write_row(6, 0, headers_r7, header_clean)
+
+        current_row = 7 
+        if df_balance_raw is not None and not df_balance_raw.empty:
+            # Detectar columna real de cuenta (Softland suele usar Col B / index 1)
+            start_idx = 0
+            col_cta_idx = 1 # Por defecto en Col B
+            for i, row in df_balance_raw.iterrows():
+                vals = [str(v).upper() for v in row.values]
+                if 'CUENTA' in vals:
+                    start_idx = i + 1
+                    col_cta_idx = vals.index('CUENTA')
+                    break
+            
+            for i in range(start_idx, len(df_balance_raw)):
                 row_raw = df_balance_raw.iloc[i]
-                
-                # --- FILTRO POR COLUMNA B (índice 1) ---
-                # Softland pone la cuenta en la Col B. Si no hay un patrón "numero.numero", saltamos.
-                cuenta_str = str(row_raw[1]).strip() # Columna B
-                
-                if not cuenta_str or not cuenta_str.startswith(('1.', '2.')):
-                    continue
-                if cuenta_str.endswith('.000'): # Ignorar cuentas de grupo
-                    continue
+                try:
+                    # Filtro por Columna de Cuenta (Requerimiento de Columna B)
+                    cuenta_str = str(row_raw[col_cta_idx]).strip()
+                    
+                    if not (cuenta_str.startswith('1.') or cuenta_str.startswith('2.')): continue
+                    if cuenta_str.endswith('.000') or cuenta_str.lower() in ['nan', '0', '0.0']: continue 
                     
                     excel_row = current_row + 1 
-                    saldo_bs = clean_num(row_data[6])
-                    saldo_usd = clean_num(row_data[11])
-
                     ws1.write(current_row, 0, cuenta_str, fmt_text)
-                    ws1.write(current_row, 1, str(row_data[1]).strip(), fmt_text)
+                    ws1.write(current_row, 1, str(row_raw[col_cta_idx + 1]).strip(), fmt_text)
                     ws1.write(current_row, 2, "Deudor" if cuenta_str.startswith('1.') else "Acreedor", fmt_text)
-                    ws1.write_number(current_row, 3, saldo_bs, fmt_money)
-                    ws1.write_number(current_row, 4, saldo_usd, fmt_money)
+                    
+                    # Montos (Bs en index +6, $ en index +11 según Softland)
+                    ws1.write_number(current_row, 3, clean_num(row_raw[col_cta_idx + 5]), fmt_money)
+                    ws1.write_number(current_row, 4, clean_num(row_raw[col_cta_idx + 10]), fmt_money)
 
-                    # --- COLUMNA F: AJUSTE ---
+                    # Sangría corregida para evitar el IndentationError
                     if cuenta_str in mapa_filas_bancos:
-                        ws1.write_formula(current_row, 5, f"='2. Detalle Bancos'!$L${mapa_filas_bancos[cuenta_str]}", fmt_money_bold)
-                        else:
-                            m = mapa_ajustes_otros.get(cuenta_str, 0.0)
-                            ws1.write_number(current_row, 5, m, fmt_money if abs(m) > 0 else fmt_text)
+                        fila_ref = mapa_filas_bancos[cuenta_str]
+                        ws1.write_formula(current_row, 5, f"='2. Detalle Bancos'!$L${fila_ref}", fmt_money_bold)
+                    else:
+                        monto = mapa_ajustes_otros.get(cuenta_str, 0.0)
+                        ws1.write_number(current_row, 5, monto, fmt_money if abs(monto) > 0.001 else fmt_text)
 
-                    # --- COLUMNA G: SALDO AJUSTADO ---
-                            ws1.write_formula(current_row, 6, f"=E{excel_row}+F{excel_row}", fmt_money_bold)
-
-                    # --- COLUMNA H: ACT O PA ---
-                            ws1.write(current_row, 7, "1" if cuenta_str.startswith('1.') else "2", fmt_text)
-
-                    # --- COLUMNA I: TASA ---
-                            ws1.write_formula(current_row, 8, f"=IF(ABS(G{excel_row})>0.01, ABS(D{excel_row}/G{excel_row}), 0)", fmt_rate)
-
-                    # --- COLUMNA J: Bs. (Ajuste $ * Tasa BCV) ---
-                            ws1.write_formula(current_row, 9, f"=F{excel_row}*'2. Detalle Bancos'!$H$1", fmt_money)
-
-                            current_row += 1
+                    ws1.write_formula(current_row, 6, f"=E{excel_row}+F{excel_row}", fmt_money_bold)
+                    ws1.write(current_row, 7, "1" if cuenta_str.startswith('1.') else "2", fmt_text)
+                    ws1.write_formula(current_row, 8, f"=IF(ABS(G{excel_row})>0.01, ABS(D{excel_row}/G{excel_row}), 0)", fmt_rate)
+                    ws1.write_formula(current_row, 9, f"=F{excel_row}*'2. Detalle Bancos'!$H$1", fmt_money)
+                    current_row += 1
                 except: continue
 
         # --- 4. CUADRO DE AUDITORÍA SUPERIOR (I2:J4) ---
