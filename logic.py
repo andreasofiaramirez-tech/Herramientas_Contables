@@ -4691,7 +4691,22 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
         # Usamos engine=None para que detecte si es .xls o .xlsx
         df_bancos_rep = pd.read_excel(f_bancos, header=7, engine=None)
         df_bancos_rep.columns = [str(c).upper().strip() for c in df_bancos_rep.columns]
-    
+
+        # Lista para almacenar las filas limpias que irán a la Hoja 2
+        lista_datos_hoja_2 = []
+        
+        # EXPLICACIÓN: El contador empieza en 5 porque en utils.py los datos de la 
+        # Hoja 2 comienzan en la fila 5 (Excel base 1).
+        fila_excel_hoja_2 = 5 
+
+        for _, row in df_bancos_rep.iterrows():
+            cta_contable = str(row.get('CUENTA CONTABLE', '')).strip()
+            
+            # Filtro de seguridad: Solo procesamos filas con cuenta contable real
+            if not cta_contable or not cta_contable.startswith('1.'):
+                continue
+                
+    # Limpieza robusta de montos (formato venezolano con comas y puntos)
     def limpiar_monto_latino(val):
     # Verificamos si es nulo o si es cualquier tipo de objeto de fecha (Pandas o Python puro)
         if pd.isna(val) or isinstance(val, (pd.Timestamp, datetime.datetime, datetime.date)): 
