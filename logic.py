@@ -4782,15 +4782,24 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
     # Compilación final del asiento con Tasa BCV para el reporte
     df_asiento_final = pd.DataFrame(asientos)
     if not df_asiento_final.empty:
+        # Llenamos descripciones vacías con texto y montos vacíos con 0.0
+        df_asiento_final['Desc'] = df_asiento_final['Desc'].fillna('Ajuste de Valoración')
+        df_asiento_final['Cuenta'] = df_asiento_final['Cuenta'].fillna('S/C')
+        df_asiento_final = df_asiento_final.fillna(0.0) 
+        
+        # Recalculamos montos VES asegurando que no haya errores
         df_asiento_final['Débito VES'] = (df_asiento_final['DebeUSD'] * tasa_bcv).round(2)
         df_asiento_final['Crédito VES'] = (df_asiento_final['HaberUSD'] * tasa_bcv).round(2)
-    
+
+    # Limpiamos también el resumen de ajustes
+    df_res_final = pd.DataFrame(resumen_ajustes).fillna({'Descripción': 'Sin Desc.', 'Ajuste USD': 0.0})
+
     return (
-        pd.DataFrame(resumen_ajustes), # df_res
-        df_bancos_rep,                # df_banc (Ahora devuelve la data, no None)
-        df_asiento_final,             # df_asiento
-        df_balance_raw,               # df_raw (Ahora devuelve la data, no None)
-        {'tasa_bcv': tasa_bcv, 'tasa_corp': tasa_corp} # val_data
+        df_res_final, 
+        df_bancos_rep.fillna(0.0), # df_banc
+        df_asiento_final,          # df_asiento
+        df_balance_raw.fillna(''), # df_raw
+        {'tasa_bcv': tasa_bcv, 'tasa_corp': tasa_corp}
     )
 
 # ------------------------------------------------------------------------------
