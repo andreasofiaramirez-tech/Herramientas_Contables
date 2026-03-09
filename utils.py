@@ -2330,12 +2330,10 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
         ws2 = workbook.add_worksheet('2. Detalle Bancos')
         ws2.hide_gridlines(2)
         
-        # Tasa BCV
         ws2.write(0, 6, "TASA BCV (CIERRE):", workbook.add_format({'bold':True, 'align':'right'}))
         ws2.write_number(0, 7, clean_num(validacion_data.get('tasa_bcv', 0)), fmt_rate)
         
         if df_bancos is not None and not df_bancos.empty:
-            # Escribir encabezados
             ws2.write_row(3, 0, df_bancos.columns, header_clean)
             
             r_idx = 4
@@ -2343,35 +2341,31 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
                 for c_idx, value in enumerate(r_data):
                     col_name = df_bancos.columns[c_idx]
                     
-                    # Formato de Fecha (REGLA 4)
+                    # --- CORRECCIÓN DE FECHA ---
                     if 'FECHA' in col_name:
                         if pd.notna(value):
-                            ws2.write_datetime(r_idx, c_idx, value, fmt_date)
+                            try:
+                                # Convertimos a datetime estándar de Python
+                                d = pd.to_datetime(value).to_pydatetime()
+                                # Usamos write() genérico en lugar de write_datetime()
+                                ws2.write(r_idx, c_idx, d, fmt_date)
+                            except:
+                                ws2.write(r_idx, c_idx, str(value), fmt_text)
                         else:
                             ws2.write(r_idx, c_idx, "", fmt_text)
                     
-                    # Formato de Números
+                    # --- NÚMEROS ---
                     elif isinstance(value, (int, float)):
                         ws2.write_number(r_idx, c_idx, clean_num(value), fmt_money)
                     
-                    # Texto normal
+                    # --- TEXTO ---
                     else:
                         ws2.write(r_idx, c_idx, str(value) if pd.notna(value) else "", fmt_text)
                 r_idx += 1
-
-        # REGLA 1: Configuración de anchos de columna dinámicos y legibles
-        # Ajustamos cada columna según su importancia
-        ws2.set_column('A:A', 18) # Cuenta Contable
-        ws2.set_column('B:B', 40) # Descripción
-        ws2.set_column('C:C', 25) # Nro de Cuenta
-        ws2.set_column('D:D', 15) # Cuenta Bancaria
-        ws2.set_column('E:E', 10) # Código
-        ws2.set_column('F:G', 12) # Fechas
-        ws2.set_column('H:K', 18) # Saldos y Estado
-        # AMPLIAMOS COLUMNA L y M (Movimientos no conciliados)
-        ws2.set_column('L:M', 35) 
-        # COLUMNA DEL AJUSTE
-        ws2.set_column('N:N', 18)
+        
+        ws2.set_column('A:A', 18); ws2.set_column('B:B', 40); ws2.set_column('C:D', 25)
+        ws2.set_column('F:G', 12); ws2.set_column('H:K', 18)
+        ws2.set_column('L:M', 35); ws2.set_column('N:N', 18)
 
         # ==========================================
         # HOJA 3: ASIENTO CONTABLE
