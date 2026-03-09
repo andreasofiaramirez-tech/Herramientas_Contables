@@ -4675,9 +4675,9 @@ def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, 
 
     # --- 1. AJUSTE DE BANCOS (Punto 1) ---
     if f_bancos:
-    # Usamos engine=None para que detecte si es .xls o .xlsx
-    df_bancos_rep = pd.read_excel(f_bancos, header=7, engine=None)
-    df_bancos_rep.columns = [str(c).upper().strip() for c in df_bancos_rep.columns]
+        # Usamos engine=None para que detecte si es .xls o .xlsx
+        df_bancos_rep = pd.read_excel(f_bancos, header=7, engine=None)
+        df_bancos_rep.columns = [str(c).upper().strip() for c in df_bancos_rep.columns]
     
     def limpiar_monto_latino(val):
         if pd.isna(val) or isinstance(val, (pd.Timestamp, datetime.date)): 
