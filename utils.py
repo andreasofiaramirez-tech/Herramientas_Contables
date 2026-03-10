@@ -2301,27 +2301,22 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
         # ==========================================
         # HOJA 2: DETALLE BANCOS
         # ==========================================
-        ws2 = workbook.add_worksheet('2. Detalle Bancos')
-        ws2.hide_gridlines(2)
-        
-        # 1. UBICACIÓN DE TASAS (Columnas O y P - Filas 1 y 2)
         fmt_rate_header = workbook.add_format({'bold':True, 'align':'right', 'border':1, 'bg_color':'#F2F2F2'})
-        ws2.write(0, 14, "TASA BCV (CIERRE):", fmt_rate_header) # Col O
-        ws2.write_number(0, 15, clean_num(validacion_data.get('tasa_bcv', 0)), fmt_rate) # Col P1
-        ws2.write(1, 14, "TASA CORP (REPORTE):", fmt_rate_header) # Col O
-        ws2.write_number(1, 15, clean_num(validacion_data.get('tasa_corp', 0)), fmt_rate) # Col P2
+        ws2.write(0, 14, "TASA BCV (CIERRE):", fmt_rate_header)
+        ws2.write_number(0, 15, clean_num(validacion_data.get('tasa_bcv', 0)), fmt_rate)
+        ws2.write(1, 14, "TASA CORP (REPORTE):", fmt_rate_header)
+        ws2.write_number(1, 15, clean_num(validacion_data.get('tasa_corp', 0)), fmt_rate)
 
         if df_bancos is not None and not df_bancos.empty:
-            # Encabezados de cálculo adicionales
+            # FILTRO DE SEGURIDAD: Aseguramos que no se imprima ninguna columna 'Unnamed'
+            columnas_base = [c for c in df_bancos.columns if 'UNNAMED' not in c.upper()]
             headers_calc = ['SALDO EN LIBROS BS', 'SALDO EN BANCOS BS', 'SALDO EN LIBROS $', 'SALDO EN BANCOS $', 'AJUSTE BS', 'AJUSTE $', 'TASA_CALC', 'VERIFICACION']
             
-            # ESCRIBIMOS LOS ENCABEZADOS: Usamos exactamente las columnas que trae el dataframe
-            columnas_base = list(df_bancos.columns)
+            # ESCRIBIMOS ENCABEZADOS
             ws2.write_row(3, 0, columnas_base + headers_calc, header_clean)
             
-            # ESCRIBIMOS LOS DATOS
+            # ESCRIBIMOS DATOS (Recorriendo solo las columnas base filtradas)
             for r_idx, row_dict in enumerate(df_bancos.to_dict('records'), 4):
-                # Escribimos los valores en el mismo orden que los encabezados
                 for c_idx, col_name in enumerate(columnas_base):
                     value = row_dict[col_name]
                     
@@ -2329,7 +2324,6 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
                         ws2.write_number(r_idx, c_idx, clean_num(value), fmt_money)
                     elif pd.notna(value):
                         try:
-                            # Mantenemos la limpieza de fechas sin hora
                             d = pd.to_datetime(value).to_pydatetime()
                             ws2.write(r_idx, c_idx, d, fmt_date)
                         except:
@@ -2337,8 +2331,9 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
                     else:
                         ws2.write(r_idx, c_idx, "", fmt_text)
 
-                # --- ESCRIBIMOS LAS FÓRMULAS (SIN CAMBIOS DE ÍNDICES) ---
+                # --- FÓRMULAS VIVAS (Referencias fijas sobre la tabla limpia) ---
                 ex_r = r_idx + 1
+                # D=Cta Bancaria, H=Sdo Libros, I=Sdo Bancos, L=Mov No Conc
                 ws2.write_formula(r_idx, 12, f'=IF(ISNUMBER(SEARCH("L",D{ex_r})), H{ex_r}, H{ex_r}*$P$1)', fmt_money)
                 ws2.write_formula(r_idx, 13, f'=IF(ISNUMBER(SEARCH("L",D{ex_r})), I{ex_r}, I{ex_r}*$P$1)', fmt_money)
                 ws2.write_formula(r_idx, 14, f'=IF(ISNUMBER(SEARCH("E",D{ex_r})), H{ex_r}, H{ex_r}/$P$2)', fmt_money)
