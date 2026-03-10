@@ -4754,7 +4754,7 @@ def procesar_ajustes_balance_usd(f_cb, f_cg, f_hab_usd, f_hab_ves, tasa_bcv, tas
             contrapartida = MAPEO_RECLASIFICACION.get(cta, '1.1.3.01.1.001')
             
             # 1. Agregamos al resumen para que aparezca en la Columna F de la Hoja 1
-            resumen_ajustes.append({'Cuenta': cta, 'Origen': 'Naturaleza', 'Ajuste USD': monto_abs, 'Fila_Referencia': None})
+            monto_ajuste.append({'Cuenta': cta, 'Origen': 'Naturaleza', 'Ajuste USD': monto_abs, 'Fila_Referencia': None})
             
             # 2. Generamos el movimiento para el Cargador (Hoja 3)
             # El ajuste siempre es DEUDOR para la cuenta con saldo negativo (para llevarla a 0)
