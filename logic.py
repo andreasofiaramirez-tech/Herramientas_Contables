@@ -4505,9 +4505,13 @@ def extraer_saldos_cg_ajustes(archivo, log_messages):
                 def clean(v):
                     try:
                         if pd.isna(v): return 0.0
-                        val = str(v).replace('.', '').replace(',', '.')
-                        return float(val)
-                    except: return 0.0
+                        def clean(v):
+                            if pd.isna(v): return 0.0
+                            if isinstance(v, (int, float)): return float(v) # Si ya es número, no tocar
+                            # Si es texto, limpiar formato latino
+                            t = str(v).strip().replace('.', '').replace(',', '.')
+                            try: return float(t)
+                            except: return 0.0
 
                 datos_cg[cuenta] = {
                     'VES': clean(fila[6]),  # Columna G
