@@ -2301,6 +2301,9 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
         # ==========================================
         # HOJA 2: DETALLE BANCOS
         # ==========================================
+        ws2 = workbook.add_worksheet('2. Detalle Bancos')
+        ws2.hide_gridlines(2)
+        
         fmt_rate_header = workbook.add_format({'bold':True, 'align':'right', 'border':1, 'bg_color':'#F2F2F2'})
         ws2.write(0, 14, "TASA BCV (CIERRE):", fmt_rate_header)
         ws2.write_number(0, 15, clean_num(validacion_data.get('tasa_bcv', 0)), fmt_rate)
