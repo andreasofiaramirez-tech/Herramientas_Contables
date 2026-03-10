@@ -4485,41 +4485,52 @@ def leer_monto_haberes_pdf(file_pdf):
     return 0.0
 
 def extraer_saldos_cg_ajustes(archivo, log_messages):
+    """
+    Paso 1: Extraer cuentas de detalle (No .000) que inicien con 1 o 2.
+    Lee Cuenta (Col A), Descripción (Col B), Bs (Col G) y $ (Col L).
+    """
     datos_cg = {}
     if not archivo: return datos_cg
+    
     try:
         archivo.seek(0)
         df = pd.read_excel(archivo, header=None)
-        # Radar para inicio de datos
+        
+        # 1. Localizar inicio de datos
         start_row = 0
         for i, row in df.iterrows():
-            if "CUENTA" in [str(x).upper().strip() for x in row.values]:
+            vals = [str(x).upper().strip() for x in row.values]
+            if "CUENTA" in vals:
                 start_row = i + 1
                 break
         
+        # 2. Sub-función de limpieza que NO borra decimales
+        def clean_val_logic(v):
+            if pd.isna(v): return 0.0
+            if isinstance(v, (int, float)): return float(v)
+            # Si es texto, tratamos el formato latino sin destruir el punto decimal de Python
+            t = str(v).strip().replace('.', '').replace(',', '.')
+            try:
+                return float(t)
+            except:
+                return 0.0
+
+        # 3. Procesamiento de filas
         for i in range(start_row, len(df)):
             fila = df.iloc[i]
             cuenta = str(fila[0]).strip()
-            # Paso 1: Activo(1) o Pasivo(2) que no sea cuenta control (.000)
+            
+            # REGLA: Inicia con 1 o 2, tiene puntos y no es cuenta de grupo (.000)
             if (cuenta.startswith('1.') or cuenta.startswith('2.')) and not cuenta.endswith('.000'):
-                def clean(v):
-                    try:
-                        if pd.isna(v): return 0.0
-                        def clean(v):
-                            if pd.isna(v): return 0.0
-                            if isinstance(v, (int, float)): return float(v) # Si ya es número, no tocar
-                            # Si es texto, limpiar formato latino
-                            t = str(v).strip().replace('.', '').replace(',', '.')
-                            try: return float(t)
-                            except: return 0.0
-
+                # Guardamos los montos usando los índices correctos: G=6, L=11
                 datos_cg[cuenta] = {
-                    'VES': clean(fila[6]),  # Columna G
-                    'USD': clean(fila[11]), # Columna L
-                    'descripcion': str(fila[1]).strip() # Columna B
+                    'VES': clean_val_logic(fila[6]),   # Columna G: Balance Final Local
+                    'USD': clean_val_logic(fila[11]),  # Columna L: Balance Final Dólar
+                    'descripcion': str(fila[1]).strip()
                 }
     except Exception as e:
-        log_messages.append(f"Error Balance: {e}")
+        log_messages.append(f"❌ Error en extraer_saldos_cg_ajustes: {str(e)}")
+    
     return datos_cg
 
 def procesar_ajustes_balance_usd(f_cb, f_cg, f_hab_usd, f_hab_ves, tasa_bcv, tasa_corp, empresa, n_asiento, df_manual, log):
