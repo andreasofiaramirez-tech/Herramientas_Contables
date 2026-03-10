@@ -4533,311 +4533,216 @@ MAPEO_SALDOS_CONTRARIOS = {
 }
 
 # 2. FUNCIONES DE LECTURA AUXILIAR
-def leer_saldo_haberes_negativos(file_haberes):
-    """
-    Busca en el PDF de Haberes el monto de 'Total de Saldos Negativos:'.
-    """
-    if not file_haberes: return 0.0
-    
+def leer_monto_haberes_pdf(file_pdf):
+    """Extrae el Total de Saldos Negativos de un PDF de Haberes."""
+    if not file_pdf: return 0.0
     try:
-        with pdfplumber.open(file_haberes) as pdf:
+        import pdfplumber
+        with pdfplumber.open(file_pdf) as pdf:
+            text = ""
             for page in pdf.pages:
-                text = page.extract_text()
-                if not text: continue
-                
-                for line in text.split('\n'):
-                    if "Total de Saldos Negativos:" in line:
-                        # Extraemos la parte numérica después de los dos puntos
-                        partes = line.split(":")
-                        if len(partes) > 1:
-                            monto_str = partes[1].strip()
-                            # Limpieza de formato: "14.355,40" -> 14355.40
-                            monto_str = monto_str.replace('.', '').replace(',', '.')
-                            # Quitamos cualquier otro caracter no numérico (como espacios o $)
-                            monto_str = "".join(c for c in monto_str if c.isdigit() or c == '.')
-                            return abs(float(monto_str))
+                text += page.extract_text()
+            
+            # Buscar el patrón "Total de Saldos Negativos:" seguido de un monto
+            # Formato esperado: -14.355,40 o 14,355.40
+            match = re.search(r"Total de Saldos Negativos:\s*(-?[\d\.,]+)", text)
+            if match:
+                monto_str = match.group(1).replace('.', '').replace(',', '.')
+                # Manejar casos donde el punto era decimal (formato US)
+                if monto_str.count('.') > 1: # Formato mil.mil,dec
+                     parts = match.group(1).replace('.', '').replace(',', '.')
+                     return abs(float(parts))
+                return abs(float(monto_str))
     except Exception as e:
-        print(f"Error leyendo PDF de Haberes: {e}")
-    return 0.0
-
-def leer_saldo_viajes(file_obj, columna_busqueda):
-    """Busca el total en la columna especificada (SALDO $ o SALDO BS)."""
-    try:
-        df = pd.read_excel(file_obj)
-        df.columns = [str(c).strip().upper() for c in df.columns]
-        col_target = next((c for c in df.columns if columna_busqueda in c), None)
-        if col_target:
-            # Intento 1: Buscar fila TOTAL
-            for c_desc in df.columns:
-                fila_total = df[df[c_desc].astype(str).str.upper() == 'TOTAL']
-                if not fila_total.empty:
-                    val = fila_total.iloc[0][col_target]
-                    if isinstance(val, (int, float)): return float(val)
-            # Intento 2: Sumar columna
-            return pd.to_numeric(df[col_target], errors='coerce').sum()
-    except: pass
+        print(f"Error Haberes PDF: {e}")
     return 0.0
 
 def extraer_saldos_cg_ajustes(archivo, log_messages):
     """
-    Función EXCLUSIVA para el módulo de Ajustes al Balance.
-    Lee el Excel del Balance y extrae solo el SALDO FINAL (VES y USD).
-    Soporta doble encabezado y columnas repetidas.
+    Lee el Balance de Comprobación y extrae cuentas de detalle (Paso 1).
+    Busca el código en la Columna A y filtra cuentas que no terminen en 000.
     """
     datos_cg = {}
     nombre_archivo = getattr(archivo, 'name', '').lower()
     
-    # --- PROCESAMIENTO EXCEL (PRIORIDAD) ---
-    if nombre_archivo.endswith('.xlsx') or nombre_archivo.endswith('.xls'):
-        log_messages.append("📗 [Ajustes] Leyendo Balance CG como Excel...")
-        try:
-            # 1. Buscar fila de encabezados
+    try:
+        # --- MODO EXCEL (xlsx, xls) ---
+        if nombre_archivo.endswith(('.xlsx', '.xls')):
             df_raw = pd.read_excel(archivo, header=None)
-            header_idx = None
+            
+            # Buscamos la fila de encabezados (donde diga CUENTA o DESCRIPCION)
+            start_idx = 0
             for i, row in df_raw.head(15).iterrows():
                 row_str = [str(x).upper() for x in row.values]
-                if any("CUENTA" in s for s in row_str) and any("DESCRIPCI" in s for s in row_str):
-                    header_idx = i; break
+                if "CUENTA" in row_str or "DESCRIPCI" in row_str:
+                    start_idx = i + 1
+                    break
             
-            if header_idx is None:
-                log_messages.append("❌ No se encontró encabezado en Balance Excel.")
-                return {}
-
-            # 2. Cargar datos
-            df = pd.read_excel(archivo, header=header_idx)
-            df.columns = [str(c).strip().upper() for c in df.columns]
-            
-            # 3. Identificar columnas por posición (Estrategia Balance Fiscal)
-            # Buscamos columnas que se llamen "BALANCE FINAL"
-            cols_balance = [i for i, c in enumerate(df.columns) if "BALANCE" in c and "FINAL" in c]
-            
-            # Si la estructura es fija según tu imagen:
-            # Col G (index 6) = Balance Final Local
-            # Col L (index 11) = Balance Final Dólar
-            idx_ves = 6
-            idx_usd = 11
-            
-            # Validación dinámica por si acaso
-            if len(cols_balance) >= 2:
-                idx_ves = cols_balance[0] # El primero
-                idx_usd = cols_balance[-1] # El último
-            
-            col_cta = next((c for c in df.columns if 'CUENTA' in c), None)
-            col_desc = next((c for c in df.columns if 'DESCRIPCI' in c), None)
-
-            if col_cta:
-                for _, row in df.iterrows():
-                    cuenta = str(row[col_cta]).strip()
-                    if not (cuenta.startswith('1.') or cuenta.startswith('2.')): continue
-                    
-                    desc = str(row[col_desc]).strip() if col_desc else "Sin Descripción"
-                    
-                    # Helpers
+            # Procesamos filas
+            for i in range(start_idx, len(df_raw)):
+                row = df_raw.iloc[i]
+                cuenta = str(row[0]).strip() # Paso 1: Siempre Columna A
+                
+                # REGLA: Debe empezar con 1 o 2, y NO terminar en .000
+                if re.match(r'^[12]\.', cuenta) and not cuenta.endswith('.000'):
                     def get_val(val):
                         if pd.isna(val): return 0.0
                         if isinstance(val, (int, float)): return float(val)
-                        t = str(val).replace('.', '').replace(',', '.')
-                        try: return float(t)
-                        except: return 0.0
+                        return float(str(val).replace('.', '').replace(',', '.'))
 
-                    # Extraer por índice numérico de columna (iloc) para evitar confusión de nombres
-                    saldo_ves = get_val(row.iloc[idx_ves])
-                    saldo_usd = get_val(row.iloc[idx_usd])
-                    
-                    datos_cg[cuenta] = {'VES': saldo_ves, 'USD': saldo_usd, 'descripcion': desc}
-        except Exception as e:
-            log_messages.append(f"❌ Error leyendo Excel CG para Ajustes: {str(e)}")
+                    datos_cg[cuenta] = {
+                        'VES': get_val(row[6]), # Columna G (Balance Final Bs)
+                        'USD': get_val(row[10]), # Columna K (Balance Final $)
+                        'descripcion': str(row[1]).strip() # Columna B
+                    }
 
-    # --- PROCESAMIENTO PDF (Respaldo) ---
-    elif nombre_archivo.endswith('.pdf'):
-        # Reutilizamos la lógica de extracción de PDF existente pero simplificando la salida
-        # para que coincida con la estructura {'VES': float, 'USD': float}
-        raw_data = extraer_saldos_cg(archivo, log_messages) # Llamamos a la función vieja
-        for cta, info in raw_data.items():
-            # La función vieja devuelve diccionarios complejos {'inicial':x, 'final':y}
-            # Aplanamos la estructura para este módulo
-            s_ves = info['VES']['final'] if isinstance(info['VES'], dict) else info['VES']
-            s_usd = info['USD']['final'] if isinstance(info['USD'], dict) else info['USD']
-            datos_cg[cta] = {'VES': s_ves, 'USD': s_usd, 'descripcion': info['descripcion']}
+        # --- MODO PDF ---
+        elif nombre_archivo.endswith('.pdf'):
+            import pdfplumber
+            with pdfplumber.open(archivo) as pdf:
+                for page in pdf.pages:
+                    text = page.extract_text()
+                    if not text: continue
+                    for line in text.split('\n'):
+                        # Regex para detectar cuenta al inicio (ej: 1.1.2.05.1.108)
+                        match = re.match(r'^([12]\.[\d\.]+)', line.strip())
+                        if match:
+                            cuenta = match.group(1)
+                            # Filtrar cuentas de detalle
+                            if not cuenta.endswith('.000'):
+                                parts = line.split()
+                                # Buscamos montos (los últimos de la línea en el reporte de Softland)
+                                try:
+                                    # En PDF los montos suelen ser los penúltimos (Bs) y últimos ($)
+                                    # Esto puede variar según el layout, pero es una base sólida
+                                    val_ves = float(parts[-5].replace('.', '').replace(',', '.'))
+                                    val_usd = float(parts[-1].replace('.', '').replace(',', '.'))
+                                    
+                                    # Extraer descripción (lo que queda entre cuenta y montos)
+                                    desc = " ".join(parts[1:-8]) 
+                                    
+                                    datos_cg[cuenta] = {'VES': val_ves, 'USD': val_usd, 'descripcion': desc}
+                                except: continue
+                                
+    except Exception as e:
+        log_messages.append(f"❌ Error crítico extrayendo saldos del Balance: {str(e)}")
 
     return datos_cg
 
-def procesar_ajustes_balance_usd(f_bancos, f_balance, f_viajes_me, f_viajes_bs, f_haberes, tasa_bcv, tasa_corp, log):
-    """
-    Versión Optimizada: Ajusta Bancos, Saldos Contrarios, Viajes y Haberes.
-    """
-    log.append("--- INICIANDO CÁLCULO DE AJUSTES (USD) ---")
-    # --- 0. INICIALIZACIÓN DE VARIABLES ---
-    asientos = [] 
-    resumen_ajustes = [] 
-    datos_cg = extraer_saldos_cg_ajustes(f_balance, log) # Función mejorada abajo
-    val_activo_ajuste = 0.0
-    val_pasivo_ajuste = 0.0
-    df_balance_raw = pd.DataFrame() # <-- Aseguramos que sea un DataFrame vacío, no None
-    df_bancos_rep = pd.DataFrame() 
+def procesar_ajustes_balance_usd(f_cb, f_cg, f_hab_usd, f_hab_ves, tasa_bcv, tasa_corp, empresa, n_asiento, df_manual, log):
+    log.append(f"--- Iniciando rediseño de ajustes para {empresa} ---")
+    
+    # --- PASO 1: EXTRAER ACTIVO Y PASIVO DEL BALANCE (COLUMNA A) ---
+    # Extrae solo cuentas de detalle (que no terminan en 000)
+    datos_cg = extraer_saldos_cg_ajustes(f_cg, log) 
+    # Filtro adicional solicitado: Cuentas detalle 1.x y 2.x
+    cuentas_detalle = {k: v for k, v in datos_cg.items() 
+                       if (k.startswith('1') or k.startswith('2')) and not k.endswith('.000')}
 
-    # --- PASO 0: CAPTURA DE BALANCE ORIGINAL ---
-    if f_balance:
-        try:
-            f_balance.seek(0)
-            # Intentamos leer el excel original para la hoja 4 del reporte
-            df_balance_raw = pd.read_excel(f_balance, header=None, engine=None)
-            f_balance.seek(0)
-        except: 
-            df_balance_raw = pd.DataFrame()
+    asientos = []
+    resumen_ajustes = [] # Datos para Hoja 1
+    detalles_bancos = [] # Datos para Hoja 2
 
-    # --- 1. AJUSTE DE BANCOS (Punto 1) ---
-    if f_bancos:
-        # Cargamos el reporte (Se asume que los encabezados reales están en la fila 8, por eso header=7)
-        df_bancos_rep = pd.read_excel(f_bancos, header=7, engine=None)
+    # --- PASO 2: AJUSTE DE BANCOS (LÓGICA L/E) ---
+    df_tesoreria = pd.read_excel(f_cb, header=7) # Asumiendo encabezado en fila 8
+    df_tesoreria.columns = [str(c).upper().strip() for c in df_tesoreria.columns]
+    
+    sum_ajustes_bancos_usd = 0.0
 
-        # 1. ELIMINACIÓN DE COLUMNAS 'UNNAMED' (Limpia la Columna A vacía)
-        df_bancos_rep = df_bancos_rep.loc[:, ~df_bancos_rep.columns.str.contains('^Unnamed', case=False, na=False)]
-
-        # Estandarizamos nombres para el buscador de columnas
-        df_bancos_rep.columns = [str(c).upper().strip() for c in df_bancos_rep.columns]
-
-        lista_datos_hoja_2 = []
-        # EXPLICACIÓN: El contador empieza en 5 porque en el Excel de salida (utils.py),
-        # los encabezados terminan en la fila 4 y los datos empiezan físicamente en la 5.
-        fila_excel_hoja_2 = 5
-
-        for _, row in df_bancos_rep.iterrows():
-            # Extraemos la cuenta y descripción para validación
-            cta_raw = str(row.get('CUENTA CONTABLE', '')).strip()
-            desc_raw = str(row.get('DESCRIPCIÓN', '')).strip().upper()
-
-            # --- FILTRO NUCLEAR ANTI-FILAS ROJAS (FIRMAS Y PIES DE PÁGINA) ---
-            # A. Si la cuenta está vacía, es NaN o es un Cero (0 o 0.0), saltamos.
-            if not cta_raw or cta_raw.lower() in ['nan', '0', '0.0', '0,00', '']:
-                continue
-            # B. Solo procesamos cuentas reales de activos/bancos (que empiecen con 1.)
-            if not cta_raw.startswith('1.'):
-                continue
-            # C. Si la descripción está vacía o contiene palabras de firmas, saltamos.
-            if not desc_raw or desc_raw in ['0', '0.0', 'NAN'] or 'ELABORADO' in desc_raw or 'REVISADO' in desc_raw:
-                continue
-
-            # Función interna de limpieza de montos (formato con comas y puntos)
-            def limpiar_monto_latino(val):
-                if pd.isna(val) or isinstance(val, (pd.Timestamp, datetime.datetime, datetime.date)):
-                    return 0.0
-                if isinstance(val, (int, float)):
-                    return float(val)
-                try:
-                    t = str(val).strip()
-                    # Convierte "1.234,56" -> "1234.56"
-                    if ',' in t and '.' in t:
-                        t = t.replace('.', '').replace(',', '.')
-                    elif ',' in t:
-                        t = t.replace(',', '.')
-                    return float(t)
-                except:
-                    return 0.0
-
-            s_libros = limpiar_monto_latino(row.get('SALDO EN LIBROS'))
-            s_bancos = limpiar_monto_latino(row.get('SALDO EN BANCOS'))
-            dif_bs = s_bancos - s_libros
-
-            # Identificación de Moneda Extranjera para el Ajuste
-            es_me = ".6." in cta_raw or cta_raw.startswith('1.1.1.03')
-            ajuste_usd = dif_bs if es_me else (dif_bs / tasa_corp if tasa_corp > 0 else 0)
-
-            # --- LÓGICA DE TRAZABILIDAD (PARA VINCULAR CON LA HOJA 1) ---
-            if abs(ajuste_usd) > 0.001:
-                val_activo_ajuste += ajuste_usd
-                resumen_ajustes.append({
-                    'Cuenta': cta_raw,
-                    'Descripción': str(row.get('DESCRIPCIÓN', 'Banco')),
-                    'Origen': 'Bancos',
-                    'Ajuste USD': ajuste_usd,
-                    'Fila_Referencia': fila_excel_hoja_2 # Índice exacto para la fórmula en Hoja 1
-                })
-
-                # Preparación de Asiento Contable
-                asientos.append({
-                    'Cuenta': cta_raw,
-                    'Desc': f"Ajuste Conciliación {cta_raw}",
-                    'DebeUSD': ajuste_usd if ajuste_usd > 0 else 0,
-                    'HaberUSD': abs(ajuste_usd) if ajuste_usd < 0 else 0
-                })
-                asientos.append({
-                    'Cuenta': '1.1.3.01.1.001',
-                    'Desc': f"Cruce Ajuste Bancos - {cta_raw}",
-                    'DebeUSD': abs(ajuste_usd) if ajuste_usd < 0 else 0,
-                    'HaberUSD': ajuste_usd if ajuste_usd > 0 else 0
-                })
-
-            # --- PREPARACIÓN DE DATOS PARA LA PESTAÑA DE BANCOS (HOJA 2) ---
-            fila_para_reporte = row.to_dict()
-
-            # Limpieza de fechas para evitar el error de "01/01/1970"
-            for col_fecha in ['FECHA INICIAL', 'FECHA FINAL']:
-                val_f = fila_para_reporte.get(col_fecha)
-                if pd.notna(val_f) and str(val_f).strip() not in ['0', '0.0', '0,00', '']:
-                    try:
-                        # Convertimos a datetime nativo (solo la fecha, sin hora)
-                        fila_para_reporte[col_fecha] = pd.to_datetime(val_f).date()
-                    except:
-                        fila_para_reporte[col_fecha] = None
-                else:
-                    # Si es basura o cero, enviamos None para que Excel lo muestre vacío
-                    fila_para_reporte[col_fecha] = None
-
-            # Agregamos la columna final de Ajuste USD que usará la Hoja 1
-            fila_para_reporte['AJUSTE USD'] = ajuste_usd
-
-            lista_datos_hoja_2.append(fila_para_reporte)
-            fila_excel_hoja_2 += 1 # Mantenemos el contador sincronizado con las filas de Excel
-
-        # Convertimos la lista filtrada al DataFrame que recibirá utils.py
-        df_bancos_final = pd.DataFrame(lista_datos_hoja_2)
-
-    # --- 2. AJUSTE VIAJES Y HABERES (Punto 3 y 4) ---
-    # (Se mantiene lógica de comparación de auxiliares vs balance)
-    if f_viajes_me:
-        saldo_auxiliar_viajes = leer_saldo_viajes(f_viajes_me, "SALDO $")
-        saldo_cg_viajes = datos_cg.get('1.1.4.03.6.002', {}).get('USD', 0.0)
-        adj_viajes = saldo_auxiliar_viajes - saldo_cg_viajes
-        if abs(adj_viajes) > 0.01:
-            asientos.append({'Cuenta': '1.1.4.03.6.002', 'DebeUSD': adj_viajes if adj_viajes > 0 else 0, 'HaberUSD': abs(adj_viajes) if adj_viajes < 0 else 0})
-            asientos.append({'Cuenta': '2.1.2.09.6.900', 'DebeUSD': abs(adj_viajes) if adj_viajes < 0 else 0, 'HaberUSD': adj_viajes if adj_viajes > 0 else 0})
-
-    # --- 3. SALDOS CONTRARIOS (Punto 2) ---
-    log.append("🔄 Reclasificando saldos contrarios...")
-    for cta, data in datos_cg.items():
-        s_usd = data['USD']
-        # Si una cuenta de Activo (1.) tiene saldo negativo en USD, se reclasifica
-        if s_usd < -0.01:
-            contrapartida = MAPEO_SALDOS_CONTRARIOS.get(cta)
-            if contrapartida:
-                monto = abs(s_usd)
-                asientos.append({'Cuenta': cta, 'DebeUSD': monto, 'HaberUSD': 0})
-                asientos.append({'Cuenta': contrapartida, 'DebeUSD': 0, 'HaberUSD': monto})
-                resumen_ajustes.append({'Cuenta': cta, 'Origen': 'Saldo Contrario', 'Ajuste USD': monto})
-
-    # Compilación final del asiento con Tasa BCV para el reporte
-    df_asiento_final = pd.DataFrame(asientos)
-    if not df_asiento_final.empty:
-        # Llenamos descripciones vacías con texto y montos vacíos con 0.0
-        df_asiento_final['Desc'] = df_asiento_final['Desc'].fillna('Ajuste de Valoración')
-        df_asiento_final['Cuenta'] = df_asiento_final['Cuenta'].fillna('S/C')
-        df_asiento_final = df_asiento_final.fillna(0.0) 
+    for idx, row in df_tesoreria.iterrows():
+        cta_c = str(row.get('CUENTA CONTABLE', '')).strip()
+        if not cta_c or cta_c == 'nan' or not cta_c.startswith('1.'): continue
         
-        # Recalculamos montos VES asegurando que no haya errores
-        df_asiento_final['Débito VES'] = (df_asiento_final['DebeUSD'] * tasa_bcv).round(2)
-        df_asiento_final['Crédito VES'] = (df_asiento_final['HaberUSD'] * tasa_bcv).round(2)
+        # Identificar Moneda (L o E)
+        cta_bancaria_str = str(row.get('CUENTA BANCARIA', ''))
+        tipo_moneda = 'L' if 'L' in cta_bancaria_str else 'E'
+        
+        # Valores de tesorería
+        s_libros_orig = float(row.get('SALDO EN LIBROS', 0))
+        s_bancos_orig = float(row.get('SALDO EN BANCOS', 0))
+        mov_no_conc_orig = float(row.get('MOVIMIENTOS EN BANCOS NO CONCILIADOS', 0))
 
-    # Limpiamos también el resumen de ajustes
-    df_res_final = pd.DataFrame(resumen_ajustes).fillna({'Descripción': 'Sin Desc.', 'Ajuste USD': 0.0})
+        # Cálculos Paso 2.1
+        # a, b: Saldo Libros y Bancos BS
+        s_libros_bs = s_libros_orig if tipo_moneda == 'L' else s_libros_orig * tasa_bcv
+        s_bancos_bs = s_bancos_orig if tipo_moneda == 'L' else s_bancos_orig * tasa_bcv
+        
+        # c, d: Saldo Libros y Bancos $
+        s_libros_usd = s_libros_orig / tasa_corp if tipo_moneda == 'L' else s_libros_orig
+        s_bancos_usd = s_bancos_orig / tasa_corp if tipo_moneda == 'L' else s_bancos_orig
+        
+        # e, f: AJUSTE BS y $
+        ajuste_bs = mov_no_conc_orig if tipo_moneda == 'L' else mov_no_conc_orig * tasa_bcv
+        ajuste_usd = mov_no_conc_orig / tasa_corp if tipo_moneda == 'L' else mov_no_conc_orig
+        
+        tasa_calc = ajuste_bs / ajuste_usd if ajuste_usd != 0 else 0
+        verificacion = s_bancos_orig - s_libros_orig - mov_no_conc_orig
 
-    return (
-        df_res_final, 
-        df_bancos_rep.fillna(0.0), # df_banc
-        df_asiento_final,          # df_asiento
-        df_balance_raw.fillna(''), # df_raw
-        {'tasa_bcv': tasa_bcv, 'tasa_corp': tasa_corp}
-    )
+        # Guardar para Hoja 2
+        detalles_bancos.append({
+            **row.to_dict(),
+            'SALDO EN LIBROS BS': s_libros_bs,
+            'SALDO EN BANCOS BS': s_bancos_bs,
+            'SALDO EN LIBROS $': s_libros_usd,
+            'SALDO EN BANCOS $': s_bancos_usd,
+            'AJUSTE BS': ajuste_bs,
+            'AJUSTE $': ajuste_usd,
+            'TASA_CALC': tasa_calc,
+            'VERIFICACION': verificacion
+        })
+
+        # Paso 2.2: Acumular para Hoja 1 y Asiento
+        if abs(ajuste_usd) > 0.001:
+            resumen_ajustes.append({'Cuenta': cta_c, 'Origen': 'Bancos', 'Ajuste USD': ajuste_usd})
+            sum_ajustes_bancos_usd += ajuste_usd
+            # Registro en Asiento: Banco vs Deudores
+            asientos.append({'Cuenta': cta_c, 'Desc': row.get('DESCRIPCIÓN'), 'DebeUSD': ajuste_usd if ajuste_usd > 0 else 0, 'HaberUSD': abs(ajuste_usd) if ajuste_usd < 0 else 0})
+
+    # Paso 2.3: Contrapartida de bancos (Deudores)
+    if abs(sum_ajustes_bancos_usd) > 0.001:
+        asientos.append({
+            'Cuenta': '1.1.3.01.1.001', 
+            'Desc': 'Contrapartida Ajuste Bancos', 
+            'DebeUSD': abs(sum_ajustes_bancos_usd) if sum_ajustes_bancos_usd < 0 else 0, 
+            'HaberUSD': sum_ajustes_bancos_usd if sum_ajustes_bancos_usd > 0 else 0
+        })
+
+    # --- PASO 3: AJUSTE HABERES CLIENTES ---
+    m_hab_ves = leer_monto_haberes_pdf(f_hab_ves)
+    m_hab_usd = leer_monto_haberes_pdf(f_hab_usd)
+    
+    if m_hab_usd > 0:
+        resumen_ajustes.append({'Cuenta': '2.1.2.05.1.108', 'Origen': 'Haberes', 'Ajuste USD': -m_hab_usd})
+        asientos.append({'Cuenta': '2.1.2.05.1.108', 'Desc': 'Haberes de Clientes', 'DebeUSD': 0, 'HaberUSD': m_hab_usd})
+        asientos.append({'Cuenta': '1.1.3.01.1.001', 'Desc': 'Deudores vs Haberes', 'DebeUSD': m_hab_usd, 'HaberUSD': 0})
+
+    # --- PASO 4: NATURALEZA CONTRARIA ---
+    for cta, data in cuentas_detalle.items():
+        s_usd = data['USD']
+        if s_usd < -0.01: # Si es negativo (Naturaleza contraria)
+            monto_adj = abs(s_usd)
+            contrapartida = MAPEO_SALDOS_CONTRARIOS.get(cta, '1.1.3.01.1.001') # Default a Deudores
+            asientos.append({'Cuenta': cta, 'Desc': data['descripcion'], 'DebeUSD': monto_adj, 'HaberUSD': 0})
+            asientos.append({'Cuenta': contrapartida, 'Desc': 'Reclasificacion Naturaleza', 'DebeUSD': 0, 'HaberUSD': monto_adj})
+            resumen_ajustes.append({'Cuenta': cta, 'Origen': 'Naturaleza', 'Ajuste USD': monto_adj})
+
+    # --- PASO EXTRA: AJUSTES MANUALES ---
+    for _, adj in df_manual.iterrows():
+        m_usd = adj['Monto en USD']
+        t_tipo = adj['Tasa de conversión']
+        t_valor = tasa_bcv if t_tipo == "BCV" else tasa_corp
+        asientos.append({'Cuenta': adj['Cuenta a ajustar'], 'Desc': 'Ajuste Manual', 'DebeUSD': m_usd, 'HaberUSD': 0})
+        asientos.append({'Cuenta': adj['Cuenta contrapartida'], 'Desc': 'Contrapartida Manual', 'DebeUSD': 0, 'HaberUSD': m_usd})
+        resumen_ajustes.append({'Cuenta': adj['Cuenta a ajustar'], 'Origen': 'Manual', 'Ajuste USD': m_usd})
+
+    # Preparación final de DataFrames para el reporte
+    df_asiento = pd.DataFrame(asientos)
+    if not df_asiento.empty:
+        # Se asume tasa BCV para la valoración del cargador en Bs.
+        df_asiento['Débito VES'] = (df_asiento['DebeUSD'] * tasa_bcv).round(2)
+        df_asiento['Crédito VES'] = (df_asiento['HaberUSD'] * tasa_bcv).round(2)
+
+    return pd.DataFrame(resumen_ajustes), pd.DataFrame(detalles_bancos), df_asiento, None, {'tasa_bcv': tasa_bcv}
 
 # ------------------------------------------------------------------------------
 # 6.4. AUDITORIA DE COMISIONES (CREACION DE EDUARDO)
