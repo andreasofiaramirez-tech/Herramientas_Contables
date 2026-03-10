@@ -856,41 +856,72 @@ def render_cuadre():
                          file_name=f"Cuadre_CB_CG_{empresa_sel}.xlsx", use_container_width=True)
 
 def render_ajustes_usd():
-    st.title("📉 Ajustes al Balance en USD", anchor=False)
-    
+    st.title("📈 Ajustes al Balance en USD", anchor=False)
+
+    # Inicializar estado para ajustes manuales
+    if 'manual_adjustments' not in st.session_state:
+        st.session_state.manual_adjustments = pd.DataFrame(columns=[
+            'Cuenta a ajustar', 'Cuenta contrapartida', 'Monto en USD', 'Tasa de conversión'
+        ])
+        
+    # Botón Volver
+    if st.button("⬅️ Volver al Inicio", key="back_adj_usd"):
+        set_page('inicio')
+        st.rerun()    
+        
     # Guía Desplegable
     with st.expander("📖 Guía de Uso: Reglas y Archivos"):
         st.markdown(GUIA_AJUSTES_USD) # Asegúrate de haber importado esto al inicio
 
-    # Botón Volver
-    if st.button("⬅️ Volver al Inicio", key="back_adj_usd"):
-        set_page('inicio')
-        st.rerun()
     
     # --- SECCIÓN 1: CARGA DE ARCHIVOS ---
     st.subheader("1. Archivos de Entrada", anchor=False)
     col1, col2 = st.columns(2)
-    
     with col1:
-        f_cb = st.file_uploader("1. Conciliación Tesorería (Excel)", type=['xlsx', 'xls'], key="adj_cb")
-        f_cg = st.file_uploader("2. Balance Comprobación (PDF/Excel)", type=['pdf', 'xlsx', 'xls'], key="adj_cg")
-        f_hab = st.file_uploader("5. Reporte Haberes (PDF)", type=['PDF'], key="adj_hab")
-        
+        f_cg = st.file_uploader("1. Balance de Comprobación (xlsx, xls, pdf)", type=['xlsx', 'xls', 'pdf'], key="adj_cg")
+        f_cb = st.file_uploader("2. Reporte de Tesorería (xlsx, xls)", type=['xlsx', 'xls'], key="adj_cb")
     with col2:
-        f_v_me = st.file_uploader("3. Auxiliar Viajes ME (Excel)", type=['xlsx', 'xls'], key="adj_v_me")
-        f_v_bs = st.file_uploader("4. Auxiliar Viajes Bs (Excel)", type=['xlsx', 'xls'], key="adj_v_bs")
+        f_hab_usd = st.file_uploader("3. Reporte de Haberes USD (pdf)", type=['pdf'], key="adj_hab_usd")
+        f_hab_ves = st.file_uploader("4. Reporte de Haberes VES (pdf)", type=['pdf'], key="adj_hab_ves")
+
+    # --- SECCIÓN 2: AJUSTES MANUALES (Tabla Interactiva) ---
+    st.subheader("2. Ajustes Manuales", anchor=False)
+    with st.expander("📝 Gestionar Ajustes adicionales", expanded=False):
+        # Data editor para agregar/borrar filas
+        edited_df = st.data_editor(
+            st.session_state.manual_adjustments,
+            num_rows="dynamic",
+            column_config={
+                "Tasa de conversión": st.column_config.SelectboxColumn(
+                    options=["BCV", "CORP"],
+                    required=True,
+                ),
+                "Monto en USD": st.column_config.NumberColumn(format="$%.2f")
+            },
+            key="manual_adj_editor",
+            use_container_width=True
+        )
+        st.session_state.manual_adjustments = edited_df
         
-    # --- SECCIÓN 2: PARÁMETROS ---
-    st.subheader("2. Parámetros de Cálculo", anchor=False)
-    c_tasa1, c_tasa2, c_emp = st.columns(3)
-    
-    with c_tasa1:
-        tasa_bcv = st.number_input("Tasa BCV (Cierre)", min_value=0.0001, value=1.0, format="%.4f", key="adj_t_bcv")
-    with c_tasa2:
-        tasa_corp = st.number_input("Tasa CORP (Interna)", min_value=0.0001, value=1.0, format="%.4f", key="adj_t_corp")
-    with c_emp:
-        EMPRESAS = ["FEBECA, C.A", "MAYOR BEVAL, C.A", "PRISMA, C.A", "FEBECA, C.A (QUINCALLA)"]
-        empresa = st.selectbox("Empresa", EMPRESAS, key="adj_empresa")
+    # --- SECCIÓN 3: PARÁMETROS ---
+    st.subheader("3. Parámetros de Cálculo", anchor=False)
+    c1, c2, c3, c4 = st.columns(4)
+    with c1: tasa_bcv = st.number_input("Tasa BCV (Cierre)", min_value=0.01, value=1.0, format="%.4f")
+    with c2: tasa_corp = st.number_input("Tasa CORP (Interna)", min_value=0.01, value=1.0, format="%.4f")
+    with c3: 
+        empresa = st.selectbox("Empresa", ["FEBECA, C.A", "MAYOR BEVAL, C.A", "PRISMA, C.A", "SILLACA, C.A"])
+    with c4: asiento_prefijo = st.text_input("Asiento", value="CG0000")
+
+    if st.button("🚀 Ejecutar Ajustes y Generar Reporte", type="primary", use_container_width=True):
+        if not f_cg or not f_cb:
+            st.error("⚠️ El Balance y el Reporte de Tesorería son obligatorios.")
+        else:
+            log = []
+            try:
+                # Llamada a la nueva lógica rediseñada
+                df_res, df_banc, df_asiento, df_raw, val_data = procesar_ajustes_balance_usd(
+                    f_cb, f_cg, f_hab_usd, f_hab_ves, tasa_bcv, tasa_corp, empresa, asiento_prefijo, edited_df, log
+                )
     
     # --- BOTÓN DE EJECUCIÓN ---
     if st.button("Calcular Ajustes y Asiento", type="primary", use_container_width=True, key="btn_calc_adj"):
@@ -937,6 +968,10 @@ def render_ajustes_usd():
                     
             except Exception as e:
                 mostrar_error_amigable(e, "el Cálculo de Ajustes de Balance")
+
+
+
+
 
 def render_paquete_cc():
     st.title('📦 Herramienta de Análisis de Paquete CC', anchor=False)
