@@ -2312,15 +2312,31 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
         ws2.write_number(1, 15, clean_num(validacion_data.get('tasa_corp', 0)), fmt_rate) # Col P2
 
         if df_bancos is not None and not df_bancos.empty:
-            # Definimos los encabezados de los cálculos que agregaremos a la derecha
-            headers_calc = [
-                'SALDO EN LIBROS BS', 'SALDO EN BANCOS BS', 
-                'SALDO EN LIBROS $', 'SALDO EN BANCOS $', 
-                'AJUSTE BS', 'AJUSTE $', 'TASA_CALC', 'VERIFICACION'
-            ]
+            # Filtramos los encabezados para que no viaje nada de 'Unnamed' al Excel
+            columnas_finales = [c for c in df_bancos.columns if 'UNNAMED' not in c.upper()]
+            headers_calc = ['SALDO EN LIBROS BS', 'SALDO EN BANCOS BS', 'SALDO EN LIBROS $', 'SALDO EN BANCOS $', 'AJUSTE BS', 'AJUSTE $', 'TASA_CALC', 'VERIFICACION']
             
-            # Escribimos los encabezados originales + los nuevos
-            ws2.write_row(3, 0, list(df_bancos.columns) + headers_calc, header_clean)
+            # Escribimos los encabezados limpios
+            ws2.write_row(3, 0, columnas_finales + headers_calc, header_clean)
+            
+            for r_idx, row_dict in enumerate(df_bancos.to_dict('records'), 4):
+                # Usamos una lista limpia de valores para evitar que la Columna A se cuele
+                valores_datos_base = [row_dict[c] for c in columnas_finales]
+                
+                # Escribimos solo los datos de las columnas reales
+                for c_idx, value in enumerate(valores_datos_base):
+                    if isinstance(value, (int, float)):
+                        ws2.write_number(r_idx, c_idx, clean_num(value), fmt_money)
+                    # (Aquí mantienes tu lógica de fechas que ya funciona...)
+                    elif pd.notna(value):
+                        try:
+                            d = pd.to_datetime(value).to_pydatetime()
+                            ws2.write(r_idx, c_idx, d, fmt_date)
+                        except:
+                            ws2.write(r_idx, c_idx, str(value), fmt_text)
+                    else:
+                        ws2.write(r_idx, c_idx, "", fmt_text)
+
             
             # 2. ESCRITURA DE DATOS Y FÓRMULAS
             for r_idx, row_dict in enumerate(df_bancos.to_dict('records'), 4):
