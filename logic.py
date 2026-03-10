@@ -4743,38 +4743,37 @@ def procesar_ajustes_balance_usd(f_cb, f_cg, f_hab_usd, f_hab_ves, tasa_bcv, tas
     ]
 
     # Recorremos el diccionario de saldos que extrajimos en el Paso 1
-    for cta_id, cta_data in datos_balance.items():
+    for cta, data in datos_balance.items():
         # Verificamos si la cuenta debe ser ignorada (por coincidencia exacta o prefijo)
-        es_excl_nat = any(cta_id.startswith(pfx) for pfx in CUENTAS_EXCLUIDAS_NATURALEZA)
+        es_excluida = any(cta.startswith(prefijo) for prefijo in CUENTAS_EXCLUIDAS_NATURALEZA)
         
-        if cta_data['USD'] < -0.01 and not es_excl_nat:
-            val_abs_adj = abs(cta_data['USD'])
+        if data['USD'] < -0.01 and not es_excluida:
+            monto_valor_abs = abs(data['USD'])
             
             # Buscamos su contrapartida en el mapeo, si no existe usamos Deudores
-            contra_id = MAPEO_RECLASIFICACION.get(cta_id, '1.1.3.01.1.001')
+            contrapartida = MAPEO_RECLASIFICACION.get(cta, '1.1.3.01.1.001')
             
             # 1. Agregamos al resumen para que aparezca en la Columna F de la Hoja 1
-            resumen_ajustes.append({
-                'Cuenta': cta_id, 
-                'Origen': 'Naturaleza', 
-                'Ajuste USD': val_abs_adj, 
-                'Fila_Referencia': None
-            })
-            
+            resumen_ajustes.append({'Cuenta': cta, 'Origen': 'Naturaleza', 'Ajuste USD': monto_valor_abs,'Fila_Referencia': None})
             # Ajuste de la cuenta contrapartida
-            resumen_ajustes.append({
-                'Cuenta': contra_id, 
-                'Origen': 'Naturaleza', 
-                'Ajuste USD': -val_abs_adj, 
-                'Fila_Referencia': None
-            })
+            resumen_ajustes.append({'Cuenta': contrapartida, 'Origen': 'Naturaleza', 'Ajuste USD': -monto_valor_abs,'Fila_Referencia': None})
             
             # 2. Generamos el movimiento para el Cargador (Hoja 3)
             # El ajuste siempre es DEUDOR para la cuenta con saldo negativo (para llevarla a 0)
-            asientos.append({'Cuenta': cta_id, 'Desc': f"Adj. Nat: {cta_data['descripcion']}", 'DebeUSD': val_abs_adj, 'HaberUSD': 0})
+            asientos.append({
+                'Cuenta': cta, 
+                'Desc': f"Ajuste Naturaleza: {data['descripcion']}", 
+                'DebeUSD': monto_valor_abs, 
+                'HaberUSD': 0
+            })
             
             # 3. Generamos la contrapartida en el Cargador
-            asientos.append({'Cuenta': contra_id, 'Desc': f"Contrapartida Adj. {cta_id}", 'DebeUSD': 0, 'HaberUSD': val_abs_adj})
+            asientos.append({
+                'Cuenta': contrapartida, 
+                'Desc': f"Contrapartida Ajuste {cta}", 
+                'DebeUSD': 0, 
+                'HaberUSD': monto_valor_abs
+            })
 
     # --- PASO EXTRA: AJUSTES MANUALES ---
     for _, manual in df_manual.iterrows():
