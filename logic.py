@@ -4637,20 +4637,26 @@ def procesar_ajustes_balance_usd(f_cb, f_cg, f_hab_usd, f_hab_ves, tasa_bcv, tas
 
     # Paso 2.3: Contrapartida Bancos (1.1.3.01.1.001)
     if abs(sum_ajustes_bancos_usd) > 0.001:
-        asientos.append({
+        resumen_ajustes.append({
             'Cuenta': '1.1.3.01.1.001',
-            'Desc': 'Contrapartida Ajuste Bancos',
-            'DebeUSD': abs(sum_ajustes_bancos_usd) if sum_ajustes_bancos_usd < 0 else 0,
-            'HaberUSD': sum_ajustes_bancos_usd if sum_ajustes_bancos_usd > 0 else 0
+            'Origen': 'Bancos',
+            'Ajuste USD': -sum_ajustes_bancos_usd, # Signo contrario
+            'Fila_Referencia': None
         })
 
     # --- PASO 3: AJUSTE HABERES ---
     m_hab_usd = leer_monto_haberes_pdf(f_hab_usd)
     if m_hab_usd > 0:
-        # Haberes incrementa (Acreedor), Deudores incrementa (Deudor)
-        resumen_ajustes.append({'Cuenta': '2.1.2.05.1.108', 'Origen': 'Haberes', 'Ajuste USD': -m_hab_usd})
-        asientos.append({'Cuenta': '2.1.2.05.1.108', 'Desc': 'Haberes de Clientes', 'DebeUSD': 0, 'HaberUSD': m_hab_usd})
-        asientos.append({'Cuenta': '1.1.3.01.1.001', 'Desc': 'Deudores vs Haberes', 'DebeUSD': m_hab_usd, 'HaberUSD': 0})
+        resumen_ajustes.append({'Cuenta': '2.1.2.05.1.108', 'Origen': 'Haberes', 'Ajuste USD': -m_hab_usd, 'Fila_Referencia': None})
+        resumen_ajustes.append({
+            'Cuenta': '1.1.3.01.1.001', 
+            'Origen': 'Haberes', 
+            'Ajuste USD': m_hab_usd, 
+            'Fila_Referencia': None
+        })
+    
+    asientos.append({'Cuenta': '2.1.2.05.1.108', 'Desc': 'Haberes de Clientes', 'DebeUSD': 0, 'HaberUSD': m_hab_usd})
+    asientos.append({'Cuenta': '1.1.3.01.1.001', 'Desc': 'Deudores vs Haberes', 'DebeUSD': m_hab_usd, 'HaberUSD': 0})
 
     # --- PASO 4: NATURALEZA CONTRARIA ---
     # (Mapeo de cuentas con saldo final negativo)
@@ -4748,20 +4754,15 @@ def procesar_ajustes_balance_usd(f_cb, f_cg, f_hab_usd, f_hab_ves, tasa_bcv, tas
             contrapartida = MAPEO_RECLASIFICACION.get(cta, '1.1.3.01.1.001')
             
             # 1. Agregamos al resumen para que aparezca en la Columna F de la Hoja 1
-            resumen_ajustes.append({
-                'Cuenta': str(cta).strip(), 
-                'Origen': 'Naturaleza', 
-                'Ajuste USD': float(monto_ajuste),
-                'Fila_Referencia': None # Naturaleza no tiene fila en Hoja 2
-             })
+            resumen_ajustes.append({'Cuenta': cta, 'Origen': 'Naturaleza', 'Ajuste USD': monto_abs, 'Fila_Referencia': None})
             
             # 2. Generamos el movimiento para el Cargador (Hoja 3)
             # El ajuste siempre es DEUDOR para la cuenta con saldo negativo (para llevarla a 0)
-            asientos.append({
-                'Cuenta': cta, 
-                'Desc': f"Ajuste Naturaleza: {data['descripcion']}",
-                'DebeUSD': monto_ajuste,
-                'HaberUSD': 0
+            resumen_ajustes.append({
+                'Cuenta': contrapartida, 
+                'Origen': 'Naturaleza', 
+                'Ajuste USD': -monto_abs, # Signo contrario
+                'Fila_Referencia': None
             })
             
             # 3. Generamos la contrapartida en el Cargador
@@ -4775,10 +4776,17 @@ def procesar_ajustes_balance_usd(f_cb, f_cg, f_hab_usd, f_hab_ves, tasa_bcv, tas
     # --- PASO EXTRA: AJUSTES MANUALES ---
     for _, manual in df_manual.iterrows():
         m_usd = manual['Monto en USD']
+        cta_a = manual['Cuenta a ajustar']
+        cta_c = manual['Cuenta contrapartida']
+    
+        # Cuenta A
+        resumen_ajustes.append({'Cuenta': cta_a, 'Origen': 'Manual', 'Ajuste USD': m_usd, 'Fila_Referencia': None})
+        # Cuenta B (Contrapartida)
+        resumen_ajustes.append({'Cuenta': cta_c, 'Origen': 'Manual', 'Ajuste USD': -m_usd, 'Fila_Referencia': None})
+        
         asientos.append({'Cuenta': manual['Cuenta a ajustar'], 'Desc': 'Ajuste Manual', 'DebeUSD': m_usd, 'HaberUSD': 0})
         asientos.append({'Cuenta': manual['Cuenta contrapartida'], 'Desc': 'Contrapartida Manual', 'DebeUSD': 0, 'HaberUSD': m_usd})
-        resumen_ajustes.append({'Cuenta': manual['Cuenta a ajustar'], 'Origen': 'Manual', 'Ajuste USD': m_usd})
-
+       
     # --- GENERACIÓN DE ASIENTO FINAL ---
     df_asiento = pd.DataFrame(asientos)
     if not df_asiento.empty:
