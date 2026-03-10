@@ -2293,9 +2293,9 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
                     ws1.write_formula(current_row, 5, f"='2. Detalle Bancos'!$R${fila_bco}", fmt_money_bold)
                 else:
                     # Si no es banco, buscamos el MONTO en el mapa de otros ajustes
-                    monto_adj = mapa_otros.get(c_norm, 0.0)
-                    if abs(monto_adj) > 0.001:
-                        ws1.write_number(current_row, 5, monto_adj, fmt_money_bold)
+                    monto_final_adj = mapa_otros.get(c_norm, 0.0)
+                    if abs(monto_final_adj) > 0.001:
+                        ws1.write_number(current_row, 5, monto_final_adj, fmt_money_bold)
                     else:
                         ws1.write_number(current_row, 5, 0.0, fmt_text)
 
