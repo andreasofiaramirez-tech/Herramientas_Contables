@@ -4607,7 +4607,7 @@ def procesar_ajustes_balance_usd(f_cb, f_cg, f_hab_usd, f_hab_ves, tasa_bcv, tas
     sum_ajustes_bancos_usd = 0.0
 
     # --- PASO 2: AJUSTE DE BANCOS (LÓGICA L/E) ---
-    df_tesoreria = pd.read_excel(f_cb, header=7)
+    df_tesoreria = pd.read_excel(f_cb, header=8)
     df_tesoreria.columns = [str(c).upper().strip() for c in df_tesoreria.columns]
     
     # IMPORTANTE: El contador empieza en 5 porque en utils los datos 
@@ -4715,6 +4715,11 @@ def procesar_ajustes_balance_usd(f_cb, f_cg, f_hab_usd, f_hab_ves, tasa_bcv, tas
         df_asiento['Débito VES'] = (df_asiento['DebeUSD'] * tasa_bcv).round(2)
         df_asiento['Crédito VES'] = (df_asiento['HaberUSD'] * tasa_bcv).round(2)
 
+    df_res_final = pd.DataFrame(resumen_ajustes)
+    
+    if 'Fila_Referencia' not in df_res_final.columns:
+        df_res_final['Fila_Referencia'] = None
+        
     return pd.DataFrame(resumen_ajustes), pd.DataFrame(detalles_bancos), df_asiento, df_balance_raw, {'tasa_bcv': tasa_bcv, 'tasa_corp': tasa_corp}
 
 def procesar_ajustes_balance_usd(f_cb, f_cg, f_hab_usd, f_hab_ves, tasa_bcv, tasa_corp, empresa, n_asiento, df_manual, log):
