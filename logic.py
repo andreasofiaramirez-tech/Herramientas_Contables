@@ -4721,10 +4721,11 @@ def procesar_ajustes_balance_usd(f_cb, f_cg, f_hab_usd, f_hab_ves, tasa_bcv, tas
             
             # 1. Agregamos al resumen para que aparezca en la Columna F de la Hoja 1
             resumen_ajustes.append({
-                'Cuenta': cta,
-                'Origen': 'Naturaleza',
-                'Ajuste USD': monto_ajuste
-            })
+                'Cuenta': str(cta).strip(), 
+                'Origen': 'Naturaleza', 
+                'Ajuste USD': float(monto_abs),
+                'Fila_Referencia': None # Naturaleza no tiene fila en Hoja 2
+             })
             
             # 2. Generamos el movimiento para el Cargador (Hoja 3)
             # El ajuste siempre es DEUDOR para la cuenta con saldo negativo (para llevarla a 0)
