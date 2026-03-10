@@ -2237,13 +2237,23 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
                     v = df_balance_raw.iloc[r, c]
                     if pd.notna(v): ws1.write(r, c, v)
 
-        # 2. MAPAS DE AJUSTES
+        # 2. PRE-PROCESAMIENTO DE MAPAS (Normalización Nuclear para evitar Mismatch)
+        def norm_cta(c): return str(c).replace('.', '').strip()
+
+        # Mapa para vínculos a Hoja 2 (Bancos)
         mapa_filas_bancos = {
-            str(r['Cuenta']): r.get('Fila_Referencia') 
+            norm_cta(r['Cuenta']): r['Fila_Referencia'] 
             for r in df_resumen.to_dict('records') 
-            if r.get('Origen') == 'Bancos' and r.get('Fila_Referencia') is not None
+            if r.get('Origen') == 'Bancos' and 'Fila_Referencia' in r
         }
-        mapa_otros = df_resumen.set_index('Cuenta')['Ajuste USD'].to_dict()
+        
+        # Mapa para otros ajustes (Haberes, Naturaleza, Manuales)
+        # Usamos groupby().sum() por si una cuenta tiene varios ajustes, que no se pierda ninguno
+        if not df_resumen.empty:
+            df_resumen['cta_norm'] = df_resumen['Cuenta'].apply(norm_cta)
+            mapa_otros = df_resumen.groupby('cta_norm')['Ajuste USD'].sum().to_dict()
+        else:
+            mapa_otros = {}
 
         # 3. CABECERAS DE LA TABLA
         ws1.write(5, 3, "Moneda Local", header_clean) 
@@ -2253,20 +2263,16 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
 
         current_row = 7 
         if df_balance_raw is not None and not df_balance_raw.empty:
-            # Encontrar el inicio real de datos (Busca "Cuenta" en Columna A)
-            data_start = 0
-            for i, row in df_balance_raw.iterrows():
-                if str(row[0]).strip().upper() == "CUENTA":
-                    data_start = i + 1
-                    break
-            
             for i in range(data_start, len(df_balance_raw)):
                 fila = df_balance_raw.iloc[i]
-                cuenta_str = str(fila[0]).strip()
+                cuenta_raw = str(fila[0]).strip()
                 
-                # REGLA: Solo procesamos Activo (1) y Pasivo (2) de detalle
-                if not (cuenta_str.startswith(('1.', '2.')) and not cuenta_str.endswith('.000')):
+                # Filtro de detalle
+                if not (cuenta_raw.startswith(('1.', '2.')) and not cuenta_raw.endswith('.000')):
                     continue
+                
+                # Normalizamos la cuenta del balance para buscarla en el mapa
+                c_norm = norm_cta(cuenta_raw)
 
                 ex_row = current_row + 1
                 ws1.write(current_row, 0, cuenta_str, fmt_text)
@@ -2276,13 +2282,17 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
                 ws1.write_number(current_row, 4, clean_num(fila[10]), fmt_money) # Dólar
 
                 # COLUMNA AJUSTE ($)
-                if cuenta_str in mapa_filas_bancos:
-                    fila_bco = mapa_filas_bancos[cuenta_str]
-                    # Apuntamos a la Columna R (índice 17) de la Hoja 2 donde está el AJUSTE $
+                if c_norm in mapa_filas_bancos:
+                    # Si es un Banco, ponemos la FÓRMULA que apunta a la Hoja 2 Columna R
+                    fila_bco = mapa_filas_bancos[c_norm]
                     ws1.write_formula(current_row, 5, f"='2. Detalle Bancos'!$R${fila_bco}", fmt_money_bold)
                 else:
-                    m = mapa_otros.get(cuenta_str, 0.0)
-                    ws1.write_number(current_row, 5, m, fmt_money if abs(m) > 0.001 else fmt_text)
+                    # Si no es banco, buscamos el MONTO en el mapa de otros ajustes
+                    monto_adj = mapa_otros.get(c_norm, 0.0)
+                    if abs(monto_adj) > 0.001:
+                        ws1.write_number(current_row, 5, monto_adj, fmt_money_bold)
+                    else:
+                        ws1.write_number(current_row, 5, 0.0, fmt_text)
 
                 ws1.write_formula(current_row, 6, f"=E{ex_row}+F{ex_row}", fmt_money_bold)
                 ws1.write(current_row, 7, "1" if cuenta_str.startswith('1.') else "2", fmt_text)
