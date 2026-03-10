@@ -2274,7 +2274,7 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
         
             for i in range(data_start, len(df_balance_raw)):
                 fila = df_balance_raw.iloc[i]
-                cuenta_raw = str(fila[0]).strip()
+                cuenta_str = str(fila[0]).strip() 
                 
                 # Filtro de detalle
                 if not (cuenta_raw.startswith(('1.', '2.')) and not cuenta_raw.endswith('.000')):
