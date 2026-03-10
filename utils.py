@@ -2327,7 +2327,7 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
                 for c_idx, col_name in enumerate(columnas_base):
                     value = row_dict[col_name]
 
-                    if col_name in ['CUENTA CONTABLE', 'CÓDIGO DE CONCILIACIÓN']:
+                    if col_name in ['CUENTA CONTABLE', 'CÓDIGO DE CONCILIACIÓN', 'NRO. DE CUENTA']:
                         if col_name == 'CÓDIGO DE CONCILIACIÓN' and isinstance(value, (int, float)):
                             # Convertimos a entero para eliminar el .00 (Ej: 31.0 -> 31)
                             value = int(value)
