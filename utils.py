@@ -2341,6 +2341,19 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
                         ws2.write_number(r_idx, c_idx, clean_num(value), fmt_money)
                     else:
                         ws2.write(r_idx, c_idx, str(value) if pd.notna(value) else "", fmt_text)
+
+                # --- NUEVA FILA DE TOTALES AL FINAL DE HOJA 2 ---
+                row_totales = r_idx + 1    # Fila siguiente al último dato (índice base 0)
+                final_data_row = r_idx + 1 # Número de la última fila física en Excel
+            
+                # Escribimos la etiqueta "TOTALES:" en la Columna L (índice 11)
+                ws2.write(row_totales, 11, "TOTALES:", fmt_summary_label)
+            
+                # Fórmula Suma Ajuste BS (Columna Q / índice 16)
+                ws2.write_formula(row_totales, 16, f"=SUM(Q5:Q{final_data_row})", fmt_money_bold)
+            
+                # Fórmula Suma Ajuste $ (Columna R / índice 17)
+                ws2.write_formula(row_totales, 17, f"=SUM(R5:R{final_data_row})", fmt_money_bold)
                         
                 
                 # --- ESCRIBIR FÓRMULAS VIVAS (Inician en Col M / índice 12) ---
