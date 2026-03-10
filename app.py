@@ -49,10 +49,13 @@ from logic import (
     run_conciliation_devoluciones_proveedores,
     run_conciliation_proveedores_costos,
     run_conciliation_cdc_factoring,
+    procesar_ajustes_balance_usd,
+
     # Conciliaciones COFERSA
     run_conciliation_envios_cofersa,
     run_conciliation_fondos_fondos_cofersa,
     run_conciliation_dev_proveedores_cofersa,
+
     # Procesos Fiscales y Auditoría
     run_conciliation_retenciones,
     procesar_calculo_pensiones,
@@ -82,6 +85,7 @@ from utils import (
     generar_cargador_asiento_pensiones,
     generar_reporte_cofersa,
     cargar_datos_cofersa,
+    generar_reporte_ajustes_usd,
     generar_reporte_debito_fiscal,
     generar_hoja_pendientes_dev_cofersa,
     cargar_datos_fondos_cofersa,
