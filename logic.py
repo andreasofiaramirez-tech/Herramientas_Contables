@@ -4607,8 +4607,15 @@ def procesar_ajustes_balance_usd(f_cb, f_cg, f_hab_usd, f_hab_ves, tasa_bcv, tas
     sum_ajustes_bancos_usd = 0.0
 
     # --- PASO 2: AJUSTE DE BANCOS (LÓGICA L/E) ---
-    df_tesoreria = pd.read_excel(f_cb, header=7)    # Leemos el reporte y quitamos la Columna A (Unnamed: 0) y limitamos hasta la Columna M
-    df_tesoreria = df_tesoreria.iloc[:, 1:13]       # Seleccionamos desde la columna 1 (B) hasta la 13 (M) para ignorar basura a los lados
+    df_tesoreria = pd.read_excel(f_cb, header=7, engine=None)    # Leemos el reporte y quitamos la Columna A (Unnamed: 0) y limitamos hasta la Columna M
+    
+    # 1. Eliminamos físicamente cualquier columna que contenga la palabra 'Unnamed'
+    df_tesoreria = df_tesoreria.loc[:, ~df_tesoreria.columns.str.contains('^Unnamed', case=False, na=False)]
+    # 2. Forzamos el recorte de las 12 columnas reales (Desde Cuenta Contable hasta Mov. Bancos)
+    # Esto asegura que la columna A del reporte original desaparezca
+    df_tesoreria = df_tesoreria.iloc[:, 0:12].copy() 
+
+    # Ahora sí normalizamos nombres
     df_tesoreria.columns = [str(c).upper().strip() for c in df_tesoreria.columns]
     
     fila_referencia_excel = 5    # El contador empieza en 5 porque en utils los datos de la Hoja 2 comienzan en la fila 5 (Excel base 1).
