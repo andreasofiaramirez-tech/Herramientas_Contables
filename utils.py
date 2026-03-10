@@ -2238,17 +2238,23 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
                     if pd.notna(v): ws1.write(r, c, v)
 
         # 2. PRE-PROCESAMIENTO DE MAPAS (Normalización Nuclear para evitar Mismatch)
-        def norm_cta(c): return "".join(filter(str.isdigit, str(c)))
+        def norm_cta_func(c): 
+            return "".join(filter(str.isdigit, str(c)))
 
         # Mapa para vínculos a Hoja 2 (Bancos)
-        mapa_filas_bancos = {norm_cta(r['Cuenta']): r.get('Fila_Referencia') for r in df_resumen.to_dict('records') if r.get('Origen') == 'Bancos' and r.get('Fila_Referencia')}
+        mapa_filas_bancos = {
+            norm_cta_func(r['Cuenta']): r.get('Fila_Referencia') 
+            for r in df_resumen.to_dict('records') 
+            if r.get('Origen') == 'Bancos' and r.get('Fila_Referencia')
+        }
         
         # Mapa para otros ajustes (Haberes, Naturaleza, Manuales)
         # Usamos groupby().sum() por si una cuenta tiene varios ajustes, que no se pierda ninguno
         if not df_resumen.empty:
-            # Normalizamos la cuenta para que el match sea perfecto
-            df_resumen['cta_norm'] = df_resumen['Cuenta'].apply(lambda x: "".join(filter(str.isdigit, str(x))))
-            mapa_otros = df_resumen.groupby('cta_norm')['Ajuste USD'].sum().to_dict()
+            # Creamos la columna normalizada de forma segura
+            df_resumen['cta_norm_tmp'] = df_resumen['Cuenta'].apply(norm_cta_func)
+            # Agrupamos y sumamos todos los efectos
+            mapa_otros = df_resumen.groupby('cta_norm_tmp')['Ajuste USD'].sum().to_dict()
         else:
             mapa_otros = {}
 
