@@ -2304,45 +2304,68 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
         ws2 = workbook.add_worksheet('2. Detalle Bancos')
         ws2.hide_gridlines(2)
         
-        # Mostrar las tasas de referencia en la parte superior para auditoría
-        ws2.write(0, 0, "TASA BCV (CIERRE):", workbook.add_format({'bold':True}))
-        ws2.write_number(0, 1, clean_num(validacion_data.get('tasa_bcv', 0)), fmt_rate)
-        ws2.write(1, 0, "TASA CORP (REPORTE):", workbook.add_format({'bold':True}))
-        ws2.write_number(1, 1, clean_num(validacion_data.get('tasa_corp', 0)), fmt_rate)
+        # 1. UBICACIÓN DE TASAS (Columnas O y P - Filas 1 y 2)
+        fmt_rate_header = workbook.add_format({'bold':True, 'align':'right', 'border':1, 'bg_color':'#F2F2F2'})
+        ws2.write(0, 14, "TASA BCV (CIERRE):", fmt_rate_header) # Col O
+        ws2.write_number(0, 15, clean_num(validacion_data.get('tasa_bcv', 0)), fmt_rate) # Col P1
+        ws2.write(1, 14, "TASA CORP (REPORTE):", fmt_rate_header) # Col O
+        ws2.write_number(1, 15, clean_num(validacion_data.get('tasa_corp', 0)), fmt_rate) # Col P2
 
         if df_bancos is not None and not df_bancos.empty:
-            # Escribir los encabezados (Vienen del DataFrame procesado en logic.py)
-            # Incluye desde la data de tesorería hasta los cálculos nuevos (Columna M en adelante)
-            ws2.write_row(3, 0, df_bancos.columns, header_clean)
+            # Definimos los encabezados de los cálculos que agregaremos a la derecha
+            headers_calc = [
+                'SALDO EN LIBROS BS', 'SALDO EN BANCOS BS', 
+                'SALDO EN LIBROS $', 'SALDO EN BANCOS $', 
+                'AJUSTE BS', 'AJUSTE $', 'TASA_CALC', 'VERIFICACION'
+            ]
             
-            r_idx = 4
-            for r_data in df_bancos.itertuples(index=False):
-                for c_idx, value in enumerate(r_data):
-                    col_name = df_bancos.columns[c_idx]
-                    
-                    # 1. Formato para Fechas
-                    if 'FECHA' in col_name:
-                        if pd.notna(value):
-                            try:
-                                d = pd.to_datetime(value).to_pydatetime()
-                                ws2.write(r_idx, c_idx, d, fmt_date)
-                            except:
-                                ws2.write(r_idx, c_idx, str(value), fmt_text)
-                        else:
-                            ws2.write(r_idx, c_idx, "", fmt_text)
-                    
-                    # 2. Formato para la columna TASA calculada (4 decimales)
-                    elif 'TASA' in col_name:
-                        ws2.write_number(r_idx, c_idx, clean_num(value), fmt_rate)
-
-                    # 3. Formato Contable (Moneda) para Saldos, Movimientos y Ajustes
-                    elif any(k in col_name for k in ['SALDO', 'AJUSTE', 'MOVIMIENTO', 'BS', '$']):
+            # Escribimos los encabezados originales + los nuevos
+            ws2.write_row(3, 0, list(df_bancos.columns) + headers_calc, header_clean)
+            
+            # 2. ESCRITURA DE DATOS Y FÓRMULAS
+            for r_idx, row_dict in enumerate(df_bancos.to_dict('records'), 4):
+                # A. Escribir datos base (Lo que viene del reporte de Tesorería)
+                for c_idx, (key, value) in enumerate(row_dict.items()):
+                    if 'FECHA' in key and pd.notna(value):
+                        try:
+                            # Convertimos a datetime nativo para que Excel lo entienda
+                            d = pd.to_datetime(value).to_pydatetime()
+                            ws2.write(r_idx, c_idx, d, fmt_date)
+                        except:
+                            ws2.write(r_idx, c_idx, str(value), fmt_text)
+                    elif isinstance(value, (int, float)):
                         ws2.write_number(r_idx, c_idx, clean_num(value), fmt_money)
-                    
-                    # 4. Texto General (Cuentas, Descripciones, Estado)
                     else:
                         ws2.write(r_idx, c_idx, str(value) if pd.notna(value) else "", fmt_text)
-                r_idx += 1
+                
+                # B. ESCRITURA DE FÓRMULAS (Basadas en el nuevo orden sin Col A)
+                # ex_r es la fila en Excel (r_idx + 1)
+                # Referencias: D=Cta Bancaria(L/E), H=Sdo Libros, I=Sdo Bancos, L=Mov No Conciliados
+                ex_r = r_idx + 1
+                
+                # Saldo Libros BS (Col M - idx 12): Si es L trae H, si no H * Tasa BCV (P1)
+                ws2.write_formula(r_idx, 12, f'=IF(ISNUMBER(SEARCH("L",D{ex_r})), H{ex_r}, H{ex_r}*$P$1)', fmt_money)
+                
+                # Saldo Bancos BS (Col N - idx 13): Si es L trae I, si no I * Tasa BCV (P1)
+                ws2.write_formula(r_idx, 13, f'=IF(ISNUMBER(SEARCH("L",D{ex_r})), I{ex_r}, I{ex_r}*$P$1)', fmt_money)
+                
+                # Saldo Libros $ (Col O - idx 14): Si es E trae H, si no H / Tasa CORP (P2)
+                ws2.write_formula(r_idx, 14, f'=IF(ISNUMBER(SEARCH("E",D{ex_r})), H{ex_r}, H{ex_r}/$P$2)', fmt_money)
+                
+                # Saldo Bancos $ (Col P - idx 15): Si es E trae I, si no I / Tasa CORP (P2)
+                ws2.write_formula(r_idx, 15, f'=IF(ISNUMBER(SEARCH("E",D{ex_r})), I{ex_r}, I{ex_r}/$P$2)', fmt_money)
+                
+                # AJUSTE BS (Col Q - idx 16): Si es L trae L, si no L * Tasa BCV (P1)
+                ws2.write_formula(r_idx, 16, f'=IF(ISNUMBER(SEARCH("L",D{ex_r})), L{ex_r}, L{ex_r}*$P$1)', fmt_money)
+                
+                # AJUSTE $ (Col R - idx 17): Si es E trae L, si no L / Tasa CORP (P2)
+                ws2.write_formula(r_idx, 17, f'=IF(ISNUMBER(SEARCH("E",D{ex_r})), L{ex_r}, L{ex_r}/$P$2)', fmt_money)
+                
+                # TASA_CALC (Col S - idx 18): Ajuste BS / Ajuste $
+                ws2.write_formula(r_idx, 18, f'=IF(R{ex_r}=0, 0, Q{ex_r}/R{ex_r})', fmt_rate)
+                
+                # VERIFICACION (Col T - idx 19): Bancos - Libros - Mov No Conciliados
+                ws2.write_formula(r_idx, 19, f'=I{ex_r}-H{ex_r}-L{ex_r}', fmt_money)
 
         # CONFIGURACIÓN DE ANCHOS
         # Ajustamos anchos para que el contenido sea legible
