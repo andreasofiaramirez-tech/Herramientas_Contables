@@ -4559,75 +4559,139 @@ def leer_monto_haberes_pdf(file_pdf):
 
 def extraer_saldos_cg_ajustes(archivo, log_messages):
     """
-    Lee el Balance de Comprobación y extrae cuentas de detalle (Paso 1).
-    Busca el código en la Columna A y filtra cuentas que no terminen en 000.
+    Paso 1: Extraer cuentas de detalle (No .000) que inicien con 1 o 2.
+    El código se encuentra siempre en la Columna A.
     """
     datos_cg = {}
-    nombre_archivo = getattr(archivo, 'name', '').lower()
+    if not archivo: return datos_cg
     
     try:
-        # --- MODO EXCEL (xlsx, xls) ---
-        if nombre_archivo.endswith(('.xlsx', '.xls')):
-            df_raw = pd.read_excel(archivo, header=None)
+        # Re-leemos el archivo para procesarlo
+        archivo.seek(0)
+        df = pd.read_excel(archivo, header=None)
+        
+        # Encontrar la fila donde comienzan los datos reales
+        start_row = 0
+        for i, row in df.iterrows():
+            if "CUENTA" in [str(x).upper().strip() for x in row.values]:
+                start_row = i + 1
+                break
+        
+        for i in range(start_row, len(df)):
+            fila = df.iloc[i]
+            cuenta = str(fila[0]).strip() # Siempre Columna A
             
-            # Buscamos la fila de encabezados (donde diga CUENTA o DESCRIPCION)
-            start_idx = 0
-            for i, row in df_raw.head(15).iterrows():
-                row_str = [str(x).upper() for x in row.values]
-                if "CUENTA" in row_str or "DESCRIPCI" in row_str:
-                    start_idx = i + 1
-                    break
-            
-            # Procesamos filas
-            for i in range(start_idx, len(df_raw)):
-                row = df_raw.iloc[i]
-                cuenta = str(row[0]).strip() # Paso 1: Siempre Columna A
-                
-                # REGLA: Debe empezar con 1 o 2, y NO terminar en .000
-                if re.match(r'^[12]\.', cuenta) and not cuenta.endswith('.000'):
-                    def get_val(val):
-                        if pd.isna(val): return 0.0
-                        if isinstance(val, (int, float)): return float(val)
-                        return float(str(val).replace('.', '').replace(',', '.'))
+            # Filtro: Inicia con 1 o 2 y NO termina en .000
+            if (cuenta.startswith('1.') or cuenta.startswith('2.')) and not cuenta.endswith('.000'):
+                def clean(v):
+                    try:
+                        if pd.isna(v): return 0.0
+                        if isinstance(v, (int, float)): return float(v)
+                        return float(str(v).replace('.', '').replace(',', '.'))
+                    except: return 0.0
 
-                    datos_cg[cuenta] = {
-                        'VES': get_val(row[6]), # Columna G (Balance Final Bs)
-                        'USD': get_val(row[10]), # Columna K (Balance Final $)
-                        'descripcion': str(row[1]).strip() # Columna B
-                    }
-
-        # --- MODO PDF ---
-        elif nombre_archivo.endswith('.pdf'):
-            import pdfplumber
-            with pdfplumber.open(archivo) as pdf:
-                for page in pdf.pages:
-                    text = page.extract_text()
-                    if not text: continue
-                    for line in text.split('\n'):
-                        # Regex para detectar cuenta al inicio (ej: 1.1.2.05.1.108)
-                        match = re.match(r'^([12]\.[\d\.]+)', line.strip())
-                        if match:
-                            cuenta = match.group(1)
-                            # Filtrar cuentas de detalle
-                            if not cuenta.endswith('.000'):
-                                parts = line.split()
-                                # Buscamos montos (los últimos de la línea en el reporte de Softland)
-                                try:
-                                    # En PDF los montos suelen ser los penúltimos (Bs) y últimos ($)
-                                    # Esto puede variar según el layout, pero es una base sólida
-                                    val_ves = float(parts[-5].replace('.', '').replace(',', '.'))
-                                    val_usd = float(parts[-1].replace('.', '').replace(',', '.'))
-                                    
-                                    # Extraer descripción (lo que queda entre cuenta y montos)
-                                    desc = " ".join(parts[1:-8]) 
-                                    
-                                    datos_cg[cuenta] = {'VES': val_ves, 'USD': val_usd, 'descripcion': desc}
-                                except: continue
-                                
+                datos_cg[cuenta] = {
+                    'VES': clean(fila[6]),  # Columna G (Local)
+                    'USD': clean(fila[10]), # Columna K (Dólar)
+                    'descripcion': str(fila[1]).strip() # Columna B
+                }
     except Exception as e:
-        log_messages.append(f"❌ Error crítico extrayendo saldos del Balance: {str(e)}")
-
+        log_messages.append(f"Error extrayendo Balance: {e}")
     return datos_cg
+
+def procesar_ajustes_balance_usd(f_cb, f_cg, f_hab_usd, f_hab_ves, tasa_bcv, tasa_corp, empresa, n_asiento, df_manual, log):
+    log.append(f"--- Ejecutando Ajustes USD para {empresa} ---")
+    
+    # IMPORTANTE: Guardamos el Balance Raw al inicio para no perderlo
+    f_cg.seek(0)
+    df_balance_original = pd.read_excel(f_cg, header=None)
+    
+    # Paso 1: Extraer saldos
+    datos_balance = extraer_saldos_cg_ajustes(f_cg, log)
+    
+    asientos = []
+    resumen_ajustes = []
+    detalles_bancos = []
+    sum_ajustes_bancos_usd = 0.0
+
+    # --- PASO 2: AJUSTE DE BANCOS (LÓGICA L/E) ---
+    df_tesoreria = pd.read_excel(f_cb, header=7)
+    df_tesoreria.columns = [str(c).upper().strip() for c in df_tesoreria.columns]
+    
+    # Contador para trazabilidad en utils (Empieza en 5 por el diseño de Hoja 2)
+    fila_excel_hoja_2 = 5
+
+    for _, row in df_tesoreria.iterrows():
+        cta_c = str(row.get('CUENTA CONTABLE', '')).strip()
+        # Filtro: Solo procesar cuentas de activos que no sean cero
+        if not cta_c or cta_c in ['nan', '0', '0.0'] or not cta_c.startswith('1.'): 
+            continue
+        
+        # Lógica bimonetaria L/E
+        cta_bancaria_str = str(row.get('CUENTA BANCARIA', ''))
+        tipo = 'L' if 'L' in cta_bancaria_str.upper() else 'E'
+        
+        mov_bco_no_conc = float(row.get('MOVIMIENTOS EN BANCOS NO CONCILIADOS', 0))
+        s_libros = float(row.get('SALDO EN LIBROS', 0))
+        s_bancos = float(row.get('SALDO EN BANCOS', 0))
+
+        # Cálculos Paso 2.1
+        sl_bs = s_libros if tipo == 'L' else s_libros * tasa_bcv
+        sb_bs = s_bancos if tipo == 'L' else s_bancos * tasa_bcv
+        sl_usd = s_libros / tasa_corp if tipo == 'L' else s_libros
+        sb_usd = s_bancos / tasa_corp if tipo == 'L' else s_bancos
+        
+        adj_bs = mov_bco_no_conc if tipo == 'L' else mov_bco_no_conc * tasa_bcv
+        adj_usd = mov_bco_no_conc / tasa_corp if tipo == 'L' else mov_bco_no_conc
+        
+        # Registro para Hoja 2 (Mantenemos nombres de columnas específicos para el reporte)
+        fila_repo = row.to_dict()
+        fila_repo.update({
+            'SALDO EN LIBROS BS': sl_bs, 'SALDO EN BANCOS BS': sb_bs,
+            'SALDO EN LIBROS $': sl_usd, 'SALDO EN BANCOS $': sb_usd,
+            'AJUSTE BS': adj_bs, 'AJUSTE $': adj_usd,
+            'TASA_CALC': adj_bs / adj_usd if adj_usd != 0 else 0,
+            'VERIF': s_bancos - s_libros - mov_bco_no_conc
+        })
+        detalles_bancos.append(fila_repo)
+
+        if abs(adj_usd) > 0.001:
+            resumen_ajustes.append({
+                'Cuenta': cta_c, 'Origen': 'Bancos', 'Ajuste USD': adj_usd, 'Fila_Referencia': fila_excel_hoja_2
+            })
+            sum_ajustes_bancos_usd += adj_usd
+            asientos.append({'Cuenta': cta_c, 'Desc': str(row.get('DESCRIPCIÓN')), 'DebeUSD': adj_usd if adj_usd > 0 else 0, 'HaberUSD': abs(adj_usd) if adj_usd < 0 else 0})
+        
+        fila_excel_hoja_2 += 1
+
+    # Contrapartida Bancos
+    if abs(sum_ajustes_bancos_usd) > 0.001:
+        asientos.append({'Cuenta': '1.1.3.01.1.001', 'Desc': 'Contrapartida Bancos', 'DebeUSD': abs(sum_ajustes_bancos_usd) if sum_ajustes_bancos_usd < 0 else 0, 'HaberUSD': sum_ajustes_bancos_usd if sum_ajustes_bancos_usd > 0 else 0})
+
+    # --- PASO 3: HABERES ---
+    m_hab_usd = leer_monto_haberes_pdf(f_hab_usd) # Función PDF ya definida
+    if m_hab_usd > 0:
+        resumen_ajustes.append({'Cuenta': '2.1.2.05.1.108', 'Origen': 'Haberes', 'Ajuste USD': -m_hab_usd})
+        asientos.append({'Cuenta': '2.1.2.05.1.108', 'Desc': 'Ajuste Haberes', 'DebeUSD': 0, 'HaberUSD': m_hab_usd})
+        asientos.append({'Cuenta': '1.1.3.01.1.001', 'Desc': 'Deudores vs Haberes', 'DebeUSD': m_hab_usd, 'HaberUSD': 0})
+
+    # --- PASO 4: NATURALEZA CONTRARIA ---
+    # Usamos el mapeo que definimos en pasos anteriores
+    for cta, data in datos_balance.items():
+        if data['USD'] < -0.01:
+            monto = abs(data['USD'])
+            asientos.append({'Cuenta': cta, 'Desc': data['descripcion'], 'DebeUSD': monto, 'HaberUSD': 0})
+            asientos.append({'Cuenta': '1.1.3.01.1.001', 'Desc': 'Ajuste Naturaleza', 'DebeUSD': 0, 'HaberUSD': monto})
+            resumen_ajustes.append({'Cuenta': cta, 'Origen': 'Naturaleza', 'Ajuste USD': monto})
+
+    # --- FINALIZACIÓN ---
+    df_asiento = pd.DataFrame(asientos)
+    if not df_asiento.empty:
+        df_asiento['Débito VES'] = (df_asiento['DebeUSD'] * tasa_bcv).round(2)
+        df_asiento['Crédito VES'] = (df_asiento['HaberUSD'] * tasa_bcv).round(2)
+
+    # IMPORTANTE: Enviamos el df_balance_original (el que leímos en el Paso 0)
+    return pd.DataFrame(resumen_ajustes), pd.DataFrame(detalles_bancos), df_asiento, df_balance_original, {'tasa_bcv': tasa_bcv, 'tasa_corp': tasa_corp}
 
 def procesar_ajustes_balance_usd(f_cb, f_cg, f_hab_usd, f_hab_ves, tasa_bcv, tasa_corp, empresa, n_asiento, df_manual, log):
     log.append(f"--- Iniciando rediseño de ajustes para {empresa} ---")
