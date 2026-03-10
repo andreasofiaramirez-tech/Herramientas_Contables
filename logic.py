@@ -4607,18 +4607,17 @@ def procesar_ajustes_balance_usd(f_cb, f_cg, f_hab_usd, f_hab_ves, tasa_bcv, tas
     sum_ajustes_bancos_usd = 0.0
 
     # --- PASO 2: AJUSTE DE BANCOS (LÓGICA L/E) ---
-    df_tesoreria = pd.read_excel(f_cb, header=8)
+    df_tesoreria = pd.read_excel(f_cb, header=7)    # Leemos el reporte y quitamos la Columna A (Unnamed: 0) y limitamos hasta la Columna M
+    df_tesoreria = df_tesoreria.iloc[:, 1:13]       # Seleccionamos desde la columna 1 (B) hasta la 13 (M) para ignorar basura a los lados
     df_tesoreria.columns = [str(c).upper().strip() for c in df_tesoreria.columns]
     
-    # IMPORTANTE: El contador empieza en 5 porque en utils los datos 
-    # de la Hoja 2 comienzan en la fila 5 (Excel base 1).
-    fila_referencia_excel = 5 
+    fila_referencia_excel = 5    # El contador empieza en 5 porque en utils los datos de la Hoja 2 comienzan en la fila 5 (Excel base 1).
 
     for _, row in df_tesoreria.iterrows():
         cta_c = str(row.get('CUENTA CONTABLE', '')).strip()
         if not cta_c.startswith('1.'): continue
         
-        # Identificar Moneda (Paso 2.1)
+        # Identificar Moneda (L o E) desde la columna CUENTA BANCARIA
         cta_bancaria = str(row.get('CUENTA BANCARIA', '')).upper()
         es_local = 'L' in cta_bancaria
         
