@@ -2268,7 +2268,7 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
                 if not (cuenta_str.startswith(('1.', '2.')) and not cuenta_str.endswith('.000')):
                     continue
 
-                ex_row = current_row + 1 
+                ex_row = current_row + 1
                 ws1.write(current_row, 0, cuenta_str, fmt_text)
                 ws1.write(current_row, 1, str(fila[1]).strip(), fmt_text) # Descripción
                 ws1.write(current_row, 2, str(fila[2]).strip(), fmt_text) # Saldo Normal
@@ -2277,15 +2277,17 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
 
                 # COLUMNA AJUSTE ($)
                 if cuenta_str in mapa_filas_bancos:
-                    ws1.write_formula(current_row, 8, f"=IF(ABS(G{ex_row})>0.01, ABS(D{ex_row}/G{ex_row}), 0)", fmt_rate)
+                    fila_bco = mapa_filas_bancos[cuenta_str]
+                    # Apuntamos a la Columna R (índice 17) de la Hoja 2 donde está el AJUSTE $
+                    ws1.write_formula(current_row, 5, f"='2. Detalle Bancos'!$R${fila_bco}", fmt_money_bold)
                 else:
                     m = mapa_otros.get(cuenta_str, 0.0)
-                    ws1.write_number(current_row, 5, m, fmt_money if abs(m) > 0 else fmt_text)
+                    ws1.write_number(current_row, 5, m, fmt_money if abs(m) > 0.001 else fmt_text)
 
                 ws1.write_formula(current_row, 6, f"=E{ex_row}+F{ex_row}", fmt_money_bold)
                 ws1.write(current_row, 7, "1" if cuenta_str.startswith('1.') else "2", fmt_text)
-                ws1.write_formula(current_row, 8, f"=IF(ABS(G{ex_row})>0.01, ABS(D{excel_row}/G{excel_row}), 0)", fmt_rate)
-                ws1.write_formula(current_row, 9, f"=F{ex_row}*'2. Detalle Bancos'!$H$1", fmt_money)
+                ws1.write_formula(current_row, 8, f"=IF(ABS(G{ex_row})>0.01, ABS(D{ex_row}/G{ex_row}), 0)", fmt_rate)
+                ws1.write_formula(current_row, 9, f"=F{ex_row}*'2. Detalle Bancos'!$P$1", fmt_money)
                 current_row += 1
 
         # 4. CUADRO DE CONTROL SUPERIOR
