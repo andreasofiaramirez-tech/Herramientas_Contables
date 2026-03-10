@@ -2281,7 +2281,7 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
                     continue
                 
                 # Normalizamos la cuenta del balance para buscarla en el mapa
-                c_norm = norm_cta(cuenta_raw)
+                c_norm = norm_cta(cuenta_str)
 
                 ex_row = current_row + 1
                 ws1.write(current_row, 0, cuenta_str, fmt_text)
