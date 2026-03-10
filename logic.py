@@ -4592,98 +4592,130 @@ def extraer_saldos_cg_ajustes(archivo, log_messages):
     return datos_cg
 
 def procesar_ajustes_balance_usd(f_cb, f_cg, f_hab_usd, f_hab_ves, tasa_bcv, tasa_corp, empresa, n_asiento, df_manual, log):
-    log.append(f"--- Ejecutando Ajustes USD para {empresa} ---")
+    log.append(f"--- Iniciando Procesamiento Bimonetario: {empresa} ---")
     
-    # IMPORTANTE: Guardamos el Balance Raw al inicio para no perderlo
+    # Conservar el Balance original para los encabezados de la Hoja 1
     f_cg.seek(0)
-    df_balance_original = pd.read_excel(f_cg, header=None)
+    df_balance_raw = pd.read_excel(f_cg, header=None)
     
-    # Paso 1: Extraer saldos
+    # Datos del balance para naturaleza contraria
     datos_balance = extraer_saldos_cg_ajustes(f_cg, log)
     
-    asientos = []
     resumen_ajustes = []
     detalles_bancos = []
+    asientos = []
     sum_ajustes_bancos_usd = 0.0
 
     # --- PASO 2: AJUSTE DE BANCOS (LÓGICA L/E) ---
     df_tesoreria = pd.read_excel(f_cb, header=7)
     df_tesoreria.columns = [str(c).upper().strip() for c in df_tesoreria.columns]
     
-    # Contador para trazabilidad en utils (Empieza en 5 por el diseño de Hoja 2)
-    fila_excel_hoja_2 = 5
+    # IMPORTANTE: El contador empieza en 5 porque en utils los datos 
+    # de la Hoja 2 comienzan en la fila 5 (Excel base 1).
+    fila_referencia_excel = 5 
 
     for _, row in df_tesoreria.iterrows():
         cta_c = str(row.get('CUENTA CONTABLE', '')).strip()
-        # Filtro: Solo procesar cuentas de activos que no sean cero
-        if not cta_c or cta_c in ['nan', '0', '0.0'] or not cta_c.startswith('1.'): 
-            continue
+        if not cta_c.startswith('1.'): continue
         
-        # Lógica bimonetaria L/E
-        cta_bancaria_str = str(row.get('CUENTA BANCARIA', ''))
-        tipo = 'L' if 'L' in cta_bancaria_str.upper() else 'E'
+        # Identificar Moneda (Paso 2.1)
+        cta_bancaria = str(row.get('CUENTA BANCARIA', '')).upper()
+        es_local = 'L' in cta_bancaria
         
-        mov_bco_no_conc = float(row.get('MOVIMIENTOS EN BANCOS NO CONCILIADOS', 0))
-        s_libros = float(row.get('SALDO EN LIBROS', 0))
-        s_bancos = float(row.get('SALDO EN BANCOS', 0))
+        # Valores base del reporte
+        s_libros_rep = float(row.get('SALDO EN LIBROS', 0))
+        s_bancos_rep = float(row.get('SALDO EN BANCOS', 0))
+        mov_no_conc = float(row.get('MOVIMIENTOS EN BANCOS NO CONCILIADOS', 0))
 
-        # Cálculos Paso 2.1
-        sl_bs = s_libros if tipo == 'L' else s_libros * tasa_bcv
-        sb_bs = s_bancos if tipo == 'L' else s_bancos * tasa_bcv
-        sl_usd = s_libros / tasa_corp if tipo == 'L' else s_libros
-        sb_usd = s_bancos / tasa_corp if tipo == 'L' else s_bancos
+        # --- CÁLCULOS BIMONETARIOS ---
+        # a, b: Saldo en Bs
+        sl_bs = s_libros_rep if es_local else s_libros_rep * tasa_bcv
+        sb_bs = s_bancos_rep if es_local else s_bancos_rep * tasa_bcv
+        # c, d: Saldo en $
+        sl_usd = s_libros_rep / tasa_corp if es_local else s_libros_rep
+        sb_usd = s_bancos_rep / tasa_corp if es_local else s_bancos_rep
+        # e, f: Ajustes
+        adj_bs = mov_no_conc if es_local else mov_no_conc * tasa_bcv
+        adj_usd = mov_no_conc / tasa_corp if es_local else mov_no_conc
         
-        adj_bs = mov_bco_no_conc if tipo == 'L' else mov_bco_no_conc * tasa_bcv
-        adj_usd = mov_bco_no_conc / tasa_corp if tipo == 'L' else mov_bco_no_conc
-        
-        # Registro para Hoja 2 (Mantenemos nombres de columnas específicos para el reporte)
-        fila_repo = row.to_dict()
-        fila_repo.update({
-            'SALDO EN LIBROS BS': sl_bs, 'SALDO EN BANCOS BS': sb_bs,
-            'SALDO EN LIBROS $': sl_usd, 'SALDO EN BANCOS $': sb_usd,
-            'AJUSTE BS': adj_bs, 'AJUSTE $': adj_usd,
+        # h: Verificación
+        verificacion = s_bancos_rep - s_libros_rep - mov_no_conc
+
+        # Construir fila para Hoja 2 con todas las columnas solicitadas
+        fila_full = row.to_dict()
+        fila_full.update({
+            'SALDO EN LIBROS BS': sl_bs,
+            'SALDO EN BANCOS BS': sb_bs,
+            'SALDO EN LIBROS $': sl_usd,
+            'SALDO EN BANCOS $': sb_usd,
+            'AJUSTE BS': adj_bs,
+            'AJUSTE $': adj_usd,
             'TASA_CALC': adj_bs / adj_usd if adj_usd != 0 else 0,
-            'VERIF': s_bancos - s_libros - mov_bco_no_conc
+            'VERIFICACION': verificacion
         })
-        detalles_bancos.append(fila_repo)
+        detalles_bancos.append(fila_full)
 
+        # Paso 2.2: Trasladar ajuste a Hoja 1 (Aquí incluimos la Fila_Referencia)
         if abs(adj_usd) > 0.001:
             resumen_ajustes.append({
-                'Cuenta': cta_c, 'Origen': 'Bancos', 'Ajuste USD': adj_usd, 'Fila_Referencia': fila_excel_hoja_2
+                'Cuenta': cta_c,
+                'Origen': 'Bancos',
+                'Ajuste USD': adj_usd,
+                'Fila_Referencia': fila_referencia_excel # <-- ESTO CORRIGE EL KEYERROR
             })
             sum_ajustes_bancos_usd += adj_usd
-            asientos.append({'Cuenta': cta_c, 'Desc': str(row.get('DESCRIPCIÓN')), 'DebeUSD': adj_usd if adj_usd > 0 else 0, 'HaberUSD': abs(adj_usd) if adj_usd < 0 else 0})
+            # Preparar Asiento (Deudor si aumenta, Acreedor si disminuye)
+            asientos.append({
+                'Cuenta': cta_c, 
+                'Desc': str(row.get('DESCRIPCIÓN')),
+                'DebeUSD': adj_usd if adj_usd > 0 else 0,
+                'HaberUSD': abs(adj_usd) if adj_usd < 0 else 0
+            })
         
-        fila_excel_hoja_2 += 1
+        fila_referencia_excel += 1 # Aumentar para el siguiente banco
 
-    # Contrapartida Bancos
+    # Paso 2.3: Contrapartida Bancos (1.1.3.01.1.001)
     if abs(sum_ajustes_bancos_usd) > 0.001:
-        asientos.append({'Cuenta': '1.1.3.01.1.001', 'Desc': 'Contrapartida Bancos', 'DebeUSD': abs(sum_ajustes_bancos_usd) if sum_ajustes_bancos_usd < 0 else 0, 'HaberUSD': sum_ajustes_bancos_usd if sum_ajustes_bancos_usd > 0 else 0})
+        asientos.append({
+            'Cuenta': '1.1.3.01.1.001',
+            'Desc': 'Contrapartida Ajuste Bancos',
+            'DebeUSD': abs(sum_ajustes_bancos_usd) if sum_ajustes_bancos_usd < 0 else 0,
+            'HaberUSD': sum_ajustes_bancos_usd if sum_ajustes_bancos_usd > 0 else 0
+        })
 
-    # --- PASO 3: HABERES ---
-    m_hab_usd = leer_monto_haberes_pdf(f_hab_usd) # Función PDF ya definida
+    # --- PASO 3: AJUSTE HABERES ---
+    m_hab_usd = leer_monto_haberes_pdf(f_hab_usd)
     if m_hab_usd > 0:
+        # Haberes incrementa (Acreedor), Deudores incrementa (Deudor)
         resumen_ajustes.append({'Cuenta': '2.1.2.05.1.108', 'Origen': 'Haberes', 'Ajuste USD': -m_hab_usd})
-        asientos.append({'Cuenta': '2.1.2.05.1.108', 'Desc': 'Ajuste Haberes', 'DebeUSD': 0, 'HaberUSD': m_hab_usd})
+        asientos.append({'Cuenta': '2.1.2.05.1.108', 'Desc': 'Haberes de Clientes', 'DebeUSD': 0, 'HaberUSD': m_hab_usd})
         asientos.append({'Cuenta': '1.1.3.01.1.001', 'Desc': 'Deudores vs Haberes', 'DebeUSD': m_hab_usd, 'HaberUSD': 0})
 
     # --- PASO 4: NATURALEZA CONTRARIA ---
-    # Usamos el mapeo que definimos en pasos anteriores
+    # (Mapeo de cuentas con saldo final negativo)
     for cta, data in datos_balance.items():
         if data['USD'] < -0.01:
-            monto = abs(data['USD'])
-            asientos.append({'Cuenta': cta, 'Desc': data['descripcion'], 'DebeUSD': monto, 'HaberUSD': 0})
-            asientos.append({'Cuenta': '1.1.3.01.1.001', 'Desc': 'Ajuste Naturaleza', 'DebeUSD': 0, 'HaberUSD': monto})
-            resumen_ajustes.append({'Cuenta': cta, 'Origen': 'Naturaleza', 'Ajuste USD': monto})
+            monto_abs = abs(data['USD'])
+            # Buscamos contrapartida o usamos Deudores por defecto
+            contra = '1.1.3.01.1.001' # Podrías usar un diccionario de mapeo aquí
+            asientos.append({'Cuenta': cta, 'Desc': data['descripcion'], 'DebeUSD': monto_abs, 'HaberUSD': 0})
+            asientos.append({'Cuenta': contra, 'Desc': 'Ajuste Naturaleza Contraria', 'DebeUSD': 0, 'HaberUSD': monto_abs})
+            resumen_ajustes.append({'Cuenta': cta, 'Origen': 'Naturaleza', 'Ajuste USD': monto_abs})
 
-    # --- FINALIZACIÓN ---
+    # --- PASO EXTRA: AJUSTES MANUALES ---
+    for _, manual in df_manual.iterrows():
+        m_usd = manual['Monto en USD']
+        asientos.append({'Cuenta': manual['Cuenta a ajustar'], 'Desc': 'Ajuste Manual', 'DebeUSD': m_usd, 'HaberUSD': 0})
+        asientos.append({'Cuenta': manual['Cuenta contrapartida'], 'Desc': 'Contrapartida Manual', 'DebeUSD': 0, 'HaberUSD': m_usd})
+        resumen_ajustes.append({'Cuenta': manual['Cuenta a ajustar'], 'Origen': 'Manual', 'Ajuste USD': m_usd})
+
+    # --- GENERACIÓN DE ASIENTO FINAL ---
     df_asiento = pd.DataFrame(asientos)
     if not df_asiento.empty:
         df_asiento['Débito VES'] = (df_asiento['DebeUSD'] * tasa_bcv).round(2)
         df_asiento['Crédito VES'] = (df_asiento['HaberUSD'] * tasa_bcv).round(2)
 
-    # IMPORTANTE: Enviamos el df_balance_original (el que leímos en el Paso 0)
-    return pd.DataFrame(resumen_ajustes), pd.DataFrame(detalles_bancos), df_asiento, df_balance_original, {'tasa_bcv': tasa_bcv, 'tasa_corp': tasa_corp}
+    return pd.DataFrame(resumen_ajustes), pd.DataFrame(detalles_bancos), df_asiento, df_balance_raw, {'tasa_bcv': tasa_bcv, 'tasa_corp': tasa_corp}
 
 def procesar_ajustes_balance_usd(f_cb, f_cg, f_hab_usd, f_hab_ves, tasa_bcv, tasa_corp, empresa, n_asiento, df_manual, log):
     log.append(f"--- Iniciando rediseño de ajustes para {empresa} ---")
