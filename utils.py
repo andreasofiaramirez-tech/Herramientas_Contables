@@ -2192,6 +2192,11 @@ def generar_cargador_asiento_pensiones(df_asiento, fecha_asiento):
 
     return output.getvalue()
 
+
+# ==========================================
+# REPORTE AJUSTES USD
+# ==========================================
+
 def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_raw, nombre_empresa, validacion_data):
     output = BytesIO()
     
@@ -2233,7 +2238,11 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
                     if pd.notna(v): ws1.write(r, c, v)
 
         # 2. MAPAS DE AJUSTES
-        mapa_filas_bancos = {str(r['Cuenta']): r['Fila_Referencia'] for r in df_resumen.to_dict('records') if r.get('Origen') == 'Bancos'}
+        mapa_filas_bancos = {
+            str(r['Cuenta']): r.get('Fila_Referencia') 
+            for r in df_resumen.to_dict('records') 
+            if r.get('Origen') == 'Bancos' and r.get('Fila_Referencia') is not None
+        }
         mapa_otros = df_resumen.set_index('Cuenta')['Ajuste USD'].to_dict()
 
         # 3. CABECERAS DE LA TABLA
