@@ -858,22 +858,16 @@ def render_cuadre():
 def render_ajustes_usd():
     st.title("📈 Ajustes al Balance en USD", anchor=False)
 
-    # Inicializar estado para ajustes manuales
+    # 1. INICIALIZACIÓN DEL ESTADO (Para que no se borren los ajustes manuales al interactuar)
     if 'manual_adjustments' not in st.session_state:
         st.session_state.manual_adjustments = pd.DataFrame(columns=[
             'Cuenta a ajustar', 'Cuenta contrapartida', 'Monto en USD', 'Tasa de conversión'
         ])
-        
-    # Botón Volver
-    if st.button("⬅️ Volver al Inicio", key="back_adj_usd"):
-        set_page('inicio')
-        st.rerun()    
-        
-    # Guía Desplegable
-    with st.expander("📖 Guía de Uso: Reglas y Archivos"):
-        st.markdown(GUIA_AJUSTES_USD) # Asegúrate de haber importado esto al inicio
 
-    
+    if st.button("⬅️ Volver al Inicio", key="btn_back_adj"):
+        set_page('inicio')
+        st.rerun()
+
     # --- SECCIÓN 1: CARGA DE ARCHIVOS ---
     st.subheader("1. Archivos de Entrada", anchor=False)
     col1, col2 = st.columns(2)
@@ -886,88 +880,88 @@ def render_ajustes_usd():
 
     # --- SECCIÓN 2: AJUSTES MANUALES (Tabla Interactiva) ---
     st.subheader("2. Ajustes Manuales", anchor=False)
-    with st.expander("📝 Gestionar Ajustes adicionales", expanded=False):
-        # Data editor para agregar/borrar filas
-        edited_df = st.data_editor(
-            st.session_state.manual_adjustments,
-            num_rows="dynamic",
-            column_config={
-                "Tasa de conversión": st.column_config.SelectboxColumn(
-                    options=["BCV", "CORP"],
-                    required=True,
-                ),
-                "Monto en USD": st.column_config.NumberColumn(format="$%.2f")
-            },
-            key="manual_adj_editor",
-            use_container_width=True
-        )
-        st.session_state.manual_adjustments = edited_df
-        
+    st.markdown("Agregue aquí ajustes extraordinarios que la herramienta deba incluir en el reporte y cargador.")
+    
+    # Editor interactivo: Permite agregar, borrar y editar filas
+    edited_manual_df = st.data_editor(
+        st.session_state.manual_adjustments,
+        num_rows="dynamic",
+        column_config={
+            "Tasa de conversión": st.column_config.SelectboxColumn(
+                "Tasa",
+                options=["BCV", "CORP"],
+                required=True,
+            ),
+            "Monto en USD": st.column_config.NumberColumn("USD $", format="$%.2f")
+        },
+        key="manual_adj_editor",
+        use_container_width=True
+    )
+    # Actualizar el estado con lo que el usuario escribió
+    st.session_state.manual_adjustments = edited_manual_df
+
     # --- SECCIÓN 3: PARÁMETROS ---
     st.subheader("3. Parámetros de Cálculo", anchor=False)
     c1, c2, c3, c4 = st.columns(4)
-    with c1: tasa_bcv = st.number_input("Tasa BCV (Cierre)", min_value=0.01, value=1.0, format="%.4f")
-    with c2: tasa_corp = st.number_input("Tasa CORP (Interna)", min_value=0.01, value=1.0, format="%.4f")
-    with c3: 
-        empresa = st.selectbox("Empresa", ["FEBECA, C.A", "MAYOR BEVAL, C.A", "PRISMA, C.A", "SILLACA, C.A"])
-    with c4: asiento_prefijo = st.text_input("Asiento", value="CG0000")
+    with c1:
+        tasa_bcv = st.number_input("Tasa BCV (Cierre)", min_value=0.01, value=1.0, format="%.4f", key="val_tasa_bcv")
+    with c2:
+        tasa_corp = st.number_input("Tasa CORP (Interna)", min_value=0.01, value=1.0, format="%.4f", key="val_tasa_corp")
+    with c3:
+        empresa_sel = st.selectbox("Empresa", ["FEBECA, C.A", "MAYOR BEVAL, C.A", "PRISMA, C.A", "SILLACA, C.A"], key="val_empresa")
+    with c4:
+        n_asiento = st.text_input("Número de Asiento", value="CG0000", key="val_asiento")
 
-    if st.button("🚀 Ejecutar Ajustes y Generar Reporte", type="primary", use_container_width=True):
+    # --- SECCIÓN 4: EJECUCIÓN ---
+    st.divider()
+    if st.button("🚀 Calcular Ajustes y Generar Reporte", type="primary", use_container_width=True, key="btn_run_adj"):
         if not f_cg or not f_cb:
-            st.error("⚠️ El Balance y el Reporte de Tesorería son obligatorios.")
+            st.error("⚠️ El Balance de Comprobación y el Reporte de Tesorería son obligatorios para este proceso.")
         else:
-            log = []
+            log_messages = []
             try:
-                # Llamada a la nueva lógica rediseñada
-                df_res, df_banc, df_asiento, df_raw, val_data = procesar_ajustes_balance_usd(
-                    f_cb, f_cg, f_hab_usd, f_hab_ves, tasa_bcv, tasa_corp, empresa, asiento_prefijo, edited_df, log
-                )
-    
-    # --- BOTÓN DE EJECUCIÓN ---
-    if st.button("Calcular Ajustes y Asiento", type="primary", use_container_width=True, key="btn_calc_adj"):
-        if not f_cg:
-            st.error("⚠️ El Balance de Comprobación es obligatorio.")
-        else:
-            log = []
-            try:
-                from logic import procesar_ajustes_balance_usd
-                from utils import generar_reporte_ajustes_usd
-                
-                with st.spinner("Analizando balance, cruzando bancos y calculando ajustes..."):
+                # 1. Procesar Lógica
+                with st.spinner("Ejecutando motor de ajustes bimonetarios..."):
+                    # Importamos aquí para asegurar que los cambios en logic.py se apliquen
+                    from logic import procesar_ajustes_balance_usd
+                    from utils import generar_reporte_ajustes_usd
+
                     df_res, df_banc, df_asiento, df_raw, val_data = procesar_ajustes_balance_usd(
-                        f_cb, f_cg, f_v_me, f_v_bs, f_hab, tasa_bcv, tasa_corp, log
+                        f_cb, f_cg, f_hab_usd, f_hab_ves, 
+                        tasa_bcv, tasa_corp, empresa_sel, n_asiento, 
+                        edited_manual_df, log_messages
                     )
-                
-                # --- RESULTADOS ---
+
+                # 2. Mostrar Resultados y Descarga
                 if not df_asiento.empty:
-                    st.success("✅ Ajustes Calculados Exitosamente")
+                    st.success("✅ Ajustes procesados exitosamente.")
                     
-                    st.subheader("Vista Previa del Asiento Contable")
-                    st.dataframe(df_asiento, use_container_width=True)
-                    
-                    # Generar nombre de archivo dinámico
-                    mes_txt = "CIERRE" # Podrías extraerlo del DF si quisieras
-                    nombre_archivo = f"Ajustes_Balance_USD_{empresa}.xlsx"
-                    
-                    # Generar Excel
-                    excel_data = generar_reporte_ajustes_usd(df_res, df_banc, df_asiento, df_raw, empresa, val_data)
-                    
+                    # Generar binario del Excel
+                    excel_bin = generar_reporte_ajustes_usd(
+                        df_res, df_banc, df_asiento, df_raw, empresa_sel, val_data
+                    )
+
                     st.download_button(
-                        label="⬇️ Descargar Reporte Completo (Excel)",
-                        data=excel_data,
-                        file_name=nombre_archivo,
+                        label="📥 Descargar Reporte de Ajustes y Asiento",
+                        data=excel_bin,
+                        file_name=f"Ajustes_Balance_USD_{empresa_sel}.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         use_container_width=True
                     )
+
+                    with st.expander("🔍 Ver Vista Previa del Asiento"):
+                        st.dataframe(df_asiento, use_container_width=True)
                 else:
-                    st.warning("⚠️ El proceso terminó pero no se generaron asientos de ajuste (¿Todo estaba cuadrado?).")
-                
+                    st.warning("El proceso finalizó pero no se generaron movimientos de ajuste relevantes.")
+
                 # Mostrar Log
-                with st.expander("Ver Log del Proceso"):
-                    st.write(log)
-                    
+                with st.expander("📄 Ver Log de Extracción y Proceso"):
+                    for msg in log_messages:
+                        st.text(msg)
+
             except Exception as e:
-                mostrar_error_amigable(e, "el Cálculo de Ajustes de Balance")
+                # Función de error amigable que ya tienes en app.py
+                mostrar_error_amigable(e, "el cálculo de Ajustes al Balance")
 
 
 
