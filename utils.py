@@ -2277,7 +2277,7 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
                 cuenta_str = str(fila[0]).strip() 
                 
                 # Filtro de detalle
-                if not (cuenta_str.startswith(('1.', '2.')) and not cuenta_raw.endswith('.000')):
+                if not (cuenta_str.startswith(('1.', '2.')) and not cuenta_str.endswith('.000')):
                     continue
                 
                 # Normalizamos la cuenta del balance para buscarla en el mapa
