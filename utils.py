@@ -2326,13 +2326,22 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
                 # Escribir solo las 12 columnas originales
                 for c_idx, col_name in enumerate(columnas_base):
                     value = row_dict[col_name]
-                    if 'FECHA' in col_name and pd.notna(value):
+
+                    if col_name in ['CUENTA CONTABLE', 'CÓDIGO DE CONCILIACIÓN']:
+                        if col_name == 'CÓDIGO DE CONCILIACIÓN' and isinstance(value, (int, float)):
+                            # Convertimos a entero para eliminar el .00 (Ej: 31.0 -> 31)
+                            value = int(value)
+                        # Escribimos como texto puro (ws2.write) ignorando formatos numéricos
+                        ws2.write(r_idx, c_idx, str(value) if pd.notna(value) else "", fmt_text)
+
+                    elif 'FECHA' in col_name and pd.notna(value):
                         try: ws2.write(r_idx, c_idx, pd.to_datetime(value).to_pydatetime(), fmt_date)
                         except: ws2.write(r_idx, c_idx, str(value), fmt_text)
                     elif isinstance(value, (int, float)):
                         ws2.write_number(r_idx, c_idx, clean_num(value), fmt_money)
                     else:
                         ws2.write(r_idx, c_idx, str(value) if pd.notna(value) else "", fmt_text)
+                        
                 
                 # --- ESCRIBIR FÓRMULAS VIVAS (Inician en Col M / índice 12) ---
                 ex_r = r_idx + 1
