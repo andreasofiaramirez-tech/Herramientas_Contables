@@ -4609,14 +4609,17 @@ def procesar_ajustes_balance_usd(f_cb, f_cg, f_hab_usd, f_hab_ves, tasa_bcv, tas
     # --- PASO 2: AJUSTE DE BANCOS (LÓGICA L/E) ---
     df_tesoreria = pd.read_excel(f_cb, header=7, engine=None)    # Leemos el reporte y quitamos la Columna A (Unnamed: 0) y limitamos hasta la Columna M
     
-    # 1. Eliminamos físicamente cualquier columna que contenga la palabra 'Unnamed'
-    df_tesoreria = df_tesoreria.loc[:, ~df_tesoreria.columns.str.contains('^Unnamed', case=False, na=False)]
-    # 2. Forzamos el recorte de las 12 columnas reales (Desde Cuenta Contable hasta Mov. Bancos)
-    # Esto asegura que la columna A del reporte original desaparezca
-    df_tesoreria = df_tesoreria.iloc[:, 0:12].copy() 
+    # 1. Forzamos a Pandas a ignorar la primera columna física del Excel (Columna A)
+    # y tomamos exactamente las 12 columnas que siguen (B hasta M)
+    df_tesoreria = df_tesoreria.iloc[:, 1:13].copy() 
 
-    # Ahora sí normalizamos nombres
-    df_tesoreria.columns = [str(c).upper().strip() for c in df_tesoreria.columns]
+    # 2. Asignamos nombres fijos para evitar que cualquier residuo de 'Unnamed' nos mueva los datos
+    df_tesoreria.columns = [
+        'CUENTA CONTABLE', 'DESCRIPCIÓN', 'NRO. DE CUENTA', 'CUENTA BANCARIA', 
+        'CÓDIGO DE CONCILIACIÓN', 'FECHA INICIAL', 'FECHA FINAL', 
+        'SALDO EN LIBROS', 'SALDO EN BANCOS', 'ESTADO', 
+        'MOVIMIENTOS EN LIBROS NO CONCILIADOS', 'MOVIMIENTOS EN BANCOS NO CONCILIADOS'
+    ]
     
     fila_referencia_excel = 5    # El contador empieza en 5 porque en utils los datos de la Hoja 2 comienzan en la fila 5 (Excel base 1).
 
