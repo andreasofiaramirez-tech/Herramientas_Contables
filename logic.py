@@ -4511,7 +4511,7 @@ def extraer_saldos_cg_ajustes(archivo, log_messages):
 
                 datos_cg[cuenta] = {
                     'VES': clean(fila[6]),  # Columna G
-                    'USD': clean(fila[10]), # Columna K
+                    'USD': clean(fila[11]), # Columna L
                     'descripcion': str(fila[1]).strip() # Columna B
                 }
     except Exception as e:
