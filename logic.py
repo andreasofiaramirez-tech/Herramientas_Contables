@@ -4725,10 +4725,23 @@ def procesar_ajustes_balance_usd(f_cb, f_cg, f_hab_usd, f_hab_ves, tasa_bcv, tas
     '2.1.2.07.1.002': '1.1.5.07.1.002'
     }
 
+    CUENTAS_EXCLUIDAS_NATURALEZA = [
+        '1.1.5.09.1.002', # Reserva para Merma
+        '1.3.5.01',       # Todo el grupo de Depreciaciones Acumuladas
+        '2.1.2.05.3.001', # Utilidades Legales
+        '2.1.2.07.1.012', # Proveedores d/Mcia - Costos Causados
+        '2.1.2.07.2.012', # Prov p/Compra Muebles
+        '2.1.2.07.2.901', # Prov p/Compra Muebles Cias Rel
+        '2.1.2.07.6.009', # Devoluciones a Proveedores ME
+        '2.3.2.02.1.001'  # Anticipos Garantia PS
+    ]
+
     # Recorremos el diccionario de saldos que extrajimos en el Paso 1
     for cta, data in datos_balance.items():
-        # Si el saldo en USD es negativo (menor a -0.01 para evitar basura)
-        if data['USD'] < -0.01:
+        # Verificamos si la cuenta debe ser ignorada (por coincidencia exacta o prefijo)
+        es_excluida = any(cta.startswith(prefijo) for prefijo in CUENTAS_EXCLUIDAS_NATURALEZA)
+        
+        if data['USD'] < -0.01 and not es_excluida:
             monto_ajuste = abs(data['USD'])
             
             # Buscamos su contrapartida en el mapeo, si no existe usamos Deudores
