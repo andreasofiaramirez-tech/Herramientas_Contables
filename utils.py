@@ -2246,7 +2246,8 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
         # Mapa para otros ajustes (Haberes, Naturaleza, Manuales)
         # Usamos groupby().sum() por si una cuenta tiene varios ajustes, que no se pierda ninguno
         if not df_resumen.empty:
-            df_resumen['cta_norm'] = df_resumen['Cuenta'].apply(norm_cta)
+            # Normalizamos la cuenta para que el match sea perfecto
+            df_resumen['cta_norm'] = df_resumen['Cuenta'].apply(lambda x: "".join(filter(str.isdigit, str(x))))
             mapa_otros = df_resumen.groupby('cta_norm')['Ajuste USD'].sum().to_dict()
         else:
             mapa_otros = {}
