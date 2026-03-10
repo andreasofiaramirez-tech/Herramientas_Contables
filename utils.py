@@ -2284,7 +2284,7 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
                 ws1.write(current_row, 1, str(fila[1]).strip(), fmt_text) # Descripción
                 ws1.write(current_row, 2, str(fila[2]).strip(), fmt_text) # Saldo Normal
                 ws1.write_number(current_row, 3, clean_num(fila[6]), fmt_money) # Local
-                ws1.write_number(current_row, 4, clean_num(fila[10]), fmt_money) # Dólar
+                ws1.write_number(current_row, 4, clean_num(fila[11]), fmt_money) # Dólar
 
                 # COLUMNA AJUSTE ($)
                 if c_norm in mapa_filas_bancos:
