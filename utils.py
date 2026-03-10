@@ -2225,113 +2225,65 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
         ws1 = workbook.add_worksheet('1. Ajustes')
         ws1.hide_gridlines(2)
         
-        # 1. ENCABEZADO ORIGINAL (Columnas A y B)
+        # 1. ESCRIBIR ENCABEZADOS ORIGINALES DEL BALANCE (Punto 1 Solicitud)
         if df_balance_raw is not None and not df_balance_raw.empty:
-            for r_idx in range(min(6, len(df_balance_raw))):
-                for c_idx in [0, 1]:
-                    val = df_balance_raw.iloc[r_idx, c_idx]
-                    if pd.notna(val): ws1.write(r_idx, c_idx, val, fmt_header_raw)
+            for r in range(min(6, len(df_balance_raw))):
+                for c in [0, 1]:
+                    v = df_balance_raw.iloc[r, c]
+                    if pd.notna(v): ws1.write(r, c, v)
 
-        # 2. PRE-PROCESAMIENTO DE MAPAS
-        mapa_filas_bancos = {
-            str(r['Cuenta']): r['Fila_Referencia'] 
-            for r in df_resumen.to_dict('records') 
-            if r.get('Origen') == 'Bancos' and 'Fila_Referencia' in r
-        }
-        mapa_ajustes_otros = df_resumen.set_index('Cuenta')['Ajuste USD'].to_dict()
+        # 2. MAPAS DE AJUSTES
+        mapa_filas_bancos = {str(r['Cuenta']): r['Fila_Referencia'] for r in df_resumen.to_dict('records') if r.get('Origen') == 'Bancos'}
+        mapa_otros = df_resumen.set_index('Cuenta')['Ajuste USD'].to_dict()
 
-        # 3. CABECERAS DE TABLA
+        # 3. CABECERAS DE LA TABLA
         ws1.write(5, 3, "Moneda Local", header_clean) 
         ws1.write(5, 4, "Moneda Dólar", header_clean) 
-
-        headers_r7 = [
-            'Cuenta',               # A
-            'Descripción',          # B
-            'Saldo Norm',           # C
-            'Balance Final (Bs)',   # D
-            'Balance Final ($)',    # E
-            'AJUSTE ($)',           # F
-            'SALDO AJUSTADO ($)',   # G
-            'ACT O PA',             # H
-            'TASA',                 # I
-            'Bs.'                   # J
-        ]
-        ws1.write_row(6, 0, headers_r7, header_clean)
+        headers = ['Cuenta', 'Descripción', 'Saldo Norm', 'Balance Final (Bs)', 'Balance Final ($)', 'AJUSTE ($)', 'SALDO AJUSTADO ($)', 'ACT O PA', 'TASA', 'Bs.']
+        ws1.write_row(6, 0, headers, header_clean)
 
         current_row = 7 
         if df_balance_raw is not None and not df_balance_raw.empty:
-            for r_idx in range(min(6, len(df_balance_raw))):
-                for c_idx in [0, 1]:
-                    val = df_balance_raw.iloc[r_idx, c_idx]
-                    if pd.notna(val): ws1.write(r_idx, c_idx, val, fmt_header_raw)
-
-        # 2. MAPAS PARA VINCULACIÓN
-        mapa_filas_bancos = {
-            str(r['Cuenta']): r['Fila_Referencia'] 
-            for r in df_resumen.to_dict('records') 
-            if r.get('Origen') == 'Bancos' and 'Fila_Referencia' in r
-        }
-        mapa_ajustes_otros = df_resumen.set_index('Cuenta')['Ajuste USD'].to_dict()
-
-        # 3. CABECERAS DE TABLA
-        headers_r7 = ['Cuenta', 'Descripción', 'Saldo Norm', 'Balance Final (Bs)', 'Balance Final ($)', 'AJUSTE ($)', 'SALDO AJUSTADO ($)', 'ACT O PA', 'TASA', 'Bs.']
-        ws1.write_row(6, 0, headers_r7, header_clean)
-
-        current_row = 7 
-        if df_balance_raw is not None and not df_balance_raw.empty:
-            # Detectar columna real de cuenta (Softland suele usar Col B / index 1)
-            start_idx = 0
-            col_cta_idx = 1 # Por defecto en Col B
+            # Encontrar el inicio real de datos (Busca "Cuenta" en Columna A)
+            data_start = 0
             for i, row in df_balance_raw.iterrows():
-                vals = [str(v).upper() for v in row.values]
-                if 'CUENTA' in vals:
-                    start_idx = i + 1
-                    col_cta_idx = vals.index('CUENTA')
+                if str(row[0]).strip().upper() == "CUENTA":
+                    data_start = i + 1
                     break
             
-            for i in range(start_idx, len(df_balance_raw)):
-                row_raw = df_balance_raw.iloc[i]
-                try:
-                    # Filtro por Columna de Cuenta (Requerimiento de Columna B)
-                    cuenta_str = str(row_raw[col_cta_idx]).strip()
-                    
-                    if not (cuenta_str.startswith('1.') or cuenta_str.startswith('2.')): continue
-                    if cuenta_str.endswith('.000') or cuenta_str.lower() in ['nan', '0', '0.0']: continue 
-                    
-                    excel_row = current_row + 1 
-                    ws1.write(current_row, 0, cuenta_str, fmt_text)
-                    ws1.write(current_row, 1, str(row_raw[col_cta_idx + 1]).strip(), fmt_text)
-                    ws1.write(current_row, 2, "Deudor" if cuenta_str.startswith('1.') else "Acreedor", fmt_text)
-                    
-                    # Montos (Bs en index +6, $ en index +11 según Softland)
-                    ws1.write_number(current_row, 3, clean_num(row_raw[col_cta_idx + 5]), fmt_money)
-                    ws1.write_number(current_row, 4, clean_num(row_raw[col_cta_idx + 10]), fmt_money)
+            for i in range(data_start, len(df_balance_raw)):
+                fila = df_balance_raw.iloc[i]
+                cuenta_str = str(fila[0]).strip()
+                
+                # REGLA: Solo procesamos Activo (1) y Pasivo (2) de detalle
+                if not (cuenta_str.startswith(('1.', '2.')) and not cuenta_str.endswith('.000')):
+                    continue
 
-                    # Sangría corregida para evitar el IndentationError
-                    if cuenta_str in mapa_filas_bancos:
-                        fila_ref = mapa_filas_bancos[cuenta_str]
-                        ws1.write_formula(current_row, 5, f"='2. Detalle Bancos'!$L${fila_ref}", fmt_money_bold)
-                    else:
-                        monto = mapa_ajustes_otros.get(cuenta_str, 0.0)
-                        ws1.write_number(current_row, 5, monto, fmt_money if abs(monto) > 0.001 else fmt_text)
+                ex_row = current_row + 1 
+                ws1.write(current_row, 0, cuenta_str, fmt_text)
+                ws1.write(current_row, 1, str(fila[1]).strip(), fmt_text) # Descripción
+                ws1.write(current_row, 2, str(fila[2]).strip(), fmt_text) # Saldo Normal
+                ws1.write_number(current_row, 3, clean_num(fila[6]), fmt_money) # Local
+                ws1.write_number(current_row, 4, clean_num(fila[10]), fmt_money) # Dólar
 
-                    ws1.write_formula(current_row, 6, f"=E{excel_row}+F{excel_row}", fmt_money_bold)
-                    ws1.write(current_row, 7, "1" if cuenta_str.startswith('1.') else "2", fmt_text)
-                    ws1.write_formula(current_row, 8, f"=IF(ABS(G{excel_row})>0.01, ABS(D{excel_row}/G{excel_row}), 0)", fmt_rate)
-                    ws1.write_formula(current_row, 9, f"=F{excel_row}*'2. Detalle Bancos'!$H$1", fmt_money)
-                    current_row += 1
-                except: continue
+                # COLUMNA AJUSTE ($)
+                if cuenta_str in mapa_filas_bancos:
+                    ws1.write_formula(current_row, 5, f"='2. Detalle Bancos'!$L${mapa_filas_bancos[cuenta_str]}", fmt_money_bold)
+                else:
+                    m = mapa_otros.get(cuenta_str, 0.0)
+                    ws1.write_number(current_row, 5, m, fmt_money if abs(m) > 0 else fmt_text)
 
-        # --- 4. CUADRO DE AUDITORÍA SUPERIOR (I2:J4) ---
-        # Si current_row es 7 significa que no hubo datos, evitamos SUMIF de rango negativo
-        final_row = current_row if current_row > 7 else 8
-        
+                ws1.write_formula(current_row, 6, f"=E{ex_row}+F{ex_row}", fmt_money_bold)
+                ws1.write(current_row, 7, "1" if cuenta_str.startswith('1.') else "2", fmt_text)
+                ws1.write_formula(current_row, 8, f"=IF(ABS(G{ex_row})>0.01, ABS(D{excel_row}/G{excel_row}), 0)", fmt_rate)
+                ws1.write_formula(current_row, 9, f"=F{ex_row}*'2. Detalle Bancos'!$H$1", fmt_money)
+                current_row += 1
+
+        # 4. CUADRO DE CONTROL SUPERIOR
         ws1.write('I2', 'Activo', fmt_summary_label)
-        ws1.write_formula('J2', f'=SUMIF(H8:H{final_row}, "1", F8:F{final_row})', fmt_summary_val)
-        
+        ws1.write_formula('J2', f'=SUMIF(H8:H{current_row}, "1", F8:F{current_row})', fmt_summary_val)
         ws1.write('I3', 'Pasivo', fmt_summary_label)
-        ws1.write_formula('J3', f'=SUMIF(H8:H{final_row}, "2", F8:F{final_row})', fmt_summary_val)
-        
+        ws1.write_formula('J3', f'=SUMIF(H8:H{current_row}, "2", F8:F{current_row})', fmt_summary_val)
         ws1.write('I4', 'Dif.', fmt_summary_label)
         ws1.write_formula('J4', '=ABS(J2)-ABS(J3)', fmt_summary_val)
 
