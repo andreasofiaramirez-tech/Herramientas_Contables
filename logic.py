@@ -4609,19 +4609,29 @@ def procesar_ajustes_balance_usd(f_cb, f_cg, f_hab_usd, f_hab_ves, tasa_bcv, tas
     # --- PASO 2: AJUSTE DE BANCOS (LÓGICA L/E) ---
     df_tesoreria = pd.read_excel(f_cb, header=7, engine=None)    # Leemos el reporte y quitamos la Columna A (Unnamed: 0) y limitamos hasta la Columna M
     
-    # 1. Forzamos a Pandas a ignorar la primera columna física del Excel (Columna A)
-    # y tomamos exactamente las 12 columnas que siguen (B hasta M)
-    df_tesoreria = df_tesoreria.iloc[:, 1:13].copy() 
+    # 1. ELIMINACIÓN NUCLEAR DE 'UNNAMED'
+    # Primero borramos por nombre cualquier columna que Excel haya marcado como Unnamed
+    df_tesoreria = df_tesoreria.loc[:, ~df_tesoreria.columns.str.contains('^Unnamed', case=False, na=False)]
+    
+    # 2. RECORTE POR POSICIÓN (Si después de borrar 'Unnamed' la cuenta contable no es la col 0, la buscamos)
+    # Buscamos la columna que realmente contiene datos de cuenta para no fallar
+    if not str(df_tesoreria.iloc[0, 0]).startswith('1.'):
+        # Si la primera columna no es la cuenta, es que había un vacío a la izquierda que no se llamó 'Unnamed'
+        df_tesoreria = df_tesoreria.iloc[:, 1:]
 
-    # 2. Asignamos nombres fijos para evitar que cualquier residuo de 'Unnamed' nos mueva los datos
+    # 3. TOMAMOS EXACTAMENTE LAS 12 COLUMNAS DEL REPORTE (De Cuenta a Mov. Bancos)
+    df_tesoreria = df_tesoreria.iloc[:, 0:12].copy()
+
+    # 4. ASIGNACIÓN DE IDENTIDAD (Garantiza alineación perfecta en el reporte de salida)
     df_tesoreria.columns = [
         'CUENTA CONTABLE', 'DESCRIPCIÓN', 'NRO. DE CUENTA', 'CUENTA BANCARIA', 
         'CÓDIGO DE CONCILIACIÓN', 'FECHA INICIAL', 'FECHA FINAL', 
         'SALDO EN LIBROS', 'SALDO EN BANCOS', 'ESTADO', 
         'MOVIMIENTOS EN LIBROS NO CONCILIADOS', 'MOVIMIENTOS EN BANCOS NO CONCILIADOS'
     ]
-    
-    fila_referencia_excel = 5    # El contador empieza en 5 porque en utils los datos de la Hoja 2 comienzan en la fila 5 (Excel base 1).
+
+    # 5. CONTADOR PARA TRAZABILIDAD (Se mantiene igual)
+    fila_referencia_excel = 5
 
     for _, row in df_tesoreria.iterrows():
         cta_c = str(row.get('CUENTA CONTABLE', '')).strip()
