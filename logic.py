@@ -4723,7 +4723,7 @@ def procesar_ajustes_balance_usd(f_cb, f_cg, f_hab_usd, f_hab_ves, tasa_bcv, tas
             resumen_ajustes.append({
                 'Cuenta': str(cta).strip(), 
                 'Origen': 'Naturaleza', 
-                'Ajuste USD': float(monto_abs),
+                'Ajuste USD': float(monto_ajuste),
                 'Fila_Referencia': None # Naturaleza no tiene fila en Hoja 2
              })
             
