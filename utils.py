@@ -2312,24 +2312,24 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
         ws2.write_number(1, 15, clean_num(validacion_data.get('tasa_corp', 0)), fmt_rate) # Col P2
 
         if df_bancos is not None and not df_bancos.empty:
-            # Filtramos los encabezados para que no viaje nada de 'Unnamed' al Excel
-            columnas_finales = [c for c in df_bancos.columns if 'UNNAMED' not in c.upper()]
+            # Encabezados de cálculo adicionales
             headers_calc = ['SALDO EN LIBROS BS', 'SALDO EN BANCOS BS', 'SALDO EN LIBROS $', 'SALDO EN BANCOS $', 'AJUSTE BS', 'AJUSTE $', 'TASA_CALC', 'VERIFICACION']
             
-            # Escribimos los encabezados limpios
-            ws2.write_row(3, 0, columnas_finales + headers_calc, header_clean)
+            # ESCRIBIMOS LOS ENCABEZADOS: Usamos exactamente las columnas que trae el dataframe
+            columnas_base = list(df_bancos.columns)
+            ws2.write_row(3, 0, columnas_base + headers_calc, header_clean)
             
+            # ESCRIBIMOS LOS DATOS
             for r_idx, row_dict in enumerate(df_bancos.to_dict('records'), 4):
-                # Usamos una lista limpia de valores para evitar que la Columna A se cuele
-                valores_datos_base = [row_dict[c] for c in columnas_finales]
-                
-                # Escribimos solo los datos de las columnas reales
-                for c_idx, value in enumerate(valores_datos_base):
+                # Escribimos los valores en el mismo orden que los encabezados
+                for c_idx, col_name in enumerate(columnas_base):
+                    value = row_dict[col_name]
+                    
                     if isinstance(value, (int, float)):
                         ws2.write_number(r_idx, c_idx, clean_num(value), fmt_money)
-                    # (Aquí mantienes tu lógica de fechas que ya funciona...)
                     elif pd.notna(value):
                         try:
+                            # Mantenemos la limpieza de fechas sin hora
                             d = pd.to_datetime(value).to_pydatetime()
                             ws2.write(r_idx, c_idx, d, fmt_date)
                         except:
@@ -2337,52 +2337,17 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
                     else:
                         ws2.write(r_idx, c_idx, "", fmt_text)
 
-            
-            # 2. ESCRITURA DE DATOS Y FÓRMULAS
-            for r_idx, row_dict in enumerate(df_bancos.to_dict('records'), 4):
-                # A. Escribir datos base (Lo que viene del reporte de Tesorería)
-                for c_idx, (key, value) in enumerate(row_dict.items()):
-                    if 'FECHA' in key and pd.notna(value):
-                        try:
-                            # Convertimos a datetime nativo para que Excel lo entienda
-                            d = pd.to_datetime(value).to_pydatetime()
-                            ws2.write(r_idx, c_idx, d, fmt_date)
-                        except:
-                            ws2.write(r_idx, c_idx, str(value), fmt_text)
-                    elif isinstance(value, (int, float)):
-                        ws2.write_number(r_idx, c_idx, clean_num(value), fmt_money)
-                    else:
-                        ws2.write(r_idx, c_idx, str(value) if pd.notna(value) else "", fmt_text)
-                
-                # B. ESCRITURA DE FÓRMULAS (Basadas en el nuevo orden sin Col A)
-                # ex_r es la fila en Excel (r_idx + 1)
-                # Referencias: D=Cta Bancaria(L/E), H=Sdo Libros, I=Sdo Bancos, L=Mov No Conciliados
+                # --- ESCRIBIMOS LAS FÓRMULAS (SIN CAMBIOS DE ÍNDICES) ---
                 ex_r = r_idx + 1
-                
-                # Saldo Libros BS (Col M - idx 12): Si es L trae H, si no H * Tasa BCV (P1)
                 ws2.write_formula(r_idx, 12, f'=IF(ISNUMBER(SEARCH("L",D{ex_r})), H{ex_r}, H{ex_r}*$P$1)', fmt_money)
-                
-                # Saldo Bancos BS (Col N - idx 13): Si es L trae I, si no I * Tasa BCV (P1)
                 ws2.write_formula(r_idx, 13, f'=IF(ISNUMBER(SEARCH("L",D{ex_r})), I{ex_r}, I{ex_r}*$P$1)', fmt_money)
-                
-                # Saldo Libros $ (Col O - idx 14): Si es E trae H, si no H / Tasa CORP (P2)
                 ws2.write_formula(r_idx, 14, f'=IF(ISNUMBER(SEARCH("E",D{ex_r})), H{ex_r}, H{ex_r}/$P$2)', fmt_money)
-                
-                # Saldo Bancos $ (Col P - idx 15): Si es E trae I, si no I / Tasa CORP (P2)
                 ws2.write_formula(r_idx, 15, f'=IF(ISNUMBER(SEARCH("E",D{ex_r})), I{ex_r}, I{ex_r}/$P$2)', fmt_money)
-                
-                # AJUSTE BS (Col Q - idx 16): Si es L trae L, si no L * Tasa BCV (P1)
                 ws2.write_formula(r_idx, 16, f'=IF(ISNUMBER(SEARCH("L",D{ex_r})), L{ex_r}, L{ex_r}*$P$1)', fmt_money)
-                
-                # AJUSTE $ (Col R - idx 17): Si es E trae L, si no L / Tasa CORP (P2)
                 ws2.write_formula(r_idx, 17, f'=IF(ISNUMBER(SEARCH("E",D{ex_r})), L{ex_r}, L{ex_r}/$P$2)', fmt_money)
-                
-                # TASA_CALC (Col S - idx 18): Ajuste BS / Ajuste $
                 ws2.write_formula(r_idx, 18, f'=IF(R{ex_r}=0, 0, Q{ex_r}/R{ex_r})', fmt_rate)
-                
-                # VERIFICACION (Col T - idx 19): Bancos - Libros - Mov No Conciliados
                 ws2.write_formula(r_idx, 19, f'=I{ex_r}-H{ex_r}-L{ex_r}', fmt_money)
-
+                
         # CONFIGURACIÓN DE ANCHOS
         # Ajustamos anchos para que el contenido sea legible
         ws2.set_column('A:A', 18) # Cuenta Contable
