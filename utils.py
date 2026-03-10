@@ -2277,7 +2277,7 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
 
                 # COLUMNA AJUSTE ($)
                 if cuenta_str in mapa_filas_bancos:
-                    ws1.write_formula(current_row, 5, f"='2. Detalle Bancos'!$L${mapa_filas_bancos[cuenta_str]}", fmt_money_bold)
+                    ws1.write_formula(current_row, 8, f"=IF(ABS(G{ex_row})>0.01, ABS(D{ex_row}/G{ex_row}), 0)", fmt_rate)
                 else:
                     m = mapa_otros.get(cuenta_str, 0.0)
                     ws1.write_number(current_row, 5, m, fmt_money if abs(m) > 0 else fmt_text)
