@@ -4459,80 +4459,7 @@ def run_cuadre_cb_cg(file_cb, file_cg, nombre_empresa, log_messages, mapeo_manua
 # 6.3. AJUSTES AL BALANCE EN USD
 # ------------------------------------------------------------------------------
 
-# MAPEO DE RECLASIFICACIÓN (Saldos Contrarios)
-# Estructura: 'Cuenta_Origen': 'Contrapartida'
-MAPEO_SALDOS_CONTRARIOS = {
-    # --- CLIENTES Y HABERES ---
-    '1.1.3.01.1.001': '2.1.2.05.1.108', # Deudores Comerciales <-> Haberes Clientes
-    '2.1.2.05.1.108': '1.1.3.01.1.001', # Haberes Clientes <-> Deudores Comerciales
-    '1.1.1.04.1.003': '1.1.3.01.1.001', # Fondos por Depositar (Cobros) <-> Deudores Comerciales
-
-    # --- CUENTAS POR COBRAR VARIOS ---
-    '1.1.4.01.1.044': '2.1.2.05.1.005', # CxC Varios <-> Asientos por Clasificar
-    '2.1.2.05.1.005': '1.1.4.01.1.044', # Asientos por Clasificar <-> CxC Varios
-
-    # --- SEGUROS Y SERVICIOS ---
-    '1.1.4.01.1.015': '2.1.2.05.1.015', # HCM Póliza Básica <-> Primas por Pagar
-    '1.1.4.01.1.016': '2.1.2.05.1.015', # HCM Póliza Exceso <-> Primas por Pagar
-    '1.1.4.01.1.019': '2.1.2.05.1.015', # Servicios Funerarios <-> Primas por Pagar
-    '2.1.2.05.1.015': '1.1.4.01.1.015', # Primas por Pagar <-> HCM Póliza Básica (Default)
-
-    # --- PROVEEDORES Y ADELANTOS ---
-    '1.1.4.01.1.006': '2.1.2.05.1.012', # Adelanto a Proveedores <-> Prov. Compra Muebles
-    '2.1.2.05.1.012': '1.1.4.01.1.006', # Prov. Compra Muebles <-> Adelanto a Proveedores
-    
-    '1.1.4.05.1.001': '2.1.2.07.1.001', # Avances Compras Locales <-> Proveedores Locales
-    '2.1.2.07.1.001': '1.1.4.05.1.001', # Proveedores Locales <-> Avances Compras Locales
-    
-    '1.1.4.05.1.002': '2.1.2.07.1.011', # Avances Compras ME <-> Proveedores ME
-    '2.1.2.07.1.011': '1.1.4.05.1.002', # Proveedores ME <-> Avances Compras ME
-
-    # --- EMPLEADOS Y UTILIDADES ---
-    '1.1.4.02.1.006': '2.1.2.05.3.004', # Deudores Empleados Otros <-> Liquidaciones Pendientes
-    '2.1.2.05.3.004': '1.1.4.02.1.006', # Liquidaciones Pendientes <-> Deudores Empleados Otros
-    
-    '1.1.4.02.1.001': '2.1.2.05.1.019', # Deudores Empleados <-> Otras CxP
-    '2.1.2.05.1.019': '1.1.4.02.1.001', # Otras CxP <-> Deudores Empleados
-
-    '2.1.2.09.1.001': '2.1.2.05.3.001', # Apartado Utilidades <-> Utilidades Legales por Pagar
-    '2.1.2.05.3.001': '2.1.2.09.1.001', # Utilidades Legales por Pagar <-> Apartado Utilidades
-
-    # --- VIAJES ---
-    '1.1.4.03.1.002': '2.1.2.09.1.900', # Anticipo Viajes <-> Gastos Estimados por Pagar
-    '2.1.2.09.1.900': '1.1.4.03.1.002', # Gastos Estimados por Pagar <-> Anticipo Viajes
-
-    # --- IMPUESTOS (IVA / ISLR / MUNICIPAL) ---
-    '1.1.4.04.1.007': '2.1.3.02.5.004', # Deudores Fiscales <-> Ley del Deporte
-    '2.1.3.02.5.004': '1.1.4.04.1.007', # Ley del Deporte <-> Deudores Fiscales
-
-    '1.1.4.04.1.003': '2.1.3.04.1.006', # IVA Retenciones <-> IVA Retenido Terceros
-    '2.1.3.04.1.006': '1.1.4.04.1.003', # IVA Retenido Terceros <-> IVA Retenciones
-
-    '1.1.4.04.1.004': '2.1.3.04.1.005', # IVA Créditos Pendientes <-> IVA Compensación
-    '2.1.3.04.1.005': '1.1.4.04.1.004', # IVA Compensación <-> IVA Créditos Pendientes
-
-    '1.1.4.04.1.001': '2.1.3.01.1.015', # ISLR Pagado Exceso <-> ISLR Anticipo
-    '2.1.3.01.1.015': '1.1.4.04.1.001', # ISLR Anticipo <-> ISLR Pagado Exceso
-
-    # --- INTERCOMPAÑÍAS ---
-    '1.1.4.07.1.002': '2.1.2.08.1.002', # Beconsult Cta Cte (Activo) <-> Beconsult Cta Cte (Pasivo)
-    '2.1.2.08.1.002': '1.1.4.07.1.002', 
-    
-    '1.1.4.07.1.004': '2.1.2.08.1.004', # Febeca Cta Cte (Activo) <-> Febeca Cta Cte (Pasivo)
-    '2.1.2.08.1.004': '1.1.4.07.1.004',
-    
-    '1.1.4.07.1.071': '2.1.2.08.1.071', # Dist. Sillas California (Activo) <-> (Pasivo)
-    '2.1.2.08.1.071': '1.1.4.07.1.071',
-
-    '1.1.4.01.1.508': '2.1.2.05.1.086', # Prisma Cta Cte (Activo) <-> Prisma Cta Cte (Pasivo)
-    '2.1.2.05.1.086': '1.1.4.01.1.508',
-
-    # --- OTROS ---
-    '1.1.5.07.1.002': '2.1.2.07.1.002', # Envíos en Tránsito Exterior <-> Pasivo Relacionado
-    '2.1.2.07.1.002': '1.1.5.07.1.002'
-}
-
-# 2. FUNCIONES DE LECTURA AUXILIAR
+# 1. FUNCIONES DE LECTURA AUXILIAR
 def leer_monto_haberes_pdf(file_pdf):
     """Extrae el Total de Saldos Negativos de un PDF de Haberes."""
     if not file_pdf: return 0.0
@@ -4712,14 +4639,109 @@ def procesar_ajustes_balance_usd(f_cb, f_cg, f_hab_usd, f_hab_ves, tasa_bcv, tas
 
     # --- PASO 4: NATURALEZA CONTRARIA ---
     # (Mapeo de cuentas con saldo final negativo)
+    MAPEO_RECLASIFICACION = {
+    # --- CLIENTES Y HABERES ---
+    '1.1.3.01.1.001': '2.1.2.05.1.108', # Deudores Comerciales <-> Haberes Clientes
+    '2.1.2.05.1.108': '1.1.3.01.1.001', # Haberes Clientes <-> Deudores Comerciales
+    '1.1.1.04.1.003': '1.1.3.01.1.001', # Fondos por Depositar (Cobros) <-> Deudores Comerciales
+
+    # --- CUENTAS POR COBRAR VARIOS ---
+    '1.1.4.01.1.044': '2.1.2.05.1.005', # CxC Varios <-> Asientos por Clasificar
+    '2.1.2.05.1.005': '1.1.4.01.1.044', # Asientos por Clasificar <-> CxC Varios
+
+    # --- SEGUROS Y SERVICIOS ---
+    '1.1.4.01.1.015': '2.1.2.05.1.015', # HCM Póliza Básica <-> Primas por Pagar
+    '1.1.4.01.1.016': '2.1.2.05.1.015', # HCM Póliza Exceso <-> Primas por Pagar
+    '1.1.4.01.1.019': '2.1.2.05.1.015', # Servicios Funerarios <-> Primas por Pagar
+    '2.1.2.05.1.015': '1.1.4.01.1.015', # Primas por Pagar <-> HCM Póliza Básica (Default)
+
+    # --- PROVEEDORES Y ADELANTOS ---
+    '1.1.4.01.1.006': '2.1.2.05.1.012', # Adelanto a Proveedores <-> Prov. Compra Muebles
+    '2.1.2.05.1.012': '1.1.4.01.1.006', # Prov. Compra Muebles <-> Adelanto a Proveedores
+    
+    '1.1.4.05.1.001': '2.1.2.07.1.001', # Avances Compras Locales <-> Proveedores Locales
+    '2.1.2.07.1.001': '1.1.4.05.1.001', # Proveedores Locales <-> Avances Compras Locales
+    
+    '1.1.4.05.1.002': '2.1.2.07.1.011', # Avances Compras ME <-> Proveedores ME
+    '2.1.2.07.1.011': '1.1.4.05.1.002', # Proveedores ME <-> Avances Compras ME
+
+    # --- EMPLEADOS Y UTILIDADES ---
+    '1.1.4.02.1.006': '2.1.2.05.3.004', # Deudores Empleados Otros <-> Liquidaciones Pendientes
+    '2.1.2.05.3.004': '1.1.4.02.1.006', # Liquidaciones Pendientes <-> Deudores Empleados Otros
+    
+    '1.1.4.02.1.001': '2.1.2.05.1.019', # Deudores Empleados <-> Otras CxP
+    '2.1.2.05.1.019': '1.1.4.02.1.001', # Otras CxP <-> Deudores Empleados
+
+    '2.1.2.09.1.001': '2.1.2.05.3.001', # Apartado Utilidades <-> Utilidades Legales por Pagar
+    '2.1.2.05.3.001': '2.1.2.09.1.001', # Utilidades Legales por Pagar <-> Apartado Utilidades
+
+    # --- VIAJES ---
+    '1.1.4.03.1.002': '2.1.2.09.1.900', # Anticipo Viajes <-> Gastos Estimados por Pagar
+    '2.1.2.09.1.900': '1.1.4.03.1.002', # Gastos Estimados por Pagar <-> Anticipo Viajes
+
+    # --- IMPUESTOS (IVA / ISLR / MUNICIPAL) ---
+    '1.1.4.04.1.007': '2.1.3.02.5.004', # Deudores Fiscales <-> Ley del Deporte
+    '2.1.3.02.5.004': '1.1.4.04.1.007', # Ley del Deporte <-> Deudores Fiscales
+
+    '1.1.4.04.1.003': '2.1.3.04.1.006', # IVA Retenciones <-> IVA Retenido Terceros
+    '2.1.3.04.1.006': '1.1.4.04.1.003', # IVA Retenido Terceros <-> IVA Retenciones
+
+    '1.1.4.04.1.004': '2.1.3.04.1.005', # IVA Créditos Pendientes <-> IVA Compensación
+    '2.1.3.04.1.005': '1.1.4.04.1.004', # IVA Compensación <-> IVA Créditos Pendientes
+
+    '1.1.4.04.1.001': '2.1.3.01.1.015', # ISLR Pagado Exceso <-> ISLR Anticipo
+    '2.1.3.01.1.015': '1.1.4.04.1.001', # ISLR Anticipo <-> ISLR Pagado Exceso
+
+    # --- INTERCOMPAÑÍAS ---
+    '1.1.4.07.1.002': '2.1.2.08.1.002', # Beconsult Cta Cte (Activo) <-> Beconsult Cta Cte (Pasivo)
+    '2.1.2.08.1.002': '1.1.4.07.1.002', 
+    
+    '1.1.4.07.1.004': '2.1.2.08.1.004', # Febeca Cta Cte (Activo) <-> Febeca Cta Cte (Pasivo)
+    '2.1.2.08.1.004': '1.1.4.07.1.004',
+    
+    '1.1.4.07.1.071': '2.1.2.08.1.071', # Dist. Sillas California (Activo) <-> (Pasivo)
+    '2.1.2.08.1.071': '1.1.4.07.1.071',
+
+    '1.1.4.01.1.508': '2.1.2.05.1.086', # Prisma Cta Cte (Activo) <-> Prisma Cta Cte (Pasivo)
+    '2.1.2.05.1.086': '1.1.4.01.1.508',
+
+    # --- OTROS ---
+    '1.1.5.07.1.002': '2.1.2.07.1.002', # Envíos en Tránsito Exterior <-> Pasivo Relacionado
+    '2.1.2.07.1.002': '1.1.5.07.1.002'
+    }
+
+    # Recorremos el diccionario de saldos que extrajimos en el Paso 1
     for cta, data in datos_balance.items():
+        # Si el saldo en USD es negativo (menor a -0.01 para evitar basura)
         if data['USD'] < -0.01:
-            monto_abs = abs(data['USD'])
-            # Buscamos contrapartida o usamos Deudores por defecto
-            contra = '1.1.3.01.1.001' # Podrías usar un diccionario de mapeo aquí
-            asientos.append({'Cuenta': cta, 'Desc': data['descripcion'], 'DebeUSD': monto_abs, 'HaberUSD': 0})
-            asientos.append({'Cuenta': contra, 'Desc': 'Ajuste Naturaleza Contraria', 'DebeUSD': 0, 'HaberUSD': monto_abs})
-            resumen_ajustes.append({'Cuenta': cta, 'Origen': 'Naturaleza', 'Ajuste USD': monto_abs})
+            monto_ajuste = abs(data['USD'])
+            
+            # Buscamos su contrapartida en el mapeo, si no existe usamos Deudores
+            contrapartida = MAPEO_RECLASIFICACION.get(cta, '1.1.3.01.1.001')
+            
+            # 1. Agregamos al resumen para que aparezca en la Columna F de la Hoja 1
+            resumen_ajustes.append({
+                'Cuenta': cta,
+                'Origen': 'Naturaleza',
+                'Ajuste USD': monto_ajuste
+            })
+            
+            # 2. Generamos el movimiento para el Cargador (Hoja 3)
+            # El ajuste siempre es DEUDOR para la cuenta con saldo negativo (para llevarla a 0)
+            asientos.append({
+                'Cuenta': cta, 
+                'Desc': f"Ajuste Naturaleza: {data['descripcion']}",
+                'DebeUSD': monto_ajuste,
+                'HaberUSD': 0
+            })
+            
+            # 3. Generamos la contrapartida en el Cargador
+            asientos.append({
+                'Cuenta': contrapartida, 
+                'Desc': f"Contrapartida Ajuste {cta}",
+                'DebeUSD': 0,
+                'HaberUSD': monto_ajuste
+            })
 
     # --- PASO EXTRA: AJUSTES MANUALES ---
     for _, manual in df_manual.iterrows():
