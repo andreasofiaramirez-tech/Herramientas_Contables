@@ -58,7 +58,6 @@ from logic import (
     procesar_calculo_pensiones,
     run_conciliation_debito_fiscal,
     run_analysis_paquete_cc,
-    procesar_ajustes_balance_usd,
     run_conciliation_comisiones_bancarias,
     procesar_calculo_locti,
 
@@ -81,7 +80,6 @@ from utils import (
     generar_reporte_cuadre,
     generar_reporte_pensiones,
     generar_cargador_asiento_pensiones,
-    generar_reporte_ajustes_usd,
     generar_reporte_cofersa,
     cargar_datos_cofersa,
     generar_reporte_debito_fiscal,
