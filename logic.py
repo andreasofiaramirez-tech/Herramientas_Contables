@@ -4558,19 +4558,12 @@ def leer_monto_haberes_pdf(file_pdf):
     return 0.0
 
 def extraer_saldos_cg_ajustes(archivo, log_messages):
-    """
-    Paso 1: Extraer cuentas de detalle (No .000) que inicien con 1 o 2.
-    El código se encuentra siempre en la Columna A.
-    """
     datos_cg = {}
     if not archivo: return datos_cg
-    
     try:
-        # Re-leemos el archivo para procesarlo
         archivo.seek(0)
         df = pd.read_excel(archivo, header=None)
-        
-        # Encontrar la fila donde comienzan los datos reales
+        # Radar para inicio de datos
         start_row = 0
         for i, row in df.iterrows():
             if "CUENTA" in [str(x).upper().strip() for x in row.values]:
@@ -4579,24 +4572,23 @@ def extraer_saldos_cg_ajustes(archivo, log_messages):
         
         for i in range(start_row, len(df)):
             fila = df.iloc[i]
-            cuenta = str(fila[0]).strip() # Siempre Columna A
-            
-            # Filtro: Inicia con 1 o 2 y NO termina en .000
+            cuenta = str(fila[0]).strip()
+            # Paso 1: Activo(1) o Pasivo(2) que no sea cuenta control (.000)
             if (cuenta.startswith('1.') or cuenta.startswith('2.')) and not cuenta.endswith('.000'):
                 def clean(v):
                     try:
                         if pd.isna(v): return 0.0
-                        if isinstance(v, (int, float)): return float(v)
-                        return float(str(v).replace('.', '').replace(',', '.'))
+                        val = str(v).replace('.', '').replace(',', '.')
+                        return float(val)
                     except: return 0.0
 
                 datos_cg[cuenta] = {
-                    'VES': clean(fila[6]),  # Columna G (Local)
-                    'USD': clean(fila[10]), # Columna K (Dólar)
+                    'VES': clean(fila[6]),  # Columna G
+                    'USD': clean(fila[10]), # Columna K
                     'descripcion': str(fila[1]).strip() # Columna B
                 }
     except Exception as e:
-        log_messages.append(f"Error extrayendo Balance: {e}")
+        log_messages.append(f"Error Balance: {e}")
     return datos_cg
 
 def procesar_ajustes_balance_usd(f_cb, f_cg, f_hab_usd, f_hab_ves, tasa_bcv, tasa_corp, empresa, n_asiento, df_manual, log):
