@@ -2262,7 +2262,16 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
         ws1.write_row(6, 0, headers, header_clean)
 
         current_row = 7 
+        data_start = 0
         if df_balance_raw is not None and not df_balance_raw.empty:
+            # Buscamos en las primeras 20 filas la palabra "CUENTA" para saber dónde empezar
+            for i, row in df_balance_raw.iterrows():
+                # Normalizamos la fila a texto en mayúsculas para buscar
+                row_vals = [str(x).upper().strip() for x in row.values]
+                if 'CUENTA' in row_vals:
+                    data_start = i + 1 # Los datos empiezan en la fila siguiente
+                    break
+        
             for i in range(data_start, len(df_balance_raw)):
                 fila = df_balance_raw.iloc[i]
                 cuenta_raw = str(fila[0]).strip()
