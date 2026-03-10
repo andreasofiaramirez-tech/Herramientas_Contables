@@ -2238,14 +2238,10 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
                     if pd.notna(v): ws1.write(r, c, v)
 
         # 2. PRE-PROCESAMIENTO DE MAPAS (Normalización Nuclear para evitar Mismatch)
-        def norm_cta(c): return str(c).replace('.', '').strip()
+        def norm_cta(c): return "".join(filter(str.isdigit, str(c)))
 
         # Mapa para vínculos a Hoja 2 (Bancos)
-        mapa_filas_bancos = {
-            norm_cta(r['Cuenta']): r['Fila_Referencia'] 
-            for r in df_resumen.to_dict('records') 
-            if r.get('Origen') == 'Bancos' and 'Fila_Referencia' in r
-        }
+        mapa_filas_bancos = {norm_cta(r['Cuenta']): r.get('Fila_Referencia') for r in df_resumen.to_dict('records') if r.get('Origen') == 'Bancos' and r.get('Fila_Referencia')}
         
         # Mapa para otros ajustes (Haberes, Naturaleza, Manuales)
         # Usamos groupby().sum() por si una cuenta tiene varios ajustes, que no se pierda ninguno
