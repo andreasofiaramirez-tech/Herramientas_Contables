@@ -914,7 +914,22 @@ def render_ajustes_usd():
             # Usamos un flag temporal para mostrar error en el siguiente render
             st.session_state.error_manual = True
 
-    # 2. Formulario de Entrada
+    # --- 2. FUNCIÓN CALLBACK PARA MODIFICAR (Solución al Error) ---
+    def modificar_ajuste_callback(idx):
+        item = st.session_state.manual_adj_list.pop(idx)
+        # Seteamos los valores de los widgets ANTES del rerun
+        st.session_state.man_cta = item['cuenta']
+        st.session_state.man_contra = item['contrapartida']
+        st.session_state.man_moneda = item['moneda']
+        st.session_state.man_monto = item['monto']
+        if item['moneda'] == "USD":
+            st.session_state.man_tasa = item['tasa_tipo']
+
+    # --- 3. FUNCIÓN CALLBACK PARA ELIMINAR ---
+    def eliminar_ajuste_callback(idx):
+        st.session_state.manual_adj_list.pop(idx)
+
+    # --- 4. FORMULARIO DE ENTRADA ---
     with st.container(border=True):
         col_m1, col_m2, col_m3 = st.columns([2, 2, 1])
         with col_m1:
@@ -940,7 +955,7 @@ def render_ajustes_usd():
         st.error("Complete los campos obligatorios (Cuentas y Monto distinto a 0)")
         st.session_state.error_manual = False   
 
-    # 3. Listado de Ajustes y Acciones
+    # --- 5. LISTADO DE AJUSTES AGREGADOS ---
     if st.session_state.manual_adj_list:
         st.markdown("---")
         st.write("**Listado de Ajustes Extraordinarios:**")
@@ -952,20 +967,9 @@ def render_ajustes_usd():
                     st.write(f"**Monto:** {item['monto']:,} {item['moneda']} ({item['tasa_tipo']})")
                 with c2:
                     # MODIFICAR: Carga valores y elimina de la lista
-                    if st.button("📝 Modificar", key=f"edit_{idx}"):
-                        st.session_state.man_cta = item['cuenta']
-                        st.session_state.man_contra = item['contrapartida']
-                        st.session_state.man_moneda = item['moneda']
-                        st.session_state.man_monto = item['monto']
-                        if item['moneda'] == "USD":
-                            st.session_state.man_tasa = item['tasa_tipo']
-                        
-                        st.session_state.manual_adj_list.pop(idx)
-                        st.rerun()
+                    st.button("📝 Modificar", key=f"edit_{idx}", on_click=modificar_ajuste_callback, args=(idx,))
                 with c3:
-                    if st.button("🗑️ Eliminar", key=f"del_{idx}"):
-                        st.session_state.manual_adj_list.pop(idx)
-                        st.rerun()
+                    st.button("🗑️ Eliminar", key=f"del_{idx}", on_click=eliminar_ajuste_callback, args=(idx,))
 
     # --- SECCIÓN 3: PARÁMETROS ---
     st.subheader("3. Parámetros de Cálculo", anchor=False)
