@@ -2302,7 +2302,8 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
                 cuentas_maestras[c_adj] = {
                     'desc': 'CUENTA RECLASIFICADA (DETALLE EN CARGADOR)',
                     'norm': 'Deudor' if c_adj.startswith('1') else 'Acreedor',
-                    'bs_bal': 0.0, 'usd_bal': 0.0
+                    'bs': 0.0,
+                    'usd': 0.0
                 }
 
         # 4. ESCRITURA DE LA TABLA
@@ -2342,8 +2343,7 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
             # Columna H: ACT O PA (1 para Activo, 2 para Pasivo)
             ws1.write(current_row, 7, "1" if cta.startswith('1.') else "2", fmt_text)
             # Columna I: TASA (Fórmula D / G)
-            formula_tasa = f'=IF(ABS(G{excel_row})>0.01, ABS(D{excel_row}/G{excel_row}), IF(ABS(F{excel_row})>0.01, ABS(J{excel_row}/F{excel_row}), 0))'
-            ws1.write_formula(current_row, 8, formula_tasa, fmt_rate)
+            ws1.write_formula(current_row, 8, f'=IF(ABS(G{ex_row})>0.01, ABS(D{ex_row}/G{ex_row}), IF(ABS(F{ex_row})>0.01, ABS(J{ex_row}/F{ex_row}), 0))', fmt_rate)
             
             # Columna J: Bs. (Fórmula F * Tasa BCV de Hoja 2 P1)
             c_norm = norm_cta(cta)
