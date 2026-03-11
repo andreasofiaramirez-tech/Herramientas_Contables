@@ -4619,11 +4619,10 @@ def procesar_ajustes_balance_usd(f_cb, f_cg, f_hab_usd, f_hab_ves, tasa_bcv, tas
         # Paso 2.2: Trasladar ajuste a Hoja 1 (Aquí incluimos la Fila_Referencia)
         if abs(adj_usd) > 0.001:
             resumen_ajustes.append({
-                'Cuenta': str(cta_c).strip(), # Guardamos la cuenta limpia
-                'Origen': 'Bancos',
-                'Ajuste USD': adj_usd,
-                'Fila_Referencia': fila_referencia_excel # El link para la fórmula
-            })
+            'Cuenta': cta_c, 'Origen': 'Bancos', 'Ajuste USD': adj_usd,
+            'Fila_Referencia': fila_referencia_excel,
+            'Tasa_Manual': None  # <--- Agregado para consistencia
+        })
             
             sum_ajustes_bancos_usd += adj_usd
             # Preparar Asiento (Deudor si aumenta, Acreedor si disminuye)
@@ -4644,7 +4643,13 @@ def procesar_ajustes_balance_usd(f_cb, f_cg, f_hab_usd, f_hab_ves, tasa_bcv, tas
     # --- PASO 3: AJUSTE HABERES ---
     m_hab_usd = leer_monto_haberes_pdf(f_hab_usd)
     if m_hab_usd > 0:
-        resumen_ajustes.append({'Cuenta': '2.1.2.05.1.108', 'Origen': 'Haberes', 'Ajuste USD': m_hab_usd, 'Fila_Referencia': None})
+        resumen_ajustes.append({
+            'Cuenta': '2.1.2.05.1.108', 
+            'Origen': 'Haberes', 
+            'Ajuste USD': m_hab_usd, 
+            'Valor_BS_Reportado': m_hab_ves, # <--- Enviamos el monto VES del PDF
+            'Tasa_Manual': 'FIXED' 
+         })
         resumen_ajustes.append({'Cuenta': '1.1.3.01.1.001', 'Origen': 'Haberes', 'Ajuste USD': m_hab_usd, 'Fila_Referencia': None})
     
     asientos.append({'Cuenta': '2.1.2.05.1.108', 'Desc': 'Haberes de Clientes', 'DebeUSD': 0, 'HaberUSD': m_hab_usd})
@@ -4739,49 +4744,56 @@ def procesar_ajustes_balance_usd(f_cb, f_cg, f_hab_usd, f_hab_ves, tasa_bcv, tas
         '2.3.2.02.1.001'  # Anticipos Garantia PS
     ]
 
-    # Recorremos el diccionario de saldos que extrajimos en el Paso 1
+    # Este bucle escanea todo el balance y dispara ajustes automáticos
     for cta, data in datos_balance.items():
-        # Verificamos si la cuenta debe ser ignorada (por coincidencia exacta o prefijo)
+        # 1. Aplicamos el escudo de exclusión (Depreciaciones, Reservas, etc.)
         es_excluida = any(cta.startswith(prefijo) for prefijo in CUENTAS_EXCLUIDAS_NATURALEZA)
-        
+
+        # 2. Si el saldo es negativo y no está excluida, procedemos
         if data['USD'] < -0.01 and not es_excluida:
             monto_valor_abs = abs(data['USD'])
             
-            # Buscamos su contrapartida en el mapeo, si no existe usamos Deudores
+            # 3. Buscamos contrapartida en el mapeo (o Deudores por defecto)
             contrapartida = MAPEO_RECLASIFICACION.get(cta, '1.1.3.01.1.001')
             
-           # 1. Ajuste Cuenta Principal (Deudora para llevar a 0)
+            # 4. DETERMINACIÓN AUTOMÁTICA DE TASA (Punto solicitado)
+            # Si la cuenta es .6. o del exterior, usa BCV. Si es local, usa CORP.
+            es_cta_usd = ".6." in cta or cta.startswith(('1.1.1.03', '1.1.1.01.6'))
+            tasa_asignada = 'BCV' if es_cta_usd else 'CORP'
+
+            # --- REGISTRO PARA HOJA 1 (REPORTE VISUAL) ---
+            # Según tu regla: Ajuste positivo aumenta la naturaleza normal.
+            # Cuenta Principal (Activo o Pasivo negativo que vuelve a su saldo normal)
             resumen_ajustes.append({
                 'Cuenta': str(cta).strip(), 
                 'Origen': 'Naturaleza', 
-                'Ajuste USD': monto_valor_abs, 
+                'Ajuste USD': monto_valor_abs, # Positivo para presentación
+                'Tasa_Manual': tasa_asignada,
                 'Fila_Referencia': None
             })
             
-            # 2. Ajuste Cuenta Contrapartida (Acreedora para balancear)
-            # IMPORTANTE: Aquí es donde forzamos que aparezca la contrapartida en la Hoja 1
+            # Cuenta Contrapartida (Registramos el otro lado de la moneda para el cuadre)
             resumen_ajustes.append({
                 'Cuenta': str(contrapartida).strip(), 
                 'Origen': 'Naturaleza', 
-                'Ajuste USD': monto_valor_abs, 
+                'Ajuste USD': monto_valor_abs, # Positivo aumenta la naturaleza del pasivo/activo
+                'Tasa_Manual': tasa_asignada,
                 'Fila_Referencia': None
             })
-            
-            # 3. Generamos el movimiento para el Cargador (Hoja 3)
-            # El ajuste siempre es DEUDOR para la cuenta con saldo negativo (para llevarla a 0)
+
+            # --- REGISTRO PARA HOJA 3 (CARGADOR SOFTLAND) ---
+            # Aquí sí aplicamos la lógica técnica de Débito y Crédito
             asientos.append({
                 'Cuenta': cta, 
-                'Desc': f"Ajuste Naturaleza: {data['descripcion']}", 
-                'DebeUSD': monto_valor_abs, 
+                'Desc': f"Ajuste Nat. Contraria: {data['descripcion']}", 
+                'DebeUSD': monto_valor_abs, # Para llevar un saldo negativo a cero siempre es DEBE
                 'HaberUSD': 0
             })
-            
-            # 4. Generamos la contrapartida en el Cargador
             asientos.append({
                 'Cuenta': contrapartida, 
-                'Desc': f"Contrapartida Ajuste {cta}", 
+                'Desc': f"Contrapartida Ajuste Nat. {cta}", 
                 'DebeUSD': 0, 
-                'HaberUSD': monto_valor_abs
+                'HaberUSD': monto_valor_abs # Siempre al HABER para balancear
             })
 
     # --- PASO EXTRA: AJUSTES MANUALES ---
