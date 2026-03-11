@@ -4550,7 +4550,8 @@ def procesar_ajustes_balance_usd(f_cb, f_cg, f_hab_usd, f_hab_ves, tasa_bcv, tas
     sum_ajustes_bancos_usd = 0.0
 
     # --- PASO 2: AJUSTE DE BANCOS (LÓGICA L/E) ---
-    df_tesoreria = pd.read_excel(f_cb, header=7, engine=None)    # Leemos el reporte y quitamos la Columna A (Unnamed: 0) y limitamos hasta la Columna M
+    # Leemos el reporte de tesorería (Fila 8 es el encabezado)
+    df_tesoreria = pd.read_excel(f_cb, header=7, engine=None)    
     
     # 1. ELIMINACIÓN NUCLEAR DE 'UNNAMED'
     # Primero borramos por nombre cualquier columna que Excel haya marcado como Unnamed
@@ -4603,39 +4604,38 @@ def procesar_ajustes_balance_usd(f_cb, f_cg, f_hab_usd, f_hab_ves, tasa_bcv, tas
         # h: Verificación
         verificacion = s_bancos_rep - s_libros_rep - mov_no_conc
 
-        # Construir fila para Hoja 2 con todas las columnas solicitadas
-        fila_full = row.to_dict()
-        fila_full.update({
-            'SALDO EN LIBROS BS': sl_bs,
-            'SALDO EN BANCOS BS': sb_bs,
-            'SALDO EN LIBROS $': sl_usd,
-            'SALDO EN BANCOS $': sb_usd,
-            'AJUSTE BS': adj_bs,
-            'AJUSTE $': adj_usd,
-            'TASA_CALC': adj_bs / adj_usd if adj_usd != 0 else 0,
-            'VERIFICACION': verificacion
-        })
-        detalles_bancos.append(fila_full)
+        # --- REGLA: Ignorar firmas del pie de página que tengan ceros ---
+        desc_limpia = str(row.get('DESCRIPCIÓN', '')).upper()
+        if 'ELABORADO' in desc_limpia or 'REVISADO' in desc_limpia or mov_no_conc == 0 and s_libros_rep == 0:
+            continue
 
-        # Paso 2.2: Trasladar ajuste a Hoja 1 (Aquí incluimos la Fila_Referencia)
+        # Construir fila para Hoja 2
+        fila_full = row.to_dict()
+
+        # REGLA: Limpiar fechas (Eliminar la hora)
+        for col_f in ['FECHA INICIAL', 'FECHA FINAL']:
+            if col_f in fila_full and pd.notna(fila_full[col_f]):
+                try: fila_full[col_f] = pd.to_datetime(fila_full[col_f]).date()
+                except: pass
+
+        # Paso 2.2: Trasladar ajuste a Hoja 1
         if abs(adj_usd) > 0.001:
             resumen_ajustes.append({
-            'Cuenta': cta_c, 'Origen': 'Bancos', 'Ajuste USD': adj_usd,
-            'Fila_Referencia': fila_referencia_excel,
-            'Tasa_Manual': None  # <--- Agregado para consistencia
-        })
-            
+                'Cuenta': cta_c, 'Origen': 'Bancos', 'Ajuste USD': adj_usd,
+                'Fila_Referencia': fila_referencia_excel,
+                'Tasa_Manual': None
+            })
             sum_ajustes_bancos_usd += adj_usd
-            # Preparar Asiento (Deudor si aumenta, Acreedor si disminuye)
             asientos.append({
                 'Cuenta': cta_c, 
                 'Desc': str(row.get('DESCRIPCIÓN')),
                 'DebeUSD': adj_usd if adj_usd > 0 else 0,
-                'HaberUSD': abs(adj_usd) if adj_usd < 0 else 0
+                'HaberUSD': abs(ajuste_usd) if adj_usd < 0 else 0 # Usamos abs aquí por seguridad
             })
         
-        detalles_bancos.append(row.to_dict()) 
-        fila_referencia_excel += 1 # Aumentar para el siguiente banco
+        # --- CORRECCIÓN VITAL: Guardamos 'fila_full' (con fechas limpias) y NO 'row.to_dict' ---
+        detalles_bancos.append(fila_full) 
+        fila_referencia_excel += 1
 
     # Paso 2.3: Contrapartida Bancos (1.1.3.01.1.001)
     if abs(sum_ajustes_bancos_usd) > 0.001:
@@ -4881,7 +4881,7 @@ def procesar_ajustes_balance_usd(f_cb, f_cg, f_hab_usd, f_hab_ves, tasa_bcv, tas
     if 'Fila_Referencia' not in df_res_final.columns:
         df_res_final['Fila_Referencia'] = None
         
-    return pd.DataFrame(resumen_ajustes), pd.DataFrame(detalles_bancos), df_asiento, df_balance_raw, {'tasa_bcv': tasa_bcv, 'tasa_corp': tasa_corp}
+    return pd.DataFrame(resumen_ajustes), pd.DataFrame(lista_datos_hoja_2), df_asiento, df_balance_raw, {'tasa_bcv': tasa_bcv, 'tasa_corp': tasa_corp}
 
 
 
