@@ -897,7 +897,7 @@ def render_ajustes_usd():
             m_contra = st.text_input("Cuenta contrapartida", placeholder="Ej: 1.1.03...")
         with col_m2:
             m_moneda = st.selectbox("Moneda del ajuste", ["USD", "BS"])
-            m_monto = st.number_input(f"Monto en {m_moneda}", min_value=0.0, format="%.2f")
+            m_monto = st.number_input(f"Monto en {m_moneda}", format="%.2f")
         with col_m3:
             # Solo mostrar Tasa si es USD
             m_tasa_tipo = st.selectbox("Tasa de conversión", ["BCV", "CORP"]) if m_moneda == "USD" else "N/A"
