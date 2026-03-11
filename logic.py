@@ -4619,11 +4619,12 @@ def procesar_ajustes_balance_usd(f_cb, f_cg, f_hab_usd, f_hab_ves, tasa_bcv, tas
         # Paso 2.2: Trasladar ajuste a Hoja 1 (Aquí incluimos la Fila_Referencia)
         if abs(adj_usd) > 0.001:
             resumen_ajustes.append({
-                'Cuenta': cta_c,
+                'Cuenta': str(cta_c).strip(), # Guardamos la cuenta limpia
                 'Origen': 'Bancos',
                 'Ajuste USD': adj_usd,
-                'Fila_Referencia': fila_referencia_excel
+                'Fila_Referencia': fila_referencia_excel # El link para la fórmula
             })
+            
             sum_ajustes_bancos_usd += adj_usd
             # Preparar Asiento (Deudor si aumenta, Acreedor si disminuye)
             asientos.append({
@@ -4633,6 +4634,7 @@ def procesar_ajustes_balance_usd(f_cb, f_cg, f_hab_usd, f_hab_ves, tasa_bcv, tas
                 'HaberUSD': abs(adj_usd) if adj_usd < 0 else 0
             })
         
+        detalles_bancos.append(row.to_dict()) 
         fila_referencia_excel += 1 # Aumentar para el siguiente banco
 
     # Paso 2.3: Contrapartida Bancos (1.1.3.01.1.001)
