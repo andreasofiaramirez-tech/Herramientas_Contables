@@ -2322,7 +2322,7 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
                 if abs(m_adj) > 0.001:
                     ws1.write_number(current_row, 5, m_adj, fmt_money_bold)
                 else:
-                    ws1.write_number(current_row, 5, 0.0, fmt_text))
+                    ws1.write_number(current_row, 5, 0.0, fmt_text)
 
             # Columna G: Saldo Ajustado (Fórmula E + F)
             ws1.write_formula(current_row, 6, f"=E{excel_row}+F{excel_row}", fmt_money_bold)
