@@ -154,9 +154,14 @@ def set_page(page_name):
 def password_entered():
     """Verifica la contraseña ingresada y actualiza el estado."""
     st.session_state.authentication_attempted = True
-    if st.session_state.get("password") == st.secrets.get("password"):
+    input_usuario = st.session_state.get("password", "").strip()
+    clave_secreta = st.secrets.get("password", "").strip()
+    
+    if input_usuario == clave_secreta:
         st.session_state.password_correct = True
-        del st.session_state["password"]
+        # Limpiamos la contraseña de la memoria por seguridad
+        if "password" in st.session_state:
+            del st.session_state["password"]
     else:
         st.session_state.password_correct = False
 
