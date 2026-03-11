@@ -2242,9 +2242,9 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
 
         # Mapa para vínculos a Hoja 2 (Bancos)
         mapa_filas_bancos = {
-            norm_cta(r['Cuenta']): r['Fila_Referencia'] 
+            norm_cta(r['Cuenta']): r.get('Fila_Referencia') 
             for r in df_resumen.to_dict('records') 
-            if r.get('Origen') == 'Bancos' and r.get('Fila_Referencia')
+            if r.get('Origen') == 'Bancos' and r.get('Fila_Referencia') is not None
         }
         
         # Mapa consolidado de Ajustes (Suma todos los ajustes por cuenta: Naturaleza, Haberes, Manual)
@@ -2252,8 +2252,8 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
         mapa_otros_tasas = {}
         if not df_resumen.empty:
             df_resumen['cta_norm_aux'] = df_resumen['Cuenta'].apply(norm_cta)
-            mapa_otros_montos = df_resumen.groupby('cta_norm_aux')['Ajuste USD'].sum().to_dict()
-            # Tomamos el tipo de tasa manual (si existe) para la cuenta
+            # Agrupamos por cuenta normalizada y sumamos
+            mapa_otros_montos = df_resumen[df_resumen['Origen'] != 'Bancos'].groupby('cta_norm_aux')['Ajuste USD'].sum().to_dict()
             mapa_otros_tasas = df_resumen.set_index('cta_norm_aux')['Tasa_Manual'].to_dict()
 
 
@@ -2316,14 +2316,13 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
             # --- COLUMNA F: AJUSTE $ (LÓGICA PRIORIZADA) ---
             if c_norm in mapa_filas_bancos:
                 fila_ref = mapa_filas_bancos[c_norm]
-                # Vincula al Ajuste $ de la Hoja 2 (Columna R / índice 17)
                 ws1.write_formula(current_row, 5, f"='2. Detalle Bancos'!$R${fila_ref}", fmt_money_bold)
             else:
                 m_adj = mapa_otros_montos.get(c_norm, 0.0)
                 if abs(m_adj) > 0.001:
                     ws1.write_number(current_row, 5, m_adj, fmt_money_bold)
                 else:
-                    ws1.write_number(current_row, 5, 0.0, fmt_text)
+                    ws1.write_number(current_row, 5, 0.0, fmt_text))
 
             # Columna G: Saldo Ajustado (Fórmula E + F)
             ws1.write_formula(current_row, 6, f"=E{excel_row}+F{excel_row}", fmt_money_bold)
