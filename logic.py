@@ -4789,57 +4789,46 @@ def procesar_ajustes_balance_usd(f_cb, f_cg, f_hab_usd, f_hab_ves, tasa_bcv, tas
         monto_input = float(adj['monto']) # Puede ser positivo o negativo
         cta_a = str(adj['cuenta']).strip()
         cta_c = str(adj['contrapartida']).strip()
+        t_tipo = adj.get('tasa_tipo', 'BCV') # Capturamos si es BCV o CORP
         
         # Determinamos montos para reporte ($) y cargador (Bs)
         if moneda == "USD":
             m_usd = monto_input
-            t_valor = tasa_bcv if adj['tasa_tipo'] == "BCV" else tasa_corp
+            t_valor = tasa_bcv if t_tipo == "BCV" else tasa_corp
             m_ves = round(m_usd * t_valor, 2)
         else:
             # Si el ajuste es en BS
             m_ves = monto_input
             m_usd = 0.0 # No afecta la columna de USD del balance ajustado si es puro BS
         
-        # 1. Registro en Hoja 1 (Resumen de Ajustes $)
-        # Siguiendo tu regla: Positivo aumenta naturaleza
+        # --- REGLA 1: AMBOS CON EL MISMO SIGNO PARA EL REPORTE ---
+        # Ajuste Cuenta A
         resumen_ajustes.append({
-            'Cuenta': cta_a, 
-            'Origen': 'Manual', 
-            'Ajuste USD': m_usd, 
-            'Fila_Referencia': None
+            'Cuenta': cta_a, 'Origen': 'Manual', 'Ajuste USD': m_usd, 
+            'Tasa_Manual': t_tipo, 'Fila_Referencia': None
         })
-        # 2. Ajuste a la Cuenta Contrapartida
+        # Ajuste Cuenta C (Contrapartida) con el mismo signo
         resumen_ajustes.append({
-            'Cuenta': cta_c, 
-            'Origen': 'Manual', 
-            'Ajuste USD': -m_usd, 
-            'Fila_Referencia': None
+            'Cuenta': cta_c, 'Origen': 'Manual', 'Ajuste USD': m_usd, 
+            'Tasa_Manual': t_tipo, 'Fila_Referencia': None
         })
 
         # 2. Registro en Asiento (Lógica de Debe/Haber según signo y naturaleza)
-        def determinar_movimiento(cta, monto_v, monto_u):
+        def determinar_mov(cta, mv, mu):
             es_activo = cta.startswith('1')
             # Si el monto es positivo -> Aumenta naturaleza (Activo al Debe, Pasivo al Haber)
             # Si el monto es negativo -> Disminuye naturaleza (Activo al Haber, Pasivo al Debe)
-            if (es_activo and monto_v > 0) or (not es_activo and monto_v < 0):
-                return {'D_BS': abs(monto_v), 'H_BS': 0, 'D_USD': abs(monto_u), 'H_USD': 0}
+            if (es_activo and mv > 0) or (not es_activo and mv < 0):
+                return {'D_BS': abs(mv), 'H_BS': 0, 'D_USD': abs(mu), 'H_USD': 0}
             else:
-                return {'D_BS': 0, 'H_BS': abs(monto_v), 'D_USD': 0, 'H_USD': abs(monto_u)}
-
-        mov_a = determinar_movimiento(cta_a, m_ves, m_usd)
-        asientos.append({
-            'Cuenta': cta_a, 'Desc': 'Ajuste Manual', 
-            'DebeUSD': mov_a['D_USD'], 'HaberUSD': mov_a['H_USD'],
-            'Débito VES': mov_a['D_BS'], 'Crédito VES': mov_a['H_BS']
-        })
+                return {'D_BS': 0, 'H_BS': abs(mv), 'D_USD': 0, 'H_USD': abs(mu)}
+                
+        mv_a = determinar_mov(cta_a, m_ves, m_usd)
+        asientos.append({'Cuenta': cta_a, 'Desc': 'Ajuste Manual', 'DebeUSD': mv_a['D_USD'], 'HaberUSD': mv_a['H_USD'], 'Débito VES': mv_a['D_BS'], 'Crédito VES': mv_a['H_BS']})
 
         # Para la contrapartida, invertimos el efecto del monto
-        mov_c = determinar_movimiento(cta_c, -m_ves, -m_usd)
-        asientos.append({
-            'Cuenta': cta_c, 'Desc': 'Contrapartida Manual', 
-            'DebeUSD': mov_c['D_USD'], 'HaberUSD': mov_c['H_USD'],
-            'Débito VES': mov_c['D_BS'], 'Crédito VES': mov_c['H_BS']
-        })
+        mv_c = determinar_mov(cta_c, -m_ves, -m_usd)
+        asientos.append({'Cuenta': cta_c, 'Desc': 'Contrapartida Manual', 'DebeUSD': mv_c['D_USD'], 'HaberUSD': mv_c['H_USD'], 'Débito VES': mv_c['D_BS'], 'Crédito VES': mv_c['H_BS']})
        
     # --- GENERACIÓN DE ASIENTO FINAL ---
     df_asiento = pd.DataFrame(asientos)
