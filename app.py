@@ -397,13 +397,14 @@ def render_inicio():
     with c2:
         st.subheader("📑 Cierres Mensuales") # <--- NUEVA SECCIÓN
         st.button("🏦 Cuadre CB - CG", on_click=set_page, args=['cuadre'], use_container_width=True)
-        st.button("📉 Ajustes al Balance USD", on_click=set_page, args=['ajustes_usd'], use_container_width=True)
+        st.button("📈 Ajustes al Balance USD", on_click=set_page, args=['ajustes_usd'], use_container_width=True)
         st.button("📆 Liberaciones y Apartados", on_click=set_page, args=['apartados'], use_container_width=True)
 
     with c3:
         st.subheader("⚙️ Procesos Fiscales")
         st.button("🛡️ Cálculo Pensiones (9%)", on_click=set_page, args=['pensiones'], use_container_width=True)
-        st.button("⚖️ Verificación Débito Fiscal", on_click=set_page, args=['debito_fiscal'], use_container_width=True)
+        st.button("⚖️ Cálculo LOCTI (0.5%)", on_click=set_page, args=['locti'], use_container_width=True)
+        st.button("📑 Verificación Débito Fiscal", on_click=set_page, args=['debito_fiscal'], use_container_width=True)
         st.button("🧾 Relación Retenciones", on_click=set_page, args=['retenciones'], use_container_width=True)
 
 
