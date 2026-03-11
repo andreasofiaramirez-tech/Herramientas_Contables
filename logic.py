@@ -4783,18 +4783,53 @@ def procesar_ajustes_balance_usd(f_cb, f_cg, f_hab_usd, f_hab_ves, tasa_bcv, tas
             })
 
     # --- PASO EXTRA: AJUSTES MANUALES ---
-    for _, manual in df_manual.iterrows():
-        m_usd = manual['Monto en USD']
-        cta_a = manual['Cuenta a ajustar']
-        cta_c = manual['Cuenta contrapartida']
-    
-        # Cuenta A
-        resumen_ajustes.append({'Cuenta': cta_a, 'Origen': 'Manual', 'Ajuste USD': m_usd, 'Fila_Referencia': None})
-        # Cuenta B (Contrapartida)
-        resumen_ajustes.append({'Cuenta': cta_c, 'Origen': 'Manual', 'Ajuste USD': -m_usd, 'Fila_Referencia': None})
+    # df_manual ahora es el DataFrame proveniente de st.session_state.manual_adj_list
+    for _, adj in df_manual.iterrows():
+        moneda = adj['moneda']
+        monto_input = float(adj['monto'])
+        cta_a = str(adj['cuenta']).strip()
+        cta_c = str(adj['contrapartida']).strip()
         
-        asientos.append({'Cuenta': manual['Cuenta a ajustar'], 'Desc': 'Ajuste Manual', 'DebeUSD': m_usd, 'HaberUSD': 0})
-        asientos.append({'Cuenta': manual['Cuenta contrapartida'], 'Desc': 'Contrapartida Manual', 'DebeUSD': 0, 'HaberUSD': m_usd})
+        # Determinamos montos para reporte ($) y cargador (Bs)
+        if moneda == "USD":
+            m_usd = monto_input
+            t_valor = tasa_bcv if adj['tasa_tipo'] == "BCV" else tasa_corp
+            m_ves = round(m_usd * t_valor, 2)
+        else:
+            # Si el ajuste es en BS
+            m_ves = monto_input
+            m_usd = 0.0 # No afecta la columna de USD del balance ajustado si es puro BS
+        
+        # 1. Registro en Hoja 1 (Resumen de Ajustes $)
+        # Siguiendo tu regla: Positivo aumenta naturaleza
+        resumen_ajustes.append({
+            'Cuenta': cta_a, 'Origen': 'Manual', 'Ajuste USD': m_usd, 'Fila_Referencia': None
+        })
+        resumen_ajustes.append({
+            'Cuenta': cta_c, 'Origen': 'Manual', 'Ajuste USD': m_usd, 'Fila_Referencia': None
+        })
+
+        # 2. Registro en Hoja 3 (Cargador)
+        # Determinamos si es Debe o Haber según naturaleza (simplificado: aumenta cuenta A)
+        es_activo_a = cta_a.startswith('1')
+        asientos.append({
+            'Cuenta': cta_a, 
+            'Desc': 'Ajuste Manual Extraordinario', 
+            'DebeUSD': m_usd if es_activo_a else 0,
+            'HaberUSD': 0 if es_activo_a else m_usd,
+            'Débito VES': m_ves if es_activo_a else 0,
+            'Crédito VES': 0 if es_activo_a else m_ves
+        })
+        
+        es_activo_c = cta_c.startswith('1')
+        asientos.append({
+            'Cuenta': cta_c, 
+            'Desc': 'Contrapartida Ajuste Manual', 
+            'DebeUSD': m_usd if not es_activo_c else 0,
+            'HaberUSD': 0 if not es_activo_c else m_usd,
+            'Débito VES': m_ves if not es_activo_c else 0,
+            'Crédito VES': 0 if not es_activo_c else m_ves
+        })
        
     # --- GENERACIÓN DE ASIENTO FINAL ---
     df_asiento = pd.DataFrame(asientos)
