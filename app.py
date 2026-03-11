@@ -390,7 +390,7 @@ def render_inicio():
     
     with c1:
         st.subheader("📊 Análisis y Conciliación")
-        st.button("📄 Especificaciones", on_click=set_page, args=['especificaciones'], use_container_width=True)
+        st.button("📄 Especificaciones", on_click=set_page, args=['especificaciones'], use_container_width=True, key="btn_spec_mayoreo")
         st.button("📦 Análisis Paquete CC", on_click=set_page, args=['paquete_cc'], use_container_width=True)
         st.button("🏦 Auditoría Comisiones", on_click=set_page, args=['comisiones'], use_container_width=True)
 
@@ -417,12 +417,7 @@ def render_inicio():
     
     with col_cof1:
         st.subheader("📊 Análisis y Conciliación")
-        st.button(
-            "📄 Especificaciones", 
-            on_click=set_page, 
-            args=['especificaciones_cofersa'], # <--- Verifica que el nombre sea este exactamente
-            use_container_width=True
-        )
+        st.button("📄 Especificaciones", on_click=set_page, args=['especificaciones_cofersa'],use_container_width=True, key="btn_spec_cofersa")
 
     with col_cof2:
         st.subheader("⚖️ Cierres Mensuales")
