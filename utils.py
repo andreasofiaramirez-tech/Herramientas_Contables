@@ -2343,7 +2343,7 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
         ws1.write('I3', 'Pasivo', fmt_summary_label)
         ws1.write_formula('J3', f'=SUMIF(H8:H{final_row}, "2", F8:F{final_row})', fmt_summary_val)
         ws1.write('I4', 'Dif.', fmt_summary_label)
-        ws1.write_formula('J4', '=ROUND(ABS(J2)-ABS(J3), 2)', fmt_summary_val)
+        ws1.write_formula('J4', '=ROUND(J2-J3, 2)', fmt_summary_val)
 
         # Ajuste de anchos final para la Hoja 1
         ws1.set_column('A:A', 15); ws1.set_column('B:B', 45); ws1.set_column('D:G', 18)
