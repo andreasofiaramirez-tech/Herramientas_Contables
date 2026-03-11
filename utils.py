@@ -2347,7 +2347,7 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
             ws1.write_formula(current_row, 8, formula_tasa, fmt_rate)
             
             # Columna J: Bs. (Fórmula F * Tasa BCV de Hoja 2 P1)
-            val_fijo_bs = mapa_bs_fijos.get(c_norm, 0.0)
+            val_fijo_bs = clean_num(mapa_bs_fijos.get(c_norm, 0.0))
             if val_fijo_bs != 0:
                 ws1.write_number(current_row, 9, val_fijo_bs, fmt_money)
             elif c_norm in mapa_filas_bancos:
