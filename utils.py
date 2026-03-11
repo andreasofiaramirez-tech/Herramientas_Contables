@@ -2248,10 +2248,14 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
         }
         
         # Mapa consolidado de Ajustes (Suma todos los ajustes por cuenta: Naturaleza, Haberes, Manual)
-        mapa_otros = {}
+        mapa_otros_montos = {}
+        mapa_otros_tasas = {}
         if not df_resumen.empty:
             df_resumen['cta_norm_aux'] = df_resumen['Cuenta'].apply(norm_cta)
-            mapa_otros = df_resumen.groupby('cta_norm_aux')['Ajuste USD'].sum().to_dict()
+            mapa_otros_montos = df_resumen.groupby('cta_norm_aux')['Ajuste USD'].sum().to_dict()
+            # Tomamos el tipo de tasa manual (si existe) para la cuenta
+            mapa_otros_tasas = df_resumen.set_index('cta_norm_aux')['Tasa_Manual'].to_dict()
+
 
         # 3. CONSTRUCCIÓN DE LISTA MAESTRA DE CUENTAS (BALANCE + AJUSTES)
         cuentas_maestras = {}
@@ -2259,7 +2263,6 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
         col_cta_idx = 0
         
         if df_balance_raw is not None and not df_balance_raw.empty:
-            # Radar para encontrar encabezados
             for i, row in df_balance_raw.iterrows():
                 vals = [str(x).upper().strip() for x in row.values]
                 if 'CUENTA' in vals:
@@ -2271,13 +2274,12 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
             for i in range(data_start, len(df_balance_raw)):
                 fila = df_balance_raw.iloc[i]
                 c_raw = str(fila[col_cta_idx]).strip()
-                # Filtro: Solo Activos/Pasivos que no sean totales (.000)
                 if c_raw.startswith(('1.', '2.')) and not c_raw.endswith('.000') and c_raw.count('.') >= 2:
                     cuentas_maestras[c_raw] = {
-                        'desc': str(fila[col_cta_idx + 1]).strip(), # Descripción (Col B)
-                        'norm': str(fila[col_cta_idx + 2]).strip(), # Saldo Normal (Col C)
-                        'bs': clean_num(fila[col_cta_idx + 6]),     # Balance Final Local (Col G)
-                        'usd': clean_num(fila[col_cta_idx + 11])    # Balance Final Dólar (Col L)
+                        'desc': str(fila[col_cta_idx + 1]).strip(),
+                        'norm': str(fila[col_cta_idx + 2]).strip(),
+                        'bs': clean_num(fila[col_cta_idx + 6]),    # Col G
+                        'usd': clean_num(fila[col_cta_idx + 11])   # Col L
                     }
 
         # INYECCIÓN: Agregar cuentas que tienen ajuste pero no estaban en el Balance
@@ -2285,10 +2287,9 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
             c_adj = str(r_adj['Cuenta']).strip()
             if c_adj not in cuentas_maestras:
                 cuentas_maestras[c_adj] = {
-                    'desc': 'CUENTA INYECTADA (CONTRA-ASIENTO)',
+                    'desc': 'CUENTA RECLASIFICADA / CONTRA-ASIENTO',
                     'norm': 'Deudor' if c_adj.startswith('1') else 'Acreedor',
-                    'bs': 0.0,
-                    'usd': 0.0
+                    'bs': 0.0, 'usd': 0.0
                 }
 
         # 4. ESCRITURA DE LA TABLA
@@ -2314,14 +2315,13 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
 
             # --- COLUMNA F: AJUSTE $ (LÓGICA PRIORIZADA) ---
             if c_norm in mapa_filas_bancos:
-                # Si es Banco, vinculamos a la Hoja 2 Columna R (Ajuste $)
                 fila_ref = mapa_filas_bancos[c_norm]
+                # Vincula al Ajuste $ de la Hoja 2 (Columna R / índice 17)
                 ws1.write_formula(current_row, 5, f"='2. Detalle Bancos'!$R${fila_ref}", fmt_money_bold)
             else:
-                # Si no es banco, traemos el neto de otros ajustes (Naturaleza, Haberes, Manual)
-                monto_total_adj = mapa_otros.get(c_norm, 0.0)
-                if abs(monto_total_adj) > 0.001:
-                    ws1.write_number(current_row, 5, monto_total_adj, fmt_money_bold)
+                m_adj = mapa_otros_montos.get(c_norm, 0.0)
+                if abs(m_adj) > 0.001:
+                    ws1.write_number(current_row, 5, m_adj, fmt_money_bold)
                 else:
                     ws1.write_number(current_row, 5, 0.0, fmt_text)
 
@@ -2330,18 +2330,26 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
             # Columna H: ACT O PA (1 para Activo, 2 para Pasivo)
             ws1.write(current_row, 7, "1" if cta.startswith('1.') else "2", fmt_text)
             # Columna I: TASA (Fórmula D / G)
-            ws1.write_formula(current_row, 8, f"=IF(ABS(G{excel_row})>0.01, ABS(D{excel_row}/G{excel_row}), 0)", fmt_rate)
+            formula_tasa = f'=IF(ABS(G{excel_row})>0.01, ABS(D{excel_row}/G{excel_row}), IF(ABS(F{excel_row})>0.01, ABS(J{excel_row}/F{excel_row}), 0))'
+            ws1.write_formula(current_row, 8, formula_tasa, fmt_rate)
             # Columna J: Bs. (Fórmula F * Tasa BCV de Hoja 2 P1)
-            ws1.write_formula(current_row, 9, f"=F{excel_row}*'2. Detalle Bancos'!$P$1", fmt_money)
+            if c_norm in mapa_filas_bancos:
+                fila_ref = mapa_filas_bancos[c_norm]
+                # Para bancos, vinculamos directo al Ajuste BS de la Hoja 2 (Columna Q / índice 16)
+                ws1.write_formula(current_row, 9, f"='2. Detalle Bancos'!$Q${fila_ref}", fmt_money)
+            else:
+                # Para manuales/haberes/naturaleza: Ajuste * Tasa (P1=BCV, P2=CORP)
+                tasa_cell = "$P$2" if mapa_otros_tasas.get(c_norm) == "CORP" else "$P$1"
+                ws1.write_formula(current_row, 9, f"=F{excel_row}*'2. Detalle Bancos'!{tasa_cell}", fmt_money)
 
             current_row += 1
 
         # 5. CUADRO DE CONTROL SUPERIOR (I2:J4)
-        final_row = max(current_row, 8)
+        final_data_row = max(current_row, 8)
         ws1.write('I2', 'Activo', fmt_summary_label)
-        ws1.write_formula('J2', f'=SUMIF(H8:H{final_row}, "1", F8:F{final_row})', fmt_summary_val)
+        ws1.write_formula('J2', f'=SUMIF(H8:H{final_data_row}, "1", F8:F{final_data_row})', fmt_summary_val)
         ws1.write('I3', 'Pasivo', fmt_summary_label)
-        ws1.write_formula('J3', f'=SUMIF(H8:H{final_row}, "2", F8:F{final_row})', fmt_summary_val)
+        ws1.write_formula('J3', f'=SUMIF(H8:H{final_data_row}, "2", F8:F{final_data_row})', fmt_summary_val)
         ws1.write('I4', 'Dif.', fmt_summary_label)
         ws1.write_formula('J4', '=ROUND(J2-J3, 2)', fmt_summary_val)
 
