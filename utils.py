@@ -2250,13 +2250,23 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
         # Mapa consolidado de Ajustes (Suma todos los ajustes por cuenta: Naturaleza, Haberes, Manual)
         mapa_otros_montos = {}
         mapa_otros_tasas = {}
+        mapa_bs_fijos = {}
+
+        
         if not df_resumen.empty:
             df_resumen['cta_norm_aux'] = df_resumen['Cuenta'].apply(norm_cta)
-            # Agrupamos por cuenta normalizada y sumamos
+            
+            # Agrupamos montos $ (Excluyendo bancos porque esos van por fórmula)
             mapa_otros_montos = df_resumen[df_resumen['Origen'] != 'Bancos'].groupby('cta_norm_aux')['Ajuste USD'].sum().to_dict()
+            
+            # Mapeo de tipos de tasa (BCV o CORP)
             if 'Tasa_Manual' in df_resumen.columns:
                 mapa_otros_tasas = df_resumen.dropna(subset=['Tasa_Manual']).set_index('cta_norm_aux')['Tasa_Manual'].to_dict()
-
+            
+            # Mapeo de montos Bs fijos (Reportados desde PDF)
+            if 'Valor_BS_Reportado' in df_resumen.columns:
+                mapa_bs_fijos = df_resumen.dropna(subset=['Valor_BS_Reportado']).set_index('cta_norm_aux')['Valor_BS_Reportado'].to_dict()
+                
 
         # 3. CONSTRUCCIÓN DE LISTA MAESTRA DE CUENTAS (BALANCE + AJUSTES)
         cuentas_maestras = {}
@@ -2264,6 +2274,7 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
         col_cta_idx = 0
         
         if df_balance_raw is not None and not df_balance_raw.empty:
+            # Buscador dinámico de fila "CUENTA"
             for i, row in df_balance_raw.iterrows():
                 vals = [str(x).upper().strip() for x in row.values]
                 if 'CUENTA' in vals:
@@ -2271,26 +2282,27 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
                     col_cta_idx = vals.index('CUENTA')
                     break
             
-            # Cargar todas las cuentas de detalle del Balance
+            # Cargar cuentas del Balance
             for i in range(data_start, len(df_balance_raw)):
-                fila = df_balance_raw.iloc[i]
-                c_raw = str(fila[col_cta_idx]).strip()
+                fila_b = df_balance_raw.iloc[i]
+                c_raw = str(fila_b[col_cta_idx]).strip()
+                # Filtro: Activos/Pasivos detalle
                 if c_raw.startswith(('1.', '2.')) and not c_raw.endswith('.000') and c_raw.count('.') >= 2:
                     cuentas_maestras[c_raw] = {
-                        'desc': str(fila[col_cta_idx + 1]).strip(),
-                        'norm': str(fila[col_cta_idx + 2]).strip(),
-                        'bs': clean_num(fila[col_cta_idx + 6]),    # Col G
-                        'usd': clean_num(fila[col_cta_idx + 11])   # Col L
+                        'desc': str(fila_b[col_cta_idx + 1]).strip(),
+                        'norm': str(fila_b[col_cta_idx + 2]).strip(),
+                        'bs_bal': clean_num(fila_b[col_cta_idx + 6]),    # Col G
+                        'usd_bal': clean_num(fila_b[col_cta_idx + 11])   # Col L
                     }
 
-        # INYECCIÓN: Agregar cuentas que tienen ajuste pero no estaban en el Balance
+        # Inyección de cuentas que tienen ajustes pero no estaban en el balance
         for _, r_adj in df_resumen.iterrows():
             c_adj = str(r_adj['Cuenta']).strip()
             if c_adj not in cuentas_maestras:
                 cuentas_maestras[c_adj] = {
-                    'desc': 'CUENTA RECLASIFICADA / CONTRA-ASIENTO',
+                    'desc': 'CUENTA RECLASIFICADA (DETALLE EN CARGADOR)',
                     'norm': 'Deudor' if c_adj.startswith('1') else 'Acreedor',
-                    'bs': 0.0, 'usd': 0.0
+                    'bs_bal': 0.0, 'usd_bal': 0.0
                 }
 
         # 4. ESCRITURA DE LA TABLA
@@ -2332,15 +2344,22 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
             # Columna I: TASA (Fórmula D / G)
             formula_tasa = f'=IF(ABS(G{excel_row})>0.01, ABS(D{excel_row}/G{excel_row}), IF(ABS(F{excel_row})>0.01, ABS(J{excel_row}/F{excel_row}), 0))'
             ws1.write_formula(current_row, 8, formula_tasa, fmt_rate)
+            
             # Columna J: Bs. (Fórmula F * Tasa BCV de Hoja 2 P1)
-            if c_norm in mapa_filas_bancos:
+            c_norm = norm_cta(cta)
+            val_bs_reportado = mapa_bs_fijos.get(c_norm, 0.0)
+
+            if val_bs_reportado != 0:
+                # Caso Haberes: Escribimos el monto exacto del reporte VES
+                ws1.write_number(current_row, 9, val_bs_reportado, fmt_money)
+            elif c_norm in mapa_filas_bancos:
+                # Caso Bancos: Vinculamos a la Hoja 2
                 fila_ref = mapa_filas_bancos[c_norm]
-                # Para bancos, vinculamos directo al Ajuste BS de la Hoja 2 (Columna Q / índice 16)
                 ws1.write_formula(current_row, 9, f"='2. Detalle Bancos'!$Q${fila_ref}", fmt_money)
             else:
-                # Para manuales/haberes/naturaleza: Ajuste * Tasa (P1=BCV, P2=CORP)
-                tasa_cell = "$P$2" if mapa_otros_tasas.get(c_norm) == "CORP" else "$P$1"
-                ws1.write_formula(current_row, 9, f"=F{excel_row}*'2. Detalle Bancos'!{tasa_cell}", fmt_money)
+                # Caso Manual/Naturaleza: Ajuste * Tasa (P1=BCV o P2=CORP)
+                tasa_ref = "$P$2" if mapa_otros_tasas.get(c_norm) == "CORP" else "$P$1"
+                ws1.write_formula(current_row, 9, f"=F{excel_row}*'2. Detalle Bancos'!{tasa_ref}", fmt_money)    
 
             current_row += 1
 
