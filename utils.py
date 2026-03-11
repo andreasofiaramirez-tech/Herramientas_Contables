@@ -2241,13 +2241,18 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
         def norm_cta(c): return "".join(filter(str.isdigit, str(c)))
 
         # Mapa para vínculos a Hoja 2 (Bancos)
-        mapa_filas_bancos = {norm_cta(r['Cuenta']): r.get('Fila_Referencia') for r in df_resumen.to_dict('records') if r.get('Origen') == 'Bancos' and r.get('Fila_Referencia')}
+        mapa_filas_bancos = {
+            norm_cta(r['Cuenta']): r['Fila_Referencia'] 
+            for r in df_resumen.to_dict('records') 
+            if r.get('Origen') == 'Bancos' and r.get('Fila_Referencia')
+        }
         
         # Mapa para otros ajustes (Haberes, Naturaleza, Manuales)
         # Usamos groupby().sum() por si una cuenta tiene varios ajustes, que no se pierda ninguno
         if not df_resumen.empty:
-            df_resumen['cta_norm'] = df_resumen['Cuenta'].apply(norm_cta)
-            mapa_otros = df_resumen.groupby('cta_norm')['Ajuste USD'].sum().to_dict()
+            df_resumen['cta_norm_aux'] = df_resumen['Cuenta'].apply(norm_cta)
+            # Agrupamos y sumamos para que una cuenta muestre el NETO de todos sus ajustes
+            mapa_otros = df_resumen.groupby('cta_norm_aux')['Ajuste USD'].sum().to_dict()
         else:
             mapa_otros = {}
 
@@ -2288,14 +2293,16 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
 
                 # COLUMNA AJUSTE ($)
                 if c_norm in mapa_filas_bancos:
-                    # Si es un Banco, ponemos la FÓRMULA que apunta a la Hoja 2 Columna R
-                    fila_bco = mapa_filas_bancos[c_norm]
-                    ws1.write_formula(current_row, 5, f"='2. Detalle Bancos'!$R${fila_bco}", fmt_money_bold)
+                    # Si es un Banco con detalle, ponemos la fórmula
+                    fila_ref = mapa_filas_bancos[c_norm]
+                    ws1.write_formula(current_row, 5, f"='2. Detalle Bancos'!$R${fila_ref}", fmt_money_bold)
                 else:
-                    # Si no es banco, buscamos el MONTO en el mapa de otros ajustes
-                    monto_final_adj = mapa_otros.get(c_norm, 0.0)
-                    if abs(monto_final_adj) > 0.001:
-                        ws1.write_number(current_row, 5, monto_final_adj, fmt_money_bold)
+                    # Si no es banco, buscamos el MONTO NETO en mapa_otros
+                    # (Aquí aparecerá el ajuste de Primas por Pagar, Deudores, etc.)
+                    monto_total_ajuste = mapa_otros.get(c_norm, 0.0)
+                    
+                    if abs(monto_total_ajuste) > 0.001:
+                        ws1.write_number(current_row, 5, monto_total_ajuste, fmt_money_bold)
                     else:
                         ws1.write_number(current_row, 5, 0.0, fmt_text)
 
