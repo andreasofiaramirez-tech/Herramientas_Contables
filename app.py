@@ -889,40 +889,56 @@ def render_ajustes_usd():
     if 'manual_adj_list' not in st.session_state:
         st.session_state.manual_adj_list = []
 
+    # --- FUNCIÓN CALLBACK PARA AGREGAR ---
+    def agregar_ajuste_callback():
+        # Extraemos valores de las llaves (keys)
+        cta = st.session_state.man_cta
+        contra = st.session_state.man_contra
+        moneda = st.session_state.man_moneda
+        monto = st.session_state.man_monto
+        tasa = st.session_state.get('man_tasa', 'N/A')
+
+        if cta.strip() and contra.strip() and monto != 0:
+            st.session_state.manual_adj_list.append({
+                "cuenta": cta,
+                "contrapartida": contra,
+                "moneda": moneda,
+                "monto": monto,
+                "tasa_tipo": tasa
+            })
+            # LIMPIEZA: Ahora es seguro porque ocurre en el callback
+            st.session_state.man_cta = ""
+            st.session_state.man_contra = ""
+            st.session_state.man_monto = 0.0
+        else:
+            # Usamos un flag temporal para mostrar error en el siguiente render
+            st.session_state.error_manual = True
+
     # 2. Formulario de Entrada
     with st.container(border=True):
         col_m1, col_m2, col_m3 = st.columns([2, 2, 1])
         with col_m1:
-            m_cuenta = st.text_input("Cuenta a ajustar", placeholder="Ej: 1.1.02...", key="man_cta")
-            m_contra = st.text_input("Cuenta contrapartida", placeholder="Ej: 2.1.02...", key="man_contra")
+            st.text_input("Cuenta a ajustar", placeholder="Ej: 1.1.02...", key="man_cta")
+            st.text_input("Cuenta contrapartida", placeholder="Ej: 2.1.02...", key="man_contra")
         with col_m2:
-            m_moneda = st.selectbox("Moneda del ajuste", ["USD", "BS"], key="man_moneda")
-            m_monto = st.number_input(f"Monto en {st.session_state.man_moneda}", format="%.2f", key="man_monto")
+            st.selectbox("Moneda del ajuste", ["USD", "BS"], key="man_moneda")
+            # Accedemos al valor actual de la moneda para el label
+            curr_mon = st.session_state.get('man_moneda', 'USD')
+            st.number_input(f"Monto en {curr_mon}", format="%.2f", key="man_monto")
         with col_m3:
-            m_tasa_tipo = st.selectbox("Tasa de conversión", ["BCV", "CORP"], key="man_tasa") if st.session_state.man_moneda == "USD" else "N/A"
+            if st.session_state.get('man_moneda') == "USD":
+                st.selectbox("Tasa de conversión", ["BCV", "CORP"], key="man_tasa")
             st.markdown("<br>", unsafe_allow_html=True)
             
-            if st.button("➕ Agregar", use_container_width=True, type="secondary"):
-                if m_cuenta.strip() and m_contra.strip() and m_monto != 0:
-                    # Guardamos en la lista
-                    nuevo_adj = {
-                        "cuenta": m_cuenta,
-                        "contrapartida": m_contra,
-                        "moneda": m_moneda,
-                        "monto": m_monto,
-                        "tasa_tipo": m_tasa_tipo
-                    }
-                    st.session_state.manual_adj_list.append(nuevo_adj)
-                    
-                    # --- LIMPIEZA DE CAMPOS ---
-                    st.session_state.man_cta = ""
-                    st.session_state.man_contra = ""
-                    st.session_state.man_monto = 0.0
-                    
-                    st.toast("Ajuste registrado", icon="✅")
-                    st.rerun() # Refresca la UI para mostrar los campos limpios
-                else:
-                    st.error("Datos incompletos")
+            # EL BOTÓN LLAMA AL CALLBACK
+            st.button("➕ Agregar", 
+                      use_container_width=True, 
+                      type="secondary", 
+                      on_click=agregar_ajuste_callback)
+
+    if st.session_state.get('error_manual'):
+        st.error("Complete los campos obligatorios (Cuentas y Monto distinto a 0)")
+        st.session_state.error_manual = False   
 
     # 3. Listado de Ajustes y Acciones
     if st.session_state.manual_adj_list:
@@ -935,13 +951,14 @@ def render_ajustes_usd():
                 with c1:
                     st.write(f"**Monto:** {item['monto']:,} {item['moneda']} ({item['tasa_tipo']})")
                 with c2:
-                    # LÓGICA DE MODIFICAR: Carga los datos en los inputs y borra el registro de la lista
+                    # MODIFICAR: Carga valores y elimina de la lista
                     if st.button("📝 Modificar", key=f"edit_{idx}"):
                         st.session_state.man_cta = item['cuenta']
                         st.session_state.man_contra = item['contrapartida']
                         st.session_state.man_moneda = item['moneda']
                         st.session_state.man_monto = item['monto']
-                        st.session_state.man_tasa = item['tasa_tipo']
+                        if item['moneda'] == "USD":
+                            st.session_state.man_tasa = item['tasa_tipo']
                         
                         st.session_state.manual_adj_list.pop(idx)
                         st.rerun()
