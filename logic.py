@@ -4622,7 +4622,7 @@ def procesar_ajustes_balance_usd(f_cb, f_cg, f_hab_usd, f_hab_ves, tasa_bcv, tas
                 'Cuenta': cta_c,
                 'Origen': 'Bancos',
                 'Ajuste USD': adj_usd,
-                'Fila_Referencia': fila_referencia_excel # <-- ESTO CORRIGE EL KEYERROR
+                'Fila_Referencia': fila_referencia_excel
             })
             sum_ajustes_bancos_usd += adj_usd
             # Preparar Asiento (Deudor si aumenta, Acreedor si disminuye)
@@ -4637,23 +4637,13 @@ def procesar_ajustes_balance_usd(f_cb, f_cg, f_hab_usd, f_hab_ves, tasa_bcv, tas
 
     # Paso 2.3: Contrapartida Bancos (1.1.3.01.1.001)
     if abs(sum_ajustes_bancos_usd) > 0.001:
-        resumen_ajustes.append({
-            'Cuenta': '1.1.3.01.1.001',
-            'Origen': 'Bancos',
-            'Ajuste USD': -sum_ajustes_bancos_usd, # Signo contrario
-            'Fila_Referencia': None
-        })
+        resumen_ajustes.append({'Cuenta': '1.1.3.01.1.001','Origen': 'Bancos','Ajuste USD': -sum_ajustes_bancos_usd'Fila_Referencia': None})
 
     # --- PASO 3: AJUSTE HABERES ---
     m_hab_usd = leer_monto_haberes_pdf(f_hab_usd)
     if m_hab_usd > 0:
-        resumen_ajustes.append({'Cuenta': '2.1.2.05.1.108', 'Origen': 'Haberes', 'Ajuste USD': -m_hab_usd, 'Fila_Referencia': None})
-        resumen_ajustes.append({
-            'Cuenta': '1.1.3.01.1.001', 
-            'Origen': 'Haberes', 
-            'Ajuste USD': m_hab_usd, 
-            'Fila_Referencia': None
-        })
+        resumen_ajustes.append({'Cuenta': '2.1.2.05.1.108', 'Origen': 'Haberes', 'Ajuste USD': m_hab_usd, 'Fila_Referencia': None})
+        resumen_ajustes.append({'Cuenta': '1.1.3.01.1.001', 'Origen': 'Haberes', 'Ajuste USD': m_hab_usd, 'Fila_Referencia': None})
     
     asientos.append({'Cuenta': '2.1.2.05.1.108', 'Desc': 'Haberes de Clientes', 'DebeUSD': 0, 'HaberUSD': m_hab_usd})
     asientos.append({'Cuenta': '1.1.3.01.1.001', 'Desc': 'Deudores vs Haberes', 'DebeUSD': m_hab_usd, 'HaberUSD': 0})
@@ -4733,7 +4723,10 @@ def procesar_ajustes_balance_usd(f_cb, f_cg, f_hab_usd, f_hab_ves, tasa_bcv, tas
 
     CUENTAS_EXCLUIDAS_NATURALEZA = [
         '1.1.5.09.1.002', # Reserva para Merma
+        '1.2.1.01.2.006', # Amortiz.Gastos Pagados p/Distribuir -M-
         '1.3.5.01',       # Todo el grupo de Depreciaciones Acumuladas
+        '1.9.1.01.3.009', # Inversiones entre oficinas - Quincalla
+        '1.9.1.01.3.008', # Inversiones entre oficinas - Febeca
         '2.1.2.05.3.001', # Utilidades Legales
         '2.1.2.07.1.012', # Proveedores d/Mcia - Costos Causados
         '2.1.2.07.2.012', # Prov p/Compra Muebles
@@ -4766,7 +4759,7 @@ def procesar_ajustes_balance_usd(f_cb, f_cg, f_hab_usd, f_hab_ves, tasa_bcv, tas
             resumen_ajustes.append({
                 'Cuenta': str(contrapartida).strip(), 
                 'Origen': 'Naturaleza', 
-                'Ajuste USD': -monto_valor_abs, # Signo negativo para el Pasivo
+                'Ajuste USD': monto_valor_abs, 
                 'Fila_Referencia': None
             })
             
