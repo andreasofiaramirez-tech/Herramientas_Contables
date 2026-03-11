@@ -4615,9 +4615,14 @@ def procesar_ajustes_balance_usd(f_cb, f_cg, f_hab_usd, f_hab_ves, tasa_bcv, tas
 
         # REGLA: Limpiar fechas (Eliminar la hora)
         for col_f in ['FECHA INICIAL', 'FECHA FINAL']:
-            if col_f in fila_full and pd.notna(fila_full[col_f]):
-                try: fila_full[col_f] = pd.to_datetime(fila_full[col_f]).date()
-                except: pass
+            val_f = fila_para_reporte.get(col_f)
+            if pd.notna(val_f) and str(val_f).strip() not in ['0', '0.0', '0,00', '']:
+                try:
+                    fila_para_reporte[col_f] = pd.to_datetime(val_f).date()
+                except:
+                    fila_para_reporte[col_f] = None
+            else:
+                fila_para_reporte[col_f] = None
 
         # Paso 2.2: Trasladar ajuste a Hoja 1
         if abs(adj_usd) > 0.001:
@@ -4635,7 +4640,7 @@ def procesar_ajustes_balance_usd(f_cb, f_cg, f_hab_usd, f_hab_ves, tasa_bcv, tas
             })
         
         # --- CORRECCIÓN VITAL: Guardamos 'fila_full' (con fechas limpias) y NO 'row.to_dict' ---
-        detalles_bancos.append(fila_full) 
+        lista_datos_hoja_2.append(fila_para_reporte)
         fila_referencia_excel += 1
 
     # Paso 2.3: Contrapartida Bancos (1.1.3.01.1.001)
