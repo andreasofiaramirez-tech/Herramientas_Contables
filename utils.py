@@ -2385,53 +2385,38 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
         ws2.write_number(1, 15, clean_num(validacion_data.get('tasa_corp', 0)), fmt_rate)
 
         if df_bancos is not None and not df_bancos.empty:
-            # FILTRO DE SEGURIDAD: Aseguramos que no se imprima ninguna columna 'Unnamed'
-            columnas_base = [c for c in df_bancos.columns if 'UNNAMED' not in c.upper()]
+            # 1. Definición de columnas (Solo las 12 primeras para evitar "Unnamed" y residuos)
+            columnas_base = [c for c in df_bancos.columns if 'UNNAMED' not in c.upper()][:12]
             headers_calc = ['SALDO EN LIBROS BS', 'SALDO EN BANCOS BS', 'SALDO EN LIBROS $', 'SALDO EN BANCOS $', 'AJUSTE BS', 'AJUSTE $', 'TASA_CALC', 'VERIFICACION']
             
-            # Tomamos solo las primeras 12 columnas del dataframe para evitar duplicados
-            columnas_base = list(df_bancos.columns)[:12]
             ws2.write_row(3, 0, columnas_base + headers_calc, header_clean)
             
-            # ESCRIBIMOS DATOS (Recorriendo solo las columnas base filtradas)
+           # Inicializamos r_idx para usarlo fuera del bucle después
+            r_idx = 4
+            # 2. ESCRIBIMOS LOS DATOS FILA POR FILA
             for r_idx, row_dict in enumerate(df_bancos.to_dict('records'), 4):
-                # Escribir solo las 12 columnas originales
                 for c_idx, col_name in enumerate(columnas_base):
                     value = row_dict[col_name]
 
+                    # Formato Texto para identificadores
                     if col_name in ['CUENTA CONTABLE', 'CÓDIGO DE CONCILIACIÓN', 'NRO. DE CUENTA']:
                         if col_name == 'CÓDIGO DE CONCILIACIÓN' and isinstance(value, (int, float)):
-                            # Convertimos a entero para eliminar el .00 (Ej: 31.0 -> 31)
                             value = int(value)
-                        # Escribimos como texto puro (ws2.write) ignorando formatos numéricos
                         ws2.write(r_idx, c_idx, str(value) if pd.notna(value) else "", fmt_text)
 
+                    # Formato Fecha
                     elif 'FECHA' in col_name and pd.notna(value):
                         try: ws2.write(r_idx, c_idx, pd.to_datetime(value).to_pydatetime(), fmt_date)
                         except: ws2.write(r_idx, c_idx, str(value), fmt_text)
+
+                    # Formato Moneda
                     elif isinstance(value, (int, float)):
                         ws2.write_number(r_idx, c_idx, clean_num(value), fmt_money)
                     else:
                         ws2.write(r_idx, c_idx, str(value) if pd.notna(value) else "", fmt_text)
 
-                # --- NUEVA FILA DE TOTALES AL FINAL DE HOJA 2 ---
-                row_totales = r_idx + 1    # Fila siguiente al último dato (índice base 0)
-                final_data_row = r_idx + 1 # Número de la última fila física en Excel
-            
-                # Escribimos la etiqueta "TOTALES:" en la Columna L (índice 11)
-                ws2.write(row_totales, 11, "TOTALES:", fmt_summary_label)
-            
-                # Fórmula Suma Ajuste BS (Columna Q / índice 16)
-                ws2.write_formula(row_totales, 16, f"=SUM(Q5:Q{final_data_row})", fmt_money_bold)
-            
-                # Fórmula Suma Ajuste $ (Columna R / índice 17)
-                ws2.write_formula(row_totales, 17, f"=SUM(R5:R{final_data_row})", fmt_money_bold)
-                        
-                
-                # --- ESCRIBIR FÓRMULAS VIVAS (Inician en Col M / índice 12) ---
+                # --- ESCRIBIR FÓRMULAS VIVAS POR FILA ---
                 ex_r = r_idx + 1
-                # D=Cta Bancaria(L/E), H=Sdo Libros, I=Sdo Bancos, L=Mov No Conciliados
-                # Tasas en $P$1 y $P$2
                 ws2.write_formula(r_idx, 12, f'=IF(ISNUMBER(SEARCH("L",D{ex_r})), H{ex_r}, H{ex_r}*$P$1)', fmt_money)   # M
                 ws2.write_formula(r_idx, 13, f'=IF(ISNUMBER(SEARCH("L",D{ex_r})), I{ex_r}, I{ex_r}*$P$1)', fmt_money)   # N
                 ws2.write_formula(r_idx, 14, f'=IF(ISNUMBER(SEARCH("E",D{ex_r})), H{ex_r}, H{ex_r}/$P$2)', fmt_money)   # O
@@ -2440,6 +2425,15 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
                 ws2.write_formula(r_idx, 17, f'=IF(ISNUMBER(SEARCH("E",D{ex_r})), L{ex_r}, L{ex_r}/$P$2)', fmt_money)   # R
                 ws2.write_formula(r_idx, 18, f'=IF(R{ex_r}=0, 0, Q{ex_r}/R{ex_r})', fmt_rate)                           # S
                 ws2.write_formula(r_idx, 19, f'=I{ex_r}-H{ex_r}-L{ex_r}', fmt_money)                                    # T
+
+            # 3. FILA DE TOTALES (FUERA DEL BUCLE FOR)
+            # Ahora r_idx tiene el valor de la última fila escrita
+            row_totales = r_idx + 1
+            final_data_row = r_idx + 1
+            
+            ws2.write(row_totales, 11, "TOTALES:", fmt_summary_label) # Etiqueta en columna L
+            ws2.write_formula(row_totales, 16, f"=SUM(Q5:Q{final_data_row})", fmt_money_bold) # Total Q
+            ws2.write_formula(row_totales, 17, f"=SUM(R5:R{final_data_row})", fmt_money_bold) # Total R
                 
         # CONFIGURACIÓN DE ANCHOS
         # Ajustamos anchos para que el contenido sea legible
