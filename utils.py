@@ -2230,14 +2230,14 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
         ws1 = workbook.add_worksheet('1. Ajustes')
         ws1.hide_gridlines(2)
         
-        # 1. ESCRIBIR ENCABEZADOS ORIGINALES DEL BALANCE (Punto 1 Solicitud)
+        # 1. ENCABEZADO ORIGINAL (Columnas A y B)
         if df_balance_raw is not None and not df_balance_raw.empty:
             for r in range(min(6, len(df_balance_raw))):
                 for c in [0, 1]:
                     v = df_balance_raw.iloc[r, c]
                     if pd.notna(v): ws1.write(r, c, v)
 
-        # 2. PRE-PROCESAMIENTO DE MAPAS (Normalización Nuclear para evitar Mismatch)
+        # 2. PRE-PROCESAMIENTO DE MAPAS (NORMALIZACIÓN POR DÍGITOS)
         def norm_cta(c): return "".join(filter(str.isdigit, str(c)))
 
         # Mapa para vínculos a Hoja 2 (Bancos)
@@ -2247,18 +2247,19 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
             if r.get('Origen') == 'Bancos' and r.get('Fila_Referencia')
         }
         
-        # Mapa para otros ajustes (Haberes, Naturaleza, Manuales)
+        # Mapa consolidado de Ajustes (Suma todos los ajustes por cuenta: Naturaleza, Haberes, Manual)
         mapa_otros = {}
         if not df_resumen.empty:
             df_resumen['cta_norm_aux'] = df_resumen['Cuenta'].apply(norm_cta)
             mapa_otros = df_resumen.groupby('cta_norm_aux')['Ajuste USD'].sum().to_dict()
 
-        # --- CONSTRUCCIÓN DE LISTA MAESTRA DE CUENTAS ---
-        # 1. Cuentas que vienen del Balance original
-        cuentas_en_balance = {}
+        # 3. CONSTRUCCIÓN DE LISTA MAESTRA DE CUENTAS (BALANCE + AJUSTES)
+        cuentas_maestras = {}
         data_start = 0
         col_cta_idx = 0
+        
         if df_balance_raw is not None and not df_balance_raw.empty:
+            # Radar para encontrar encabezados
             for i, row in df_balance_raw.iterrows():
                 vals = [str(x).upper().strip() for x in row.values]
                 if 'CUENTA' in vals:
@@ -2266,76 +2267,87 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
                     col_cta_idx = vals.index('CUENTA')
                     break
             
+            # Cargar todas las cuentas de detalle del Balance
             for i in range(data_start, len(df_balance_raw)):
                 fila = df_balance_raw.iloc[i]
                 c_raw = str(fila[col_cta_idx]).strip()
-                if c_raw.startswith(('1.', '2.')) and not c_raw.endswith('.000'):
-                    cuentas_en_balance[c_raw] = {
-                        'desc': str(fila[col_cta_idx+1]).strip(),
-                        'norm': str(fila[col_cta_idx+2]).strip(),
-                        'bs': clean_num(fila[col_cta_idx+6]), # Col G
-                        'usd': clean_num(fila[col_cta_idx+10]) # Col L (Indice 11 físico es 10 aquí si no hay col A)
+                # Filtro: Solo Activos/Pasivos que no sean totales (.000)
+                if c_raw.startswith(('1.', '2.')) and not c_raw.endswith('.000') and c_raw.count('.') >= 2:
+                    cuentas_maestras[c_raw] = {
+                        'desc': str(fila[col_cta_idx + 1]).strip(), # Descripción (Col B)
+                        'norm': str(fila[col_cta_idx + 2]).strip(), # Saldo Normal (Col C)
+                        'bs': clean_num(fila[col_cta_idx + 6]),     # Balance Final Local (Col G)
+                        'usd': clean_num(fila[col_cta_idx + 11])    # Balance Final Dólar (Col L)
                     }
 
-        # 2. Identificar cuentas que tienen AJUSTE pero NO están en el balance
-        cuentas_con_ajuste = df_resumen['Cuenta'].unique()
-        for cta_aj in cuentas_con_ajuste:
-            if cta_aj not in cuentas_en_balance:
-                # Inyectamos la cuenta con saldos en cero
-                cuentas_en_balance[cta_aj] = {
-                    'desc': 'CUENTA INYECTADA POR AJUSTE', # Nombre genérico si no estaba en balance
-                    'norm': 'Deudor' if cta_aj.startswith('1') else 'Acreedor',
-                    'bs': 0.0, 'usd': 0.0
+        # INYECCIÓN: Agregar cuentas que tienen ajuste pero no estaban en el Balance
+        for _, r_adj in df_resumen.iterrows():
+            c_adj = str(r_adj['Cuenta']).strip()
+            if c_adj not in cuentas_maestras:
+                cuentas_maestras[c_adj] = {
+                    'desc': 'CUENTA INYECTADA (CONTRA-ASIENTO)',
+                    'norm': 'Deudor' if c_adj.startswith('1') else 'Acreedor',
+                    'bs': 0.0,
+                    'usd': 0.0
                 }
 
-        # 3. Ordenamos todas las cuentas para que el reporte sea coherente
-        cuentas_finales_ordenadas = sorted(cuentas_en_balance.keys())
-
-        # 3. CABECERAS DE LA TABLA
+        # 4. ESCRITURA DE LA TABLA
+        headers = ['Cuenta', 'Descripción', 'Saldo Norm', 'Balance Final (Bs)', 'Balance Final ($)', 'AJUSTE ($)', 'SALDO AJUSTADO ($)', 'ACT O PA', 'TASA', 'Bs.']
         ws1.write(5, 3, "Moneda Local", header_clean) 
         ws1.write(5, 4, "Moneda Dólar", header_clean) 
-        headers = ['Cuenta', 'Descripción', 'Saldo Norm', 'Balance Final (Bs)', 'Balance Final ($)', 'AJUSTE ($)', 'SALDO AJUSTADO ($)', 'ACT O PA', 'TASA', 'Bs.']
         ws1.write_row(6, 0, headers, header_clean)
 
-        current_row = 7 
-        data_start = 0
-        for cta in cuentas_finales_ordenadas:
-            data = cuentas_en_balance[cta]
+        # Ordenar cuentas alfabéticamente/numéricamente
+        cuentas_ordenadas = sorted(cuentas_maestras.keys())
+        current_row = 7
+
+        for cta in cuentas_ordenadas:
+            data = cuentas_maestras[cta]
             c_norm = norm_cta(cta)
             excel_row = current_row + 1
 
-                ws1.write(current_row, 0, cuenta_str, fmt_text)
-                ws1.write(current_row, 1, str(fila[1]).strip(), fmt_text) # Descripción
-                ws1.write(current_row, 2, str(fila[2]).strip(), fmt_text) # Saldo Normal
-                ws1.write_number(current_row, 3, clean_num(fila[6]), fmt_money) # Local
-                ws1.write_number(current_row, 4, clean_num(fila[11]), fmt_money) # Dólar
+            ws1.write(current_row, 0, cta, fmt_text)
+            ws1.write(current_row, 1, data['desc'], fmt_text)
+            ws1.write(current_row, 2, data['norm'], fmt_text)
+            ws1.write_number(current_row, 3, data['bs'], fmt_money)
+            ws1.write_number(current_row, 4, data['usd'], fmt_money)
 
-                # COLUMNA AJUSTE ($)
-                if c_norm in mapa_filas_bancos:
+            # --- COLUMNA F: AJUSTE $ (LÓGICA PRIORIZADA) ---
+            if c_norm in mapa_filas_bancos:
+                # Si es Banco, vinculamos a la Hoja 2 Columna R (Ajuste $)
                 fila_ref = mapa_filas_bancos[c_norm]
                 ws1.write_formula(current_row, 5, f"='2. Detalle Bancos'!$R${fila_ref}", fmt_money_bold)
             else:
-                m_adj = mapa_otros.get(c_norm, 0.0)
-                if abs(m_adj) > 0.001:
-                    ws1.write_number(current_row, 5, m_adj, fmt_money_bold)
+                # Si no es banco, traemos el neto de otros ajustes (Naturaleza, Haberes, Manual)
+                monto_total_adj = mapa_otros.get(c_norm, 0.0)
+                if abs(monto_total_adj) > 0.001:
+                    ws1.write_number(current_row, 5, monto_total_adj, fmt_money_bold)
                 else:
                     ws1.write_number(current_row, 5, 0.0, fmt_text)
 
-                ws1.write_formula(current_row, 6, f"=E{ex_row}+F{ex_row}", fmt_money_bold)
-                ws1.write(current_row, 7, "1" if cuenta_str.startswith('1.') else "2", fmt_text)
-                ws1.write_formula(current_row, 8, f"=IF(ABS(G{ex_row})>0.01, ABS(D{ex_row}/G{ex_row}), 0)", fmt_rate)
-                ws1.write_formula(current_row, 9, f"=F{ex_row}*'2. Detalle Bancos'!$P$1", fmt_money)
-                current_row += 1
+            # Columna G: Saldo Ajustado (Fórmula E + F)
+            ws1.write_formula(current_row, 6, f"=E{excel_row}+F{excel_row}", fmt_money_bold)
+            # Columna H: ACT O PA (1 para Activo, 2 para Pasivo)
+            ws1.write(current_row, 7, "1" if cta.startswith('1.') else "2", fmt_text)
+            # Columna I: TASA (Fórmula D / G)
+            ws1.write_formula(current_row, 8, f"=IF(ABS(G{excel_row})>0.01, ABS(D{excel_row}/G{excel_row}), 0)", fmt_rate)
+            # Columna J: Bs. (Fórmula F * Tasa BCV de Hoja 2 P1)
+            ws1.write_formula(current_row, 9, f"=F{excel_row}*'2. Detalle Bancos'!$P$1", fmt_money)
 
-        # 4. CUADRO DE CONTROL SUPERIOR
+            current_row += 1
+
+        # 5. CUADRO DE CONTROL SUPERIOR (I2:J4)
+        final_row = max(current_row, 8)
         ws1.write('I2', 'Activo', fmt_summary_label)
-        ws1.write_formula('J2', f'=SUMIF(H8:H{current_row}, "1", F8:F{current_row})', fmt_summary_val)
+        ws1.write_formula('J2', f'=SUMIF(H8:H{final_row}, "1", F8:F{final_row})', fmt_summary_val)
         ws1.write('I3', 'Pasivo', fmt_summary_label)
-        ws1.write_formula('J3', f'=SUMIF(H8:H{current_row}, "2", F8:F{current_row})', fmt_summary_val)
+        ws1.write_formula('J3', f'=SUMIF(H8:H{final_row}, "2", F8:F{final_row})', fmt_summary_val)
         ws1.write('I4', 'Dif.', fmt_summary_label)
-        ws1.write_formula('J4', '=ABS(J2)-ABS(J3)', fmt_summary_val)
+        ws1.write_formula('J4', '=ROUND(ABS(J2)-ABS(J3), 2)', fmt_summary_val)
 
-        ws1.set_column('A:B', 15); ws1.set_column('B:B', 45); ws1.set_column('D:G', 18); ws1.set_column('I:J', 18)
+        # Ajuste de anchos final para la Hoja 1
+        ws1.set_column('A:A', 15); ws1.set_column('B:B', 45); ws1.set_column('D:G', 18)
+        ws1.set_column('H:H', 10); ws1.set_column('I:J', 22)
         
         # ==========================================
         # HOJA 2: DETALLE BANCOS
