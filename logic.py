@@ -4730,7 +4730,6 @@ def procesar_ajustes_balance_usd(f_cb, f_cg, f_hab_usd, f_hab_ves, tasa_bcv, tas
         '1.3.5.01',       # Todo el grupo de Depreciaciones Acumuladas
         '1.9.1.01.3.009', # Inversiones entre oficinas - Quincalla
         '1.9.1.01.3.008', # Inversiones entre oficinas - Febeca
-        '2.1.2.05.3.001', # Utilidades Legales
         '2.1.2.07.1.012', # Proveedores d/Mcia - Costos Causados
         '2.1.2.07.2.012', # Prov p/Compra Muebles
         '2.1.2.07.2.901', # Prov p/Compra Muebles Cias Rel
