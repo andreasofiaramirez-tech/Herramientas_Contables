@@ -903,7 +903,7 @@ def render_ajustes_usd():
             m_tasa_tipo = st.selectbox("Tasa de conversión", ["BCV", "CORP"]) if m_moneda == "USD" else "N/A"
             st.markdown("<br>", unsafe_allow_html=True)
             if st.button("➕ Agregar", use_container_width=True):
-                if m_cuenta and m_contra and m_monto > 0:
+                if m_cuenta.strip() and m_contra.strip() and m_monto != 0:
                     nuevo_adj = {
                         "cuenta": m_cuenta,
                         "contrapartida": m_contra,
