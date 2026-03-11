@@ -217,56 +217,56 @@ LOGICA_POR_CUENTA = {
         """,
     
     "111.04.6003 - Fondos por Depositar - Cobros Viajeros - ME": """
-### 🧳 Manual de Operaciones: Conciliación de Cobros Viajeros (ME)
+        ### 🧳 Manual de Operaciones: Conciliación de Cobros Viajeros (ME)
 
-Esta herramienta automatiza el cruce de cobros liquidados por viajeros, integrando asientos de caja, bancos y ajustes contables manuales. La lógica está diseñada para limpiar el listado de movimientos que, aunque tengan referencias distintas, ya están compensados financieramente.
+        Esta herramienta automatiza el cruce de cobros liquidados por viajeros, integrando asientos de caja, bancos y ajustes contables manuales. La lógica está diseñada para limpiar el listado de movimientos que, aunque tengan referencias distintas, ya están compensados financieramente.
 
----
+        ---
 
-#### 📂 1. Insumos Requeridos (Archivos Excel)
+        #### 📂 1. Insumos Requeridos (Archivos Excel)
 
-Debe cargar dos archivos con extensión **.xlsx** que contengan el movimiento analítico de la cuenta:
+        Debe cargar dos archivos con extensión **.xlsx** que contengan el movimiento analítico de la cuenta:
 
-1.  **Movimientos del Mes Actual:** Exportación del sistema con los nuevos registros del período.
-2.  **Saldos del Mes Anterior:** Archivo de "Saldos Abiertos" generado por esta herramienta en el cierre previo.
+        1.  **Movimientos del Mes Actual:** Exportación del sistema con los nuevos registros del período.
+        2.  **Saldos del Mes Anterior:** Archivo de "Saldos Abiertos" generado por esta herramienta en el cierre previo.
 
-**Columnas Críticas para el Proceso:**
-*   **NIT:** Identificador único del viajero/colaborador.
-*   **Asiento:** Prefijos CC (Caja), CB (Bancos) o CG (Ajustes Generales).
-*   **Referencia y Fuente:** Campos donde se encuentran los números de recibos y depósitos.
-*   **Débito/Crédito Dólar:** Montos en moneda extranjera (la conciliación principal se ejecuta en USD).
+        **Columnas Críticas para el Proceso:**
+        *   **NIT:** Identificador único del viajero/colaborador.
+        *   **Asiento:** Prefijos CC (Caja), CB (Bancos) o CG (Ajustes Generales).
+        *   **Referencia y Fuente:** Campos donde se encuentran los números de recibos y depósitos.
+        *   **Débito/Crédito Dólar:** Montos en moneda extranjera (la conciliación principal se ejecuta en USD).
 
----
+        ---
 
-#### 🧠 2. ¿Cómo funciona la Lógica de Conciliación? (V13)
+        #### 🧠 2. ¿Cómo funciona la Lógica de Conciliación? (V13)
 
-La herramienta ejecuta un algoritmo de **cuatro fases progresivas** para garantizar que no quede ningún saldo compensado por error:
+        La herramienta ejecuta un algoritmo de **cuatro fases progresivas** para garantizar que no quede ningún saldo compensado por error:
 
-*   **Fase 0: Depuración de Diferencial:** Identifica y cierra automáticamente líneas de "Ajuste Cambiario" o "Diff", evitando que los céntimos de valoración inflen el reporte de pendientes.
-*   **Fase 1: Match de Reversos:** Busca movimientos marcados como "REVERSO". El sistema es capaz de ignorar textos adicionales y encontrar la partida original comparando el NIT y el monto exacto.
-*   **Fase 2: Cruce por Inteligencia de Llaves:** 
-    *   Analiza los números de recibos/depósitos dentro de las columnas Fuente y Referencia.
-    *   Crea un vínculo entre asientos **CC/CG** y **CB** incluso si la información está en columnas cruzadas o si el número fue digitado con sufijos (ej. "12345TI").
-*   **Fase 3: Barrido Global por NIT (Cierre Maestro):** 
-    *   Es la red de seguridad final. Si un viajero tiene múltiples líneas pendientes que no pudieron emparejarse por número de recibo, el sistema suma el **Saldo Neto Total del NIT**.
-    *   Si la suma de débitos y créditos del NIT da **$0.00**, el sistema entiende que la cuenta está saldada y concilia todas las líneas de golpe.
+        *   **Fase 0: Depuración de Diferencial:** Identifica y cierra automáticamente líneas de "Ajuste Cambiario" o "Diff", evitando que los céntimos de valoración inflen el reporte de pendientes.
+        *   **Fase 1: Match de Reversos:** Busca movimientos marcados como "REVERSO". El sistema es capaz de ignorar textos adicionales y encontrar la partida original comparando el NIT y el monto exacto.
+        *   **Fase 2: Cruce por Inteligencia de Llaves:** 
+            *   Analiza los números de recibos/depósitos dentro de las columnas Fuente y Referencia.
+            *   Crea un vínculo entre asientos **CC/CG** y **CB** incluso si la información está en columnas cruzadas o si el número fue digitado con sufijos (ej. "12345TI").
+        *   **Fase 3: Barrido Global por NIT (Cierre Maestro):** 
+            *   Es la red de seguridad final. Si un viajero tiene múltiples líneas pendientes que no pudieron emparejarse por número de recibo, el sistema suma el **Saldo Neto Total del NIT**.
+            *   Si la suma de débitos y créditos del NIT da **$0.00**, el sistema entiende que la cuenta está saldada y concilia todas las líneas de golpe.
 
----
+        ---
 
-#### 🚥 3. Interpretación de Resultados
+        #### 🚥 3. Interpretación de Resultados
 
-*   **VIAJERO_[NIT]_[NUMERO]:** Indica que el cruce fue perfecto mediante un identificador de recibo o depósito.
-*   **BARRIDO_NETO_NIT_[NIT]:** Indica que se aplicó el cierre maestro; el colaborador no debe dinero al cierre, aunque sus referencias internas no coincidían exactamente.
-*   **Tolerancia:** El sistema permite una diferencia de hasta **$0.01** para absorber errores de redondeo derivados de la exportación de Excel.
+        *   **VIAJERO_[NIT]_[NUMERO]:** Indica que el cruce fue perfecto mediante un identificador de recibo o depósito.
+        *   **BARRIDO_NETO_NIT_[NIT]:** Indica que se aplicó el cierre maestro; el colaborador no debe dinero al cierre, aunque sus referencias internas no coincidían exactamente.
+        *   **Tolerancia:** El sistema permite una diferencia de hasta **$0.01** para absorber errores de redondeo derivados de la exportación de Excel.
 
----
+        ---
 
-#### 💡 Tips de Uso para el Contador
-
-1.  **NITs Limpios:** Asegúrese de que la columna NIT no tenga caracteres extraños, aunque la herramienta limpia los espacios automáticamente, la uniformidad ayuda a la rapidez del proceso.
-2.  **Referencia "TI":** No se preocupe por las referencias que terminan en "TI" (Ajustes de Tesorería); el sistema está programado para ignorar esas letras y extraer solo el número de recibo valioso.
-3.  **Ciclo Mensual:** El archivo que hoy descargue como **"Saldos para el Próximo Mes"** debe ser guardado sin modificaciones, ya que será su insumo obligatorio para el proceso del mes siguiente.
-""",
+        #### 💡 Tips de Uso para el Contador
+        
+        1.  **NITs Limpios:** Asegúrese de que la columna NIT no tenga caracteres extraños, aunque la herramienta limpia los espacios automáticamente, la uniformidad ayuda a la rapidez del proceso.
+        2.  **Referencia "TI":** No se preocupe por las referencias que terminan en "TI" (Ajustes de Tesorería); el sistema está programado para ignorar esas letras y extraer solo el número de recibo valioso.
+        3.  **Ciclo Mensual:** El archivo que hoy descargue como **"Saldos para el Próximo Mes"** debe ser guardado sin modificaciones, ya que será su insumo obligatorio para el proceso del mes siguiente.
+        """,
     
     "212.05.1108 - Haberes de Clientes": """
         #### 🔎 Lógica de Conciliación Automática (Bolívares - Bs.)
@@ -280,6 +280,7 @@ La herramienta ejecuta un algoritmo de **cuatro fases progresivas** para garanti
             *   Si quedan partidas abiertas, busca coincidencias por **Monto Exacto**.
             *   Esto permite cruzar un Débito que tiene el NIT correcto con un Crédito que quizás no tiene NIT (o viceversa), siempre que los montos sean idénticos.
         """,
+    
     "212.07.9001 - CDC - Factoring": """
         #### 🔎 Lógica de Conciliación Automática (Dólares - USD)
 
@@ -295,6 +296,7 @@ La herramienta ejecuta un algoritmo de **cuatro fases progresivas** para garanti
         3.  **Conciliación:**
             *   Agrupa por **NIT** y **Contrato**. Si la suma en Dólares del contrato es cero, se marca como conciliado.
         """,
+    
     "212.05.1005 - Asientos por clasificar": """
         #### 🔎 Lógica de Conciliación Automática (Bolívares - Bs.)
 
@@ -314,55 +316,107 @@ La herramienta ejecuta un algoritmo de **cuatro fases progresivas** para garanti
         4.  **Barrido Final:**
             *   Si la suma total de **todos** los movimientos restantes es exactamente **0.00 Bs**, la herramienta asume que son contrapartidas globales y cierra todo el remanente en un solo lote.
         """,
+    
     "115.07.1.002 - Envios en Transito COFERSA": """
-### 🚛 Manual de Operaciones: Envíos en Tránsito COFERSA (CRC)
+        ### 🚛 Manual de Operaciones: Envíos en Tránsito COFERSA (CRC)
+        
+        Esta herramienta automatiza la conciliación de la cuenta de tránsitos, utilizando la columna **TIPO** como eje central de los cruces. La lógica está optimizada para manejar grandes volúmenes de datos en **Colones (CRC)**, asegurando un saldo neto de cero en las partidas cerradas.
+        
+        ---
+        
+        #### 📂 1. Insumos y Columnas Requeridas
+        
+        Para procesar esta cuenta, debe cargar dos archivos Excel (.xlsx). El sistema identificará automáticamente las siguientes columnas (el radar de la herramienta ignora acentos y diferencia entre mayúsculas/minúsculas):
+        
+        *   **TIPO:** Es la columna más importante. Contiene los números de embarque (EM... o M...) o categorías de ajuste.
+        *   **FECHA / ASIENTO / FUENTE:** Columnas de trazabilidad del registro.
+        *   **REFERENCIA:** Descripción detallada del movimiento.
+        *   **DÉBITO LOCAL / CRÉDITO LOCAL:** Montos en Colones (Base de la conciliación).
+        *   **DÉBITO DÓLAR / CRÉDITO DÓLAR:** Montos informativos en USD.
+        
+        ---
+        
+        #### 🧠 2. ¿Cómo funciona la Lógica de Conciliación? (V16)
+        
+        La herramienta ya no realiza cruces globales al azar; ahora es **estrictamente jerárquica** dentro de cada grupo de "Tipo":
+        
+        1.  **Limpieza de Datos:** El sistema ignora filas de totales o celdas vacías provenientes del reporte administrativo (Softland), trabajando solo con asientos contables reales.
+        2.  **Fase A - Búsqueda de Pares Internos:** Antes de sumar el grupo completo, el sistema revisa cada "Tipo" buscando un Débito y un Crédito que sean **exactamente iguales**. Si los encuentra, los concilia de inmediato (Etiqueta: `PAR_INTERNO`).
+        3.  **Fase B - Validación de Saldo Neto:** Con los movimientos restantes de cada "Tipo", el sistema realiza una sumatoria algebraica. Si el resultado es **0.00**, cierra todo el bloque (Etiqueta: `GRUPO_NETO`).
+        4.  **Tolerancia Cero:** Para garantizar la integridad del cierre, la herramienta solo concilia grupos cuyo saldo sea exactamente cero, evitando que queden céntimos huérfanos en la hoja de conciliados.
+        
+        ---
+        
+        #### 📊 3. Estructura del Reporte de Salida
+        
+        El archivo generado es dinámico: **solo mostrará las pestañas que contengan datos.**
+        
+        *   **Agrup. Tipo Abiertas:** Listado de movimientos que tienen un "Tipo" asignado pero que NO sumaron cero (ajustes, reclasificaciones, etc.).
+        *   **EMB Pendientes:** Exclusivo para números de embarque (**EM** o **M**) que tienen saldo vivo. Incluye totalizadores por cada embarque.
+        *   **Otros Pendientes:** Movimientos que no tienen nada escrito en la columna "Tipo" y permanecen abiertos.
+        *   **Especificación:** Hoja principal de auditoría con encabezado oficial de **COFERSA**. Presenta el detalle de saldos abiertos por línea, incluyendo el cálculo de la tasa implícita.
+        *   **Conciliados:** Histórico de lo cerrado en el proceso. Incluye un totalizador al final para verificar que el **Saldo Neto es 0.00**.
+        
+        ---
+        
+        #### 💡 Tips para el Éxito en la Conciliación
+        
+        1.  **Anchos de Columna:** El reporte viene con anchos pre-ajustados para cifras de millones. Si ve `#######`, simplemente ensanche un poco la celda, aunque el sistema ya usa un ancho de 22 para montos.
+        2.  **Filas Vacías:** No se preocupe si su reporte de Softland trae filas en blanco al final; la herramienta las detecta y las purga automáticamente.
+        3.  **Hojas Faltantes:** Si el Excel descargado no tiene la hoja "Otros Pendientes", significa que **todos** sus movimientos tenían un Tipo asignado. ¡Es una buena señal de orden contable!
+        """,
 
-Esta herramienta automatiza la conciliación de la cuenta de tránsitos, utilizando la columna **TIPO** como eje central de los cruces. La lógica está optimizada para manejar grandes volúmenes de datos en **Colones (CRC)**, asegurando un saldo neto de cero en las partidas cerradas.
-
----
-
-#### 📂 1. Insumos y Columnas Requeridas
-
-Para procesar esta cuenta, debe cargar dos archivos Excel (.xlsx). El sistema identificará automáticamente las siguientes columnas (el radar de la herramienta ignora acentos y diferencia entre mayúsculas/minúsculas):
-
-*   **TIPO:** Es la columna más importante. Contiene los números de embarque (EM... o M...) o categorías de ajuste.
-*   **FECHA / ASIENTO / FUENTE:** Columnas de trazabilidad del registro.
-*   **REFERENCIA:** Descripción detallada del movimiento.
-*   **DÉBITO LOCAL / CRÉDITO LOCAL:** Montos en Colones (Base de la conciliación).
-*   **DÉBITO DÓLAR / CRÉDITO DÓLAR:** Montos informativos en USD.
-
----
-
-#### 🧠 2. ¿Cómo funciona la Lógica de Conciliación? (V16)
-
-La herramienta ya no realiza cruces globales al azar; ahora es **estrictamente jerárquica** dentro de cada grupo de "Tipo":
-
-1.  **Limpieza de Datos:** El sistema ignora filas de totales o celdas vacías provenientes del reporte administrativo (Softland), trabajando solo con asientos contables reales.
-2.  **Fase A - Búsqueda de Pares Internos:** Antes de sumar el grupo completo, el sistema revisa cada "Tipo" buscando un Débito y un Crédito que sean **exactamente iguales**. Si los encuentra, los concilia de inmediato (Etiqueta: `PAR_INTERNO`).
-3.  **Fase B - Validación de Saldo Neto:** Con los movimientos restantes de cada "Tipo", el sistema realiza una sumatoria algebraica. Si el resultado es **0.00**, cierra todo el bloque (Etiqueta: `GRUPO_NETO`).
-4.  **Tolerancia Cero:** Para garantizar la integridad del cierre, la herramienta solo concilia grupos cuyo saldo sea exactamente cero, evitando que queden céntimos huérfanos en la hoja de conciliados.
-
----
-
-#### 📊 3. Estructura del Reporte de Salida
-
-El archivo generado es dinámico: **solo mostrará las pestañas que contengan datos.**
-
-*   **Agrup. Tipo Abiertas:** Listado de movimientos que tienen un "Tipo" asignado pero que NO sumaron cero (ajustes, reclasificaciones, etc.).
-*   **EMB Pendientes:** Exclusivo para números de embarque (**EM** o **M**) que tienen saldo vivo. Incluye totalizadores por cada embarque.
-*   **Otros Pendientes:** Movimientos que no tienen nada escrito en la columna "Tipo" y permanecen abiertos.
-*   **Especificación:** Hoja principal de auditoría con encabezado oficial de **COFERSA**. Presenta el detalle de saldos abiertos por línea, incluyendo el cálculo de la tasa implícita.
-*   **Conciliados:** Histórico de lo cerrado en el proceso. Incluye un totalizador al final para verificar que el **Saldo Neto es 0.00**.
-
----
-
-#### 💡 Tips para el Éxito en la Conciliación
-
-1.  **Anchos de Columna:** El reporte viene con anchos pre-ajustados para cifras de millones. Si ve `#######`, simplemente ensanche un poco la celda, aunque el sistema ya usa un ancho de 22 para montos.
-2.  **Filas Vacías:** No se preocupe si su reporte de Softland trae filas en blanco al final; la herramienta las detecta y las purga automáticamente.
-3.  **Hojas Faltantes:** Si el Excel descargado no tiene la hoja "Otros Pendientes", significa que **todos** sus movimientos tenían un Tipo asignado. ¡Es una buena señal de orden contable!
-""",
-}
+    "101.01.03.00 - Fondos en Transito COFERSA": """
+        ### 💰 Manual de Operaciones: Fondos en Tránsito COFERSA (CRC/USD)
+        
+        Esta herramienta automatiza el cruce bimoneda de los fondos en tránsito, identificando la correspondencia entre los ingresos de caja y los depósitos bancarios. Utiliza una tecnología de "Doble Llave" para asegurar que los movimientos cuadren tanto en **Colones (CRC)** como en **Dólares (USD)**.
+        
+        ---
+        
+        #### 📂 1. Insumos y Columnas Requeridas
+        
+        Debe cargar dos archivos Excel (.xlsx o .xls). El sistema es capaz de detectar automáticamente las columnas incluso si tienen acentos o plurales:
+        
+        *   **FECHA / ASIENTO:** Datos básicos de trazabilidad.
+        *   **REFERENCIA y FUENTE:** Son los campos de búsqueda. Aquí deben estar los números de depósito o cupones de pago.
+        *   **DÉBITOS LOCAL / CRÉDITOS LOCAL:** Montos en Colones (Base principal del cruce).
+        *   **DÉBITO DÓLAR / CRÉDITO DÓLAR:** Montos en Dólares (Segunda validación obligatoria).
+        
+        ---
+        
+        #### 🧠 2. ¿Cómo funciona la Lógica de Inteligencia? (V19)
+        
+        La herramienta ejecuta una auditoría de **cuatro niveles** de profundidad:
+        
+        1.  **Fase 1 - Pares de Identidad:** Busca movimientos que tengan el mismo texto de referencia y montos idénticos en ambas monedas. Es ideal para reversos y correcciones exactas.
+        2.  **Fase 2 - Radar de Depósitos:** El sistema extrae números de 4 o más dígitos de la columna *Referencia* del ingreso (Débito) y los busca dentro de la *Fuente* del egreso (Crédito). Si el número de depósito coincide y los montos en Colones son iguales, la pareja se cierra.
+        3.  **Fase 3 - Vínculo CC vs CB:** Cruza asientos que empiezan con **CC** (Caja) contra los de **CB** (Bancos). La IA extrae los últimos 4 dígitos numéricos de ambos y los une si los montos coinciden.
+        4.  **Fase 4 - Especial PAGO-CLICK:** Detecta transacciones identificadas como "CLICK". Realiza un cruce cruzado entre Referencia y Fuente buscando el identificador de 5 dígitos de la liquidación del punto de venta.
+        
+        ---
+        
+        #### 📊 3. Reglas de Validación y Tolerancia
+        
+        *   **Colones (CRC):** El cuadre debe ser **exacto (tolerancia 0.01)**. No se permite cerrar movimientos con diferencias en moneda local.
+        *   **Dólares (USD):** El sistema permite un margen de hasta **$1.00 de diferencia**. Esto se diseñó para absorber pequeñas variaciones en la tasa de cambio que ocurren entre el momento del cobro y el depósito real en el banco.
+        *   **Bimoneda estricto:** Si un movimiento suma cero en Colones pero tiene una diferencia mayor a $1.00 en USD, la herramienta **NO lo conciliará** y lo dejará abierto para revisión de diferencial cambiario.
+        
+        ---
+        
+        #### 📊 4. Estructura del Reporte de Salida
+        
+        *   **Pestaña Pendientes:** Muestra el listado de lo que sigue vivo, con un ancho de columna ajustado para que los códigos largos sean legibles. La columna de monto se llama **"Monto Colones"**.
+        *   **Pestaña Conciliación:** Muestra el detalle de lo que se cerró, identificando con qué "llave" se hizo (ej: `DEPOSITO_12345` o `CLICK_24923`).
+        
+        ---
+        
+        #### 💡 Tips para el Usuario
+        
+        1.  **Limpieza de Datos:** No se preocupe por comas, puntos o símbolos de moneda en el archivo de entrada; el cargador de COFERSA limpia todo automáticamente.
+        2.  **Referencias:** Procure que el número de depósito bancario esté siempre presente en la Fuente o Referencia. Si el número tiene menos de 4 dígitos, la IA podría ignorarlo por seguridad.
+        3.  **Saldos Abiertos:** Si ve un movimiento en la hoja de pendientes que "parece" que debería cerrar con otro, revise la columna de **Dólares**. Lo más probable es que tengan una diferencia mayor a $1.00.
+        """,
+        }
 
 
 # -----------------------------------------------------------------------------
