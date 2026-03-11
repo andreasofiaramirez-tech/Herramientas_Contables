@@ -4642,21 +4642,44 @@ def procesar_ajustes_balance_usd(f_cb, f_cg, f_hab_usd, f_hab_ves, tasa_bcv, tas
         resumen_ajustes.append({'Cuenta': '1.1.3.01.1.001','Origen': 'Bancos','Ajuste USD': -sum_ajustes_bancos_usd, 'Fila_Referencia': None})
 
     # --- PASO 3: AJUSTE HABERES ---
-    m_hab_usd = leer_monto_haberes_pdf(f_hab_usd)
-    if m_hab_usd > 0:
+    # 1. Extraemos los números de los PDFs antes de usarlos
+    # m_hab_ves_num y m_hab_usd_num serán los montos calculados (números)
+    m_hab_ves_num = leer_monto_haberes_pdf(f_hab_ves)
+    m_hab_usd_num = leer_monto_haberes_pdf(f_hab_usd)
+    
+    if m_hab_usd_num > 0:
+        # Registro para la Hoja 1 (Aumenta naturaleza -> Positivo)
         resumen_ajustes.append({
             'Cuenta': '2.1.2.05.1.108', 
             'Origen': 'Haberes', 
-            'Ajuste USD': m_hab_usd, 
-            # Forzamos que sea un número flotante para evitar que viaje el archivo
-            'Valor_BS_Reportado': float(m_hab_ves) if m_hab_ves else 0.0, 
+            'Ajuste USD': m_hab_usd_num, 
+            'Valor_BS_Reportado': m_hab_ves_num, # Ahora sí es un número definido
             'Tasa_Manual': 'FIXED',
             'Fila_Referencia': None
         })
-        resumen_ajustes.append({'Cuenta': '1.1.3.01.1.001', 'Origen': 'Haberes', 'Ajuste USD': m_hab_usd, 'Fila_Referencia': None})
-    
-    asientos.append({'Cuenta': '2.1.2.05.1.108', 'Desc': 'Haberes de Clientes', 'DebeUSD': 0, 'HaberUSD': m_hab_usd})
-    asientos.append({'Cuenta': '1.1.3.01.1.001', 'Desc': 'Deudores vs Haberes', 'DebeUSD': m_hab_usd, 'HaberUSD': 0})
+        
+        # Contrapartida en Hoja 1 (Deudores aumenta -> Positivo)
+        resumen_ajustes.append({
+            'Cuenta': '1.1.3.01.1.001', 
+            'Origen': 'Haberes', 
+            'Ajuste USD': m_hab_usd_num, 
+            'Tasa_Manual': 'FIXED', # Usará la tasa implícita del reporte
+            'Fila_Referencia': None
+        })
+        
+        # Registro para el Cargador (Hoja 3)
+        asientos.append({
+            'Cuenta': '2.1.2.05.1.108', 
+            'Desc': 'Haberes de Clientes', 
+            'DebeUSD': 0, 'HaberUSD': m_hab_usd_num,
+            'Débito VES': 0, 'Crédito VES': m_hab_ves_num
+        })
+        asientos.append({
+            'Cuenta': '1.1.3.01.1.001', 
+            'Desc': 'Deudores vs Haberes', 
+            'DebeUSD': m_hab_usd_num, 'HaberUSD': 0,
+            'Débito VES': m_hab_ves_num, 'Crédito VES': 0
+        })
 
     # --- PASO 4: NATURALEZA CONTRARIA ---
     # (Mapeo de cuentas con saldo final negativo)
