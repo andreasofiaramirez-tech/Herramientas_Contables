@@ -332,8 +332,17 @@ ESTRATEGIAS = {
         "nombre_hoja_excel": "101.01.03.00",
         "columnas_requeridas": ['Fecha', 'Asiento', 'Referencia', 'Fuente', 'Débito Local', 'Crédito Local']
     },
+    "115.07.1.002 - Envios en Transito COFERSA": {
+        "id": "cofersa",
+        "funcion_principal": run_conciliation_envios_cofersa,
+        "label_actual": "Movimientos del Mes (Envíos)",
+        "label_anterior": "Saldos Anteriores (Envíos)",
+        "columnas_reporte": ['Fecha', 'Asiento', 'Fuente', 'Tipo', 'Referencia', 'Neto Colones', 'Neto Dólar'],
+        "nombre_hoja_excel": "115.07.1.002",
+        "columnas_requeridas": ['Fecha', 'Asiento', 'Tipo', 'Referencia', 'Débito Bolivar', 'Crédito Bolivar']
+    },
     "201081300 - Dev. a Prov. Pais (Colones)": {
-        "id": "dev_prov_crc",
+        "id": "dev_prov_crc_cofersa",
         "funcion_principal": lambda df, log, pb: run_conciliation_dev_proveedores_cofersa(df, log, 'CRC'),
         "label_actual": "Movimientos del Mes",
         "label_anterior": "Saldos Anteriores",
