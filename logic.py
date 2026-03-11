@@ -4683,8 +4683,8 @@ def procesar_ajustes_balance_usd(f_cb, f_cg, f_hab_usd, f_hab_ves, tasa_bcv, tas
     '1.1.4.02.1.001': '2.1.2.05.1.019', # Deudores Empleados <-> Otras CxP
     '2.1.2.05.1.019': '1.1.4.02.1.001', # Otras CxP <-> Deudores Empleados
 
-    '2.1.2.09.1.001': '2.1.2.05.3.001', # Apartado Utilidades <-> Utilidades Legales por Pagar
-    '2.1.2.05.3.001': '2.1.2.09.1.001', # Utilidades Legales por Pagar <-> Apartado Utilidades
+    '1.1.4.02.1.006': '2.1.2.05.3.001', # Deudores Empleados - Otros <-> Utilidades Legales por Pagar
+    '2.1.2.05.3.001': '1.1.4.02.1.006', # Utilidades Legales por Pagar <-> Deudores Empleados - Otros
 
     # --- VIAJES ---
     '1.1.4.03.1.002': '2.1.2.09.1.900', # Anticipo Viajes <-> Gastos Estimados por Pagar
@@ -4694,6 +4694,9 @@ def procesar_ajustes_balance_usd(f_cb, f_cg, f_hab_usd, f_hab_ves, tasa_bcv, tas
     '1.1.4.04.1.007': '2.1.3.02.5.004', # Deudores Fiscales <-> Ley del Deporte
     '2.1.3.02.5.004': '1.1.4.04.1.007', # Ley del Deporte <-> Deudores Fiscales
 
+    '1.1.4.04.1.002': '2.1.3.01.1.012', # Retenciones de Terceros  <-> IR de Terceros - Constancias Recibidas
+    '2.1.3.01.1.012': '1.1.4.04.1.002', # IR de Terceros - Constancias Recibidas <-> Retenciones de Terceros 
+        
     '1.1.4.04.1.003': '2.1.3.04.1.006', # IVA Retenciones <-> IVA Retenido Terceros
     '2.1.3.04.1.006': '1.1.4.04.1.003', # IVA Retenido Terceros <-> IVA Retenciones
 
