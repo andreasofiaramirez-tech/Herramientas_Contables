@@ -2254,7 +2254,8 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
             df_resumen['cta_norm_aux'] = df_resumen['Cuenta'].apply(norm_cta)
             # Agrupamos por cuenta normalizada y sumamos
             mapa_otros_montos = df_resumen[df_resumen['Origen'] != 'Bancos'].groupby('cta_norm_aux')['Ajuste USD'].sum().to_dict()
-            mapa_otros_tasas = df_resumen.set_index('cta_norm_aux')['Tasa_Manual'].to_dict()
+            if 'Tasa_Manual' in df_resumen.columns:
+                mapa_otros_tasas = df_resumen.dropna(subset=['Tasa_Manual']).set_index('cta_norm_aux')['Tasa_Manual'].to_dict()
 
 
         # 3. CONSTRUCCIÓN DE LISTA MAESTRA DE CUENTAS (BALANCE + AJUSTES)
