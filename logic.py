@@ -4786,7 +4786,7 @@ def procesar_ajustes_balance_usd(f_cb, f_cg, f_hab_usd, f_hab_ves, tasa_bcv, tas
     # df_manual ahora es el DataFrame proveniente de st.session_state.manual_adj_list
     for _, adj in df_manual.iterrows():
         moneda = adj['moneda']
-        monto_input = float(adj['monto'])
+        monto_input = float(adj['monto']) # Puede ser positivo o negativo
         cta_a = str(adj['cuenta']).strip()
         cta_c = str(adj['contrapartida']).strip()
         
@@ -4802,33 +4802,32 @@ def procesar_ajustes_balance_usd(f_cb, f_cg, f_hab_usd, f_hab_ves, tasa_bcv, tas
         
         # 1. Registro en Hoja 1 (Resumen de Ajustes $)
         # Siguiendo tu regla: Positivo aumenta naturaleza
-        resumen_ajustes.append({
-            'Cuenta': cta_a, 'Origen': 'Manual', 'Ajuste USD': m_usd, 'Fila_Referencia': None
-        })
-        resumen_ajustes.append({
-            'Cuenta': cta_c, 'Origen': 'Manual', 'Ajuste USD': m_usd, 'Fila_Referencia': None
+        resumen_ajustes.append({'Cuenta': cta_a, 'Origen': 'Manual', 'Ajuste USD': m_usd, 'Fila_Referencia': None})
+        resumen_ajustes.append({resumen_ajustes.append({'Cuenta': cta_c, 'Origen': 'Manual', 'Ajuste USD': -m_usd, 'Fila_Referencia': None})
+
+        # 2. Registro en Asiento (Lógica de Debe/Haber según signo y naturaleza)
+        def determinar_movimiento(cta, monto_v, monto_u):
+            es_activo = cta.startswith('1')
+            # Si el monto es positivo -> Aumenta naturaleza (Activo al Debe, Pasivo al Haber)
+            # Si el monto es negativo -> Disminuye naturaleza (Activo al Haber, Pasivo al Debe)
+            if (es_activo and monto_v > 0) or (not es_activo and monto_v < 0):
+                return {'D_BS': abs(monto_v), 'H_BS': 0, 'D_USD': abs(monto_u), 'H_USD': 0}
+            else:
+                return {'D_BS': 0, 'H_BS': abs(monto_v), 'D_USD': 0, 'H_USD': abs(monto_u)}
+
+        mov_a = determinar_movimiento(cta_a, m_ves, m_usd)
+        asientos.append({
+            'Cuenta': cta_a, 'Desc': 'Ajuste Manual', 
+            'DebeUSD': mov_a['D_USD'], 'HaberUSD': mov_a['H_USD'],
+            'Débito VES': mov_a['D_BS'], 'Crédito VES': mov_a['H_BS']
         })
 
-        # 2. Registro en Hoja 3 (Cargador)
-        # Determinamos si es Debe o Haber según naturaleza (simplificado: aumenta cuenta A)
-        es_activo_a = cta_a.startswith('1')
+        # Para la contrapartida, invertimos el efecto del monto
+        mov_c = determinar_movimiento(cta_c, -m_ves, -m_usd)
         asientos.append({
-            'Cuenta': cta_a, 
-            'Desc': 'Ajuste Manual Extraordinario', 
-            'DebeUSD': m_usd if es_activo_a else 0,
-            'HaberUSD': 0 if es_activo_a else m_usd,
-            'Débito VES': m_ves if es_activo_a else 0,
-            'Crédito VES': 0 if es_activo_a else m_ves
-        })
-        
-        es_activo_c = cta_c.startswith('1')
-        asientos.append({
-            'Cuenta': cta_c, 
-            'Desc': 'Contrapartida Ajuste Manual', 
-            'DebeUSD': m_usd if not es_activo_c else 0,
-            'HaberUSD': 0 if not es_activo_c else m_usd,
-            'Débito VES': m_ves if not es_activo_c else 0,
-            'Crédito VES': 0 if not es_activo_c else m_ves
+            'Cuenta': cta_c, 'Desc': 'Contrapartida Manual', 
+            'DebeUSD': mov_c['D_USD'], 'HaberUSD': mov_c['H_USD'],
+            'Débito VES': mov_c['D_BS'], 'Crédito VES': mov_c['H_BS']
         })
        
     # --- GENERACIÓN DE ASIENTO FINAL ---
