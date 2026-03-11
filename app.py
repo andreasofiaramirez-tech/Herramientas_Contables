@@ -893,17 +893,18 @@ def render_ajustes_usd():
     with st.container(border=True):
         col_m1, col_m2, col_m3 = st.columns([2, 2, 1])
         with col_m1:
-            m_cuenta = st.text_input("Cuenta a ajustar", placeholder="Ej: 1.1.02...")
-            m_contra = st.text_input("Cuenta contrapartida", placeholder="Ej: 1.1.03...")
+            m_cuenta = st.text_input("Cuenta a ajustar", placeholder="Ej: 1.1.02...", key="man_cta")
+            m_contra = st.text_input("Cuenta contrapartida", placeholder="Ej: 2.1.02...", key="man_contra")
         with col_m2:
-            m_moneda = st.selectbox("Moneda del ajuste", ["USD", "BS"])
-            m_monto = st.number_input(f"Monto en {m_moneda}", format="%.2f")
+            m_moneda = st.selectbox("Moneda del ajuste", ["USD", "BS"], key="man_moneda")
+            m_monto = st.number_input(f"Monto en {st.session_state.man_moneda}", format="%.2f", key="man_monto")
         with col_m3:
-            # Solo mostrar Tasa si es USD
-            m_tasa_tipo = st.selectbox("Tasa de conversión", ["BCV", "CORP"]) if m_moneda == "USD" else "N/A"
+            m_tasa_tipo = st.selectbox("Tasa de conversión", ["BCV", "CORP"], key="man_tasa") if st.session_state.man_moneda == "USD" else "N/A"
             st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("➕ Agregar", use_container_width=True):
+            
+            if st.button("➕ Agregar", use_container_width=True, type="secondary"):
                 if m_cuenta.strip() and m_contra.strip() and m_monto != 0:
+                    # Guardamos en la lista
                     nuevo_adj = {
                         "cuenta": m_cuenta,
                         "contrapartida": m_contra,
@@ -912,11 +913,18 @@ def render_ajustes_usd():
                         "tasa_tipo": m_tasa_tipo
                     }
                     st.session_state.manual_adj_list.append(nuevo_adj)
-                    st.toast("Ajuste agregado", icon="✅")
+                    
+                    # --- LIMPIEZA DE CAMPOS ---
+                    st.session_state.man_cta = ""
+                    st.session_state.man_contra = ""
+                    st.session_state.man_monto = 0.0
+                    
+                    st.toast("Ajuste registrado", icon="✅")
+                    st.rerun() # Refresca la UI para mostrar los campos limpios
                 else:
-                    st.error("Complete los campos obligatorios")
+                    st.error("Datos incompletos")
 
-    # 3. Listado de Ajustes Agregados
+    # 3. Listado de Ajustes y Acciones
     if st.session_state.manual_adj_list:
         st.markdown("---")
         st.write("**Listado de Ajustes Extraordinarios:**")
@@ -927,9 +935,16 @@ def render_ajustes_usd():
                 with c1:
                     st.write(f"**Monto:** {item['monto']:,} {item['moneda']} ({item['tasa_tipo']})")
                 with c2:
+                    # LÓGICA DE MODIFICAR: Carga los datos en los inputs y borra el registro de la lista
                     if st.button("📝 Modificar", key=f"edit_{idx}"):
-                        # Carga los datos de nuevo en los inputs (requiere re-ejecución)
-                        st.info("Modifique los valores arriba y presione Agregar. Luego elimine este registro.")
+                        st.session_state.man_cta = item['cuenta']
+                        st.session_state.man_contra = item['contrapartida']
+                        st.session_state.man_moneda = item['moneda']
+                        st.session_state.man_monto = item['monto']
+                        st.session_state.man_tasa = item['tasa_tipo']
+                        
+                        st.session_state.manual_adj_list.pop(idx)
+                        st.rerun()
                 with c3:
                     if st.button("🗑️ Eliminar", key=f"del_{idx}"):
                         st.session_state.manual_adj_list.pop(idx)
