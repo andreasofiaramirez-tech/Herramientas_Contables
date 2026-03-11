@@ -4637,7 +4637,7 @@ def procesar_ajustes_balance_usd(f_cb, f_cg, f_hab_usd, f_hab_ves, tasa_bcv, tas
 
     # Paso 2.3: Contrapartida Bancos (1.1.3.01.1.001)
     if abs(sum_ajustes_bancos_usd) > 0.001:
-        resumen_ajustes.append({'Cuenta': '1.1.3.01.1.001','Origen': 'Bancos','Ajuste USD': -sum_ajustes_bancos_usd'Fila_Referencia': None})
+        resumen_ajustes.append({'Cuenta': '1.1.3.01.1.001','Origen': 'Bancos','Ajuste USD': -sum_ajustes_bancos_usd, 'Fila_Referencia': None})
 
     # --- PASO 3: AJUSTE HABERES ---
     m_hab_usd = leer_monto_haberes_pdf(f_hab_usd)
