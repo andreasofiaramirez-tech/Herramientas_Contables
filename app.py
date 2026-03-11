@@ -417,9 +417,12 @@ def render_inicio():
     
     with col_cof1:
         st.subheader("📊 Análisis y Conciliación")
-        # Botón 1: Envíos
         st.button(
-            "Especificaciones", on_click=set_page, args=['cofersa'], use_container_width=True)
+            "📄 Especificaciones", 
+            on_click=set_page, 
+            args=['especificaciones_cofersa'], # <--- Verifica que el nombre sea este exactamente
+            use_container_width=True
+        )
 
     with col_cof2:
         st.subheader("⚖️ Cierres Mensuales")
