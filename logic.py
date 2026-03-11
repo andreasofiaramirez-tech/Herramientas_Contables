@@ -24,6 +24,7 @@ TOLERANCIA_CERO = 0.00        # Para cruces que deben ser exactos
 # --- Tolerancias Estrictas (Cierres Contables) ---
 TOLERANCIA_ESTRICTA_USD = 0.00 # Usado en Cobros Viajeros
 TOLERANCIA_ESTRICTA_BS = 0.00  # Usado en Asientos por Clasificar
+TOLERANCIA_ESTRICTA = 0.00  # Usado en Asientos por Clasificar
 
 # --- Tolerancias Específicas COFERSA ---
 TOLERANCIA_COFERSA = 0.00     # Saldo 0 estricto para Envíos y Fondos
