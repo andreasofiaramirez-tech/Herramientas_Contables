@@ -2248,13 +2248,48 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
         }
         
         # Mapa para otros ajustes (Haberes, Naturaleza, Manuales)
-        # Usamos groupby().sum() por si una cuenta tiene varios ajustes, que no se pierda ninguno
+        mapa_otros = {}
         if not df_resumen.empty:
             df_resumen['cta_norm_aux'] = df_resumen['Cuenta'].apply(norm_cta)
-            # Agrupamos y sumamos para que una cuenta muestre el NETO de todos sus ajustes
             mapa_otros = df_resumen.groupby('cta_norm_aux')['Ajuste USD'].sum().to_dict()
-        else:
-            mapa_otros = {}
+
+        # --- CONSTRUCCIÓN DE LISTA MAESTRA DE CUENTAS ---
+        # 1. Cuentas que vienen del Balance original
+        cuentas_en_balance = {}
+        data_start = 0
+        col_cta_idx = 0
+        if df_balance_raw is not None and not df_balance_raw.empty:
+            for i, row in df_balance_raw.iterrows():
+                vals = [str(x).upper().strip() for x in row.values]
+                if 'CUENTA' in vals:
+                    data_start = i + 1
+                    col_cta_idx = vals.index('CUENTA')
+                    break
+            
+            for i in range(data_start, len(df_balance_raw)):
+                fila = df_balance_raw.iloc[i]
+                c_raw = str(fila[col_cta_idx]).strip()
+                if c_raw.startswith(('1.', '2.')) and not c_raw.endswith('.000'):
+                    cuentas_en_balance[c_raw] = {
+                        'desc': str(fila[col_cta_idx+1]).strip(),
+                        'norm': str(fila[col_cta_idx+2]).strip(),
+                        'bs': clean_num(fila[col_cta_idx+6]), # Col G
+                        'usd': clean_num(fila[col_cta_idx+10]) # Col L (Indice 11 físico es 10 aquí si no hay col A)
+                    }
+
+        # 2. Identificar cuentas que tienen AJUSTE pero NO están en el balance
+        cuentas_con_ajuste = df_resumen['Cuenta'].unique()
+        for cta_aj in cuentas_con_ajuste:
+            if cta_aj not in cuentas_en_balance:
+                # Inyectamos la cuenta con saldos en cero
+                cuentas_en_balance[cta_aj] = {
+                    'desc': 'CUENTA INYECTADA POR AJUSTE', # Nombre genérico si no estaba en balance
+                    'norm': 'Deudor' if cta_aj.startswith('1') else 'Acreedor',
+                    'bs': 0.0, 'usd': 0.0
+                }
+
+        # 3. Ordenamos todas las cuentas para que el reporte sea coherente
+        cuentas_finales_ordenadas = sorted(cuentas_en_balance.keys())
 
         # 3. CABECERAS DE LA TABLA
         ws1.write(5, 3, "Moneda Local", header_clean) 
