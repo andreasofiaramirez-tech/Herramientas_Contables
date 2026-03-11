@@ -4648,9 +4648,11 @@ def procesar_ajustes_balance_usd(f_cb, f_cg, f_hab_usd, f_hab_ves, tasa_bcv, tas
             'Cuenta': '2.1.2.05.1.108', 
             'Origen': 'Haberes', 
             'Ajuste USD': m_hab_usd, 
-            'Valor_BS_Reportado': f_hab_ves, # <--- Enviamos el monto VES del PDF
-            'Tasa_Manual': 'FIXED' 
-         })
+            # Forzamos que sea un número flotante para evitar que viaje el archivo
+            'Valor_BS_Reportado': float(m_hab_ves) if m_hab_ves else 0.0, 
+            'Tasa_Manual': 'FIXED',
+            'Fila_Referencia': None
+        })
         resumen_ajustes.append({'Cuenta': '1.1.3.01.1.001', 'Origen': 'Haberes', 'Ajuste USD': m_hab_usd, 'Fila_Referencia': None})
     
     asientos.append({'Cuenta': '2.1.2.05.1.108', 'Desc': 'Haberes de Clientes', 'DebeUSD': 0, 'HaberUSD': m_hab_usd})
