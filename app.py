@@ -993,10 +993,16 @@ def render_ajustes_usd():
                     from logic import procesar_ajustes_balance_usd
                     from utils import generar_reporte_ajustes_usd
 
+                    # 1. Convertimos la lista de ajustes manuales acumulada en un DataFrame
+                    # Si la lista está vacía, creará un DataFrame vacío que la lógica sabe manejar.
+                    df_manual_para_procesar = pd.DataFrame(st.session_state.manual_adj_list)
+
+                    # 2. Llamamos a la lógica con el nuevo DataFrame
                     df_res, df_banc, df_asiento, df_raw, val_data = procesar_ajustes_balance_usd(
                         f_cb, f_cg, f_hab_usd, f_hab_ves, 
                         tasa_bcv, tasa_corp, empresa_sel, n_asiento, 
-                        edited_manual_df, log_messages
+                        df_manual_para_procesar, # <--- Variable corregida
+                        log_messages
                     )
 
                 # 2. Mostrar Resultados y Descarga
