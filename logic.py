@@ -4803,7 +4803,7 @@ def procesar_ajustes_balance_usd(f_cb, f_cg, f_hab_usd, f_hab_ves, tasa_bcv, tas
         # 1. Registro en Hoja 1 (Resumen de Ajustes $)
         # Siguiendo tu regla: Positivo aumenta naturaleza
         resumen_ajustes.append({'Cuenta': cta_a, 'Origen': 'Manual', 'Ajuste USD': m_usd, 'Fila_Referencia': None})
-        resumen_ajustes.append({resumen_ajustes.append({'Cuenta': cta_c, 'Origen': 'Manual', 'Ajuste USD': -m_usd, 'Fila_Referencia': None})
+        resumen_ajustes.append({resumen_ajustes.append({'Cuenta': cta_c, 'Origen': 'Manual', 'Ajuste USD': -m_usd, 'Fila_Referencia': None})})
 
         # 2. Registro en Asiento (Lógica de Debe/Haber según signo y naturaleza)
         def determinar_movimiento(cta, monto_v, monto_u):
