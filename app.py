@@ -410,16 +410,29 @@ def render_inicio():
     st.divider()
     st.subheader("COFERSA", anchor=False)
     st.markdown("Seleccione una herramienta para comenzar:")
+
+    # Usamos la misma estructura de 3 columnas que Mayoreo
+    col_cof1, col_cof2, col_cof3 = st.columns(3, gap="medium")
     
-    col_c1, col_c2 = st.columns(2)
-    with col_c1:
-        st.button("🚛 Envíos en Tránsito (101050200)", on_click=set_page, args=['cofersa'], use_container_width=True)
-    with col_c2:
-        st.button("💰 Fondos en Tránsito (101010300)", on_click=set_page, args=['cofersa_fondos'], type="secondary", use_container_width=True)
+    with col_cof1:
+        st.subheader("📊 Análisis y Conciliación")
+        # Botón 1: Envíos
+        st.button(
+            "Especificaciones", on_click=set_page, args=['cofersa'], use_container_width=True)
+
+    with col_cof2:
+        st.subheader("⚖️ Cierres Mensuales")
+        # Espacio para futuras herramientas de cierre de Cofersa
+        st.info("Próximamente nuevas utilidades de cierre.")
+
+    with col_cof3:
+        st.subheader("⚙️ Procesos Fiscales")
+        # Espacio para futuras herramientas fiscales de Cofersa
+        st.info("Próximamente utilidades fiscales.")
 
     st.markdown("---")
-    st.caption("v2.1 - Sistema Integral de Automatización Contable.")
-
+    st.caption("v2.6 - Sistema Integral de Automatización Contable.")
+    
 
 # ==============================================================================
 # IV. CICLO DE CONCILIACIONES (ESTÁNDAR Y ESPECIALES)
@@ -583,7 +596,69 @@ def render_especificaciones():
                 df_conciliados_vista['Fecha'] = pd.to_datetime(df_conciliados_vista['Fecha']).dt.strftime('%d/%m/%Y')
             st.dataframe(df_conciliados_vista, use_container_width=True)
 
-def render_cofersa():
+def render_especificaciones_cofersa():
+    st.title('📄 Especificaciones de Cuentas: COFERSA', anchor=False)
+    
+    if st.button("⬅️ Volver al Inicio", key="back_from_spec_cof"):
+        set_page('inicio')
+        st.rerun()
+
+    # FILTRO CLAVE: Aquí solo tomamos las cuentas que tienen la palabra "COFERSA"
+    CUENTA_OPTIONS = sorted([k for k in ESTRATEGIAS.keys() if "COFERSA" in k])
+    
+    st.subheader("Seleccione la Cuenta Contable de COFERSA:", anchor=False)
+    cuenta_seleccionada = st.selectbox("Cuenta:", CUENTA_OPTIONS, label_visibility="collapsed")
+    estrategia_actual = ESTRATEGIAS[cuenta_seleccionada]
+
+    # Guía de la cuenta
+    with st.expander("📖 Guía de Conciliación", expanded=False):
+        from guides import LOGICA_POR_CUENTA
+        st.markdown(LOGICA_POR_CUENTA.get(cuenta_seleccionada, "Guía no disponible."))
+
+    st.subheader("Cargue los Archivos (.xlsx o .xls):", anchor=False)
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        uploaded_actual = st.file_uploader("Movimientos del Mes Actual", type=['xlsx', 'xls'], key="cof_act")
+    with col2:
+        uploaded_anterior = st.file_uploader("Saldos del Mes Anterior", type=['xlsx', 'xls'], key="cof_ant")
+        
+    if uploaded_actual and uploaded_anterior:
+        if st.button("▶️ Iniciar Conciliación COFERSA", type="primary", use_container_width=True):
+            log = []
+            try:
+                # Usamos el cargador especial de Cofersa que ya definimos
+                from utils import cargar_datos_fondos_cofersa
+                df_full = cargar_datos_fondos_cofersa(uploaded_actual, uploaded_anterior, log)
+                
+                if df_full is not None:
+                    # Ejecutamos la lógica (la función_principal definida en ESTRATEGIAS)
+                    df_res = estrategia_actual["funcion_principal"](df_full.copy(), log)
+                    
+                    # Generar Reporte
+                    df_saldos = df_res[~df_res['Conciliado']]
+                    df_conciliados = df_res[df_res['Conciliado']]
+                    
+                    from utils import generar_reporte_excel, generar_excel_saldos_abiertos
+                    excel_reporte = generar_reporte_excel(
+                        df_res, df_saldos, df_conciliados, estrategia_actual, "COFERSA", cuenta_seleccionada
+                    )
+                    
+                    st.success("✅ Conciliación completada.")
+                    
+                    # Métricas y Descargas
+                    c1, c2 = st.columns(2)
+                    c1.metric("Movimientos Conciliados", len(df_conciliados))
+                    c2.metric("Saldos Abiertos", len(df_saldos))
+                    
+                    st.download_button("⬇️ Descargar Reporte Final", excel_reporte, f"Conciliacion_{cuenta_seleccionada[:10]}.xlsx", use_container_width=True)
+                    st.download_button("⬇️ Descargar Saldos Próximo Mes", generar_excel_saldos_abiertos(df_saldos), "Saldos_Anteriores.xlsx", use_container_width=True)
+                    
+                    with st.expander("Ver Log"): st.write(log)
+            except Exception as e:
+                st.error(f"Error: {e}")
+
+#def render_cofersa():
     st.title("🚛 Envíos en Tránsito COFERSA Local (101050200)", anchor=False)
     
     if st.button("⬅️ Volver al Inicio", key="back_from_cofersa"):
@@ -666,7 +741,7 @@ def render_cofersa():
                 # Aquí usamos tu función de error amigable que ya tienes en app.py
                 mostrar_error_amigable(e, "la Conciliación de Cofersa")
 
-def render_cofersa_fondos():
+#def render_cofersa_fondos():
     st.title("💰 Fondos en Tránsito COFERSA (101.01.03.00)", anchor=False)
     
     if st.button("⬅️ Volver al Inicio", key="back_cof_fondos"):
@@ -1946,14 +2021,13 @@ def main():
     page_map = {
         'inicio': render_inicio,
         'especificaciones': render_especificaciones,
+        'especificaciones_cofersa': render_especificaciones_cofersa,
         'retenciones': render_retenciones,
         'paquete_cc': render_paquete_cc, 
         'cuadre': render_cuadre,
         'pensiones': render_pensiones,
         'ajustes_usd' : render_ajustes_usd,
         'comisiones': render_comisiones_bancarias,
-        'cofersa': render_cofersa,     
-        'cofersa_fondos': render_cofersa_fondos,
         'debito_fiscal': render_debito_fiscal,
         'locti': render_locti,
         'apartados': render_apartados_liberaciones
