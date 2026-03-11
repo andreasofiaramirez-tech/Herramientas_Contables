@@ -885,23 +885,55 @@ def render_ajustes_usd():
     st.subheader("2. Ajustes Manuales", anchor=False)
     st.markdown("Agregue aquí ajustes extraordinarios que la herramienta deba incluir en el reporte y cargador.")
     
-    # Editor interactivo: Permite agregar, borrar y editar filas
-    edited_manual_df = st.data_editor(
-        st.session_state.manual_adjustments,
-        num_rows="dynamic",
-        column_config={
-            "Tasa de conversión": st.column_config.SelectboxColumn(
-                "Tasa",
-                options=["BCV", "CORP"],
-                required=True,
-            ),
-            "Monto en USD": st.column_config.NumberColumn("USD $", format="$%.2f")
-        },
-        key="manual_adj_editor",
-        use_container_width=True
-    )
-    # Actualizar el estado con lo que el usuario escribió
-    st.session_state.manual_adjustments = edited_manual_df
+    # 1. Inicializar la lista en el estado de la sesión si no existe
+    if 'manual_adj_list' not in st.session_state:
+        st.session_state.manual_adj_list = []
+
+    # 2. Formulario de Entrada
+    with st.container(border=True):
+        col_m1, col_m2, col_m3 = st.columns([2, 2, 1])
+        with col_m1:
+            m_cuenta = st.text_input("Cuenta a ajustar", placeholder="Ej: 1.1.02...")
+            m_contra = st.text_input("Cuenta contrapartida", placeholder="Ej: 1.1.03...")
+        with col_m2:
+            m_moneda = st.selectbox("Moneda del ajuste", ["USD", "BS"])
+            m_monto = st.number_input(f"Monto en {m_moneda}", min_value=0.0, format="%.2f")
+        with col_m3:
+            # Solo mostrar Tasa si es USD
+            m_tasa_tipo = st.selectbox("Tasa de conversión", ["BCV", "CORP"]) if m_moneda == "USD" else "N/A"
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("➕ Agregar", use_container_width=True):
+                if m_cuenta and m_contra and m_monto > 0:
+                    nuevo_adj = {
+                        "cuenta": m_cuenta,
+                        "contrapartida": m_contra,
+                        "moneda": m_moneda,
+                        "monto": m_monto,
+                        "tasa_tipo": m_tasa_tipo
+                    }
+                    st.session_state.manual_adj_list.append(nuevo_adj)
+                    st.toast("Ajuste agregado", icon="✅")
+                else:
+                    st.error("Complete los campos obligatorios")
+
+    # 3. Listado de Ajustes Agregados
+    if st.session_state.manual_adj_list:
+        st.markdown("---")
+        st.write("**Listado de Ajustes Extraordinarios:**")
+        
+        for idx, item in enumerate(st.session_state.manual_adj_list):
+            with st.expander(f"📌 {item['cuenta']} vs {item['contrapartida']} | {item['monto']} {item['moneda']}", expanded=True):
+                c1, c2, c3 = st.columns([3, 1, 1])
+                with c1:
+                    st.write(f"**Monto:** {item['monto']:,} {item['moneda']} ({item['tasa_tipo']})")
+                with c2:
+                    if st.button("📝 Modificar", key=f"edit_{idx}"):
+                        # Carga los datos de nuevo en los inputs (requiere re-ejecución)
+                        st.info("Modifique los valores arriba y presione Agregar. Luego elimine este registro.")
+                with c3:
+                    if st.button("🗑️ Eliminar", key=f"del_{idx}"):
+                        st.session_state.manual_adj_list.pop(idx)
+                        st.rerun()
 
     # --- SECCIÓN 3: PARÁMETROS ---
     st.subheader("3. Parámetros de Cálculo", anchor=False)
