@@ -2319,7 +2319,7 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
         for cta in cuentas_ordenadas:
             data = cuentas_maestras[cta]
             c_norm = norm_cta(cta)
-            excel_row = current_row + 1
+            ex_row = current_row + 1
 
             ws1.write(current_row, 0, cta, fmt_text)
             ws1.write(current_row, 1, data['desc'], fmt_text)
@@ -2332,34 +2332,30 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
                 fila_ref = mapa_filas_bancos[c_norm]
                 ws1.write_formula(current_row, 5, f"='2. Detalle Bancos'!$R${fila_ref}", fmt_money_bold)
             else:
-                m_adj = mapa_otros_montos.get(c_norm, 0.0)
-                if abs(m_adj) > 0.001:
-                    ws1.write_number(current_row, 5, m_adj, fmt_money_bold)
+                m_adj_val = mapa_otros_montos.get(c_norm, 0.0)
+                if abs(m_adj_val) > 0.001:
+                    ws1.write_number(current_row, 5, m_adj_val, fmt_money_bold)
                 else:
                     ws1.write_number(current_row, 5, 0.0, fmt_text)
 
             # Columna G: Saldo Ajustado (Fórmula E + F)
-            ws1.write_formula(current_row, 6, f"=E{excel_row}+F{excel_row}", fmt_money_bold)
+            ws1.write_formula(current_row, 6, f"=E{ex_row}+F{ex_row}", fmt_money_bold)
             # Columna H: ACT O PA (1 para Activo, 2 para Pasivo)
             ws1.write(current_row, 7, "1" if cta.startswith('1.') else "2", fmt_text)
             # Columna I: TASA (Fórmula D / G)
-            ws1.write_formula(current_row, 8, f'=IF(ABS(G{ex_row})>0.01, ABS(D{ex_row}/G{ex_row}), IF(ABS(F{ex_row})>0.01, ABS(J{ex_row}/F{ex_row}), 0))', fmt_rate)
+           formula_tasa = f'=IF(ABS(G{ex_row})>0.01, ABS(D{ex_row}/G{ex_row}), IF(ABS(F{ex_row})>0.01, ABS(J{ex_row}/F{ex_row}), 0))'
+            ws1.write_formula(current_row, 8, formula_tasa, fmt_rate)
             
             # Columna J: Bs. (Fórmula F * Tasa BCV de Hoja 2 P1)
-            c_norm = norm_cta(cta)
-            val_bs_reportado = mapa_bs_fijos.get(c_norm, 0.0)
-
-            if val_bs_reportado != 0:
-                # Caso Haberes: Escribimos el monto exacto del reporte VES
-                ws1.write_number(current_row, 9, val_bs_reportado, fmt_money)
+            val_fijo_bs = mapa_bs_fijos.get(c_norm, 0.0)
+            if val_fijo_bs != 0:
+                ws1.write_number(current_row, 9, val_fijo_bs, fmt_money)
             elif c_norm in mapa_filas_bancos:
-                # Caso Bancos: Vinculamos a la Hoja 2
                 fila_ref = mapa_filas_bancos[c_norm]
                 ws1.write_formula(current_row, 9, f"='2. Detalle Bancos'!$Q${fila_ref}", fmt_money)
             else:
-                # Caso Manual/Naturaleza: Ajuste * Tasa (P1=BCV o P2=CORP)
-                tasa_ref = "$P$2" if mapa_otros_tasas.get(c_norm) == "CORP" else "$P$1"
-                ws1.write_formula(current_row, 9, f"=F{excel_row}*'2. Detalle Bancos'!{tasa_ref}", fmt_money)    
+                tasa_cell = "$P$2" if mapa_otros_tasas.get(c_norm) == "CORP" else "$P$1"
+                ws1.write_formula(current_row, 9, f"=F{ex_row}*'2. Detalle Bancos'!{tasa_cell}", fmt_money)
 
             current_row += 1
 
