@@ -4611,7 +4611,7 @@ def procesar_ajustes_balance_usd(f_cb, f_cg, f_hab_usd, f_hab_ves, tasa_bcv, tas
             continue
 
         # Construir fila para Hoja 2
-        fila_full = row.to_dict()
+        fila_para_reporte = row.to_dict() 
 
         # REGLA: Limpiar fechas (Eliminar la hora)
         for col_f in ['FECHA INICIAL', 'FECHA FINAL']:
