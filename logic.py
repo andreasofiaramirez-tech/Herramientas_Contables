@@ -4547,6 +4547,7 @@ def procesar_ajustes_balance_usd(f_cb, f_cg, f_hab_usd, f_hab_ves, tasa_bcv, tas
     resumen_ajustes = []
     detalles_bancos = []
     asientos = []
+    lista_datos_hoja_2 = []
     sum_ajustes_bancos_usd = 0.0
 
     # --- PASO 2: AJUSTE DE BANCOS (LÓGICA L/E) ---
