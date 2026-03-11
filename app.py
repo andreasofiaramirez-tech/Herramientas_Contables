@@ -153,17 +153,12 @@ def set_page(page_name):
 # --- Bloque 5: Autenticación ---
 def password_entered():
     """Verifica la contraseña ingresada y actualiza el estado."""
-    # Obtenemos la clave ingresada
-    password_input = st.session_state.get("password_input_key")
-    
-    if password_input == st.secrets.get("password"):
+    st.session_state.authentication_attempted = True
+    if st.session_state.get("password") == st.secrets.get("password"):
         st.session_state.password_correct = True
-        st.session_state.authentication_attempted = True
-        # Limpiamos el input para seguridad
-        st.session_state["password_input_key"] = "" 
+        del st.session_state["password"]
     else:
         st.session_state.password_correct = False
-        st.session_state.authentication_attempted = True
 
 if not st.session_state.get("password_correct", False):
     _ , col_main, _ = st.columns([1, 1.5, 1])
