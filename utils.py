@@ -2291,8 +2291,8 @@ def generar_reporte_ajustes_usd(df_resumen, df_bancos, df_asiento, df_balance_ra
                     cuentas_maestras[c_raw] = {
                         'desc': str(fila_b[col_cta_idx + 1]).strip(),
                         'norm': str(fila_b[col_cta_idx + 2]).strip(),
-                        'bs_bal': clean_num(fila_b[col_cta_idx + 6]),    # Col G
-                        'usd_bal': clean_num(fila_b[col_cta_idx + 11])   # Col L
+                        'bs': clean_num(fila_b[col_cta_idx + 6]),    # Unificado a 'bs'
+                        'usd': clean_num(fila_b[col_cta_idx + 11])   # Unificado a 'usd'
                     }
 
         # Inyección de cuentas que tienen ajustes pero no estaban en el balance
