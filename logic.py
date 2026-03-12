@@ -5100,9 +5100,18 @@ def run_conciliation_anexos(df_cb_raw, df_cg_raw, empresa_sel, log_messages):
 
     # Limpieza de montos (Plurales Débitos/Créditos)
     def clean_val(v):
+        """Limpia montos manejando punto de mil y coma decimal (1.197,97)"""
         if pd.isna(v) or str(v).strip() in ['', '-']: return 0.0
+        t = str(v).strip().replace(' ', '')
+        # Si tiene punto y coma, el punto es de mil (lo eliminamos)
+        if ',' in t and '.' in t:
+            if t.rfind(',') > t.rfind('.'): t = t.replace('.', '').replace(',', '.')
+            else: t = t.replace(',', '')
+        elif ',' in t: t = t.replace(',', '.')
         try:
-            return float(str(v).replace('.', '').replace(',', '.'))
+            # Eliminamos cualquier caracter residual no numérico excepto el punto decimal
+            t_clean = re.sub(r'[^\d.-]', '', t)
+            return float(t_clean)
         except: return 0.0
 
     df_cb['Debito_CB'] = df_cb['Débitos'].apply(clean_val)
@@ -5171,7 +5180,14 @@ def run_conciliation_anexos(df_cb_raw, df_cg_raw, empresa_sel, log_messages):
             'Hallazgos': obs
         })
 
-    return pd.DataFrame(resultados)
+    df_final = pd.DataFrame(resultados)
+    # --- MEJORA: Ordenar errores al principio ---
+    if not df_final.empty:
+        # 0 para errores, 1 para OK
+        df_final['sort_helper'] = df_final.apply(lambda x: 0 if ("❌" in str(x['Estatus Monto']) or "❌" in str(x['Estatus Cuenta'])) else 1, axis=1)
+        df_final = df_final.sort_values(by=['sort_helper', 'Asiento']).drop(columns=['sort_helper'])
+    
+    return df_final
 
 # ==============================================================================
 # MÓDULO: APARTADOS Y LIBERACIONES
