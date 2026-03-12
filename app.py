@@ -13,6 +13,8 @@ st.set_page_config(page_title="Conciliador Automático", page_icon="🤖", layou
 # --- Inicialización del Estado de la Sesión ---
 if 'page' not in st.session_state:
     st.session_state.page = 'inicio'
+if 'grupo_seleccionado' not in st.session_state:
+    st.session_state.grupo_seleccionado = None
 if 'password_correct' not in st.session_state:
     st.session_state.password_correct = False
 if 'processing_complete' not in st.session_state:
@@ -22,6 +24,7 @@ if 'processing_complete' not in st.session_state:
     st.session_state.excel_output = None
     st.session_state.df_saldos_abiertos = pd.DataFrame()
     st.session_state.df_conciliados = pd.DataFrame()
+    
 
 # --- Bloque 1: Importación de Guías ---
 from guides import (
@@ -390,7 +393,7 @@ ESTRATEGIAS = {
 # III. PANEL DE CONTROL (HOME)
 # ==============================================================================
 def render_inicio():
-    # --- CABECERA CON LOGOS ---
+    # --- 1. CABECERA CON LOGOS ---
     st.markdown("<br>", unsafe_allow_html=True)
     _, col_logos, _ = st.columns([1, 10, 1])
     with col_logos:
@@ -406,13 +409,38 @@ def render_inicio():
             except: st.write("**SILLACA**")
     st.divider()
 
-    st.title("🤖 Portal de Herramientas Contables")
-    st.subheader("Grupo Mayoreo", anchor=False)
-    st.markdown("Seleccione una herramienta para comenzar:")
+    # --- 2. LÓGICA DE SELECCIÓN INICIAL ---
+    if st.session_state.grupo_seleccionado is None:
+        st.title("🤖 Portal de Herramientas Contables", anchor=False)
+        st.subheader("Seleccione el Grupo Empresarial para comenzar:", anchor=False)
+        
+        col_m, col_c = st.columns(2)
+        with col_m:
+            # Botón grande para Mayoreo
+            if st.button("🏢 GRUPO MAYOREO\n\n(Venezuela)", use_container_width=True, key="btn_choose_mayoreo"):
+                st.session_state.grupo_seleccionado = 'mayoreo'
+                st.rerun()
+        with col_c:
+            # Botón grande para Cofersa
+            if st.button("🚢 COFERSA\n\n(Costa Rica)", use_container_width=True, key="btn_choose_cofersa"):
+                st.session_state.grupo_seleccionado = 'cofersa'
+                st.rerun()
+        
+        st.info("Seleccione una de las opciones superiores para desplegar las herramientas disponibles.")
+        st.stop() 
 
-    c1, c2, c3 = st.columns(3, gap="medium")
-    
-    with c1:
+    # --- 3. BOTÓN PARA REGRESAR A LA SELECCIÓN DE GRUPO ---
+    if st.button("⬅️ Cambiar de Grupo (Mayoreo / Cofersa)", key="btn_reset_group"):
+        st.session_state.grupo_seleccionado = None
+        st.rerun()
+
+    # --- 4. RENDERIZADO SEGÚN EL GRUPO ELEGIDO ---
+    if st.session_state.grupo_seleccionado == 'mayoreo':
+        st.title("🤖 Portal de Herramientas: Grupo Mayoreo")
+        st.markdown("Seleccione una herramienta para comenzar:")
+
+        c1, c2, c3 = st.columns(3, gap="medium")
+        with c1:
         st.subheader("📊 Análisis y Conciliación")
         st.button("📄 Especificaciones", on_click=set_page, args=['especificaciones'], use_container_width=True, key="btn_spec_mayoreo")
         st.button("📦 Análisis Paquete CC", on_click=set_page, args=['paquete_cc'], use_container_width=True)
