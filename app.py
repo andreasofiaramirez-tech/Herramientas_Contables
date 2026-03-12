@@ -393,20 +393,34 @@ ESTRATEGIAS = {
 # III. PANEL DE CONTROL (HOME)
 # ==============================================================================
 def render_inicio():
-    # --- 1. CABECERA CON LOGOS (Se mantiene igual, es lo primero que ven) ---
+    # --- CABECERA DINÁMICA DE LOGOS ---
     st.markdown("<br>", unsafe_allow_html=True)
-    _, col_logos, _ = st.columns([1, 10, 1])
-    with col_logos:
-        l1, l2, l3 = st.columns(3)
-        with l1:
-            try: st.image("assets/logo_febeca.png", use_container_width=True)
-            except: st.write("**FEBECA**")
-        with l2:
-            try: st.image("assets/logo_beval.png", use_container_width=True)
-            except: st.write("**BEVAL**")
-        with l3:
-            try: st.image("assets/logo_sillaca.png", use_container_width=True)
-            except: st.write("**SILLACA**")
+    
+    # CASO 1: ANTES DE SELECCIONAR (Todos los logos)
+    if st.session_state.grupo_seleccionado is None:
+        _, col_logos, _ = st.columns([1, 12, 1])
+        with col_logos:
+            l1, l2, l3, l4 = st.columns(4)
+            with l1: st.image("assets/logo_febeca.png", use_container_width=True)
+            with l2: st.image("assets/logo_beval.png", use_container_width=True)
+            with l3: st.image("assets/logo_sillaca.png", use_container_width=True)
+            with l4: st.image("assets/logo_cofersa.png", use_container_width=True) # <-- Asegúrate que exista este archivo
+
+    # CASO 2: MAYOREO (Solo los 3 de Mayoreo)
+    elif st.session_state.grupo_seleccionado == 'mayoreo':
+        _, col_logos, _ = st.columns([1, 10, 1])
+        with col_logos:
+            l1, l2, l3 = st.columns(3)
+            with l1: st.image("assets/logo_febeca.png", use_container_width=True)
+            with l2: st.image("assets/logo_beval.png", use_container_width=True)
+            with l3: st.image("assets/logo_sillaca.png", use_container_width=True)
+
+    # CASO 3: COFERSA (Solo logo de Cofersa centrado)
+    elif st.session_state.grupo_seleccionado == 'cofersa':
+        _, col_logo, _ = st.columns([2, 1, 2]) # El logo queda en la columna del medio para centrarlo
+        with col_logo:
+            st.image("assets/logo_cofersa.png", use_container_width=True)
+
     st.divider()
 
     # --- 2. LÓGICA DE SELECCIÓN INICIAL ---
