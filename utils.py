@@ -3442,7 +3442,7 @@ def generar_excel_cargador_softland(df_asiento, fecha):
 
 
 # ==============================================================================
-# 1. AUDITORIA COMISIONES
+#  AUDITORIA COMISIONES - GRUPO MAYOREO
 # ==============================================================================
 def generar_reporte_auditoria_comisiones(df_res, df_cg_raw, df_cb_raw, nombre_empresa, color_hex):
     output = BytesIO()
@@ -3573,7 +3573,7 @@ def generar_reporte_auditoria_comisiones(df_res, df_cg_raw, df_cb_raw, nombre_em
     return output.getvalue()
 
 # ==============================================================================
-# 1. AUDITORIA ANEXOS
+#  AUDITORIA ANEXOS - GRUPO MAYOREO
 # ==============================================================================
 
 def generar_reporte_auditoria_anexos(df_res, df_cg_raw, df_cb_raw, nombre_empresa, color_hex):
@@ -3673,4 +3673,52 @@ def generar_reporte_auditoria_anexos(df_res, df_cg_raw, df_cb_raw, nombre_empres
                 # ws_cb.write maneja automáticamente si es número o texto si el valor no es NaN
                 ws_cb.write(r_idx, c_idx, value, fmt_fila)
 
+    return output.getvalue()
+
+# ==============================================================================
+#  AUDITORIA COMISIONES Y ANEXOS - COFERSA
+# ==============================================================================
+
+def generar_reporte_auditoria_comisiones_cofersa(df_res, df_cg_raw, df_cb_raw):
+    output = BytesIO()
+    color_cofersa = '#2E5984' # Azul Corporativo Cofersa
+    
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        workbook = writer.book
+        # Formatos
+        h_fmt = workbook.add_format({'bold': True, 'fg_color': color_cofersa, 'font_color': 'white', 'border': 1, 'align': 'center'})
+        m_fmt = workbook.add_format({'num_format': '#,##0.00', 'border': 1})
+        t_fmt = workbook.add_format({'border': 1})
+        err_fmt = workbook.add_format({'bg_color': '#FFC7CE'})
+
+        # Hoja 1
+        df_res.to_excel(writer, index=False, sheet_name='Resultados')
+        ws = writer.sheets['Resultados']
+        for i, col in enumerate(df_res.columns):
+            ws.write(0, i, col, h_fmt)
+            ws.set_column(i, i, 18, t_fmt)
+        ws.conditional_format(1, 0, len(df_res), len(df_res.columns)-1, 
+                            {'type': 'formula', 'criteria': '=$F2="❌ No coincide"', 'format': err_fmt})
+
+        # Réplicas de consulta (Simplificadas para el ejemplo)
+        df_cg_raw.to_excel(writer, sheet_name='Copia Mayor CG', index=False)
+        df_cb_raw.to_excel(writer, sheet_name='Copia Reporte CB', index=False)
+        
+    return output.getvalue()
+
+def generar_reporte_auditoria_anexos_cofersa(df_res, df_cg_raw, df_cb_raw):
+    output = BytesIO()
+    color_cofersa = '#D35400' # Naranja para Anexos
+    
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        workbook = writer.book
+        h_fmt = workbook.add_format({'bold': True, 'fg_color': color_cofersa, 'font_color': 'white', 'border': 1, 'align': 'center'})
+        m_fmt = workbook.add_format({'num_format': '#,##0.00', 'border': 1})
+        
+        df_res.to_excel(writer, index=False, sheet_name='Auditoría Anexos')
+        ws = writer.sheets['Auditoría Anexos']
+        for i, col in enumerate(df_res.columns):
+            ws.write(0, i, col, h_fmt)
+            ws.set_column(i, i, 20)
+            
     return output.getvalue()
