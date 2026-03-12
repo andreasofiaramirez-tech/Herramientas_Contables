@@ -401,7 +401,7 @@ def render_inicio():
         st.subheader("📊 Análisis y Conciliación")
         st.button("📄 Especificaciones", on_click=set_page, args=['especificaciones'], use_container_width=True, key="btn_spec_mayoreo")
         st.button("📦 Análisis Paquete CC", on_click=set_page, args=['paquete_cc'], use_container_width=True)
-        st.button("🏦 Auditoría Comisiones", on_click=set_page, args=['comisiones'], use_container_width=True)
+        st.button("🏦 Auditoría de Bancos (Comisiones y Anexos)", on_click=set_page, args=['comisiones'], use_container_width=True)
 
     with c2:
         st.subheader("📑 Cierres Mensuales") # <--- NUEVA SECCIÓN
