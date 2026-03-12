@@ -4927,7 +4927,7 @@ def run_conciliation_comisiones_bancarias(df_cb_raw, df_cg_raw, empresa_sel, log
         "PRISMA, C.A": MAPEO_CB_CG_PRISMA,
         "MAYOR BEVAL, C.A": MAPEO_CB_CG_BEVAL,
         "FEBECA, C.A": MAPEO_CB_CG_FEBECA,
-        "FEBECA, C.A (QUINCALLA)": MAPEO_CB_CG_FEBECA, # Usa el mismo que FEBECA
+        "FEBECA, C.A (QUINCALLA)": MAPEO_CB_CG_SILLACA,
         "SILLACA, C.A": MAPEO_CB_CG_SILLACA
     }
     # Obtenemos el diccionario específico para la empresa seleccionada
