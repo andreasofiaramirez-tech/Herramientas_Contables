@@ -2501,6 +2501,7 @@ def run_conciliation_retenciones(file_cp, file_cg, file_iva, file_islr, file_mun
     """
     Función principal que orquesta todo el proceso de conciliación de retenciones.
     """
+    from utils import generar_reporte_retenciones 
     try:
         log_messages.append("--- INICIANDO PROCESO DE CONCILIACIÓN DE RETENCIONES ---")
         
