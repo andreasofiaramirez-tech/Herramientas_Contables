@@ -3578,8 +3578,7 @@ def generar_reporte_auditoria_comisiones(df_res, df_cg_raw, df_cb_raw, nombre_em
 
 def generar_reporte_auditoria_anexos(df_res, df_cg_raw, df_cb_raw, nombre_empresa, color_hex):
     """Genera el Excel de Anexos con el mismo formato de Comisiones."""
-    from io import BytesIO
-    output = BytesIO()
+    color_header = '#2E5984'
     
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         # --- 1. HOJA 1: RESULTADOS ---
@@ -3680,7 +3679,6 @@ def generar_reporte_auditoria_anexos(df_res, df_cg_raw, df_cb_raw, nombre_empres
 # ==============================================================================
 
 def generar_reporte_auditoria_comisiones_cofersa(df_res, df_cg_raw, df_cb_raw):
-    output = BytesIO()
     color_cofersa = '#2E5984' # Azul Corporativo Cofersa
     
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
