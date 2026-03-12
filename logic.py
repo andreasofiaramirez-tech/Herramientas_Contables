@@ -4953,9 +4953,15 @@ def run_conciliation_comisiones_bancarias(df_cb_raw, df_cg_raw, empresa_sel, log
     df_cb = df_cb[~df_cb['Asiento'].astype(str).str.upper().str.contains('TOTAL', na=False)]
     df_cb['Créditos'] = pd.to_numeric(df_cb['Créditos'], errors='coerce').fillna(0)
 
-    # --- 3. PREPARACIÓN DEL MAYOR (CG) ---
-    df_cg = df_cg_raw.copy()
-    for col in ['Débito VES', 'Crédito VES', 'Débito Dólar', 'Crédito Dólar']:
+    # --- 3. PREPARACIÓN DEL MAYOR (CG) CON RADAR DINÁMICO ---
+    # Identificamos los nombres reales de las columnas en el archivo subido
+    col_deb_ves = next((c for c in df_cg.columns if any(k in normalizar_texto_busqueda(c) for k in ['DEBITO', 'DEBE']) and any(k in normalizar_texto_busqueda(c) for k in ['VES', 'LOCAL', 'BOLIVAR'])), 'Débito VES')
+    col_cre_ves = next((c for c in df_cg.columns if any(k in normalizar_texto_busqueda(c) for k in ['CREDITO', 'HABER']) and any(k in normalizar_texto_busqueda(c) for k in ['VES', 'LOCAL', 'BOLIVAR'])), 'Crédito VES')
+    col_deb_usd = next((c for c in df_cg.columns if any(k in normalizar_texto_busqueda(c) for k in ['DEBITO', 'DEBE']) and any(k in normalizar_texto_busqueda(c) for k in ['DOLAR', 'USD', 'ME'])), 'Débito Dólar')
+    col_cre_usd = next((c for c in df_cg.columns if any(k in normalizar_texto_busqueda(c) for k in ['CREDITO', 'HABER']) and any(k in normalizar_texto_busqueda(c) for k in ['DOLAR', 'USD', 'ME'])), 'Crédito Dólar')
+
+    # Limpiamos numéricamente usando los nombres detectados
+    for col in [col_deb_ves, col_cre_ves, col_deb_usd, col_cre_usd]:
         if col in df_cg.columns:
             df_cg[col] = pd.to_numeric(df_cg[col], errors='coerce').fillna(0)
 
@@ -4988,7 +4994,7 @@ def run_conciliation_comisiones_bancarias(df_cb_raw, df_cg_raw, empresa_sel, log
             if asto_cg.empty:
                 obs.append("El asiento no existe en el Mayor de Contabilidad")
             else:
-                col_monto_asto = 'Crédito Dólar' if es_usd else 'Crédito VES'
+                col_monto_asto = col_cre_usd if es_usd else col_cre_ves
                 
                 # VALIDACIÓN 1: Identidad del Banco (Punto 2 Mejorado)
                 # Buscamos líneas que usen la cuenta contable que el diccionario dice que corresponde al código CB
@@ -5025,8 +5031,8 @@ def run_conciliation_comisiones_bancarias(df_cb_raw, df_cg_raw, empresa_sel, log
                     obs.append(f"Falta Cta Gasto {cta_gasto_prefijo}")
 
                 # VALIDACIÓN 4: Cuadre
-                total_debe = asto_cg['Débito VES'].sum() + asto_cg['Débito Dólar'].sum()
-                total_haber = asto_cg['Crédito VES'].sum() + asto_cg['Crédito Dólar'].sum()
+                total_debe = asto_cg[col_deb_ves].sum() + asto_cg[col_deb_usd].sum()
+                total_haber = asto_cg[col_cre_ves].sum() + asto_cg[col_cre_usd].sum()
                 if abs(total_debe - total_haber) < 0.1:
                     check_cuadrado = "✅ Cuadrado"
                 else:
