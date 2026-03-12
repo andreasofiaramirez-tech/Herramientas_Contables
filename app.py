@@ -442,6 +442,7 @@ def render_inicio():
     with col_cof1:
         st.subheader("📊 Análisis y Conciliación")
         st.button("📄 Especificaciones", on_click=set_page, args=['especificaciones_cofersa'],use_container_width=True, key="btn_spec_cofersa")
+        st.button("🏦 Auditoría de Bancos (Comisiones y Anexos)", on_click=set_page, args=['comisiones_cofersa'], use_container_width=True)
 
     with col_cof2:
         st.subheader("⚖️ Cierres Mensuales")
