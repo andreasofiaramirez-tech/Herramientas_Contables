@@ -23,10 +23,10 @@ TOLERANCIA_CERO = 0.00        # Para cruces que deben ser exactos
 # --- Tolerancias Estrictas (Cierres Contables) ---
 TOLERANCIA_ESTRICTA_USD = 0.00 # Usado en Cobros Viajeros
 TOLERANCIA_ESTRICTA_BS = 0.00  # Usado en Asientos por Clasificar
-TOLERANCIA_ESTRICTA = 0.00  # Usado en Asientos por Clasificar
 
 # --- Tolerancias Específicas COFERSA ---
 TOLERANCIA_COFERSA = 0.00     # Saldo 0 estricto para Envíos y Fondos
+TOLERANCIA_ESTRICTA = 0.00  
 
 # ==============================================================================
 # 2. HELPERS UNIVERSALES (RADAR DE COLUMNAS Y LIMPIEZA)
@@ -2016,7 +2016,7 @@ def run_conciliation_dev_proveedores_cofersa(df, log_messages, moneda_base='CRC'
     return df
 
 # ==============================================================================
-# 5. PROCESOS FISCALES Y NÓMINA
+# 5. PROCESOS FISCALES Y NÓMINA - GRUPO MAYOREO
 # ==============================================================================
 
 # ------------------------------------------------------------------------------
@@ -3179,13 +3179,16 @@ def procesar_calculo_locti(f_v, f_i, f_r, tasa_cambio, num_asiento, log_messages
     return resumen_calculo, df_asiento
 
 
+# ==============================================================================
+# 6. PROCESOS FISCALES Y NÓMINA - COFERSA (PROXIMAMENTE)
+# ==============================================================================
 
 # ==============================================================================
-# 6. ANALISIS Y CONCILIACIONES
+# 7. ANALISIS Y CONCILIACIONES - GRUPO MAYOREO
 # ==============================================================================
 
 # ------------------------------------------------------------------------------
-# 6.1. ANÁLISIS DE PAQUETE CC
+# 7.1. ANÁLISIS DE PAQUETE CC
 # ------------------------------------------------------------------------------
 
 def normalize_account(acc):
@@ -3731,7 +3734,7 @@ def run_analysis_paquete_cc(df_diario, log_messages):
     return df_final
 
 # ------------------------------------------------------------------------------
-# 6.2. CUADRE CB - CG (TESORERÍA VS CONTABILIDAD)
+# 7.2. CUADRE CB - CG (TESORERÍA VS CONTABILIDAD)
 # ------------------------------------------------------------------------------
 
 # 1. DICCIONARIO MAESTRO DE NOMBRES
@@ -4457,7 +4460,7 @@ def run_cuadre_cb_cg(file_cb, file_cg, nombre_empresa, log_messages, mapeo_manua
 
 
 # ------------------------------------------------------------------------------
-# 6.3. AJUSTES AL BALANCE EN USD
+# 7.3. AJUSTES AL BALANCE EN USD
 # ------------------------------------------------------------------------------
 
 # 1. FUNCIONES DE LECTURA AUXILIAR
@@ -4890,12 +4893,8 @@ def procesar_ajustes_balance_usd(f_cb, f_cg, f_hab_usd, f_hab_ves, tasa_bcv, tas
     return pd.DataFrame(resumen_ajustes), pd.DataFrame(lista_datos_hoja_2), df_asiento, df_balance_raw, {'tasa_bcv': tasa_bcv, 'tasa_corp': tasa_corp}
 
 
-
-
-
-
 # ------------------------------------------------------------------------------
-# 6.4. AUDITORIA DE COMISIONES Y ANEXOS (CREACION DE EDUARDO)
+# 7.4. AUDITORIA DE COMISIONES Y ANEXOS (CREACION DE EDUARDO)
 # ------------------------------------------------------------------------------
 # 1. Traemos los mapas que ya existen en el sistema para PRISMA, BEVAL, etc.
 from logic import MAPEO_CB_CG_PRISMA, MAPEO_CB_CG_BEVAL, MAPEO_CB_CG_FEBECA, MAPEO_CB_CG_SILLACA
@@ -5175,8 +5174,10 @@ def run_conciliation_anexos(df_cb_raw, df_cg_raw, empresa_sel, log_messages):
         df_final = df_final.sort_values(by=['sort_helper', 'Asiento']).drop(columns=['sort_helper'])
     
     return df_final
+
+
 # ==============================================================================
-# MÓDULO: APARTADOS Y LIBERACIONES
+# 8.5 APARTADOS Y LIBERACIONES (SIN PROBAR. SOLO IDEA)
 # ==============================================================================
 
 def extraer_periodo(texto):
@@ -5344,3 +5345,183 @@ def preparar_asiento_softland(df_datos, tipo="NUEVO", tasa_bcv=1.0, num_asiento=
     df_as = pd.DataFrame(lineas)
     df_as['Asiento'] = num_asiento
     return df_as
+
+# ==============================================================================
+# 8. ANALISIS Y CONCILIACIONES - COFERSA
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 8.1. AUDITORIA COMISIONES Y ANEXOS - COFERSA
+# ------------------------------------------------------------------------------
+
+# DICCIONARIO DE IDENTIDAD PARA COFERSA (Placeholder: Ajustar con códigos reales de Tesorería)
+MAPEO_CB_CG_COFERSA = {
+    "1001010000082678":      {"cta": "1-01-02-10-00", "moneda": "CRC"},
+    "10001010000082600":     {"cta": "1-01-02-11-00", "moneda": "USD"},
+    "1010204":               {"cta": "1-01-02-04-00", "moneda": "CRC"},
+    "11710500215531914":     {"cta": "1-01-01-02-07", "moneda": "USD"},
+    "11711300216788507":     {"cta": "1-01-01-01-59", "moneda": "CRC"},
+    "124979-7":              {"cta": "1-01-01-01-51", "moneda": "CRC"},
+    "126-2010301000086-9":   {"cta": "1-01-01-02-08", "moneda": "USD"},
+    "154878-3":              {"cta": "1-01-01-01-50", "moneda": "CRC"},
+    "154878-3-1":            {"cta": "1-01-01-01-63", "moneda": "CRC"},
+    "17346":                 {"cta": "1-01-02-05-00", "moneda": "USD"},
+    "26786":                 {"cta": "1-01-02-01-00", "moneda": "CRC"},
+    "2678615":               {"cta": "1-01-02-06-00", "moneda": "USD"},
+    "2722001":               {"cta": "1-01-02-07-00", "moneda": "CRC"},
+    "2722101":               {"cta": "1-01-02-08-00", "moneda": "CRC"},
+    "2722201":               {"cta": "1-01-02-09-00", "moneda": "CRC"},
+    "301661002":             {"cta": "1-01-01-01-55", "moneda": "CRC"},
+    "301661029":             {"cta": "1-01-01-02-02", "moneda": "USD"},
+    "3026095-00":            {"cta": "1-01-01-01-57", "moneda": "CRC"},
+    "3026095-01":            {"cta": "1-01-01-02-05", "moneda": "USD"},
+    "302609502":             {"cta": "1-01-01-02-09", "moneda": "USD"},
+    "3918":                  {"cta": "1-01-02-06-00", "moneda": "USD"},
+    "4862":                  {"cta": "1-01-01-01-58", "moneda": "CRC"},
+    "504047":                {"cta": "1-01-02-01-00", "moneda": "CRC"},
+    "5748":                  {"cta": "1-01-02-13-00", "moneda": "USD"},
+    "63903":                 {"cta": "1-01-02-12-00", "moneda": "USD"},
+    "63903-01":              {"cta": "1-01-01-01-52", "moneda": "CRC"},
+    "63903-02":              {"cta": "1-01-01-02-01", "moneda": "USD"},
+    "63903-2":               {"cta": "1-01-01-01-65", "moneda": "CRC"},
+    "9-9999":                {"cta": "2-01-14-01-00", "moneda": "CRC"},
+    "901864751":             {"cta": "1-01-01-01-56", "moneda": "CRC"},
+    "901864751-1":           {"cta": "1-01-01-01-62", "moneda": "CRC"},
+    "901864751-2":           {"cta": "1-01-01-01-64", "moneda": "CRC"},
+    "904780152":             {"cta": "1-01-02-02-04", "moneda": "USD"},
+    "911069797":             {"cta": "1-01-01-01-60", "moneda": "CRC"},
+    "9622":                  {"cta": "1-01-02-12-00", "moneda": "CRC"},
+    "98010120516682":        {"cta": "1-01-01-02-11", "moneda": "USD"},
+    "CR110104024422000146":  {"cta": "1-01-01-01-66", "moneda": "CRC"}
+}
+
+def validar_identidad_banco_cofersa(codigo_tesoreria, cuenta_contable_usada):
+    """Verifica si la cuenta usada en CG corresponde al banco en CB para Cofersa."""
+    config_esperada = MAPEO_CB_CG_COFERSA.get(str(codigo_tesoreria).strip(), {})
+    cuenta_esperada = config_esperada.get('cta', 'NO_MAP')
+    
+    # Normalización de puntos para comparación
+    if cuenta_contable_usada.replace('.','') == cuenta_esperada.replace('.',''):
+        return True
+    return False
+
+def run_conciliation_comisiones_bancarias_cofersa(df_cb_raw, df_cg_raw, log_messages):
+    """Auditoría de Comisiones para Cofersa (CRC/USD)."""
+    log_messages.append("--- INICIANDO AUDITORÍA COMISIONES COFERSA ---")
+    
+    # 1. Preparar CB
+    df_cb = df_cb_raw.copy()
+    header_found = False
+    for i in range(len(df_cb)):
+        row_values = [str(val).strip().upper() for val in df_cb.iloc[i].values]
+        if 'ASIENTO' in row_values:
+            df_cb.columns = [str(c).strip() for c in df_cb.iloc[i]]
+            df_cb = df_cb.iloc[i + 1:].reset_index(drop=True)
+            header_found = True
+            break
+            
+    if not header_found: return pd.DataFrame()
+
+    df_cb = df_cb[df_cb['Asiento'].astype(str).str.contains('CB', na=False, case=False)]
+    df_cb['Créditos'] = pd.to_numeric(df_cb['Créditos'], errors='coerce').fillna(0)
+
+    # 2. Radar de Columnas para CG (Cofersa usa 'Local' para Colones)
+    c_asiento = buscar_columna_comisiones(df_cg_raw, ["ASIENTO"])
+    c_cuenta = buscar_columna_comisiones(df_cg_raw, ["CUENTA", "CONTABLE"])
+    c_cre_local = buscar_columna_comisiones(df_cg_raw, ["CREDITO", "LOCAL"]) # Colones
+    c_cre_usd = buscar_columna_comisiones(df_cg_raw, ["CREDITO", "DOLAR"])
+
+    resultados = []
+    for banco_cb, grupo_cb in df_cb.groupby('Cuenta Bancaria'):
+        config = MAPEO_CB_CG_COFERSA.get(str(banco_cb).strip(), {})
+        cta_esperada = config.get('cta', 'SIN_MAPEO')
+        es_usd = config.get('moneda', 'CRC') == 'USD'
+        
+        for _, fila_cb in grupo_cb.iterrows():
+            asiento_id = str(fila_cb['Asiento']).strip()
+            monto_cb = float(fila_cb['Créditos'])
+            
+            asto_cg = df_cg_raw[df_cg_raw[c_asiento] == asiento_id]
+            
+            check_monto, check_banco = "❌ No coincide", "❌ Incorrecta"
+            monto_cg_banco = 0
+            
+            # Validar Identidad y Monto
+            linea_bco = asto_cg[asto_cg[c_cuenta].astype(str).str.replace('.','') == cta_esperada.replace('.','')]
+            
+            if not linea_bco.empty:
+                check_banco = "✅ Correcta"
+                col_monto = c_cre_usd if es_usd else c_cre_local
+                monto_cg_banco = linea_bco[col_monto].sum()
+                if abs(round(monto_cb, 2) - round(monto_cg_banco, 2)) <= 0.01:
+                    check_monto = "✅ OK"
+
+            resultados.append({
+                'Banco (CB)': banco_cb,
+                'Moneda': 'USD' if es_usd else 'CRC',
+                'Asiento': asiento_id,
+                'Monto CB': monto_cb,
+                'Monto CG': monto_cg_banco,
+                'Monto Coincide': check_monto,
+                'Cuenta Correcta': check_banco,
+                'Concepto': fila_cb.get('Concepto', '')
+            })
+
+    return pd.DataFrame(resultados)
+
+def run_conciliation_anexos_cofersa(df_cb_raw, df_cg_raw, log_messages):
+    """Auditoría de Anexos para Cofersa (CRC/USD)."""
+    log_messages.append("--- INICIANDO AUDITORÍA ANEXOS COFERSA ---")
+    
+    # 1. Preparar CB
+    header_idx = None
+    for i in range(min(15, len(df_cb_raw))):
+        fila = [str(x).upper().strip() for x in df_cb_raw.iloc[i].values]
+        if "ASIENTO" in fila:
+            header_idx = i; break
+            
+    if header_idx is None: return pd.DataFrame()
+    df_cb = df_cb_raw.iloc[header_idx+1:].copy()
+    df_cb.columns = [str(c).strip() for c in df_cb_raw.iloc[header_idx].values]
+
+    # 2. Radar de Columnas CG
+    c_asiento = buscar_columna_comisiones(df_cg_raw, ["ASIENTO"])
+    c_cuenta = buscar_columna_comisiones(df_cg_raw, ["CUENTA", "CONTABLE"])
+    c_deb_local = buscar_columna_comisiones(df_cg_raw, ["DEBITO", "LOCAL"])
+    c_cre_local = buscar_columna_comisiones(df_cg_raw, ["CREDITO", "LOCAL"])
+    c_deb_usd = buscar_columna_comisiones(df_cg_raw, ["DEBITO", "DOLAR"])
+    c_cre_usd = buscar_columna_comisiones(df_cg_raw, ["CREDITO", "DOLAR"])
+
+    resultados = []
+    for _, fila_cb in df_cb[df_cb['Asiento'].notna()].iterrows():
+        asiento_id = str(fila_cb['Asiento']).strip()
+        cod_banco = str(fila_cb['Cuenta Bancaria']).strip()
+        config = MAPEO_CB_CG_COFERSA.get(cod_banco, {})
+        es_usd = config.get('moneda', 'CRC') == 'USD'
+        
+        # Neto CB
+        def clean(v): return pd.to_numeric(str(v).replace(',',''), errors='coerce') or 0.0
+        neto_cb = clean(fila_cb.get('Débitos', 0)) - clean(fila_cb.get('Créditos', 0))
+        
+        # Neto CG
+        asto_cg = df_cg_raw[df_cg_raw[c_asiento] == asiento_id]
+        linea_bco = asto_cg[asto_cg[c_cuenta].astype(str).str.replace('.','') == config.get('cta','').replace('.','')]
+        
+        monto_cg = 0
+        check_monto, check_banco = "❌ No coincide", "❌ Incorrecta"
+        
+        if not linea_bco.empty:
+            check_banco = "✅ Correcta"
+            if es_usd: monto_cg = linea_bco[c_deb_usd].sum() - linea_bco[c_cre_usd].sum()
+            else: monto_cg = linea_bco[c_deb_local].sum() - linea_bco[c_cre_local].sum()
+            
+            if abs(round(neto_cb, 2) - round(monto_cg, 2)) <= 0.01:
+                check_monto = "✅ OK"
+
+        resultados.append({
+            'Asiento': asiento_id, 'Banco': cod_banco, 'Moneda': 'USD' if es_usd else 'CRC',
+            'Neto CB': neto_cb, 'Neto CG': monto_cg,
+            'Estatus Monto': check_monto, 'Estatus Cuenta': check_banco
+        })
+
+    return pd.DataFrame(resultados)
