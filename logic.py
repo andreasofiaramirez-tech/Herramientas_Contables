@@ -5408,11 +5408,25 @@ def validar_identidad_banco_cofersa(codigo_tesoreria, cuenta_contable_usada):
 def run_conciliation_comisiones_bancarias_cofersa(df_cb_raw, df_cg_raw, log_messages):
     """Lógica de comisiones adaptada a la nomenclatura de COFERSA."""
     log_messages.append("--- Iniciando Auditoría Comisiones Cofersa ---")
-    
+
     # 1. Preparar Reporte Tesorería
     df_cb = df_cb_raw.copy()
-    # ... (Aquí va la misma lógica de limpieza de cabecera de Mayoreo) ...
-    # Aseguramos que tomamos los Créditos del banco
+    header_found = False
+    for i in range(len(df_cb)):
+        row_values = [str(val).strip().upper() for val in df_cb.iloc[i].values]
+        if 'ASIENTO' in row_values:
+            df_cb.columns = [str(c).strip() for c in df_cb.iloc[i]]
+            df_cb = df_cb.iloc[i + 1:].reset_index(drop=True)
+            header_found = True
+            break
+            
+    if not header_found:
+        log_messages.append("❌ ERROR: No se detectó la cabecera en el reporte de Tesorería.")
+        return pd.DataFrame()
+
+    df_cb = df_cb[df_cb['Asiento'].notna()]
+    df_cb = df_cb[df_cb['Asiento'].astype(str).str.contains('CB', na=False, case=False)]
+    df_cb = df_cb[~df_cb['Asiento'].astype(str).str.upper().str.contains('TOTAL', na=False)]
     df_cb['Créditos'] = pd.to_numeric(df_cb['Créditos'], errors='coerce').fillna(0)
 
     # 2. Radar para Softland (Cofersa)
@@ -5420,6 +5434,7 @@ def run_conciliation_comisiones_bancarias_cofersa(df_cb_raw, df_cg_raw, log_mess
     c_cuenta = buscar_columna_comisiones(df_cg_raw, ["CUENTA", "CONTABLE"])
     c_cre_local = buscar_columna_comisiones(df_cg_raw, ["CREDITO", "LOCAL"]) # Colones
     c_cre_usd = buscar_columna_comisiones(df_cg_raw, ["CREDITO", "DOLAR"])
+    c_cc = buscar_columna_comisiones(df_cg_raw, ["CENTRO", "COSTO"])
 
     resultados = []
     for banco_cb, grupo_cb in df_cb.groupby('Cuenta Bancaria'):
@@ -5436,9 +5451,20 @@ def run_conciliation_comisiones_bancarias_cofersa(df_cb_raw, df_cg_raw, log_mess
             check_monto, check_banco = "❌ No coincide", "❌ Incorrecta"
             monto_cg = 0
             
-            # Buscamos la línea del banco en CG
-            linea_bco = asto_cg[asto_cg[c_cuenta].astype(str).str.replace('.','') == cta_esperada.replace('.','')]
+           # 1. Validar Identidad del Banco
+            linea_bco = asto_cg[asto_cg[c_cuenta].astype(str).str.replace('.','').str.replace('-','') == cta_esperada.replace('.','').replace('-','')]
             
+            # 2. Validar Gasto (5.03.01.05.00) y Centro de Costo (4.02.00)
+            # Normalizamos para que no fallen por puntos o guiones
+            linea_gasto = asto_cg[
+                (asto_cg[c_cuenta].astype(str).str.replace('.','').str.replace('-','') == '503010500') & 
+                (asto_cg[c_cc].astype(str).str.replace('.','').str.replace('-','') == '40200')
+            ]
+
+            check_gasto_cc = "❌ Gasto/CC Incorrecto"
+            if not linea_gasto.empty:
+                check_gasto_cc = "✅ Gasto y CC OK"
+
             if not linea_bco.empty:
                 check_banco = "✅ Correcta"
                 col_buscar = c_cre_usd if es_usd else c_cre_local
@@ -5453,9 +5479,11 @@ def run_conciliation_comisiones_bancarias_cofersa(df_cb_raw, df_cg_raw, log_mess
                 'Monto CB': monto_cb,
                 'Monto CG': monto_cg,
                 'Estado Monto': check_monto,
-                'Estado Cuenta': check_banco,
+                'Estatus Banco': check_banco,
+                'Estatus Gasto/CC': check_gasto_cc,
                 'Concepto': fila_cb.get('Concepto', '')
             })
+            
     return pd.DataFrame(resultados)
 
 def run_conciliation_anexos_cofersa(df_cb_raw, df_cg_raw, log_messages):
@@ -5480,6 +5508,7 @@ def run_conciliation_anexos_cofersa(df_cb_raw, df_cg_raw, log_messages):
     c_cre_local = buscar_columna_comisiones(df_cg_raw, ["CREDITO", "LOCAL"])
     c_deb_usd = buscar_columna_comisiones(df_cg_raw, ["DEBITO", "DOLAR"])
     c_cre_usd = buscar_columna_comisiones(df_cg_raw, ["CREDITO", "DOLAR"])
+    c_cc = buscar_columna_comisiones(df_cg_raw, ["CENTRO", "COSTO"])
 
     resultados = []
     for _, fila_cb in df_cb[df_cb['Asiento'].notna()].iterrows():
@@ -5499,8 +5528,16 @@ def run_conciliation_anexos_cofersa(df_cb_raw, df_cg_raw, log_messages):
         monto_cg = 0
         check_monto, check_banco = "❌ No coincide", "❌ Incorrecta"
         
+        # Validar Gasto y CC en el asiento del anexo
+        linea_gasto = asto_cg[
+            (asto_cg[c_cuenta].astype(str).str.replace('.','').str.replace('-','') == '503010500') & 
+            (asto_cg[c_cc].astype(str).str.replace('.','').str.replace('-','') == '40200')
+        ]
+        check_gasto_cc = "✅ OK" if not linea_gasto.empty else "❌ Errado"
+
         if not linea_bco.empty:
             check_banco = "✅ Correcta"
+            
             if es_usd: monto_cg = linea_bco[c_deb_usd].sum() - linea_bco[c_cre_usd].sum()
             else: monto_cg = linea_bco[c_deb_local].sum() - linea_bco[c_cre_local].sum()
             
@@ -5510,7 +5547,8 @@ def run_conciliation_anexos_cofersa(df_cb_raw, df_cg_raw, log_messages):
         resultados.append({
             'Asiento': asiento_id, 'Banco': cod_banco, 'Moneda': 'USD' if es_usd else 'CRC',
             'Neto CB': neto_cb, 'Neto CG': monto_cg,
-            'Estatus Monto': check_monto, 'Estatus Cuenta': check_banco
+            'Estatus Monto': check_monto, 'Estatus Cuenta': check_banco,
+            'Estatus Gasto/CC': check_gasto_cc
         })
 
     return pd.DataFrame(resultados)
