@@ -3105,7 +3105,7 @@ def generar_reporte_auditoria_comisiones(df_res, df_cg_raw, df_cb_raw, nombre_em
             elif 'REFERENCIA' in col_upper: width = 40
             elif 'CUENTA' in col_upper: width = 18
             elif 'FECHA' in col_upper: width = 14
-            elif any(k in col_upper for k in ['DEBITO', 'CREDITO', 'MONTO', 'VES', 'DOLAR']): width = 16
+            elif any(k in col_upper for k in ['DEBITO', 'CREDITO', 'MONTO', 'VES', 'DOLAR', 'LOCAL', 'BOLIVAR']): width = 16
 
             ws_cg.set_column(i, i, width)
 
