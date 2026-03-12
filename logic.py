@@ -5143,7 +5143,7 @@ def run_conciliation_anexos(df_cb_raw, df_cg_raw, empresa_sel, log_messages):
         # Buscar en el diario por Asiento + Cuenta Contable Mapeada
         # Normalizamos la cuenta contable quitando puntos por si acaso
         asto_cg = df_cg[df_cg['Asiento'] == asiento_id]
-        linea_bco_cg = asto_cg[asto_cg['Cuenta Contable'].astype(str).str.replace('.','') == cta_contable_esp.replace('.','')]
+        linea_bco_cg = asto_cg[asto_cg['CUENTA CONTABLE'].astype(str).str.replace('.','') == cta_contable_esp.replace('.','')]
 
         if linea_bco_cg.empty:
             obs = f"No se encontró la cuenta {cta_contable_esp} en este asiento."
