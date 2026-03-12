@@ -5110,9 +5110,9 @@ def run_conciliation_anexos(df_cb_raw, df_cg_raw, empresa_sel, log_messages):
     df_cb = df_cb[df_cb['ASIENTO_ADN'] != ""]
 
     # Radar para montos en CB (Tesoreria)
-    c_deb_cb = buscar_columna_comisiones(df_cb, ["DEBITO"])
-    c_cre_cb = buscar_columna_comisiones(df_cb, ["CREDITO"])
-    c_banco_cb = buscar_columna_comisiones(df_cb, ["BANCO"]) or buscar_columna_comisiones(df_cb, ["CUENTA"])
+    c_deb_cb = buscar_columna_comisiones(df_cb, ["DEBITO"]) or "Débitos"
+    c_cre_cb = buscar_columna_comisiones(df_cb, ["CREDITO"]) or "Créditos"
+    c_banco_cb = buscar_columna_comisiones(df_cb, ["BANCO"]) or "Cuenta Bancaria"
 
     def clean_val(v):
         if pd.isna(v) or str(v).strip() in ['', '-']: return 0.0
@@ -5128,18 +5128,22 @@ def run_conciliation_anexos(df_cb_raw, df_cg_raw, empresa_sel, log_messages):
 
     # 3. PREPARACIÓN DIARIO (CG)
     df_cg = df_cg_raw.copy()
-    c_asiento_cg = buscar_columna_comisiones(df_cg, ["ASIENTO"])
-    c_cuenta_cg = buscar_columna_comisiones(df_cg, ["CUENTA", "CONTABLE"])
-    c_deb_ves = buscar_columna_comisiones(df_cg, ["DEBITO", "VES"])
-    c_cre_ves = buscar_columna_comisiones(df_cg, ["CREDITO", "VES"])
-    c_deb_usd = buscar_columna_comisiones(df_cg, ["DEBITO", "DOLAR"])
-    c_cre_usd = buscar_columna_comisiones(df_cg, ["CREDITO", "DOLAR"])
+    c_asiento_cg = buscar_columna_comisiones(df_cg, ["ASIENTO"]) or "Asiento"
+    c_cuenta_cg = buscar_columna_comisiones(df_cg, ["CUENTA", "CONTABLE"]) or "Cuenta Contable"
+    c_deb_ves = buscar_columna_comisiones(df_cg, ["DEBITO", "VES"]) or "Débito VES"
+    c_cre_ves = buscar_columna_comisiones(df_cg, ["CREDITO", "VES"]) or "Crédito VES"
+    c_deb_usd = buscar_columna_comisiones(df_cg, ["DEBITO", "DOLAR"]) or "Débito Dólar"
+    c_cre_usd = buscar_columna_comisiones(df_cg, ["CREDITO", "DOLAR"]) or "Crédito Dólar"
 
     # Normalizamos asientos en el Diario también
     df_cg['ASIENTO_ADN'] = df_cg[c_asiento_cg].apply(normalizar_id_asiento)
 
     for col in [c_deb_ves, c_cre_ves, c_deb_usd, c_cre_usd]:
         if col: df_cg[col] = pd.to_numeric(df_cg[col], errors='coerce').fillna(0)
+
+    if c_asiento_cg not in df_cg.columns or c_cuenta_cg not in df_cg.columns:
+        log_messages.append(f"❌ ERROR CRÍTICO: No se encontraron las columnas '{c_asiento_cg}' o '{c_cuenta_cg}' en el Diario.")
+        return pd.DataFrame()
 
     # 4. AUDITORÍA
     resultados = []
