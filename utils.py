@@ -3679,6 +3679,7 @@ def generar_reporte_auditoria_anexos(df_res, df_cg_raw, df_cb_raw, nombre_empres
 # ==============================================================================
 
 def generar_reporte_auditoria_comisiones_cofersa(df_res, df_cg_raw, df_cb_raw):
+    output = BytesIO()
     color_cofersa = '#2E5984' # Azul Corporativo Cofersa
     
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
