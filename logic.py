@@ -5196,12 +5196,28 @@ def run_conciliation_anexos(df_cb_raw, df_cg_raw, empresa_sel, log_messages):
             check_m = "❌ No coincide"; check_c = "❌ Incorrecta"
         else:
             check_c = "✅ Correcta"
-            monto_cg = (linea_bco_cg[c_deb_usd].sum() - linea_bco_cg[c_cre_usd].sum()) if es_usd else (linea_bco_cg[c_deb_ves].sum() - linea_bco_cg[c_cre_ves].sum())
+            
+            # 1. Calculamos la suma de Débitos y Créditos según la moneda
+            if es_usd:
+                # Suma USD (solo si el radar encontró las columnas, si no, pone 0)
+                sum_d = linea_bco_cg[c_deb_usd].sum() if c_deb_usd else 0
+                sum_c = linea_bco_cg[c_cre_usd].sum() if c_cre_usd else 0
+                mon_txt = "USD"
+            else:
+                # Suma VES (solo si el radar encontró las columnas, si no, pone 0)
+                sum_d = linea_bco_cg[c_deb_ves].sum() if c_deb_ves else 0
+                sum_c = linea_bco_cg[c_cre_ves].sum() if c_cre_ves else 0
+                mon_txt = "VES"
+
+            # 2. Calculamos el monto neto final de Contabilidad
+            monto_cg = sum_d - sum_c
+            
+            # 3. Realizamos la comparación final (tu lógica original)
             if abs(round(fila_cb['Neto_CB'], 2) - round(monto_cg, 2)) <= 0.01:
                 check_m = "✅ OK"; obs = ""
             else:
-                check_m = "❌ Diferencia"; obs = f"Dif: {round(fila_cb['Neto_CB'] - monto_cg, 2)}"
-
+                check_m = "❌ Diferencia"
+                obs = f"Dif {mon_txt}: {round(fila_cb['Neto_CB'] - monto_cg, 2)}"
         resultados.append({
             'Asiento': fila_cb['Asiento'], 'Cuenta Bancaria': cod_bco,
             'Moneda': 'USD' if es_usd else 'VES', 'Monto Tesorería': fila_cb['Neto_CB'],
