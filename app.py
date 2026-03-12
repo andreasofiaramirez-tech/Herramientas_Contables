@@ -71,7 +71,7 @@ from logic import (
 
     # Procesos Auditoria - Cofersa
     run_conciliation_comisiones_bancarias_cofersa,
-    run_conciliation_anexos_cofersa
+    run_conciliation_anexos_cofersa,
 
     # Helpers
     run_cuadre_cb_cg,
