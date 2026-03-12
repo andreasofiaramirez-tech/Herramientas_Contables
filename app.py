@@ -1061,20 +1061,20 @@ def render_comisiones_bancarias():
     }
 
     # --- 2. ASISTENTE VIRTUAL (SIDEBAR) ---
-    with st.sidebar:
-        st.title("🤖 Asistente de Auditoría")
-        if "messages_com" not in st.session_state:
-            st.session_state.messages_com = [{"role": "assistant", "content": "¡Hola! Soy tu asistente. Selecciona el tipo de proceso (Comisiones o Anexos) y la empresa para comenzar."}]
+    # with st.sidebar:
+        # st.title("🤖 Asistente de Auditoría")
+        # if "messages_com" not in st.session_state:
+            # st.session_state.messages_com = [{"role": "assistant", "content": "¡Hola! Soy tu asistente. Selecciona el tipo de proceso (Comisiones o Anexos) y la empresa para comenzar."}]
         
-        for m in st.session_state.messages_com:
-            with st.chat_message(m["role"]): st.markdown(m["content"])
+        # for m in st.session_state.messages_com:
+            # with st.chat_message(m["role"]): st.markdown(m["content"])
             
-        if prompt := st.chat_input("Escribe tu duda aquí..."):
-            st.session_state.messages_com.append({"role": "user", "content": prompt})
+        # if prompt := st.chat_input("Escribe tu duda aquí..."):
+            # st.session_state.messages_com.append({"role": "user", "content": prompt})
             # Lógica simple de respuesta del bot
-            resp = "Asegúrate de que los archivos tengan los encabezados en la Fila 3 para Anexos o Fila 1 para Comisiones."
-            st.session_state.messages_com.append({"role": "assistant", "content": resp})
-            st.rerun()
+            # resp = "Asegúrate de que los archivos tengan los encabezados en la Fila 3 para Anexos o Fila 1 para Comisiones."
+            # st.session_state.messages_com.append({"role": "assistant", "content": resp})
+            # st.rerun()
 
     # --- 3. CABECERA E INTERFAZ ---
     st.title("🏦 Auditoría de Bancos (Comisiones y Anexos)")
