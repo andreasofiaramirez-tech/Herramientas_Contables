@@ -460,12 +460,11 @@ def render_inicio():
         st.button("🧾 Relación Retenciones", on_click=set_page, args=['retenciones'], use_container_width=True)
 
 
-    st.divider()
-    st.subheader("COFERSA", anchor=False)
-    st.markdown("Seleccione una herramienta para comenzar:")
+    elif st.session_state.grupo_seleccionado == 'cofersa':
+        st.title("🤖 Portal de Herramientas: COFERSA")
+        st.markdown("Seleccione una herramienta para comenzar:")
 
-    # Usamos la misma estructura de 3 columnas que Mayoreo
-    col_cof1, col_cof2, col_cof3 = st.columns(3, gap="medium")
+        col_cof1, col_cof2, col_cof3 = st.columns(3, gap="medium")
     
     with col_cof1:
         st.subheader("📊 Análisis y Conciliación")
