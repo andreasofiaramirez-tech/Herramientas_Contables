@@ -56,17 +56,22 @@ from logic import (
     run_conciliation_fondos_fondos_cofersa,
     run_conciliation_dev_proveedores_cofersa,
 
-    # Procesos Fiscales y Auditoría
+    # Procesos Fiscales  - Mayoreo
     run_conciliation_retenciones,
     procesar_calculo_pensiones,
     run_conciliation_debito_fiscal,
-    run_analysis_paquete_cc,
-    run_conciliation_comisiones_bancarias,
     procesar_calculo_locti,
 
+    # Procesos Auditoria - Mayoreo
+    run_analysis_paquete_cc,
+    run_conciliation_comisiones_bancarias,
     parsear_balance_softland, 
     conciliar_ciclo_apartados, 
     preparar_asiento_softland,
+
+    # Procesos Auditoria - Cofersa
+    run_conciliation_comisiones_bancarias_cofersa,
+    run_conciliation_anexos_cofersa
 
     # Helpers
     run_cuadre_cb_cg,
@@ -76,25 +81,35 @@ from logic import (
 
 # --- Bloque 3: Importación de Utilidades (Reportes y Carga) ---
 from utils import (
+    # Conciliaciones Mayoreo
     cargar_y_limpiar_datos,
     generar_reporte_excel,
     generar_excel_saldos_abiertos,
-    generar_reporte_paquete_cc,
-    generar_reporte_cuadre,
-    generar_reporte_pensiones,
-    generar_cargador_asiento_pensiones,
+
+    # Conciliaciones COFERSA
     generar_reporte_cofersa,
     cargar_datos_cofersa,
-    generar_reporte_ajustes_usd,
-    generar_reporte_debito_fiscal,
     generar_hoja_pendientes_dev_cofersa,
     cargar_datos_fondos_cofersa,
-    generar_reporte_auditoria_comisiones,
+
+    # Procesos Fiscales  - Mayoreo
+    generar_reporte_pensiones,
+    generar_cargador_asiento_pensiones,
+    generar_reporte_debito_fiscal,
     generar_reporte_excel_locti,
     generar_cargador_softland_v2,
+
+    # Procesos Auditoria - Mayoreo
+    generar_reporte_paquete_cc,
+    generar_reporte_cuadre,
+    generar_reporte_ajustes_usd,
+    generar_reporte_auditoria_comisiones,
     generar_reporte_visual_liberaciones, 
     generar_reporte_maestro_apartados, 
-    generar_excel_cargador_softland
+    generar_excel_cargador_softland,
+
+    # Procesos Auditoria - Cofersa
+    generar_reporte_auditoria_comisiones_cofersa
 )
 
 # --- Bloque 4: Helpers de Interfaz ---
@@ -1182,6 +1197,54 @@ def render_comisiones_bancarias():
             except Exception as e:
                 mostrar_error_amigable(e, f"la auditoría de {modo_auditoria}")
 
+def render_comisiones_bancarias_cofersa():
+    st.title("🏦 Auditoría de Bancos: COFERSA (Costa Rica)")
+    if st.button("⬅️ Volver al Panel Principal"): 
+        set_page('inicio')
+        st.rerun()
+
+    # Selector de Modo
+    modo = st.radio("Seleccione el tipo de Auditoría:", ["Comisiones", "Anexos"], horizontal=True, key="radio_cof")
+    
+    st.info(f"Cruce de Auditoría para COFERSA en Colones (CRC) y Dólares (USD).")
+    st.divider()
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown(f"### 📥 Reporte Tesorería ({modo})")
+        f_cb = st.file_uploader("Subir archivo CB", type=['xlsx'], key="cb_cof_up")
+    with col2:
+        st.markdown("### 📥 Diario Contable (Softland)")
+        f_cg = st.file_uploader("Subir archivo CG", type=['xlsx'], key="cg_cof_up")
+
+    if f_cb and f_cg:
+        if st.button(f"🚀 Iniciar Auditoría de {modo} COFERSA", type="primary", use_container_width=True):
+            log = []
+            try:
+                with st.spinner("Analizando datos de Cofersa..."):
+                    df_cb_data = pd.read_excel(f_cb)
+                    df_cg_data = pd.read_excel(f_cg)
+                    df_cb_replica = pd.read_excel(f_cb, header=None)
+
+                    if modo == "Comisiones":
+                        df_res = run_conciliation_comisiones_bancarias_cofersa(df_cb_data, df_cg_data, log)
+                        excel_bin = generar_reporte_auditoria_comisiones_cofersa(df_res, df_cg_data, df_cb_replica)
+                    else:
+                        df_res = run_conciliation_anexos_cofersa(df_cb_data, df_cg_data, log)
+                        excel_bin = generar_reporte_auditoria_anexos_cofersa(df_res, df_cg_data, df_cb_replica)
+
+                    st.success("✅ Proceso finalizado.")
+                    st.dataframe(df_res, use_container_width=True)
+                    
+                    st.download_button(
+                        label=f"📥 Descargar Reporte Final ({modo})",
+                        data=excel_bin,
+                        file_name=f"Auditoria_COFERSA_{modo}.xlsx",
+                        use_container_width=True
+                    )
+            except Exception as e:
+                st.error(f"Ocurrió un error: {str(e)}")
+
 
 # ==============================================================================
 # V. CICLO FISCAL 
@@ -1907,15 +1970,17 @@ def main():
         'inicio': render_inicio,
         'especificaciones': render_especificaciones,
         'especificaciones_cofersa': render_especificaciones_cofersa,
-        'retenciones': render_retenciones,
         'paquete_cc': render_paquete_cc, 
         'cuadre': render_cuadre,
-        'pensiones': render_pensiones,
         'ajustes_usd' : render_ajustes_usd,
         'comisiones': render_comisiones_bancarias,
+        'comisiones_cofersa': render_comisiones_bancarias_cofersa,
+        'retenciones': render_retenciones,
+        'pensiones': render_pensiones,
         'debito_fiscal': render_debito_fiscal,
         'locti': render_locti,
-        'apartados': render_apartados_liberaciones
+        'apartados': render_apartados_liberaciones,
+        
     }
     
     current_page = st.session_state.get('page', 'inicio')
