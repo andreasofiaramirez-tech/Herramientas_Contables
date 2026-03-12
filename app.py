@@ -393,7 +393,7 @@ ESTRATEGIAS = {
 # III. PANEL DE CONTROL (HOME)
 # ==============================================================================
 def render_inicio():
-    # --- 1. CABECERA CON LOGOS ---
+    # --- 1. CABECERA CON LOGOS (Se mantiene igual, es lo primero que ven) ---
     st.markdown("<br>", unsafe_allow_html=True)
     _, col_logos, _ = st.columns([1, 10, 1])
     with col_logos:
@@ -427,7 +427,7 @@ def render_inicio():
                 st.rerun()
         
         st.info("Seleccione una de las opciones superiores para desplegar las herramientas disponibles.")
-        st.stop() 
+        st.stop() # Importante: Detiene el resto del renderizado aquí
 
     # --- 3. BOTÓN PARA REGRESAR A LA SELECCIÓN DE GRUPO ---
     if st.button("⬅️ Cambiar de Grupo (Mayoreo / Cofersa)", key="btn_reset_group"):
@@ -440,46 +440,43 @@ def render_inicio():
         st.markdown("Seleccione una herramienta para comenzar:")
 
         c1, c2, c3 = st.columns(3, gap="medium")
-    with c1:
-        st.subheader("📊 Análisis y Conciliación")
-        st.button("📄 Especificaciones", on_click=set_page, args=['especificaciones'], use_container_width=True, key="btn_spec_mayoreo")
-        st.button("📦 Análisis Paquete CC", on_click=set_page, args=['paquete_cc'], use_container_width=True)
-        st.button("🏦 Auditoría de Bancos (Comisiones y Anexos)", on_click=set_page, args=['comisiones'], use_container_width=True)
+        with c1:
+            st.subheader("📊 Análisis y Conciliación")
+            st.button("📄 Especificaciones", on_click=set_page, args=['especificaciones'], use_container_width=True, key="btn_spec_mayoreo")
+            st.button("📦 Análisis Paquete CC", on_click=set_page, args=['paquete_cc'], use_container_width=True)
+            st.button("🏦 Auditoría de Bancos (Comisiones y Anexos)", on_click=set_page, args=['comisiones'], use_container_width=True)
 
-    with c2:
-        st.subheader("📑 Cierres Mensuales") # <--- NUEVA SECCIÓN
-        st.button("🏦 Cuadre CB - CG", on_click=set_page, args=['cuadre'], use_container_width=True)
-        st.button("📈 Ajustes al Balance USD", on_click=set_page, args=['ajustes_usd'], use_container_width=True)
-        st.button("📆 Liberaciones y Apartados", on_click=set_page, args=['apartados'], use_container_width=True)
+        with c2:
+            st.subheader("📑 Cierres Mensuales")
+            st.button("🏦 Cuadre CB - CG", on_click=set_page, args=['cuadre'], use_container_width=True)
+            st.button("📈 Ajustes al Balance USD", on_click=set_page, args=['ajustes_usd'], use_container_width=True)
+            st.button("📆 Liberaciones y Apartados", on_click=set_page, args=['apartados'], use_container_width=True)
 
-    with c3:
-        st.subheader("⚙️ Procesos Fiscales")
-        st.button("🛡️ Cálculo Pensiones (9%)", on_click=set_page, args=['pensiones'], use_container_width=True)
-        st.button("⚖️ Cálculo LOCTI (0.5%)", on_click=set_page, args=['locti'], use_container_width=True)
-        st.button("📑 Verificación Débito Fiscal", on_click=set_page, args=['debito_fiscal'], use_container_width=True)
-        st.button("🧾 Relación Retenciones", on_click=set_page, args=['retenciones'], use_container_width=True)
-
+        with c3:
+            st.subheader("⚙️ Procesos Fiscales")
+            st.button("🛡️ Cálculo Pensiones (9%)", on_click=set_page, args=['pensiones'], use_container_width=True)
+            st.button("⚖️ Cálculo LOCTI (0.5%)", on_click=set_page, args=['locti'], use_container_width=True)
+            st.button("📑 Verificación Débito Fiscal", on_click=set_page, args=['debito_fiscal'], use_container_width=True)
+            st.button("🧾 Relación Retenciones", on_click=set_page, args=['retenciones'], use_container_width=True)
 
     elif st.session_state.grupo_seleccionado == 'cofersa':
         st.title("🤖 Portal de Herramientas: COFERSA")
         st.markdown("Seleccione una herramienta para comenzar:")
 
         col_cof1, col_cof2, col_cof3 = st.columns(3, gap="medium")
-    
-    with col_cof1:
-        st.subheader("📊 Análisis y Conciliación")
-        st.button("📄 Especificaciones", on_click=set_page, args=['especificaciones_cofersa'],use_container_width=True, key="btn_spec_cofersa")
-        st.button("🏦 Auditoría de Bancos (Comisiones y Anexos)", on_click=set_page, args=['comisiones_cofersa'], use_container_width=True, key="btn_auditoria_cofersa")
+        with col_cof1:
+            st.subheader("📊 Análisis y Conciliación")
+            st.button("📄 Especificaciones", on_click=set_page, args=['especificaciones_cofersa'], use_container_width=True, key="btn_spec_cofersa")
+            # TU NUEVA FUNCIÓN DE COFERSA AQUÍ:
+            st.button("🏦 Auditoría de Bancos (Comisiones y Anexos)", on_click=set_page, args=['comisiones_cofersa'], use_container_width=True, key="btn_aud_cofersa")
 
-    with col_cof2:
-        st.subheader("⚖️ Cierres Mensuales")
-        # Espacio para futuras herramientas de cierre de Cofersa
-        st.info("Próximamente nuevas utilidades de cierre.")
+        with col_cof2:
+            st.subheader("⚖️ Cierres Mensuales")
+            st.info("Próximamente nuevas utilidades de cierre.")
 
-    with col_cof3:
-        st.subheader("⚙️ Procesos Fiscales")
-        # Espacio para futuras herramientas fiscales de Cofersa
-        st.info("Próximamente utilidades fiscales.")
+        with col_cof3:
+            st.subheader("⚙️ Procesos Fiscales")
+            st.info("Próximamente utilidades fiscales.")
 
     st.markdown("---")
     st.caption("v2.6 - Sistema Integral de Automatización Contable.")
