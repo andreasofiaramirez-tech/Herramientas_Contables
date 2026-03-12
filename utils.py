@@ -3655,14 +3655,22 @@ def generar_reporte_auditoria_anexos(df_res, df_cg_raw, df_cb_raw, nombre_empres
                 fmt_fila = None # Formato estándar
 
             for c_idx, value in enumerate(row):
-                # Escribir con formato de fecha si es la columna C
-                if fmt_fila != header_cb_fmt and c_idx == 2:
+                # --- MEJORA: Limpieza universal de NaN/NaT ---
+                if pd.isna(value):
+                    value = "" # Convertimos cualquier nulo en texto vacío para evitar el crash
+                
+                # Formato de fecha para columna C (índice 2)
+                if c_idx == 2 and value != "" and fmt_fila != header_cb_fmt:
                     try:
                         dt_val = pd.to_datetime(value)
-                        ws_cb.write_datetime(r_idx, c_idx, dt_val, workbook.add_format({'num_format': 'dd/mm/yyyy'}))
+                        if pd.notna(dt_val):
+                            ws_cb.write_datetime(r_idx, c_idx, dt_val, workbook.add_format({'num_format': 'dd/mm/yyyy'}))
+                            continue # Si escribió la fecha con éxito, saltamos a la siguiente celda
                     except:
-                        ws_cb.write(r_idx, c_idx, value, fmt_fila)
-                else:
-                    ws_cb.write(r_idx, c_idx, value if pd.notna(value) else "", fmt_fila)
+                        pass
+                
+                # Escritura estándar para todas las demás columnas o fallos de fecha
+                # ws_cb.write maneja automáticamente si es número o texto si el valor no es NaN
+                ws_cb.write(r_idx, c_idx, value, fmt_fila)
 
     return output.getvalue()
