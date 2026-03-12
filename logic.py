@@ -5063,12 +5063,15 @@ def run_conciliation_comisiones_bancarias(df_cb_raw, df_cg_raw, empresa_sel, log
 
 def run_conciliation_anexos(df_cb_raw, df_cg_raw, empresa_sel, log_messages):
     """
-    Lógica V1: Auditoría Analítica de Anexos.
-    Cruce quirúrgico por Asiento + Cuenta Bancaria + Moneda.
+    Lógica V2: Auditoría de Anexos Blindada.
+    Usa el Radar de Columnas para evitar errores de nombres y mayúsculas.
     """
+    from logic import buscar_columna_comisiones, normalizar_texto_busqueda
+    
     log_messages.append(f"--- INICIANDO AUDITORÍA DE ANEXOS - {empresa_sel} ---")
     
-    # 1. SELECCIÓN DE DICCIONARIO DE MAPEO
+    # 1. DICCIONARIOS DE MAPEO
+    from logic import MAPEO_CB_CG_PRISMA, MAPEO_CB_CG_BEVAL, MAPEO_CB_CG_FEBECA, MAPEO_CB_CG_SILLACA
     mapeos = {
         "PRISMA": MAPEO_CB_CG_PRISMA, "BEVAL": MAPEO_CB_CG_BEVAL, "MAYOR BEVAL, C.A": MAPEO_CB_CG_BEVAL,
         "FEBECA": MAPEO_CB_CG_FEBECA, "FEBECA, C.A": MAPEO_CB_CG_FEBECA,
@@ -5076,58 +5079,52 @@ def run_conciliation_anexos(df_cb_raw, df_cg_raw, empresa_sel, log_messages):
     }
     mapeo_identidad = mapeos.get(empresa_sel, {})
 
-    # 2. PROCESAMIENTO ANALÍTICO DE TESORERÍA (CB)
-    # Detectar encabezados en Fila 3
+    # 2. PROCESAMIENTO DE TESORERÍA (CB)
     header_idx = None
-    for i in range(min(10, len(df_cb_raw))):
+    for i in range(min(15, len(df_cb_raw))):
         fila = [str(x).upper().strip() for x in df_cb_raw.iloc[i].values]
         if "ASIENTO" in fila:
             header_idx = i
             break
             
     if header_idx is None:
-        log_messages.append("❌ ERROR: No se encontró la cabecera 'ASIENTO' en el archivo de Anexos.")
+        log_messages.append("❌ ERROR: No se encontró la cabecera 'ASIENTO' en Anexos.")
         return pd.DataFrame()
 
     df_cb = df_cb_raw.iloc[header_idx+1:].copy()
     df_cb.columns = [str(c).strip() for c in df_cb_raw.iloc[header_idx].values]
-    
-    # Filtro: Solo asientos reales (CB/CC/CG) y limpiar filas de totales
     df_cb = df_cb[df_cb['Asiento'].notna() & df_cb['Asiento'].astype(str).str.contains(r'CB|CC|CG', na=False, case=False)]
-    df_cb = df_cb[~df_cb['Asiento'].astype(str).str.upper().str.contains('TOTAL', na=False)]
 
-    # Limpieza de montos (Plurales Débitos/Créditos)
     def clean_val(v):
-        """Limpia montos manejando punto de mil y coma decimal (1.197,97)"""
         if pd.isna(v) or str(v).strip() in ['', '-']: return 0.0
         t = str(v).strip().replace(' ', '')
-        # Si tiene punto y coma, el punto es de mil (lo eliminamos)
         if ',' in t and '.' in t:
             if t.rfind(',') > t.rfind('.'): t = t.replace('.', '').replace(',', '.')
             else: t = t.replace(',', '')
         elif ',' in t: t = t.replace(',', '.')
-        try:
-            # Eliminamos cualquier caracter residual no numérico excepto el punto decimal
-            t_clean = re.sub(r'[^\d.-]', '', t)
-            return float(t_clean)
+        try: return float(re.sub(r'[^\d.-]', '', t))
         except: return 0.0
 
-    df_cb['Debito_CB'] = df_cb['Débitos'].apply(clean_val)
-    df_cb['Credito_CB'] = df_cb['Créditos'].apply(clean_val)
-    df_cb['Neto_CB'] = df_cb['Debito_CB'] - df_cb['Credito_CB']
+    df_cb['Neto_CB'] = df_cb['Débitos'].apply(clean_val) - df_cb['Créditos'].apply(clean_val)
 
-    # 3. PREPARACIÓN DIARIO (CG)
+    # 3. PREPARACIÓN DIARIO (CG) - AQUÍ ESTÁ EL BLINDAJE
     df_cg = df_cg_raw.copy()
-    df_cg.columns = [str(c).strip() for c in df_cg.columns]
-    # Identificamos columnas monetarias del diario
-    col_deb_ves = next((c for c in df_cg.columns if "DEBITO" in c.upper() and "VES" in c.upper()), "Débito VES")
-    col_cre_ves = next((c for c in df_cg.columns if "CREDITO" in c.upper() and "VES" in c.upper()), "Crédito VES")
-    col_deb_usd = next((c for c in df_cg.columns if "DEBITO" in c.upper() and "DOLA" in c.upper()), "Débito Dólar")
-    col_cre_usd = next((c for c in df_cg.columns if "CREDITO" in c.upper() and "DOLA" in c.upper()), "Crédito Dólar")
+    
+    # Usamos el RADAR para encontrar los nombres reales de las columnas
+    c_asiento_cg = buscar_columna_comisiones(df_cg, ["ASIENTO"])
+    c_cuenta_cg = buscar_columna_comisiones(df_cg, ["CUENTA", "CONTABLE"])
+    c_deb_ves = buscar_columna_comisiones(df_cg, ["DEBITO", "VES"])
+    c_cre_ves = buscar_columna_comisiones(df_cg, ["CREDITO", "VES"])
+    c_deb_usd = buscar_columna_comisiones(df_cg, ["DEBITO", "DOLAR"])
+    c_cre_usd = buscar_columna_comisiones(df_cg, ["CREDITO", "DOLAR"])
 
-    for col in [col_deb_ves, col_cre_ves, col_deb_usd, col_cre_usd]:
-        if col in df_cg.columns:
-            df_cg[col] = pd.to_numeric(df_cg[col], errors='coerce').fillna(0)
+    # Verificamos que el Radar encontró las columnas mínimas
+    if not c_asiento_cg or not c_cuenta_cg:
+        log_messages.append(f"❌ ERROR: No encontré las columnas 'Asiento' o 'Cuenta Contable' en el Diario.")
+        return pd.DataFrame()
+
+    for col in [c_deb_ves, c_cre_ves, c_deb_usd, c_cre_usd]:
+        if col: df_cg[col] = pd.to_numeric(df_cg[col], errors='coerce').fillna(0)
 
     # 4. AUDITORÍA POR ASIENTO
     resultados = []
@@ -5135,55 +5132,46 @@ def run_conciliation_anexos(df_cb_raw, df_cg_raw, empresa_sel, log_messages):
         asiento_id = str(fila_cb['Asiento']).strip()
         cod_banco_cb = str(fila_cb['Cuenta Bancaria']).strip()
         
-        # Obtener configuración del banco (Si es L o E)
         config = mapeo_identidad.get(cod_banco_cb, {})
         cta_contable_esp = config.get('cta', 'SIN_MAPEO')
         es_usd = config.get('moneda', 'VES') == 'USD'
         
-        # Buscar en el diario por Asiento + Cuenta Contable Mapeada
-        # Normalizamos la cuenta contable quitando puntos por si acaso
-        asto_cg = df_cg[df_cg['Asiento'] == asiento_id]
-        linea_bco_cg = asto_cg[asto_cg['CUENTA CONTABLE'].astype(str).str.replace('.','') == cta_contable_esp.replace('.','')]
+        # Filtramos el diario usando las variables del RADAR
+        asto_cg = df_cg[df_cg[c_asiento_cg] == asiento_id]
+        # Limpieza de puntos para la comparación de cuenta
+        linea_bco_cg = asto_cg[asto_cg[c_cuenta_cg].astype(str).str.replace('.','') == cta_contable_esp.replace('.','')]
 
+        monto_cg = 0
         if linea_bco_cg.empty:
-            obs = f"No se encontró la cuenta {cta_contable_esp} en este asiento."
+            obs = f"No se encontró la cuenta {cta_contable_esp} en el asiento {asiento_id}."
             check_monto, check_banco = "❌ No coincide", "❌ Incorrecta"
-            monto_cg = 0
         else:
             check_banco = "✅ Correcta"
-            if es_usd:
-                monto_cg = linea_bco_cg[col_deb_usd].sum() - linea_bco_cg[col_cre_usd].sum()
-                moneda_txt = "USD"
+            if es_usd and c_deb_usd:
+                monto_cg = linea_bco_cg[c_deb_usd].sum() - linea_bco_cg[c_cre_usd].sum()
+                mon_txt = "USD"
             else:
-                monto_cg = linea_bco_cg[col_deb_ves].sum() - linea_bco_cg[col_cre_ves].sum()
-                moneda_txt = "VES"
+                monto_cg = linea_bco_cg[c_deb_ves].sum() - linea_bco_cg[c_cre_ves].sum()
+                mon_txt = "VES"
             
-            # Comparar contra Neto de Tesorería
             if abs(round(fila_cb['Neto_CB'], 2) - round(monto_cg, 2)) <= 0.01:
-                check_monto = "✅ OK"
-                obs = ""
+                check_monto = "✅ OK"; obs = ""
             else:
-                check_monto = "❌ Diferencia"
-                obs = f"Dif. {moneda_txt}: {round(fila_cb['Neto_CB'] - monto_cg, 2)}"
+                check_monto = "❌ Diferencia"; obs = f"Dif. {mon_txt}: {round(fila_cb['Neto_CB'] - monto_cg, 2)}"
 
         resultados.append({
-            'Asiento': asiento_id,
-            'Cuenta Bancaria': cod_banco_cb,
-            'Moneda': 'USD' if es_usd else 'VES',
-            'Concepto': fila_cb.get('Concepto', ''),
-            'Anexo AFV': fila_cb.get('ANEXO AFV', ''), # Columna extra de anexos
-            'Monto Tesorería': fila_cb['Neto_CB'],
-            'Monto Contabilidad': monto_cg,
-            'Estatus Monto': check_monto,
-            'Estatus Cuenta': check_banco,
-            'Hallazgos': obs
+            'Asiento': asiento_id, 'Cuenta Bancaria': cod_banco_cb,
+            'Moneda Banco': 'USD' if es_usd else 'VES',
+            'Monto Tesorería': fila_cb['Neto_CB'], 'Monto Diario': monto_cg,
+            'Diferencia': round(fila_cb['Neto_CB'] - monto_cg, 2),
+            'Estado Auditoría': check_monto, 'Estatus Cuenta': check_banco,
+            'Hallazgos': obs, 'REFERENCIA': fila_cb.get('Referencia', '')
         })
 
     df_final = pd.DataFrame(resultados)
-    # --- MEJORA: Ordenar errores al principio ---
+    # Ordenar errores al principio
     if not df_final.empty:
-        # 0 para errores, 1 para OK
-        df_final['sort_helper'] = df_final.apply(lambda x: 0 if ("❌" in str(x['Estatus Monto']) or "❌" in str(x['Estatus Cuenta'])) else 1, axis=1)
+        df_final['sort_helper'] = df_final['Estado Auditoría'].apply(lambda x: 0 if "❌" in x else 1)
         df_final = df_final.sort_values(by=['sort_helper', 'Asiento']).drop(columns=['sort_helper'])
     
     return df_final
