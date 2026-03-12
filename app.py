@@ -440,7 +440,7 @@ def render_inicio():
         st.markdown("Seleccione una herramienta para comenzar:")
 
         c1, c2, c3 = st.columns(3, gap="medium")
-        with c1:
+    with c1:
         st.subheader("📊 Análisis y Conciliación")
         st.button("📄 Especificaciones", on_click=set_page, args=['especificaciones'], use_container_width=True, key="btn_spec_mayoreo")
         st.button("📦 Análisis Paquete CC", on_click=set_page, args=['paquete_cc'], use_container_width=True)
