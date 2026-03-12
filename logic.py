@@ -5066,8 +5066,6 @@ def run_conciliation_anexos(df_cb_raw, df_cg_raw, empresa_sel, log_messages):
     Lógica V1: Auditoría Analítica de Anexos.
     Cruce quirúrgico por Asiento + Cuenta Bancaria + Moneda.
     """
-    from logic import MAPEO_CB_CG_PRISMA, MAPEO_CB_CG_BEVAL, MAPEO_CB_CG_FEBECA, MAPEO_CB_CG_SILLACA
-    
     log_messages.append(f"--- INICIANDO AUDITORÍA DE ANEXOS - {empresa_sel} ---")
     
     # 1. SELECCIÓN DE DICCIONARIO DE MAPEO
@@ -5293,7 +5291,8 @@ def conciliar_ciclo_apartados(df_maestro, df_balance_procesado):
         cta_madre = ".".join(segmentos_cta[:4]) if len(segmentos_cta) >= 4 else cta_full
 
         # B. EXTRAER PERIODO Y PALABRA CLAVE
-        periodo_buscado = extraer_periodo(desc_raw) # Busca ENE.26
+        col_desc = next((c for c in df_maestro.columns if "GTOS" in str(c).upper() or "DESCRIP" in str(c).upper()), df_maestro.columns[1])
+        periodo_buscado = extraer_periodo(ap[col_desc])
         # Palabra clave: tomamos la primera palabra de más de 3 letras (ej: MOVISTAR)
         palabras = [p for p in desc_raw.split() if len(p) > 3]
         palabra_clave = palabras[0] if palabras else desc_raw.split()[0]
