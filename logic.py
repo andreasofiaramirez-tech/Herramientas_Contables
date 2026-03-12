@@ -5130,8 +5130,8 @@ def run_conciliation_anexos(df_cb_raw, df_cg_raw, empresa_sel, log_messages):
     df_cg = df_cg_raw.copy()
     c_asiento_cg = buscar_columna_comisiones(df_cg, ["ASIENTO"]) or "Asiento"
     c_cuenta_cg = buscar_columna_comisiones(df_cg, ["CUENTA", "CONTABLE"]) or "Cuenta Contable"
-    c_deb_ves = buscar_columna_comisiones(df_cg, ["DEBITO", "VES"]) or "Débito VES"
-    c_cre_ves = buscar_columna_comisiones(df_cg, ["CREDITO", "VES"]) or "Crédito VES"
+    c_deb_ves = buscar_columna_comisiones(df_cg, ["DEBITO", "VES", "LOCAL", "BOLIVAR"]) or "Débito VES"
+    c_cre_ves = buscar_columna_comisiones(df_cg, ["CREDITO", "VES", "LOCAL", "BOLIVAR"]) or "Crédito VES"
     c_deb_usd = buscar_columna_comisiones(df_cg, ["DEBITO", "DOLAR"]) or "Débito Dólar"
     c_cre_usd = buscar_columna_comisiones(df_cg, ["CREDITO", "DOLAR"]) or "Crédito Dólar"
 
