@@ -5126,16 +5126,49 @@ def run_conciliation_anexos(df_cb_raw, df_cg_raw, empresa_sel, log_messages):
 
     df_cb['Neto_CB'] = df_cb[c_deb_cb].apply(clean_val) - df_cb[c_cre_cb].apply(clean_val)
 
-    # 3. PREPARACIÓN DIARIO (CG)
+    # --- 3. PREPARACIÓN DIARIO (CG) CON RADAR MULTICRITERIO ---
     df_cg = df_cg_raw.copy()
-    c_asiento_cg = buscar_columna_comisiones(df_cg, ["ASIENTO"]) or "Asiento"
-    c_cuenta_cg = buscar_columna_comisiones(df_cg, ["CUENTA", "CONTABLE"]) or "Cuenta Contable"
-    c_deb_ves = buscar_columna_comisiones(df_cg, ["DEBITO", "VES", "LOCAL", "BOLIVAR"]) or "Débito VES"
-    c_cre_ves = buscar_columna_comisiones(df_cg, ["CREDITO", "VES", "LOCAL", "BOLIVAR"]) or "Crédito VES"
-    c_deb_usd = buscar_columna_comisiones(df_cg, ["DEBITO", "DOLAR"]) or "Débito Dólar"
-    c_cre_usd = buscar_columna_comisiones(df_cg, ["CREDITO", "DOLAR"]) or "Crédito Dólar"
+    # Limpieza de espacios invisibles en los nombres de las columnas
+    df_cg.columns = [str(c).strip() for c in df_cg.columns]
+    
+    # RADAR DINÁMICO: Buscamos combinaciones de (ACCIÓN) + (MONEDA)
+    # Esto cubre: Débito VES, Debitos Local, Debe Bolivar, Créditos Bs, etc.
+    c_asiento_cg = buscar_columna_comisiones(df_cg, ["ASIENTO"])
+    c_cuenta_cg = buscar_columna_comisiones(df_cg, ["CUENTA", "CONTABLE"])
+    
+    # Búsqueda de Débito VES (Cualquier combinación)
+    c_deb_ves = buscar_columna_comisiones(df_cg, ["DEB", "VES"]) or \
+                buscar_columna_comisiones(df_cg, ["DEB", "LOC"]) or \
+                buscar_columna_comisiones(df_cg, ["DEB", "BOL"]) or \
+                buscar_columna_comisiones(df_cg, ["DEBE", "VES"])
+                
+    # Búsqueda de Crédito VES (Cualquier combinación)
+    c_cre_ves = buscar_columna_comisiones(df_cg, ["CRE", "VES"]) or \
+                buscar_columna_comisiones(df_cg, ["CRE", "LOC"]) or \
+                buscar_columna_comisiones(df_cg, ["CRE", "BOL"]) or \
+                buscar_columna_comisiones(df_cg, ["HABER", "VES"])
 
-    # Normalizamos asientos en el Diario también
+    # Búsqueda de Dólares (Cualquier combinación)
+    c_deb_usd = buscar_columna_comisiones(df_cg, ["DEB", "DOL"]) or buscar_columna_comisiones(df_cg, ["DEB", "USD"])
+    c_cre_usd = buscar_columna_comisiones(df_cg, ["CRE", "DOL"]) or buscar_columna_comisiones(df_cg, ["CRE", "USD"])
+
+    # --- MURO DE SEGURIDAD MEJORADO ---
+    faltantes = []
+    if not c_asiento_cg: faltantes.append("Asiento")
+    if not c_cuenta_cg: faltantes.append("Cuenta Contable")
+    if not c_deb_ves: faltantes.append("Débito (VES/Local)")
+    
+    if faltantes:
+        log_messages.append(f"❌ ERROR: No se hallaron las columnas: {', '.join(faltantes)} en el Diario.")
+        return pd.DataFrame()
+
+    # --- CONVERSIÓN NUMÉRICA SEGURA ---
+    # Solo intentamos convertir las columnas que el RADAR realmente encontró
+    for col_name in [c_deb_ves, c_cre_ves, c_deb_usd, c_cre_usd]:
+        if col_name and col_name in df_cg.columns:
+            df_cg[col_name] = pd.to_numeric(df_cg[col_name], errors='coerce').fillna(0)
+
+    # Normalización de Asientos para el Match
     df_cg['ASIENTO_ADN'] = df_cg[c_asiento_cg].apply(normalizar_id_asiento)
 
     for col in [c_deb_ves, c_cre_ves, c_deb_usd, c_cre_usd]:
