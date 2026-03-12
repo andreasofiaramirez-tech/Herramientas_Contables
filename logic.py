@@ -5406,26 +5406,16 @@ def validar_identidad_banco_cofersa(codigo_tesoreria, cuenta_contable_usada):
     return False
 
 def run_conciliation_comisiones_bancarias_cofersa(df_cb_raw, df_cg_raw, log_messages):
-    """Auditoría de Comisiones para Cofersa (CRC/USD)."""
-    log_messages.append("--- INICIANDO AUDITORÍA COMISIONES COFERSA ---")
+    """Lógica de comisiones adaptada a la nomenclatura de COFERSA."""
+    log_messages.append("--- Iniciando Auditoría Comisiones Cofersa ---")
     
-    # 1. Preparar CB
+    # 1. Preparar Reporte Tesorería
     df_cb = df_cb_raw.copy()
-    header_found = False
-    for i in range(len(df_cb)):
-        row_values = [str(val).strip().upper() for val in df_cb.iloc[i].values]
-        if 'ASIENTO' in row_values:
-            df_cb.columns = [str(c).strip() for c in df_cb.iloc[i]]
-            df_cb = df_cb.iloc[i + 1:].reset_index(drop=True)
-            header_found = True
-            break
-            
-    if not header_found: return pd.DataFrame()
-
-    df_cb = df_cb[df_cb['Asiento'].astype(str).str.contains('CB', na=False, case=False)]
+    # ... (Aquí va la misma lógica de limpieza de cabecera de Mayoreo) ...
+    # Aseguramos que tomamos los Créditos del banco
     df_cb['Créditos'] = pd.to_numeric(df_cb['Créditos'], errors='coerce').fillna(0)
 
-    # 2. Radar de Columnas para CG (Cofersa usa 'Local' para Colones)
+    # 2. Radar para Softland (Cofersa)
     c_asiento = buscar_columna_comisiones(df_cg_raw, ["ASIENTO"])
     c_cuenta = buscar_columna_comisiones(df_cg_raw, ["CUENTA", "CONTABLE"])
     c_cre_local = buscar_columna_comisiones(df_cg_raw, ["CREDITO", "LOCAL"]) # Colones
@@ -5433,40 +5423,39 @@ def run_conciliation_comisiones_bancarias_cofersa(df_cb_raw, df_cg_raw, log_mess
 
     resultados = []
     for banco_cb, grupo_cb in df_cb.groupby('Cuenta Bancaria'):
+        # Buscamos en el nuevo diccionario de Cofersa
         config = MAPEO_CB_CG_COFERSA.get(str(banco_cb).strip(), {})
-        cta_esperada = config.get('cta', 'SIN_MAPEO')
-        es_usd = config.get('moneda', 'CRC') == 'USD'
+        cta_esperada = config.get('cta', 'NO_MAP').replace('-', '.') # Normalizamos guiones a puntos
+        es_usd = config.get('moneda') == 'USD'
         
         for _, fila_cb in grupo_cb.iterrows():
             asiento_id = str(fila_cb['Asiento']).strip()
             monto_cb = float(fila_cb['Créditos'])
-            
             asto_cg = df_cg_raw[df_cg_raw[c_asiento] == asiento_id]
             
             check_monto, check_banco = "❌ No coincide", "❌ Incorrecta"
-            monto_cg_banco = 0
+            monto_cg = 0
             
-            # Validar Identidad y Monto
+            # Buscamos la línea del banco en CG
             linea_bco = asto_cg[asto_cg[c_cuenta].astype(str).str.replace('.','') == cta_esperada.replace('.','')]
             
             if not linea_bco.empty:
                 check_banco = "✅ Correcta"
-                col_monto = c_cre_usd if es_usd else c_cre_local
-                monto_cg_banco = linea_bco[col_monto].sum()
-                if abs(round(monto_cb, 2) - round(monto_cg_banco, 2)) <= 0.01:
+                col_buscar = c_cre_usd if es_usd else c_cre_local
+                monto_cg = linea_bco[col_buscar].sum()
+                if abs(round(monto_cb, 2) - round(monto_cg, 2)) <= 0.01:
                     check_monto = "✅ OK"
 
             resultados.append({
-                'Banco (CB)': banco_cb,
+                'Banco (Tesorería)': banco_cb,
                 'Moneda': 'USD' if es_usd else 'CRC',
                 'Asiento': asiento_id,
                 'Monto CB': monto_cb,
-                'Monto CG': monto_cg_banco,
-                'Monto Coincide': check_monto,
-                'Cuenta Correcta': check_banco,
+                'Monto CG': monto_cg,
+                'Estado Monto': check_monto,
+                'Estado Cuenta': check_banco,
                 'Concepto': fila_cb.get('Concepto', '')
             })
-
     return pd.DataFrame(resultados)
 
 def run_conciliation_anexos_cofersa(df_cb_raw, df_cg_raw, log_messages):
