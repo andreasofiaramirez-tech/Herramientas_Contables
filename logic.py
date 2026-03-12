@@ -5118,6 +5118,7 @@ def run_conciliation_anexos(df_cb_raw, df_cg_raw, empresa_sel, log_messages):
 
     # 3. PREPARACIÓN DIARIO (CG)
     df_cg = df_cg_raw.copy()
+    df_cg.columns = [str(c).strip() for c in df_cg.columns]
     # Identificamos columnas monetarias del diario
     col_deb_ves = next((c for c in df_cg.columns if "DEBITO" in c.upper() and "VES" in c.upper()), "Débito VES")
     col_cre_ves = next((c for c in df_cg.columns if "CREDITO" in c.upper() and "VES" in c.upper()), "Crédito VES")
