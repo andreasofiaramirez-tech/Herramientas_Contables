@@ -1051,9 +1051,160 @@ def render_paquete_cc():
             st.text_area("Log de Análisis", '\n'.join(st.session_state.log_messages_paquete), height=400)
 
 
+def render_comisiones_bancarias():
+    # --- IDENTIDAD VISUAL CORPORATIVA (Basada en la propuesta original) ---
+    CONFIG_EMPRESAS = {
+        "MAYOR BEVAL, C.A": {"borde": "#28A745", "fondo": "#EAFAF1", "tag": "BEVAL"},
+        "FEBECA, C.A":      {"borde": "#2196F3", "fondo": "#E8F4FD", "tag": "FEBECA"},
+        "PRISMA, C.A":      {"borde": "#566573", "fondo": "#F8F9F9", "tag": "PRISMA"},
+        "FEBECA, C.A (QUINCALLA)": {"borde": "#FF00FF", "fondo": "#FDE9F9", "tag": "QUINCALLA"}
+    }
+
+    # Barra lateral: Asistente Virtual del Departamento
+    with st.sidebar:
+        st.title("🤖 Asistente de Comisiones")
+        if "messages_com" not in st.session_state:
+            st.session_state.messages_com = [{"role": "assistant", "content": "Bienvenido al módulo de Comisiones. Por favor, seleccione la empresa y cargue los archivos correspondientes."}]
+        
+        for m in st.session_state.messages_com:
+            with st.chat_message(m["role"]): st.markdown(m["content"])
+            
+        if prompt := st.chat_input("Consulte sobre este proceso..."):
+            st.session_state.messages_com.append({"role": "user", "content": prompt})
+    
+            # Le pasamos el dataframe de resultados si ya existe
+            res_df = st.session_state.get('df_res_comisiones') 
+            respuesta = asistente_contable_inteligente(prompt, res_df)
+    
+            st.session_state.messages_com.append({"role": "assistant", "content": respuesta})
+            st.rerun()
+
+    # Cabecera Institucional
+    st.title("💰 Conciliación de Comisiones Bancarias")
+    if st.button("⬅️ Volver al Panel Principal"): 
+        set_page('inicio')
+        st.rerun()
+
+    # Selección de empresa y aplicación de estilos dinámicos
+    st.subheader("Configuración de Proceso", anchor=False)
+    casa_sel = st.selectbox("Empresa a procesar:", list(CONFIG_EMPRESAS.keys()), key="empresa_com")
+    tema = CONFIG_EMPRESAS[casa_sel]
+
+    # Inyección de Estilos (Mantiene los cuadros de colores del diseño original)
+    st.markdown(f"""
+        <style>
+        .header-box {{ background-color: {tema['borde']}; color: white; padding: 12px; border-radius: 10px 10px 0 0; font-weight: bold; text-align: center; font-size: 1.1rem; }}
+        [data-testid="stFileUploader"] {{ background-color: {tema['fondo']} !important; border: 2px solid {tema['borde']} !important; border-radius: 0 0 15px 15px !important; }}
+        div.stButton > button {{ background-color: {tema['borde']} !important; color: white !important; border-radius: 12px; height: 3.5em; font-weight: bold; width: 100%; border: none; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }}
+        </style>
+        """, unsafe_allow_html=True)
+
+    st.divider()
+
+    # Área de Carga de Archivos
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown(f'<div class="header-box">Comisiones Tesorería (CB)</div>', unsafe_allow_html=True)
+        f_cb = st.file_uploader("Subir Reporte de Bancos", type=['xlsx'], key="com_cb", label_visibility="collapsed")
+    with col2:
+        st.markdown(f'<div class="header-box">Transacciones Diario (CG)</div>', unsafe_allow_html=True)
+        f_cg = st.file_uploader("Subir Diario Contable", type=['xlsx'], key="com_cg", label_visibility="collapsed")
+
+    # Acción de Procesamiento
+    if f_cb and f_cg:
+        if st.button(f"⚡ Iniciar Análisis de Comisiones - {tema['tag']}"):
+            log = []
+            try:
+                with st.spinner("Cruzando Tesorería vs Contabilidad..."):
+                    # Cargamos el CB crudo (header=None) para la réplica perfecta de la hoja de consulta
+                    df_cb_replica = pd.read_excel(f_cb, header=None)
+                    df_cg_replica = pd.read_excel(f_cg) # El mayor suele ser estándar
+
+                    # Llamamos a la lógica (que usa sus propios procesos de limpieza internos)
+                    df_res = run_conciliation_comisiones_bancarias(
+                        pd.read_excel(f_cb), 
+                        pd.read_excel(f_cg), 
+                        casa_sel, # <--- Pasamos la empresa seleccionada
+                        log
+                    )
+                    st.session_state['df_res_comisiones'] = df_res 
+                    st.success(f"✅ Proceso completado exitosamente para {casa_sel}")
+                    st.dataframe(df_res, use_container_width=True)
+                    
+                    # Reporte Excel personalizado con el color de la empresa
+                    excel_bin = generar_reporte_auditoria_comisiones(
+                        df_res,      # El resultado de la auditoría
+                        df_cg_replica,  # El mayor original (subido por el usuario)
+                        df_cb_replica,   # El reporte de tesorería original (subido por el usuario)
+                        casa_sel, 
+                        tema['borde']
+                    )
+                    st.download_button(
+                        label=f"📥 Descargar Reporte Final ({tema['tag']})", 
+                        data=excel_bin, 
+                        file_name=f"Conciliacion_Comisiones_{tema['tag']}.xlsx",
+                        use_container_width=True
+                    )
+            except Exception as e:
+                mostrar_error_amigable(e, "el módulo de Comisiones")
+
+def render_comisiones_bancarias():
+    CONFIG_EMPRESAS = {
+        "MAYOR BEVAL, C.A": {"borde": "#28A745", "fondo": "#EAFAF1", "tag": "BEVAL"},
+        "FEBECA, C.A":      {"borde": "#2196F3", "fondo": "#E8F4FD", "tag": "FEBECA"},
+        "PRISMA, C.A":      {"borde": "#566573", "fondo": "#F8F9F9", "tag": "PRISMA"},
+        "FEBECA, C.A (QUINCALLA)": {"borde": "#FF00FF", "fondo": "#FDE9F9", "tag": "QUINCALLA"}
+    }
+
+    st.title("🏦 Auditoría de Bancos (Comisiones y Anexos)")
+    
+    if st.button("⬅️ Volver al Panel Principal"): 
+        set_page('inicio')
+        st.rerun()
+
+    # --- NUEVO SELECTOR DE MODO ---
+    modo_auditoria = st.radio("Seleccione el tipo de Auditoría:", ["Comisiones", "Anexos"], horizontal=True)
+    
+    st.subheader("Configuración", anchor=False)
+    casa_sel = st.selectbox("Empresa:", list(CONFIG_EMPRESAS.keys()))
+    tema = CONFIG_EMPRESAS[casa_sel]
+
+    # Estilos dinámicos
+    st.markdown(f"""<style>.header-box {{ background-color: {tema['borde']}; color: white; padding: 12px; border-radius: 10px 10px 0 0; font-weight: bold; text-align: center; }} [data-testid="stFileUploader"] {{ background-color: {tema['fondo']} !important; border: 2px solid {tema['borde']} !important; border-radius: 0 0 15px 15px !important; }}</style>""", unsafe_allow_html=True)
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown(f'<div class="header-box">Reporte Tesorería ({modo_auditoria})</div>', unsafe_allow_html=True)
+        f_cb = st.file_uploader("CB", type=['xlsx'], key="com_cb", label_visibility="collapsed")
+    with col2:
+        st.markdown(f'<div class="header-box">Diario Contable (CG)</div>', unsafe_allow_html=True)
+        f_cg = st.file_uploader("CG", type=['xlsx'], key="com_cg", label_visibility="collapsed")
+
+    if f_cb and f_cg:
+        if st.button(f"⚡ Iniciar Auditoría de {modo_auditoria} - {tema['tag']}", type="primary"):
+            try:
+                with st.spinner(f"Analizando {modo_auditoria}..."):
+                    if modo_auditoria == "Comisiones":
+                        # Llamada a la función vieja de comisiones
+                        df_res = run_conciliation_comisiones_bancarias(pd.read_excel(f_cb), pd.read_excel(f_cg), casa_sel, [])
+                        excel_bin = generar_reporte_auditoria_comisiones(df_res, pd.read_excel(f_cg), pd.read_excel(f_cb, header=None), casa_sel, tema['borde'])
+                    else:
+                        # LLAMADA A LA NUEVA FUNCIÓN DE ANEXOS
+                        from logic import run_conciliation_anexos
+                        from utils import generar_reporte_auditoria_anexos
+                        df_res = run_conciliation_anexos(pd.read_excel(f_cb), pd.read_excel(f_cg), casa_sel, [])
+                        excel_bin = generar_reporte_auditoria_anexos(df_res, pd.read_excel(f_cg), pd.read_excel(f_cb), casa_sel, tema['borde'])
+
+                    st.success(f"✅ Auditoría de {modo_auditoria} finalizada.")
+                    st.dataframe(df_res, use_container_width=True)
+                    st.download_button(f"📥 Descargar Reporte Final ({modo_auditoria})", excel_bin, f"Auditoria_{modo_auditoria}_{tema['tag']}.xlsx", use_container_width=True)
+            except Exception as e:
+                mostrar_error_amigable(e, f"la auditoría de {modo_auditoria}")
+
+
 
 # ==============================================================================
-# V. CICLO FISCAL Y DE AUDITORÍA
+# V. CICLO FISCAL 
 # ==============================================================================
 def render_retenciones():
     st.title("🧾 Herramienta de Auditoría de Retenciones", anchor=False)
@@ -1404,102 +1555,7 @@ def asistente_contable_inteligente(pregunta, df=None):
     # 5. CASO POR DEFECTO
     return "Entiendo tu pregunta, pero necesito que seas más específico. Puedes preguntarme por 'errores en el reporte', 'total de comisiones' o 'cuentas contables'."
     
-def render_comisiones_bancarias():
-    # --- IDENTIDAD VISUAL CORPORATIVA (Basada en la propuesta original) ---
-    CONFIG_EMPRESAS = {
-        "MAYOR BEVAL, C.A": {"borde": "#28A745", "fondo": "#EAFAF1", "tag": "BEVAL"},
-        "FEBECA, C.A":      {"borde": "#2196F3", "fondo": "#E8F4FD", "tag": "FEBECA"},
-        "PRISMA, C.A":      {"borde": "#566573", "fondo": "#F8F9F9", "tag": "PRISMA"},
-        "FEBECA, C.A (QUINCALLA)": {"borde": "#FF00FF", "fondo": "#FDE9F9", "tag": "QUINCALLA"}
-    }
 
-    # Barra lateral: Asistente Virtual del Departamento
-    with st.sidebar:
-        st.title("🤖 Asistente de Comisiones")
-        if "messages_com" not in st.session_state:
-            st.session_state.messages_com = [{"role": "assistant", "content": "Bienvenido al módulo de Comisiones. Por favor, seleccione la empresa y cargue los archivos correspondientes."}]
-        
-        for m in st.session_state.messages_com:
-            with st.chat_message(m["role"]): st.markdown(m["content"])
-            
-        if prompt := st.chat_input("Consulte sobre este proceso..."):
-            st.session_state.messages_com.append({"role": "user", "content": prompt})
-    
-            # Le pasamos el dataframe de resultados si ya existe
-            res_df = st.session_state.get('df_res_comisiones') 
-            respuesta = asistente_contable_inteligente(prompt, res_df)
-    
-            st.session_state.messages_com.append({"role": "assistant", "content": respuesta})
-            st.rerun()
-
-    # Cabecera Institucional
-    st.title("💰 Conciliación de Comisiones Bancarias")
-    if st.button("⬅️ Volver al Panel Principal"): 
-        set_page('inicio')
-        st.rerun()
-
-    # Selección de empresa y aplicación de estilos dinámicos
-    st.subheader("Configuración de Proceso", anchor=False)
-    casa_sel = st.selectbox("Empresa a procesar:", list(CONFIG_EMPRESAS.keys()), key="empresa_com")
-    tema = CONFIG_EMPRESAS[casa_sel]
-
-    # Inyección de Estilos (Mantiene los cuadros de colores del diseño original)
-    st.markdown(f"""
-        <style>
-        .header-box {{ background-color: {tema['borde']}; color: white; padding: 12px; border-radius: 10px 10px 0 0; font-weight: bold; text-align: center; font-size: 1.1rem; }}
-        [data-testid="stFileUploader"] {{ background-color: {tema['fondo']} !important; border: 2px solid {tema['borde']} !important; border-radius: 0 0 15px 15px !important; }}
-        div.stButton > button {{ background-color: {tema['borde']} !important; color: white !important; border-radius: 12px; height: 3.5em; font-weight: bold; width: 100%; border: none; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }}
-        </style>
-        """, unsafe_allow_html=True)
-
-    st.divider()
-
-    # Área de Carga de Archivos
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown(f'<div class="header-box">Comisiones Tesorería (CB)</div>', unsafe_allow_html=True)
-        f_cb = st.file_uploader("Subir Reporte de Bancos", type=['xlsx'], key="com_cb", label_visibility="collapsed")
-    with col2:
-        st.markdown(f'<div class="header-box">Transacciones Diario (CG)</div>', unsafe_allow_html=True)
-        f_cg = st.file_uploader("Subir Diario Contable", type=['xlsx'], key="com_cg", label_visibility="collapsed")
-
-    # Acción de Procesamiento
-    if f_cb and f_cg:
-        if st.button(f"⚡ Iniciar Análisis de Comisiones - {tema['tag']}"):
-            log = []
-            try:
-                with st.spinner("Cruzando Tesorería vs Contabilidad..."):
-                    # Cargamos el CB crudo (header=None) para la réplica perfecta de la hoja de consulta
-                    df_cb_replica = pd.read_excel(f_cb, header=None)
-                    df_cg_replica = pd.read_excel(f_cg) # El mayor suele ser estándar
-
-                    # Llamamos a la lógica (que usa sus propios procesos de limpieza internos)
-                    df_res = run_conciliation_comisiones_bancarias(
-                        pd.read_excel(f_cb), 
-                        pd.read_excel(f_cg), 
-                        casa_sel, # <--- Pasamos la empresa seleccionada
-                        log
-                    )
-                    st.session_state['df_res_comisiones'] = df_res 
-                    st.success(f"✅ Proceso completado exitosamente para {casa_sel}")
-                    st.dataframe(df_res, use_container_width=True)
-                    
-                    # Reporte Excel personalizado con el color de la empresa
-                    excel_bin = generar_reporte_auditoria_comisiones(
-                        df_res,      # El resultado de la auditoría
-                        df_cg_replica,  # El mayor original (subido por el usuario)
-                        df_cb_replica,   # El reporte de tesorería original (subido por el usuario)
-                        casa_sel, 
-                        tema['borde']
-                    )
-                    st.download_button(
-                        label=f"📥 Descargar Reporte Final ({tema['tag']})", 
-                        data=excel_bin, 
-                        file_name=f"Conciliacion_Comisiones_{tema['tag']}.xlsx",
-                        use_container_width=True
-                    )
-            except Exception as e:
-                mostrar_error_amigable(e, "el módulo de Comisiones")
 
 def render_locti():
     # --- 1. CABECERA E IDENTIDAD VISUAL ---
