@@ -3582,9 +3582,11 @@ def generar_reporte_auditoria_anexos(df_res, df_cg_raw, df_cb_raw, nombre_empres
     output = BytesIO()
     
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        # --- 1. HOJA 1: RESULTADOS ---
         df_res.to_excel(writer, index=False, sheet_name='Auditoría Anexos')
         workbook = writer.book
-        ws = writer.sheets['Auditoría Anexos']
+        ws1 = writer.sheets['Auditoría Anexos']
+        ws1.hide_gridlines(2)
         
         # Formatos
         header_fmt = workbook.add_format({'bold': True, 'fg_color': color_hex, 'font_color': 'white', 'border': 1, 'align': 'center'})
@@ -3594,16 +3596,73 @@ def generar_reporte_auditoria_anexos(df_res, df_cg_raw, df_cb_raw, nombre_empres
 
         # Aplicar diseño
         for i, col in enumerate(df_res.columns):
-            ws.write(0, i, col, header_fmt)
-            ws.set_column(i, i, 20, text_fmt)
-            if 'Monto' in col: ws.set_column(i, i, 18, money_fmt)
+            ws1.write(0, i, col, header_fmt)
+            ws1.set_column(i, i, 22, text_fmt)
+            if 'Monto' in col: ws1.set_column(i, i, 18, money_fmt)
         
         # Destacar errores en rojo
-        ws.conditional_format(1, 0, len(df_res), len(df_res.columns)-1, 
-                            {'type': 'formula', 'criteria': '=OR($H2="❌ Diferencia", $I2="❌ Incorrecta")', 'format': err_fmt})
+        ws1.conditional_format(1, 0, len(df_res), len(df_res.columns)-1, 
+                            {'type': 'formula', 'criteria': '=OR(ISNUMBER(SEARCH("❌", $H2)), ISNUMBER(SEARCH("❌", $I2)))', 'format': err_fmt})
 
-        # Hojas de consulta (Réplicas)
+        # --- 2. HOJA 2: CONSULTA MAYOR CG (ANCHOS MEJORADOS) ---
         df_cg_raw.to_excel(writer, sheet_name='Consulta Mayor CG', index=False)
-        df_cb_raw.to_excel(writer, sheet_name='Consulta Anexos CB', index=False)
+        ws_cg = writer.sheets['Consulta Mayor CG']
+        ws_cg.hide_gridlines(2)
         
+        # Formatos para la réplica
+        header_rep_fmt = workbook.add_format({'bold': True, 'border': 1, 'align': 'center', 'bg_color': '#FFFFFF'})
+        date_rep_fmt = workbook.add_format({'num_format': 'dd/mm/yyyy'})
+        money_rep_fmt = workbook.add_format({'num_format': '#,##0.00'})
+
+        # Configuración de anchos según solicitud
+        ws_cg.set_column('A:B', 15) # Asiento/Paquete
+        ws_cg.set_column('C:C', 14, date_rep_fmt) # Fecha
+        ws_cg.set_column('D:E', 18) # Cuentas
+        ws_cg.set_column('F:F', 45) # Descripción Cuenta (Legible)
+        ws_cg.set_column('G:H', 20) # Fuente/Referencia
+        ws_cg.set_column('I:L', 18, money_rep_fmt) # Montos VES/USD
+
+        # --- 3. HOJA 3: CONSULTA ANEXOS CB (RÉPLICA EXACTA DE TESORERÍA) ---
+        ws_cb = workbook.add_worksheet('Consulta Anexos CB')
+        ws_cb.hide_gridlines(2)
+        
+        # Formatos especiales para la réplica
+        title_rep_fmt = workbook.add_format({'bold': True, 'font_size': 11})
+        header_cb_fmt = workbook.add_format({'bold': True, 'border': 1, 'align': 'center', 'bg_color': '#FFFFFF'})
+        total_cb_fmt = workbook.add_format({'bold': True, 'num_format': '#,##0.00', 'top': 1})
+
+        # Anchos idénticos al original
+        ws_cb.set_column('A:A', 15) # Asiento
+        ws_cb.set_column('B:B', 15) # Cuenta Banca
+        ws_cb.set_column('C:C', 12) # Fecha
+        ws_cb.set_column('D:E', 10) # Tipo/Número
+        ws_cb.set_column('F:F', 35) # Beneficiario
+        ws_cb.set_column('G:G', 15) # Subtipo
+        ws_cb.set_column('H:H', 45) # Concepto
+        ws_cb.set_column('I:J', 16, money_rep_fmt) # Débitos/Créditos
+
+        for r_idx, row in df_cb_raw.iterrows():
+            val_a = str(row[0]).strip().upper()
+            
+            # Detectar tipo de fila para aplicar formato
+            if val_a == 'ASIENTO':
+                fmt_fila = header_cb_fmt
+            elif 'TOTAL' in str(row[7]).upper() or 'TOTAL' in val_a:
+                fmt_fila = total_cb_fmt
+            elif pd.notna(row[0]) and not val_a.startswith('CB'):
+                fmt_fila = title_rep_fmt
+            else:
+                fmt_fila = None # Formato estándar
+
+            for c_idx, value in enumerate(row):
+                # Escribir con formato de fecha si es la columna C
+                if fmt_fila != header_cb_fmt and c_idx == 2:
+                    try:
+                        dt_val = pd.to_datetime(value)
+                        ws_cb.write_datetime(r_idx, c_idx, dt_val, workbook.add_format({'num_format': 'dd/mm/yyyy'}))
+                    except:
+                        ws_cb.write(r_idx, c_idx, value, fmt_fila)
+                else:
+                    ws_cb.write(r_idx, c_idx, value if pd.notna(value) else "", fmt_fila)
+
     return output.getvalue()
