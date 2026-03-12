@@ -12,7 +12,6 @@ from io import BytesIO
 import unicodedata
 import xlsxwriter
 from difflib import SequenceMatcher  # Necesario para la detección de errores de tipeo
-from utils import generar_reporte_retenciones
 import bisect
 import datetime
 
