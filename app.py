@@ -1052,7 +1052,7 @@ def render_paquete_cc():
 
 
 def render_comisiones_bancarias():
-    # --- IDENTIDAD VISUAL CORPORATIVA (Basada en la propuesta original) ---
+    # --- 1. IDENTIDAD VISUAL CORPORATIVA (Configuración de Colores) ---
     CONFIG_EMPRESAS = {
         "MAYOR BEVAL, C.A": {"borde": "#28A745", "fondo": "#EAFAF1", "tag": "BEVAL"},
         "FEBECA, C.A":      {"borde": "#2196F3", "fondo": "#E8F4FD", "tag": "FEBECA"},
@@ -1060,147 +1060,127 @@ def render_comisiones_bancarias():
         "FEBECA, C.A (QUINCALLA)": {"borde": "#FF00FF", "fondo": "#FDE9F9", "tag": "QUINCALLA"}
     }
 
-    # Barra lateral: Asistente Virtual del Departamento
+    # --- 2. ASISTENTE VIRTUAL (SIDEBAR) ---
     with st.sidebar:
-        st.title("🤖 Asistente de Comisiones")
+        st.title("🤖 Asistente de Auditoría")
         if "messages_com" not in st.session_state:
-            st.session_state.messages_com = [{"role": "assistant", "content": "Bienvenido al módulo de Comisiones. Por favor, seleccione la empresa y cargue los archivos correspondientes."}]
+            st.session_state.messages_com = [{"role": "assistant", "content": "¡Hola! Soy tu asistente. Selecciona el tipo de proceso (Comisiones o Anexos) y la empresa para comenzar."}]
         
         for m in st.session_state.messages_com:
             with st.chat_message(m["role"]): st.markdown(m["content"])
             
-        if prompt := st.chat_input("Consulte sobre este proceso..."):
+        if prompt := st.chat_input("Escribe tu duda aquí..."):
             st.session_state.messages_com.append({"role": "user", "content": prompt})
-    
-            # Le pasamos el dataframe de resultados si ya existe
-            res_df = st.session_state.get('df_res_comisiones') 
-            respuesta = asistente_contable_inteligente(prompt, res_df)
-    
-            st.session_state.messages_com.append({"role": "assistant", "content": respuesta})
+            # Lógica simple de respuesta del bot
+            resp = "Asegúrate de que los archivos tengan los encabezados en la Fila 3 para Anexos o Fila 1 para Comisiones."
+            st.session_state.messages_com.append({"role": "assistant", "content": resp})
             st.rerun()
 
-    # Cabecera Institucional
-    st.title("💰 Conciliación de Comisiones Bancarias")
+    # --- 3. CABECERA E INTERFAZ ---
+    st.title("🏦 Auditoría de Bancos (Comisiones y Anexos)")
     if st.button("⬅️ Volver al Panel Principal"): 
         set_page('inicio')
         st.rerun()
 
-    # Selección de empresa y aplicación de estilos dinámicos
-    st.subheader("Configuración de Proceso", anchor=False)
+    # --- 4. SELECTOR DE MODO (RADIO BUTTONS GRANDES) ---
+    # Usamos CSS para agrandar específicamente este componente
+    st.markdown("""
+        <style>
+        /* Texto de Comisiones / Anexos */
+        [data-testid="stRadio"] label p {
+            font-size: 24px !important;
+            font-weight: bold !important;
+            color: #1E1E1E !important;
+        }
+        /* Círculos de selección */
+        [data-testid="stRadio"] div[role="radiogroup"] [data-testid="stWidgetLabel"] + div {
+            transform: scale(1.5);
+            margin-left: 15px;
+        }
+        /* Espaciado entre opciones */
+        [data-testid="stRadio"] div[role="radiogroup"] {
+            gap: 60px !important;
+            padding: 20px 0;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
+    modo_auditoria = st.radio("Seleccione el tipo de Auditoría:", ["Comisiones", "Anexos"], horizontal=True)
+
+    st.subheader("Configuración de Empresa", anchor=False)
     casa_sel = st.selectbox("Empresa a procesar:", list(CONFIG_EMPRESAS.keys()), key="empresa_com")
     tema = CONFIG_EMPRESAS[casa_sel]
 
-    # Inyección de Estilos (Mantiene los cuadros de colores del diseño original)
+    # --- 5. INYECCIÓN DE ESTILOS DINÁMICOS (Cuadros y Botones) ---
     st.markdown(f"""
         <style>
         .header-box {{ background-color: {tema['borde']}; color: white; padding: 12px; border-radius: 10px 10px 0 0; font-weight: bold; text-align: center; font-size: 1.1rem; }}
         [data-testid="stFileUploader"] {{ background-color: {tema['fondo']} !important; border: 2px solid {tema['borde']} !important; border-radius: 0 0 15px 15px !important; }}
-        div.stButton > button {{ background-color: {tema['borde']} !important; color: white !important; border-radius: 12px; height: 3.5em; font-weight: bold; width: 100%; border: none; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }}
+        div.stButton > button {{ background-color: {tema['borde']} !important; color: white !important; border-radius: 12px; height: 3.8em; font-weight: bold; width: 100%; font-size: 18px !important; }}
         </style>
         """, unsafe_allow_html=True)
 
     st.divider()
 
-    # Área de Carga de Archivos
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown(f'<div class="header-box">Comisiones Tesorería (CB)</div>', unsafe_allow_html=True)
-        f_cb = st.file_uploader("Subir Reporte de Bancos", type=['xlsx'], key="com_cb", label_visibility="collapsed")
-    with col2:
-        st.markdown(f'<div class="header-box">Transacciones Diario (CG)</div>', unsafe_allow_html=True)
-        f_cg = st.file_uploader("Subir Diario Contable", type=['xlsx'], key="com_cg", label_visibility="collapsed")
-
-    # Acción de Procesamiento
-    if f_cb and f_cg:
-        if st.button(f"⚡ Iniciar Análisis de Comisiones - {tema['tag']}"):
-            log = []
-            try:
-                with st.spinner("Cruzando Tesorería vs Contabilidad..."):
-                    # Cargamos el CB crudo (header=None) para la réplica perfecta de la hoja de consulta
-                    df_cb_replica = pd.read_excel(f_cb, header=None)
-                    df_cg_replica = pd.read_excel(f_cg) # El mayor suele ser estándar
-
-                    # Llamamos a la lógica (que usa sus propios procesos de limpieza internos)
-                    df_res = run_conciliation_comisiones_bancarias(
-                        pd.read_excel(f_cb), 
-                        pd.read_excel(f_cg), 
-                        casa_sel, # <--- Pasamos la empresa seleccionada
-                        log
-                    )
-                    st.session_state['df_res_comisiones'] = df_res 
-                    st.success(f"✅ Proceso completado exitosamente para {casa_sel}")
-                    st.dataframe(df_res, use_container_width=True)
-                    
-                    # Reporte Excel personalizado con el color de la empresa
-                    excel_bin = generar_reporte_auditoria_comisiones(
-                        df_res,      # El resultado de la auditoría
-                        df_cg_replica,  # El mayor original (subido por el usuario)
-                        df_cb_replica,   # El reporte de tesorería original (subido por el usuario)
-                        casa_sel, 
-                        tema['borde']
-                    )
-                    st.download_button(
-                        label=f"📥 Descargar Reporte Final ({tema['tag']})", 
-                        data=excel_bin, 
-                        file_name=f"Conciliacion_Comisiones_{tema['tag']}.xlsx",
-                        use_container_width=True
-                    )
-            except Exception as e:
-                mostrar_error_amigable(e, "el módulo de Comisiones")
-
-def render_comisiones_bancarias():
-    CONFIG_EMPRESAS = {
-        "MAYOR BEVAL, C.A": {"borde": "#28A745", "fondo": "#EAFAF1", "tag": "BEVAL"},
-        "FEBECA, C.A":      {"borde": "#2196F3", "fondo": "#E8F4FD", "tag": "FEBECA"},
-        "PRISMA, C.A":      {"borde": "#566573", "fondo": "#F8F9F9", "tag": "PRISMA"},
-        "FEBECA, C.A (QUINCALLA)": {"borde": "#FF00FF", "fondo": "#FDE9F9", "tag": "QUINCALLA"}
-    }
-
-    st.title("🏦 Auditoría de Bancos (Comisiones y Anexos)")
-    
-    if st.button("⬅️ Volver al Panel Principal"): 
-        set_page('inicio')
-        st.rerun()
-
-    # --- NUEVO SELECTOR DE MODO ---
-    modo_auditoria = st.radio("Seleccione el tipo de Auditoría:", ["Comisiones", "Anexos"], horizontal=True)
-    
-    st.subheader("Configuración", anchor=False)
-    casa_sel = st.selectbox("Empresa:", list(CONFIG_EMPRESAS.keys()))
-    tema = CONFIG_EMPRESAS[casa_sel]
-
-    # Estilos dinámicos
-    st.markdown(f"""<style>.header-box {{ background-color: {tema['borde']}; color: white; padding: 12px; border-radius: 10px 10px 0 0; font-weight: bold; text-align: center; }} [data-testid="stFileUploader"] {{ background-color: {tema['fondo']} !important; border: 2px solid {tema['borde']} !important; border-radius: 0 0 15px 15px !important; }}</style>""", unsafe_allow_html=True)
-
+    # --- 6. CARGA DE ARCHIVOS ---
     col1, col2 = st.columns(2)
     with col1:
         st.markdown(f'<div class="header-box">Reporte Tesorería ({modo_auditoria})</div>', unsafe_allow_html=True)
-        f_cb = st.file_uploader("CB", type=['xlsx'], key="com_cb", label_visibility="collapsed")
+        f_cb = st.file_uploader("Subir CB", type=['xlsx'], key="up_cb", label_visibility="collapsed")
     with col2:
         st.markdown(f'<div class="header-box">Diario Contable (CG)</div>', unsafe_allow_html=True)
-        f_cg = st.file_uploader("CG", type=['xlsx'], key="com_cg", label_visibility="collapsed")
+        f_cg = st.file_uploader("Subir CG", type=['xlsx'], key="up_cg", label_visibility="collapsed")
 
+    # --- 7. PROCESAMIENTO ---
     if f_cb and f_cg:
-        if st.button(f"⚡ Iniciar Auditoría de {modo_auditoria} - {tema['tag']}", type="primary"):
+        if st.button(f"🚀 Iniciar Auditoría de {modo_auditoria} - {tema['tag']}"):
+            log = []
             try:
-                with st.spinner(f"Analizando {modo_auditoria}..."):
+                with st.spinner(f"Analizando {modo_auditoria} de {casa_sel}..."):
+                    # Cargamos los archivos para la lógica y para la réplica en el reporte
+                    df_cb_data = pd.read_excel(f_cb)
+                    df_cg_data = pd.read_excel(f_cg)
+                    df_cb_replica = pd.read_excel(f_cb, header=None) # Para la hoja de consulta exacta
+
                     if modo_auditoria == "Comisiones":
-                        # Llamada a la función vieja de comisiones
-                        df_res = run_conciliation_comisiones_bancarias(pd.read_excel(f_cb), pd.read_excel(f_cg), casa_sel, [])
-                        excel_bin = generar_reporte_auditoria_comisiones(df_res, pd.read_excel(f_cg), pd.read_excel(f_cb, header=None), casa_sel, tema['borde'])
+                        # Llamada a la función de Comisiones (Lógica V21)
+                        from logic import run_conciliation_comisiones_bancarias
+                        from utils import generar_reporte_auditoria_comisiones
+                        
+                        df_res = run_conciliation_comisiones_bancarias(df_cb_data, df_cg_data, casa_sel, log)
+                        excel_bin = generar_reporte_auditoria_comisiones(df_res, df_cg_data, df_cb_replica, casa_sel, tema['borde'])
+                    
                     else:
-                        # LLAMADA A LA NUEVA FUNCIÓN DE ANEXOS
+                        # Llamada a la nueva función de Anexos (Lógica V27 con Micro-Auditoría)
                         from logic import run_conciliation_anexos
                         from utils import generar_reporte_auditoria_anexos
-                        df_res = run_conciliation_anexos(pd.read_excel(f_cb), pd.read_excel(f_cg), casa_sel, [])
-                        excel_bin = generar_reporte_auditoria_anexos(df_res, pd.read_excel(f_cg), pd.read_excel(f_cb), casa_sel, tema['borde'])
+                        
+                        df_res = run_conciliation_anexos(df_cb_data, df_cg_data, casa_sel, log)
+                        excel_bin = generar_reporte_auditoria_anexos(df_res, df_cg_data, df_cb_replica, casa_sel, tema['borde'])
 
-                    st.success(f"✅ Auditoría de {modo_auditoria} finalizada.")
-                    st.dataframe(df_res, use_container_width=True)
-                    st.download_button(f"📥 Descargar Reporte Final ({modo_auditoria})", excel_bin, f"Auditoria_{modo_auditoria}_{tema['tag']}.xlsx", use_container_width=True)
+                    # --- 8. MOSTRAR RESULTADOS ---
+                    st.success(f"✅ Proceso de {modo_auditoria} finalizado.")
+                    
+                    # Estilo de la tabla de resultados
+                    def color_err(val):
+                        color = 'red' if '❌' in str(val) else 'green'
+                        return f'color: {color}; font-weight: bold'
+
+                    # Mostramos el DataFrame con colores
+                    st.dataframe(df_res.style.applymap(color_err, subset=[c for c in df_res.columns if 'Estatus' in c or 'Estado' in c]), use_container_width=True)
+                    
+                    st.download_button(
+                        label=f"📥 Descargar Reporte de Auditoría ({modo_auditoria})", 
+                        data=excel_bin, 
+                        file_name=f"Auditoria_{modo_auditoria}_{tema['tag']}.xlsx",
+                        use_container_width=True
+                    )
+                    
+                    with st.expander("Ver Log del Proceso"):
+                        for m in log: st.text(m)
+
             except Exception as e:
                 mostrar_error_amigable(e, f"la auditoría de {modo_auditoria}")
-
 
 
 # ==============================================================================
