@@ -4895,7 +4895,7 @@ def procesar_ajustes_balance_usd(f_cb, f_cg, f_hab_usd, f_hab_ves, tasa_bcv, tas
 
 
 # ------------------------------------------------------------------------------
-# 6.4. AUDITORIA DE COMISIONES (CREACION DE EDUARDO)
+# 6.4. AUDITORIA DE COMISIONES Y ANEXOS (CREACION DE EDUARDO)
 # ------------------------------------------------------------------------------
 # 1. Traemos los mapas que ya existen en el sistema para PRISMA, BEVAL, etc.
 from logic import MAPEO_CB_CG_PRISMA, MAPEO_CB_CG_BEVAL, MAPEO_CB_CG_FEBECA, MAPEO_CB_CG_SILLACA
@@ -5060,6 +5060,118 @@ def run_conciliation_comisiones_bancarias(df_cb_raw, df_cg_raw, empresa_sel, log
         df_final = df_final.sort_values(by=['sort_helper', 'Banco (Reporte CB)', 'Asiento']).drop(columns=['sort_helper'])
 
     return df_final
+
+def run_conciliation_anexos(df_cb_raw, df_cg_raw, empresa_sel, log_messages):
+    """
+    Lógica V1: Auditoría Analítica de Anexos.
+    Cruce quirúrgico por Asiento + Cuenta Bancaria + Moneda.
+    """
+    from logic import MAPEO_CB_CG_PRISMA, MAPEO_CB_CG_BEVAL, MAPEO_CB_CG_FEBECA, MAPEO_CB_CG_SILLACA
+    
+    log_messages.append(f"--- INICIANDO AUDITORÍA DE ANEXOS - {empresa_sel} ---")
+    
+    # 1. SELECCIÓN DE DICCIONARIO DE MAPEO
+    mapeos = {
+        "PRISMA": MAPEO_CB_CG_PRISMA, "BEVAL": MAPEO_CB_CG_BEVAL, "MAYOR BEVAL, C.A": MAPEO_CB_CG_BEVAL,
+        "FEBECA": MAPEO_CB_CG_FEBECA, "FEBECA, C.A": MAPEO_CB_CG_FEBECA,
+        "SILLACA": MAPEO_CB_CG_SILLACA, "FEBECA, C.A (QUINCALLA)": MAPEO_CB_CG_SILLACA
+    }
+    mapeo_identidad = mapeos.get(empresa_sel, {})
+
+    # 2. PROCESAMIENTO ANALÍTICO DE TESORERÍA (CB)
+    # Detectar encabezados en Fila 3
+    header_idx = None
+    for i in range(min(10, len(df_cb_raw))):
+        fila = [str(x).upper().strip() for x in df_cb_raw.iloc[i].values]
+        if "ASIENTO" in fila:
+            header_idx = i
+            break
+            
+    if header_idx is None:
+        log_messages.append("❌ ERROR: No se encontró la cabecera 'ASIENTO' en el archivo de Anexos.")
+        return pd.DataFrame()
+
+    df_cb = df_cb_raw.iloc[header_idx+1:].copy()
+    df_cb.columns = [str(c).strip() for c in df_cb_raw.iloc[header_idx].values]
+    
+    # Filtro: Solo asientos reales (CB/CC/CG) y limpiar filas de totales
+    df_cb = df_cb[df_cb['Asiento'].notna() & df_cb['Asiento'].astype(str).str.contains(r'CB|CC|CG', na=False, case=False)]
+    df_cb = df_cb[~df_cb['Asiento'].astype(str).str.upper().str.contains('TOTAL', na=False)]
+
+    # Limpieza de montos (Plurales Débitos/Créditos)
+    def clean_val(v):
+        if pd.isna(v) or str(v).strip() in ['', '-']: return 0.0
+        try:
+            return float(str(v).replace('.', '').replace(',', '.'))
+        except: return 0.0
+
+    df_cb['Debito_CB'] = df_cb['Débitos'].apply(clean_val)
+    df_cb['Credito_CB'] = df_cb['Créditos'].apply(clean_val)
+    df_cb['Neto_CB'] = df_cb['Debito_CB'] - df_cb['Credito_CB']
+
+    # 3. PREPARACIÓN DIARIO (CG)
+    df_cg = df_cg_raw.copy()
+    # Identificamos columnas monetarias del diario
+    col_deb_ves = next((c for c in df_cg.columns if "DEBITO" in c.upper() and "VES" in c.upper()), "Débito VES")
+    col_cre_ves = next((c for c in df_cg.columns if "CREDITO" in c.upper() and "VES" in c.upper()), "Crédito VES")
+    col_deb_usd = next((c for c in df_cg.columns if "DEBITO" in c.upper() and "DOLA" in c.upper()), "Débito Dólar")
+    col_cre_usd = next((c for c in df_cg.columns if "CREDITO" in c.upper() and "DOLA" in c.upper()), "Crédito Dólar")
+
+    for col in [col_deb_ves, col_cre_ves, col_deb_usd, col_cre_usd]:
+        if col in df_cg.columns:
+            df_cg[col] = pd.to_numeric(df_cg[col], errors='coerce').fillna(0)
+
+    # 4. AUDITORÍA POR ASIENTO
+    resultados = []
+    for _, fila_cb in df_cb.iterrows():
+        asiento_id = str(fila_cb['Asiento']).strip()
+        cod_banco_cb = str(fila_cb['Cuenta Bancaria']).strip()
+        
+        # Obtener configuración del banco (Si es L o E)
+        config = mapeo_identidad.get(cod_banco_cb, {})
+        cta_contable_esp = config.get('cta', 'SIN_MAPEO')
+        es_usd = config.get('moneda', 'VES') == 'USD'
+        
+        # Buscar en el diario por Asiento + Cuenta Contable Mapeada
+        # Normalizamos la cuenta contable quitando puntos por si acaso
+        asto_cg = df_cg[df_cg['Asiento'] == asiento_id]
+        linea_bco_cg = asto_cg[asto_cg['Cuenta Contable'].astype(str).str.replace('.','') == cta_contable_esp.replace('.','')]
+
+        if linea_bco_cg.empty:
+            obs = f"No se encontró la cuenta {cta_contable_esp} en este asiento."
+            check_monto, check_banco = "❌ No coincide", "❌ Incorrecta"
+            monto_cg = 0
+        else:
+            check_banco = "✅ Correcta"
+            if es_usd:
+                monto_cg = linea_bco_cg[col_deb_usd].sum() - linea_bco_cg[col_cre_usd].sum()
+                moneda_txt = "USD"
+            else:
+                monto_cg = linea_bco_cg[col_deb_ves].sum() - linea_bco_cg[col_cre_ves].sum()
+                moneda_txt = "VES"
+            
+            # Comparar contra Neto de Tesorería
+            if abs(round(fila_cb['Neto_CB'], 2) - round(monto_cg, 2)) <= 0.01:
+                check_monto = "✅ OK"
+                obs = ""
+            else:
+                check_monto = "❌ Diferencia"
+                obs = f"Dif. {moneda_txt}: {round(fila_cb['Neto_CB'] - monto_cg, 2)}"
+
+        resultados.append({
+            'Asiento': asiento_id,
+            'Cuenta Bancaria': cod_banco_cb,
+            'Moneda': 'USD' if es_usd else 'VES',
+            'Concepto': fila_cb.get('Concepto', ''),
+            'Anexo AFV': fila_cb.get('ANEXO AFV', ''), # Columna extra de anexos
+            'Monto Tesorería': fila_cb['Neto_CB'],
+            'Monto Contabilidad': monto_cg,
+            'Estatus Monto': check_monto,
+            'Estatus Cuenta': check_banco,
+            'Hallazgos': obs
+        })
+
+    return pd.DataFrame(resultados)
 
 # ==============================================================================
 # MÓDULO: APARTADOS Y LIBERACIONES
