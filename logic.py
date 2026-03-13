@@ -4959,6 +4959,8 @@ def run_conciliation_comisiones_bancarias(df_cb_raw, df_cg_raw, empresa_sel, log
     col_deb_usd = next((c for c in df_cg_raw.columns if any(k in normalizar_texto_busqueda(c) for k in ['DEBITO', 'DEBE']) and any(k in normalizar_texto_busqueda(c) for k in ['DOLAR', 'USD', 'ME'])), 'Débito Dólar')
     col_cre_usd = next((c for c in df_cg_raw.columns if any(k in normalizar_texto_busqueda(c) for k in ['CREDITO', 'HABER']) and any(k in normalizar_texto_busqueda(c) for k in ['DOLAR', 'USD', 'ME'])), 'Crédito Dólar')
 
+    df_cg = df_cg_raw.copy()
+    
     # Limpiamos numéricamente usando los nombres detectados
     for col in [col_deb_ves, col_cre_ves, col_deb_usd, col_cre_usd]:
         if col in df_cg.columns:
