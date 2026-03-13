@@ -4954,10 +4954,10 @@ def run_conciliation_comisiones_bancarias(df_cb_raw, df_cg_raw, empresa_sel, log
 
     # --- 3. PREPARACIÓN DEL MAYOR (CG) CON RADAR DINÁMICO ---
     # Identificamos los nombres reales de las columnas en el archivo subido
-    col_deb_ves = next((c for c in df_cg.columns if any(k in normalizar_texto_busqueda(c) for k in ['DEBITO', 'DEBE']) and any(k in normalizar_texto_busqueda(c) for k in ['VES', 'LOCAL', 'BOLIVAR'])), 'Débito VES')
-    col_cre_ves = next((c for c in df_cg.columns if any(k in normalizar_texto_busqueda(c) for k in ['CREDITO', 'HABER']) and any(k in normalizar_texto_busqueda(c) for k in ['VES', 'LOCAL', 'BOLIVAR'])), 'Crédito VES')
-    col_deb_usd = next((c for c in df_cg.columns if any(k in normalizar_texto_busqueda(c) for k in ['DEBITO', 'DEBE']) and any(k in normalizar_texto_busqueda(c) for k in ['DOLAR', 'USD', 'ME'])), 'Débito Dólar')
-    col_cre_usd = next((c for c in df_cg.columns if any(k in normalizar_texto_busqueda(c) for k in ['CREDITO', 'HABER']) and any(k in normalizar_texto_busqueda(c) for k in ['DOLAR', 'USD', 'ME'])), 'Crédito Dólar')
+    col_deb_ves = next((c for c in df_cb.columns if any(k in normalizar_texto_busqueda(c) for k in ['DEBITO', 'DEBE']) and any(k in normalizar_texto_busqueda(c) for k in ['VES', 'LOCAL', 'BOLIVAR'])), 'Débito VES')
+    col_cre_ves = next((c for c in df_cb.columns if any(k in normalizar_texto_busqueda(c) for k in ['CREDITO', 'HABER']) and any(k in normalizar_texto_busqueda(c) for k in ['VES', 'LOCAL', 'BOLIVAR'])), 'Crédito VES')
+    col_deb_usd = next((c for c in df_cb.columns if any(k in normalizar_texto_busqueda(c) for k in ['DEBITO', 'DEBE']) and any(k in normalizar_texto_busqueda(c) for k in ['DOLAR', 'USD', 'ME'])), 'Débito Dólar')
+    col_cre_usd = next((c for c in df_cb.columns if any(k in normalizar_texto_busqueda(c) for k in ['CREDITO', 'HABER']) and any(k in normalizar_texto_busqueda(c) for k in ['DOLAR', 'USD', 'ME'])), 'Crédito Dólar')
 
     # Limpiamos numéricamente usando los nombres detectados
     for col in [col_deb_ves, col_cre_ves, col_deb_usd, col_cre_usd]:
